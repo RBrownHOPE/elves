@@ -191,6 +191,7 @@ ELVES_REPORT_PHRASES = {
         "## Elves Report",
         "problems found",
         "lessons learned",
+        "/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html",
         "references/elves-report-template.html",
     ],
     "references/execution-log-template.md": [

@@ -295,7 +295,7 @@ editing live Codex/Claude session databases.
 
 - **Generate Elves Report:** yes for substantial finite runs; checkpoint-only if the user asks during
   an open-ended run or before Stop Gate allows final stopping
-- **Default path:** `/tmp/elves-report-[repo-slug]-[yyyy-mm-dd].html`
+- **Default path:** `/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html`
 - **Commit report:** no, unless the user explicitly requests a durable artifact
 - **Source of truth:** survival guide, `.elves-session.json`, learnings, plan, execution log, and
   live PR/CI state

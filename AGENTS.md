@@ -656,7 +656,10 @@ spacing, and collapsible batch `<details>` sections for skimmability. Use
 `references/elves-report-template.html` as a starting point when this repo provides it. Prefer
 HTML/Markdown for dense accountability; generate image infographics only if the user asks because
 image generation uses Codex limits faster and is worse for precise audit detail. Refresh the report
-if cleanup, final review fixes, CI, or PR status changes after generation.
+if final review fixes, CI, or PR status changes while the source documents are still present. After
+operational-artifact cleanup, update only live status/check facts from PR/CI and the already
+generated report, or recover the source documents from branch history before regenerating. Do not
+depend on session files that cleanup has removed.
 
 ## Final Completion
 
@@ -669,7 +672,7 @@ When all batches are done (or time is up):
 3. Final pass through TODO.md.
 4. Update the survival guide and make sure the learnings file contains any durable lessons that should survive into future runs. Perform strategic forgetting: condense live state, archive old execution-log entries in place if the log is large, prune superseded lessons, and leave a concise reactivation handoff for any remaining work.
 5. **Run the Final Readiness Review before operational-artifact cleanup.** Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if supported; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json`, and all unresolved PR feedback. Fix blockers, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun the final review.
-6. **Generate the Elves Report** for substantial runs. Use the current survival guide, execution log, `.elves-session.json`, learnings file, plan, and live PR/CI state. Include problems found, lessons learned, batch timeline, verification proof, residual risks, and human next steps. Save it under `/tmp` by default and do not commit it unless explicitly configured.
+6. **Generate the Elves Report** for substantial runs. Use the current survival guide, execution log, `.elves-session.json`, learnings file, plan, and live PR/CI state. Include problems found, lessons learned, batch timeline, verification proof, residual risks, and human next steps. Save it under `/tmp` by default and do not commit it unless explicitly configured. This is the last normal point where all operational source documents are guaranteed present; fully regenerate the report here before cleanup if its content changed.
 7. **Clean up operational artifacts.** Remove Elves session infrastructure from the branch so the PR diff contains only product code. Use the actual paths from this session (from the survival guide or `.elves-session.json`), not hard-coded defaults:
    ```bash
    git rm <survival-guide-path> <execution-log-path> .elves-session.json
@@ -677,7 +680,7 @@ When all batches are done (or time is up):
    ```
    The plan file is kept by default. If `cleanup.keep_plan: false` in `config.json`, add the plan path to `git rm` as well. Do **not** remove the learnings file; it is durable project memory for the next run. These session files still exist in branch history for reference.
 8. Push.
-9. Poll PR comments and checks one last time after the cleanup commit. If cleanup triggered new feedback or failing checks, address it before notifying and refresh the Elves Report if status, validation, review findings, or residual risks changed.
+9. Poll PR comments and checks one last time after the cleanup commit. If cleanup triggered new feedback or failing checks, address it before notifying. If only live status/check facts changed, update the existing Elves Report from PR/CI. If validation, review findings, residual risks, or batch content changed and the cleaned-up session files are needed, recover them from branch history or regenerate the report before re-running cleanup; do not silently skip the refresh because the files were removed.
 10. Notify. Slack webhook if `ELVES_SLACK_WEBHOOK` set, else `ELVES_NOTIFY_CMD` if set, else leave a PR comment:
    ```bash
    gh pr comment --body "## Elves Session Complete\n\n**Batches:** N of M\n**Status:** [status]\n\nSee execution log for details."
