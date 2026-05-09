@@ -70,10 +70,10 @@ conversation.
 
 ### Elves Reports
 
-At the end of a substantial finite run, Elves now creates a temporary **Elves Report**: a static
-HTML report from the workers to their manager. It explains what happened while you were away. The
-report is meant for the morning-after moment when you want the answer to "what did the elves do?"
-without reading every line of the execution log first.
+As of `1.10.1`, at the end of a substantial finite run, Elves creates a temporary **Elves Report**:
+a static HTML report from the workers to their manager. It explains what happened while you were
+away. The report is meant for the morning-after moment when you want the answer to "what did the
+elves do?" without reading every line of the execution log first.
 
 The report is generated from the durable run documents and live PR/CI state, not from the agent's
 memory. It should summarize:

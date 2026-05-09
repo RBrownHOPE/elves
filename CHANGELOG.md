@@ -4,7 +4,7 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
-## [1.10.0] - 2026-05-09
+## [1.10.1] - 2026-05-09
 
 ### Human-facing Elves Reports
 

@@ -171,6 +171,7 @@ ELVES_REPORT_PHRASES = {
         "references/elves-report-template.html",
         "collapsible `<details>` sections",
         "committed examples and reusable templates non-identifying",
+        "Elves Report path",
     ],
     "AGENTS.md": [
         "## Elves Report",
@@ -180,6 +181,7 @@ ELVES_REPORT_PHRASES = {
         "references/elves-report-template.html",
         "collapsible batch `<details>` sections",
         "committed examples and reusable templates non-identifying",
+        "Elves Report path",
     ],
     "README.md": [
         "### Elves Reports",
@@ -311,6 +313,9 @@ def main() -> int:
 
     for label, phrases in ELVES_REPORT_PHRASES.items():
         path = REPO_ROOT / label
+        if not path.exists():
+            errors.append(f"{label}: missing Elves Report file")
+            continue
         text = read_text(path)
         for phrase in phrases:
             if phrase not in text:

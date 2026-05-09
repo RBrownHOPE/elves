@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "1.10.0"
+  version: "1.10.1"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -1019,7 +1019,8 @@ Keep the report static and lightweight:
 - keep committed examples and reusable templates non-identifying; avoid private product names,
   client names, people, or project-specific workflows outside actual run reports in `/tmp`;
 - prefer HTML/Markdown for dense accountability. Generate image infographics only if the user asks,
-  because image generation uses Codex limits faster and is worse for precise audit detail.
+  because image generation consumes runtime usage limits more quickly and is worse for precise audit
+  detail.
 
 Refresh the report if final review fixes, CI results, or PR status changes while the source
 documents are still present. After operational-artifact cleanup, update only live status/check
@@ -1049,7 +1050,9 @@ When all batches are done or time is up:
    **Important:** the execution log and survival guide still exist in the branch history if you need to reference them. This commit just removes them from the final diff.
 8. Push.
 9. Poll PR comments and checks one last time after the cleanup commit. If cleanup triggered new feedback or failing checks, address it before notifying. If only live status/check facts changed, update the existing Elves Report from PR/CI. If validation, review findings, residual risks, or batch content changed and the cleaned-up session files are needed, recover them from branch history or regenerate the report before re-running cleanup; do not silently skip the refresh because the files were removed.
-10. Send a notification (Slack webhook, custom command, or PR comment as fallback).
+10. Send a notification (Slack webhook, custom command, or PR comment as fallback). Include the
+    Elves Report path, or write `Elves Report: not generated` if the run did not meet report
+    criteria.
 
 **You don't merge. The PR is ready for the user to review and merge when they return.**
 
