@@ -68,6 +68,43 @@ execution-log entries in place, promotes durable lessons, reconciles idle resour
 reactivation handoff so the next session can start from small durable docs instead of a bloated
 conversation.
 
+### Elves Reports
+
+As of `1.10.1`, at the end of a substantial finite run, Elves creates a temporary **Elves Report**:
+a static HTML report from the workers to their manager. It explains what happened while you were
+away. The report is meant for the morning-after moment when you want the answer to "what did the
+elves do?" without reading every line of the execution log first.
+
+The report is generated from the durable run documents and live PR/CI state, not from the agent's
+memory. It should summarize:
+
+- final or checkpoint status, branch, PR, head SHA, and checks
+- the original request and actual scope completed
+- major problems found, including bugs, UX gaps, review blockers, and repeated failure patterns
+- lessons learned and durable docs promoted during the run
+- a batch-by-batch timeline of fixes and validation
+- review loops, subagent findings, and known non-fatal warnings
+- residual risks and concrete human next steps
+- source links back to the plan, survival guide, learnings file, execution log, PR, and commits
+
+The batch timeline should use collapsible sections, one per batch, so the manager can skim the
+whole night and expand the work that deserves closer review.
+
+Elves Reports are temporary by default and are not committed unless you explicitly ask for a
+durable artifact. Elves prefers HTML/Markdown for this because dense accountability needs precise
+text, links, and validation evidence. The page should still feel designed for the project that
+produced it: use local brand assets, match the repo's tone, and avoid generic AI-dashboard patterns.
+Image infographics are optional and should only be generated when you ask for them.
+
+See [`docs/elves-report-proof-of-concept.html`](docs/elves-report-proof-of-concept.html) for a
+committed proof of concept and [`references/elves-report-template.html`](references/elves-report-template.html)
+for the reusable starting template. GitHub's normal file browser displays HTML files as source;
+open them locally or serve them with GitHub Pages to see the rendered pages.
+
+Committed examples should use non-identifying sample content. Real reports in `/tmp` may describe
+the actual run, but public proof-of-concept pages should avoid private product names, client names,
+people, or project-specific workflows.
+
 ### Stage, then launch
 
 Most "the elves stopped" failures come from one mistake: combining a giant plan and the launch
@@ -195,6 +232,9 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Layered memory system**: reads survival guide, `.elves-session.json`, learnings, plan, execution log, and `.ai-docs/manifest.md` (if present) after compaction
 - **Strategic forgetting**: keeps active docs and sessions lean during long runs, archives old log
   history in place, promotes durable knowledge, and leaves reactivation handoffs for fresh threads
+- **Elves Reports**: substantial finite runs end with a temporary static HTML worker-to-manager
+  report that highlights status, problems found, lessons learned, collapsible batch timeline,
+  validation, residual risks, and human next steps
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`
 - **Auto-discovered validation gates** for Node.js, Python, Go, Rust, and Makefile projects. No configuration required.
 - **Pluggable review**: GitHub PR comments by default (zero config), custom review API opt-in, additional custom checks

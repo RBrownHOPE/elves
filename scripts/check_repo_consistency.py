@@ -162,6 +162,65 @@ MEMORY_HYGIENE_PHRASES = {
     ],
 }
 
+ELVES_REPORT_PHRASES = {
+    "SKILL.md": [
+        "## Elves Report",
+        "problems found",
+        "lessons learned",
+        "/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html",
+        "references/elves-report-template.html",
+        "collapsible `<details>` sections",
+        "committed examples and reusable templates non-identifying",
+        "Elves Report path",
+    ],
+    "AGENTS.md": [
+        "## Elves Report",
+        "problems found",
+        "lessons learned",
+        "/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html",
+        "references/elves-report-template.html",
+        "collapsible batch `<details>` sections",
+        "committed examples and reusable templates non-identifying",
+        "Elves Report path",
+    ],
+    "README.md": [
+        "### Elves Reports",
+        "problems found",
+        "lessons learned",
+        "collapsible sections",
+        "docs/elves-report-proof-of-concept.html",
+        "references/elves-report-template.html",
+        "Committed examples should use non-identifying sample content",
+    ],
+    "references/survival-guide-template.md": [
+        "## Elves Report",
+        "problems found",
+        "lessons learned",
+        "/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html",
+        "references/elves-report-template.html",
+    ],
+    "references/execution-log-template.md": [
+        "**Elves Report:**",
+        "**Problems found:**",
+        "**Lessons learned:**",
+    ],
+    "references/elves-report-template.html": [
+        "Elves Report",
+        "Problems Found",
+        "Lessons Learned",
+        "Batch Ledger",
+        "<details class=\"batch\"",
+    ],
+    "docs/elves-report-proof-of-concept.html": [
+        "Elves Report",
+        "assets/elves-banner.jpeg",
+        "Problems found",
+        "Lessons learned",
+        "Batch Ledger",
+        "<details class=\"batch\"",
+    ],
+}
+
 
 def read_text(path: Path) -> str:
     return path.read_text()
@@ -252,6 +311,16 @@ def main() -> int:
             if phrase not in text:
                 errors.append(f"{label}: missing memory-hygiene phrase `{phrase}`")
 
+    for label, phrases in ELVES_REPORT_PHRASES.items():
+        path = REPO_ROOT / label
+        if not path.exists():
+            errors.append(f"{label}: missing Elves Report file")
+            continue
+        text = read_text(path)
+        for phrase in phrases:
+            if phrase not in text:
+                errors.append(f"{label}: missing Elves Report phrase `{phrase}`")
+
     if errors:
         print("Repo consistency check FAILED")
         for error in errors:
@@ -267,6 +336,7 @@ def main() -> int:
     print("- Effort guardrails are aligned across runtime and template docs")
     print("- Final readiness review guardrails are aligned")
     print("- Strategic forgetting and memory hygiene guardrails are aligned")
+    print("- Elves Report guardrails are aligned")
     return 0
 
 

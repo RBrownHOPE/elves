@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "1.9.0"
+  version: "1.10.1"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -41,6 +41,7 @@ Elves works best when the repo's knowledge is layered instead of piled into one 
 - **Survival Guide:** run control, next exact batch, and operator constraints
 - **Learnings:** reusable lessons that should survive this run
 - **Execution Log:** chronological proof of what happened
+- **Elves Report:** temporary human-facing HTML report from the workers to the manager at closeout
 - **`.ai-docs/*` (if present):** curated durable docs for architecture, conventions, and gotchas
 - **Human-facing docs:** README, CHANGELOG, TODO, API/config docs
 
@@ -954,6 +955,79 @@ Do not call a branch review-ready unless ALL of the following are true:
 
 If any gate fails, fix it before declaring readiness. This checklist is the final quality gate between "autonomous run complete" and "ready for human review."
 
+## Elves Report
+
+For substantial finite runs, the returning human needs more than a PR link and a raw execution log.
+Generate a **temporary static HTML Elves Report** as the workers' morning report to their manager:
+what happened overnight, what was found, what changed, what was verified, what reviewers caught,
+what lessons were learned, and what risks remain. This is a trust artifact, not a marketing page.
+
+Generate an Elves Report automatically when all of these are true:
+
+- the Stop Gate says stopping is allowed, or the user explicitly asks for a checkpoint report;
+- the run had multiple batches, many commits, subagents, PR review cycles, or broad verification;
+- the execution log, survival guide, and learnings file are current;
+- PR comments/checks have been polled, or the report clearly labels pending checks.
+
+Default path:
+
+```text
+/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html
+```
+
+For checkpoint reports before final completion, include `checkpoint` in the filename. Do not commit
+the report by default. Commit it only when the user or survival guide explicitly requests a durable
+artifact.
+
+The Elves Report must be derived from durable sources, not memory:
+
+- survival guide: current status, Stop Gate, branch, PR, run mode, active compute;
+- `.elves-session.json`: batch status, continuation guard, review-comment dispositions;
+- execution log: batch timeline, commands, validations, review fixes, decisions, residual risks;
+- learnings file: reusable lessons, repeated problems found, process adjustments;
+- plan: intended scope and batch names;
+- live `gh`/CI checks when available.
+
+Include these sections:
+
+1. **Final or checkpoint status:** branch, PR, head SHA, merge/readiness state, CI/check status.
+2. **Executive summary:** original user request, actual scope completed, current recommendation.
+3. **Problems found:** the major bugs, UX gaps, architectural risks, review blockers, and repeated
+   failure patterns discovered during the run.
+4. **Lessons learned:** durable implementation, testing, product, or process lessons promoted to
+   `learnings.md` or `.ai-docs/*`.
+5. **Batch timeline:** one concise entry per batch with scope, key fixes, validation, review result,
+   and residual risk. Use collapsible `<details>` sections so the manager can scan the whole night
+   and expand the batches that need closer review.
+6. **Validation and review proof:** local gates, E2E/browser checks, PR checks, review loops,
+   subagent findings, and known non-fatal warnings.
+7. **Human next steps:** what the user should review, merge, deploy, re-run, or plan next.
+8. **Source links:** local paths to the plan, survival guide, execution log, learnings file, PR, and
+   commits when known.
+
+Keep the report static and lightweight:
+
+- inline CSS only; no external assets, scripts, build step, or network dependency;
+- match the project's visual identity and use existing local brand assets when available;
+- make the page feel intentionally designed for this repository, not like a generic AI dashboard;
+- use distinctive typography, varied spacing, and collapsible batch `<details>` sections for
+  skimmability;
+- use `references/elves-report-template.html` as a starting point when this repo provides it;
+- quote or summarize logs sparingly; link back to source files for full details;
+- distinguish facts verified with tools from inferred interpretation;
+- make residual risks visible instead of burying them;
+- keep committed examples and reusable templates non-identifying; avoid private product names,
+  client names, people, or project-specific workflows outside actual run reports in `/tmp`;
+- prefer HTML/Markdown for dense accountability. Generate image infographics only if the user asks,
+  because image generation consumes runtime usage limits more quickly and is worse for precise audit
+  detail.
+
+Refresh the report if final review fixes, CI results, or PR status changes while the source
+documents are still present. After operational-artifact cleanup, update only live status/check
+facts from PR/CI and the already generated report, or recover the source documents from branch
+history before regenerating. Do not depend on session files that cleanup has removed. Mention the
+path in the final response.
+
 ## Final Completion
 
 **This section applies only in finite mode.** If the **Run mode** is `open-ended`, do not perform Final Completion unless the user explicitly requests a stop, summary, or handoff, or a true blocker forces termination.
@@ -965,7 +1039,8 @@ When all batches are done or time is up:
 3. Do a final TODO.md pass.
 4. Update the survival guide and perform strategic forgetting: condense live state, archive old execution-log entries in place if the log is large, promote durable lessons, prune superseded lessons, and leave a concise reactivation handoff for any remaining work or future follow-up.
 5. **Run the Final Readiness Review before operational-artifact cleanup.** Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if the platform supports it; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json`, and all unresolved PR feedback. Fix blocking findings, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun the final review.
-6. **Clean up operational artifacts.** Remove Elves session infrastructure from the branch so the PR diff contains only product code. Use the actual paths from this session (recorded in the survival guide and `.elves-session.json`), not hard-coded defaults:
+6. **Generate the Elves Report** for substantial runs. Use the current survival guide, execution log, `.elves-session.json`, learnings file, plan, and live PR/CI state. Include problems found, lessons learned, batch timeline, verification proof, residual risks, and human next steps. Save it under `/tmp` by default and do not commit it unless explicitly configured. This is the last normal point where all operational source documents are guaranteed present; fully regenerate the report here before cleanup if its content changed.
+7. **Clean up operational artifacts.** Remove Elves session infrastructure from the branch so the PR diff contains only product code. Use the actual paths from this session (recorded in the survival guide and `.elves-session.json`), not hard-coded defaults:
    ```bash
    git rm <survival-guide-path> <execution-log-path> .elves-session.json
    git commit -m "[<branch> · Batch N/N] Remove elves session artifacts from PR"
@@ -973,9 +1048,11 @@ When all batches are done or time is up:
    These files were needed during the run for compaction recovery, but they're noise in the final PR. The plan file is kept by default since it documents what was built. If the user configured `cleanup.keep_plan: false` in `config.json`, add the plan path to the `git rm` command as well.
    
    **Important:** the execution log and survival guide still exist in the branch history if you need to reference them. This commit just removes them from the final diff.
-7. Push.
-8. Poll PR comments and checks one last time after the cleanup commit. If cleanup triggered new feedback or failing checks, address it before notifying.
-9. Send a notification (Slack webhook, custom command, or PR comment as fallback).
+8. Push.
+9. Poll PR comments and checks one last time after the cleanup commit. If cleanup triggered new feedback or failing checks, address it before notifying. If only live status/check facts changed, update the existing Elves Report from PR/CI. If validation, review findings, residual risks, or batch content changed and the cleaned-up session files are needed, recover them from branch history or regenerate the report before re-running cleanup; do not silently skip the refresh because the files were removed.
+10. Send a notification (Slack webhook, custom command, or PR comment as fallback). Include the
+    Elves Report path, or write `Elves Report: not generated` if the run did not meet report
+    criteria.
 
 **You don't merge. The PR is ready for the user to review and merge when they return.**
 

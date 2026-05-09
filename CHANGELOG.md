@@ -4,6 +4,31 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-05-09
+
+### Human-facing Elves Reports
+
+- **Elves Report protocol added.** Substantial finite Elves runs now generate a temporary static
+  HTML worker-to-manager report before handoff, summarizing status, problems found, lessons learned,
+  collapsible batch timeline, validation/review proof, residual risks, human next steps, and source
+  links.
+- **Final Completion updated.** Both Claude-compatible `SKILL.md` and Codex `AGENTS.md` now insert
+  Elves Report generation after the Final Readiness Review and before operational-artifact cleanup,
+  with instructions to refresh the report if cleanup, final review fixes, CI, or PR state changes.
+- **Templates updated.** The survival guide template now includes an Elves Report configuration,
+  and the execution-log template records the latest report path plus problems found, lessons learned,
+  and human next steps in the Session Summary.
+- **Reusable HTML template added.** `references/elves-report-template.html` gives workers a
+  polished, collapsible-batch starting point for manager-facing reports.
+- **README updated.** User-facing docs now explain Elves Reports and why HTML/Markdown is the
+  default for precise accountability while generated image infographics remain opt-in.
+- **Proof-of-concept HTML added.** `docs/elves-report-proof-of-concept.html` shows what a committed
+  report-style page can look like when opened locally or served through GitHub Pages.
+- **Committed examples sanitized.** Public proof-of-concept content now uses non-identifying sample
+  batches, and runtime guidance keeps reusable templates/examples free of private project names.
+- **Consistency checker extended.** `scripts/check_repo_consistency.py` now verifies Elves Report
+  guidance across the Claude, Codex, README, survival-guide, and execution-log surfaces.
+
 ## [1.9.0] - 2026-05-03
 
 ### Final cleanup and memory performance

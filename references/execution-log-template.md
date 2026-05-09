@@ -34,6 +34,7 @@
 - **Next exact batch:** [Batch N: Name]
 - **Active PR:** [#N / "not created yet"]
 - **Docs promoted this run:** [list / "none yet"]
+- **Latest Elves Report:** [/tmp/elves-report-...html / "not generated yet"]
 
 ---
 
@@ -55,6 +56,19 @@
 - Documentation & orientation: [total]
 
 **Status:** [All planned work complete / Stopped at batch N (ran out of time) / Blocked on X]
+**Elves Report:** [/tmp/elves-report-...html / "not generated"]
+
+**Problems found:**
+- [Major bug, UX gap, review blocker, repeated failure pattern, or "none beyond planned scope"]
+- [Major problem found]
+
+**Lessons learned:**
+- [Durable learning promoted to learnings.md or `.ai-docs/*`]
+- [Process, product, testing, or implementation lesson]
+
+**Human next steps:**
+1. [Review/merge/deploy/re-run/plan next action]
+2. [Next action]
 
 ---
 
