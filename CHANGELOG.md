@@ -19,6 +19,8 @@ All notable changes to the Elves skill are documented here.
   learned, and human next steps in the Session Summary.
 - **README updated.** User-facing docs now explain Morning Readouts and why HTML/Markdown is the
   default for precise accountability while generated image infographics remain opt-in.
+- **Proof-of-concept HTML added.** `docs/run-readout-proof-of-concept.html` shows what a committed
+  readout-style page can look like when opened locally or served through GitHub Pages.
 - **Consistency checker extended.** `scripts/check_repo_consistency.py` now verifies run-readout
   guidance across the Claude, Codex, README, survival-guide, and execution-log surfaces.
 

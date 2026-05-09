@@ -92,6 +92,10 @@ artifact. Elves prefers HTML/Markdown for this because dense accountability need
 links, and validation evidence. Image infographics are optional and should only be generated when
 you ask for them.
 
+See [`docs/run-readout-proof-of-concept.html`](docs/run-readout-proof-of-concept.html) for a
+committed proof of concept. GitHub's normal file browser displays HTML files as source; open it
+locally or serve it with GitHub Pages to see the rendered page.
+
 ### Stage, then launch
 
 Most "the elves stopped" failures come from one mistake: combining a giant plan and the launch
