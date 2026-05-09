@@ -162,6 +162,36 @@ MEMORY_HYGIENE_PHRASES = {
     ],
 }
 
+RUN_READOUT_PHRASES = {
+    "SKILL.md": [
+        "## Run Readout",
+        "problems found",
+        "lessons learned",
+        "/tmp/elves-run-readout-<repo-slug>-<yyyy-mm-dd>.html",
+    ],
+    "AGENTS.md": [
+        "## Run Readout",
+        "problems found",
+        "lessons learned",
+        "/tmp/elves-run-readout-<repo-slug>-<yyyy-mm-dd>.html",
+    ],
+    "README.md": [
+        "### Morning readouts",
+        "problems found",
+        "lessons learned",
+    ],
+    "references/survival-guide-template.md": [
+        "## Closeout Readout",
+        "problems found",
+        "lessons learned",
+    ],
+    "references/execution-log-template.md": [
+        "**Run readout:**",
+        "**Problems found:**",
+        "**Lessons learned:**",
+    ],
+}
+
 
 def read_text(path: Path) -> str:
     return path.read_text()
@@ -252,6 +282,13 @@ def main() -> int:
             if phrase not in text:
                 errors.append(f"{label}: missing memory-hygiene phrase `{phrase}`")
 
+    for label, phrases in RUN_READOUT_PHRASES.items():
+        path = REPO_ROOT / label
+        text = read_text(path)
+        for phrase in phrases:
+            if phrase not in text:
+                errors.append(f"{label}: missing run-readout phrase `{phrase}`")
+
     if errors:
         print("Repo consistency check FAILED")
         for error in errors:
@@ -267,6 +304,7 @@ def main() -> int:
     print("- Effort guardrails are aligned across runtime and template docs")
     print("- Final readiness review guardrails are aligned")
     print("- Strategic forgetting and memory hygiene guardrails are aligned")
+    print("- Run readout guardrails are aligned")
     return 0
 
 

@@ -291,6 +291,24 @@ editing live Codex/Claude session databases.
 
 ---
 
+## Closeout Readout
+
+- **Generate run readout:** yes for substantial finite runs; checkpoint-only if the user asks during
+  an open-ended run or before Stop Gate allows final stopping
+- **Default path:** `/tmp/elves-run-readout-[repo-slug]-[yyyy-mm-dd].html`
+- **Commit readout:** no, unless the user explicitly requests a durable artifact
+- **Source of truth:** survival guide, `.elves-session.json`, learnings, plan, execution log, and
+  live PR/CI state
+- **Required sections:** status, executive summary, problems found, lessons learned, batch timeline,
+  validation and review proof, residual risks, human next steps, source links
+- **Images:** optional only on explicit request; prefer HTML/Markdown for precise audit detail
+
+The readout is the human morning briefing. It should answer: what did the elves do, what problems
+did they find, what changed, how do we know, what did they learn, what still worries us, and what
+should the human do next?
+
+---
+
 ## Acceptance Checks
 
 Before marking any batch complete, verify all of the following:

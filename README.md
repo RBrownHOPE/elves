@@ -68,6 +68,30 @@ execution-log entries in place, promotes durable lessons, reconciles idle resour
 reactivation handoff so the next session can start from small durable docs instead of a bloated
 conversation.
 
+### Morning readouts
+
+At the end of a substantial finite run, Elves now creates a temporary **Run Readout**: a static HTML
+briefing in `/tmp` that explains what happened while you were away. The readout is meant for the
+morning-after moment when you want the answer to "what did the elves do?" without reading every
+line of the execution log first.
+
+The readout is generated from the durable run documents and live PR/CI state, not from the agent's
+memory. It should summarize:
+
+- final or checkpoint status, branch, PR, head SHA, and checks
+- the original request and actual scope completed
+- major problems found, including bugs, UX gaps, review blockers, and repeated failure patterns
+- lessons learned and durable docs promoted during the run
+- a batch-by-batch timeline of fixes and validation
+- review loops, subagent findings, and known non-fatal warnings
+- residual risks and concrete human next steps
+- source links back to the plan, survival guide, learnings file, execution log, PR, and commits
+
+Run readouts are temporary by default and are not committed unless you explicitly ask for a durable
+artifact. Elves prefers HTML/Markdown for this because dense accountability needs precise text,
+links, and validation evidence. Image infographics are optional and should only be generated when
+you ask for them.
+
 ### Stage, then launch
 
 Most "the elves stopped" failures come from one mistake: combining a giant plan and the launch
@@ -195,6 +219,9 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Layered memory system**: reads survival guide, `.elves-session.json`, learnings, plan, execution log, and `.ai-docs/manifest.md` (if present) after compaction
 - **Strategic forgetting**: keeps active docs and sessions lean during long runs, archives old log
   history in place, promotes durable knowledge, and leaves reactivation handoffs for fresh threads
+- **Run Readouts**: substantial finite runs end with a temporary static HTML morning briefing that
+  highlights status, problems found, lessons learned, batch timeline, validation, residual risks,
+  and human next steps
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`
 - **Auto-discovered validation gates** for Node.js, Python, Go, Rust, and Makefile projects. No configuration required.
 - **Pluggable review**: GitHub PR comments by default (zero config), custom review API opt-in, additional custom checks

@@ -4,6 +4,24 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-05-09
+
+### Human-facing run readouts
+
+- **Run Readout protocol added.** Substantial finite Elves runs now generate a temporary static
+  HTML morning briefing before handoff, summarizing status, problems found, lessons learned, batch
+  timeline, validation/review proof, residual risks, human next steps, and source links.
+- **Final Completion updated.** Both Claude-compatible `SKILL.md` and Codex `AGENTS.md` now insert
+  Run Readout generation after the Final Readiness Review and before operational-artifact cleanup,
+  with instructions to refresh the readout if cleanup, final review fixes, CI, or PR state changes.
+- **Templates updated.** The survival guide template now includes a Closeout Readout configuration,
+  and the execution-log template records the latest readout path plus problems found, lessons
+  learned, and human next steps in the Session Summary.
+- **README updated.** User-facing docs now explain Morning Readouts and why HTML/Markdown is the
+  default for precise accountability while generated image infographics remain opt-in.
+- **Consistency checker extended.** `scripts/check_repo_consistency.py` now verifies run-readout
+  guidance across the Claude, Codex, README, survival-guide, and execution-log surfaces.
+
 ## [1.9.0] - 2026-05-03
 
 ### Final cleanup and memory performance

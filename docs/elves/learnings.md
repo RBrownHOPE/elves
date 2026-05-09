@@ -34,6 +34,11 @@ silently deleting it.
 - [2026-04-14] Stopping should require positive permission, not inference. The survival guide
   should carry a `Stop Gate`, and `.elves-session.json` should carry a `continuation_guard`, so a
   recovered context can tell whether it must keep going without rereading the whole run.
+- [2026-05-09] Substantial finite runs should end with a temporary human-facing Run Readout when
+  stopping is allowed. The readout is a morning briefing sourced from the survival guide, execution
+  log, learnings, plan, session JSON, and live PR/CI state. It should foreground problems found,
+  lessons learned, verification proof, residual risks, and human next steps instead of forcing the
+  user to reconstruct the run from raw logs.
 
 ## Validation and Tooling
 
