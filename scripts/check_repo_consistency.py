@@ -170,6 +170,7 @@ ELVES_REPORT_PHRASES = {
         "/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html",
         "references/elves-report-template.html",
         "collapsible `<details>` sections",
+        "committed examples and reusable templates non-identifying",
     ],
     "AGENTS.md": [
         "## Elves Report",
@@ -178,6 +179,7 @@ ELVES_REPORT_PHRASES = {
         "/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html",
         "references/elves-report-template.html",
         "collapsible batch `<details>` sections",
+        "committed examples and reusable templates non-identifying",
     ],
     "README.md": [
         "### Elves Reports",
@@ -186,6 +188,7 @@ ELVES_REPORT_PHRASES = {
         "collapsible sections",
         "docs/elves-report-proof-of-concept.html",
         "references/elves-report-template.html",
+        "Committed examples should use non-identifying sample content",
     ],
     "references/survival-guide-template.md": [
         "## Elves Report",

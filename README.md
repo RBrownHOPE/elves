@@ -101,6 +101,10 @@ committed proof of concept and [`references/elves-report-template.html`](referen
 for the reusable starting template. GitHub's normal file browser displays HTML files as source;
 open them locally or serve them with GitHub Pages to see the rendered pages.
 
+Committed examples should use non-identifying sample content. Real reports in `/tmp` may describe
+the actual run, but public proof-of-concept pages should avoid private product names, client names,
+people, or project-specific workflows.
+
 ### Stage, then launch
 
 Most "the elves stopped" failures come from one mistake: combining a giant plan and the launch

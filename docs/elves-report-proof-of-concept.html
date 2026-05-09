@@ -621,21 +621,21 @@
           <details class="batch" open>
             <summary>
               <span class="batch-id">00</span>
-              <span class="batch-title">Fast Research repair</span>
+              <span class="batch-title">Source quality repair</span>
               <span class="batch-meta">source truth / link correctness</span>
             </summary>
             <div class="batch-body">
               <div>
                 <h3>What the workers found</h3>
                 <ul>
-                  <li>Reddit source rows can hide behind stale metadata.</li>
-                  <li>Outbound link-post URLs can masquerade as the real source.</li>
-                  <li>Artifact actions should not imply files exist before materialization.</li>
+                  <li>Cached source metadata can make stale rows appear current.</li>
+                  <li>External links need canonicalization before they are shown to reviewers.</li>
+                  <li>Artifact actions should appear only after files are actually materialized.</li>
                 </ul>
               </div>
               <div class="tags">
-                <span class="tag">focused Jest</span>
-                <span class="tag">P0 Playwright</span>
+                <span class="tag">unit tests</span>
+                <span class="tag">browser smoke</span>
                 <span class="tag">lint/typecheck</span>
               </div>
             </div>
@@ -644,16 +644,16 @@
           <details class="batch">
             <summary>
               <span class="batch-id">05</span>
-              <span class="batch-title">Dr. Sinclair orchestration</span>
+              <span class="batch-title">Assistant handoff routing</span>
               <span class="batch-meta">handoffs / evidence gaps</span>
             </summary>
             <div class="batch-body">
               <div>
                 <h3>Manager takeaway</h3>
                 <ul>
-                  <li>Sinclair can stage Reed-ready work with source anchors and rationale.</li>
-                  <li>Thin evidence routes to Supplement or Deep Research first.</li>
-                  <li>The handoff remains reviewable instead of silently mutating simulation state.</li>
+                  <li>The primary assistant can stage specialist-ready work with source anchors and rationale.</li>
+                  <li>Thin evidence routes to supplemental review before final recommendations.</li>
+                  <li>The handoff remains reviewable instead of silently changing project state.</li>
                 </ul>
               </div>
               <div class="tags">

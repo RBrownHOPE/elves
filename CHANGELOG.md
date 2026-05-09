@@ -24,6 +24,8 @@ All notable changes to the Elves skill are documented here.
   default for precise accountability while generated image infographics remain opt-in.
 - **Proof-of-concept HTML added.** `docs/elves-report-proof-of-concept.html` shows what a committed
   report-style page can look like when opened locally or served through GitHub Pages.
+- **Committed examples sanitized.** Public proof-of-concept content now uses non-identifying sample
+  batches, and runtime guidance keeps reusable templates/examples free of private project names.
 - **Consistency checker extended.** `scripts/check_repo_consistency.py` now verifies Elves Report
   guidance across the Claude, Codex, README, survival-guide, and execution-log surfaces.
 

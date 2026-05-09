@@ -653,7 +653,9 @@ Keep it static: inline CSS, no external assets, no scripts, no build step. Match
 visual identity and use existing local brand assets when available. Make the page feel intentionally
 designed for the repository, not like a generic AI dashboard. Use distinctive typography, varied
 spacing, and collapsible batch `<details>` sections for skimmability. Use
-`references/elves-report-template.html` as a starting point when this repo provides it. Prefer
+`references/elves-report-template.html` as a starting point when this repo provides it. Keep
+committed examples and reusable templates non-identifying; avoid private product names, client
+names, people, or project-specific workflows outside actual run reports in `/tmp`. Prefer
 HTML/Markdown for dense accountability; generate image infographics only if the user asks because
 image generation uses Codex limits faster and is worse for precise audit detail. Refresh the report
 if final review fixes, CI, or PR status changes while the source documents are still present. After

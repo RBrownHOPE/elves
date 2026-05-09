@@ -1016,6 +1016,8 @@ Keep the report static and lightweight:
 - quote or summarize logs sparingly; link back to source files for full details;
 - distinguish facts verified with tools from inferred interpretation;
 - make residual risks visible instead of burying them;
+- keep committed examples and reusable templates non-identifying; avoid private product names,
+  client names, people, or project-specific workflows outside actual run reports in `/tmp`;
 - prefer HTML/Markdown for dense accountability. Generate image infographics only if the user asks,
   because image generation uses Codex limits faster and is worse for precise audit detail.
 
