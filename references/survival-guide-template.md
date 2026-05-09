@@ -291,21 +291,26 @@ editing live Codex/Claude session databases.
 
 ---
 
-## Closeout Readout
+## Elves Report
 
-- **Generate run readout:** yes for substantial finite runs; checkpoint-only if the user asks during
+- **Generate Elves Report:** yes for substantial finite runs; checkpoint-only if the user asks during
   an open-ended run or before Stop Gate allows final stopping
-- **Default path:** `/tmp/elves-run-readout-[repo-slug]-[yyyy-mm-dd].html`
-- **Commit readout:** no, unless the user explicitly requests a durable artifact
+- **Default path:** `/tmp/elves-report-[repo-slug]-[yyyy-mm-dd].html`
+- **Commit report:** no, unless the user explicitly requests a durable artifact
 - **Source of truth:** survival guide, `.elves-session.json`, learnings, plan, execution log, and
   live PR/CI state
 - **Required sections:** status, executive summary, problems found, lessons learned, batch timeline,
   validation and review proof, residual risks, human next steps, source links
+- **Batch timeline format:** collapsible `<details>` entries, one per batch, so the manager can
+  scan the whole night and expand specific work
+- **Visual standard:** match this project's visual identity, reuse local brand assets when
+  available, and avoid generic AI-dashboard styling
+- **Template:** use `references/elves-report-template.html` as a starting point when present
 - **Images:** optional only on explicit request; prefer HTML/Markdown for precise audit detail
 
-The readout is the human morning briefing. It should answer: what did the elves do, what problems
-did they find, what changed, how do we know, what did they learn, what still worries us, and what
-should the human do next?
+The Elves Report is the workers' morning report to their manager. It should answer: what did the
+elves do, what problems did they find, what changed, how do we know, what did they learn, what still
+worries us, and what should the manager do next?
 
 ---
 

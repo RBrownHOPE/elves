@@ -41,7 +41,7 @@ Elves works best when the repo's knowledge is layered instead of piled into one 
 - **Survival Guide:** run control, next exact batch, and operator constraints
 - **Learnings:** reusable lessons that should survive this run
 - **Execution Log:** chronological proof of what happened
-- **Run Readout:** temporary human-facing HTML summary generated at closeout for substantial runs
+- **Elves Report:** temporary human-facing HTML report from the workers to the manager at closeout
 - **`.ai-docs/*` (if present):** curated durable docs for architecture, conventions, and gotchas
 - **Human-facing docs:** README, CHANGELOG, TODO, API/config docs
 
@@ -955,31 +955,31 @@ Do not call a branch review-ready unless ALL of the following are true:
 
 If any gate fails, fix it before declaring readiness. This checklist is the final quality gate between "autonomous run complete" and "ready for human review."
 
-## Run Readout
+## Elves Report
 
 For substantial finite runs, the returning human needs more than a PR link and a raw execution log.
-Generate a **temporary static HTML run readout** as a morning briefing: what happened, what was
-found, what changed, what was verified, what reviewers caught, what lessons were learned, and what
-risks remain. This is a trust artifact, not a marketing page.
+Generate a **temporary static HTML Elves Report** as the workers' morning report to their manager:
+what happened overnight, what was found, what changed, what was verified, what reviewers caught,
+what lessons were learned, and what risks remain. This is a trust artifact, not a marketing page.
 
-Generate a readout automatically when all of these are true:
+Generate an Elves Report automatically when all of these are true:
 
-- the Stop Gate says stopping is allowed, or the user explicitly asks for a checkpoint readout;
+- the Stop Gate says stopping is allowed, or the user explicitly asks for a checkpoint report;
 - the run had multiple batches, many commits, subagents, PR review cycles, or broad verification;
 - the execution log, survival guide, and learnings file are current;
-- PR comments/checks have been polled, or the readout clearly labels pending checks.
+- PR comments/checks have been polled, or the report clearly labels pending checks.
 
 Default path:
 
 ```text
-/tmp/elves-run-readout-<repo-slug>-<yyyy-mm-dd>.html
+/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html
 ```
 
-For checkpoint readouts before final completion, include `checkpoint` in the filename. Do not commit
-the readout by default. Commit it only when the user or survival guide explicitly requests a durable
+For checkpoint reports before final completion, include `checkpoint` in the filename. Do not commit
+the report by default. Commit it only when the user or survival guide explicitly requests a durable
 artifact.
 
-The readout must be derived from durable sources, not memory:
+The Elves Report must be derived from durable sources, not memory:
 
 - survival guide: current status, Stop Gate, branch, PR, run mode, active compute;
 - `.elves-session.json`: batch status, continuation guard, review-comment dispositions;
@@ -997,24 +997,29 @@ Include these sections:
 4. **Lessons learned:** durable implementation, testing, product, or process lessons promoted to
    `learnings.md` or `.ai-docs/*`.
 5. **Batch timeline:** one concise entry per batch with scope, key fixes, validation, review result,
-   and residual risk.
+   and residual risk. Use collapsible `<details>` sections so the manager can scan the whole night
+   and expand the batches that need closer review.
 6. **Validation and review proof:** local gates, E2E/browser checks, PR checks, review loops,
    subagent findings, and known non-fatal warnings.
 7. **Human next steps:** what the user should review, merge, deploy, re-run, or plan next.
 8. **Source links:** local paths to the plan, survival guide, execution log, learnings file, PR, and
    commits when known.
 
-Keep the readout static and lightweight:
+Keep the report static and lightweight:
 
 - inline CSS only; no external assets, scripts, build step, or network dependency;
-- use cards, badges, and native `<details>` sections for skimmability;
+- match the project's visual identity and use existing local brand assets when available;
+- make the page feel intentionally designed for this repository, not like a generic AI dashboard;
+- use distinctive typography, varied spacing, and collapsible batch `<details>` sections for
+  skimmability;
+- use `references/elves-report-template.html` as a starting point when this repo provides it;
 - quote or summarize logs sparingly; link back to source files for full details;
 - distinguish facts verified with tools from inferred interpretation;
 - make residual risks visible instead of burying them;
 - prefer HTML/Markdown for dense accountability. Generate image infographics only if the user asks,
   because image generation uses Codex limits faster and is worse for precise audit detail.
 
-Refresh the readout if final cleanup, final review fixes, CI results, or PR status changes after it
+Refresh the report if final cleanup, final review fixes, CI results, or PR status changes after it
 is first generated. Mention the path in the final response.
 
 ## Final Completion
@@ -1028,7 +1033,7 @@ When all batches are done or time is up:
 3. Do a final TODO.md pass.
 4. Update the survival guide and perform strategic forgetting: condense live state, archive old execution-log entries in place if the log is large, promote durable lessons, prune superseded lessons, and leave a concise reactivation handoff for any remaining work or future follow-up.
 5. **Run the Final Readiness Review before operational-artifact cleanup.** Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if the platform supports it; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json`, and all unresolved PR feedback. Fix blocking findings, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun the final review.
-6. **Generate the Run Readout** for substantial runs. Use the current survival guide, execution log, `.elves-session.json`, learnings file, plan, and live PR/CI state. Include problems found, lessons learned, batch timeline, verification proof, residual risks, and human next steps. Save it under `/tmp` by default and do not commit it unless explicitly configured.
+6. **Generate the Elves Report** for substantial runs. Use the current survival guide, execution log, `.elves-session.json`, learnings file, plan, and live PR/CI state. Include problems found, lessons learned, batch timeline, verification proof, residual risks, and human next steps. Save it under `/tmp` by default and do not commit it unless explicitly configured.
 7. **Clean up operational artifacts.** Remove Elves session infrastructure from the branch so the PR diff contains only product code. Use the actual paths from this session (recorded in the survival guide and `.elves-session.json`), not hard-coded defaults:
    ```bash
    git rm <survival-guide-path> <execution-log-path> .elves-session.json
@@ -1038,7 +1043,7 @@ When all batches are done or time is up:
    
    **Important:** the execution log and survival guide still exist in the branch history if you need to reference them. This commit just removes them from the final diff.
 8. Push.
-9. Poll PR comments and checks one last time after the cleanup commit. If cleanup triggered new feedback or failing checks, address it before notifying and refresh the readout if status, validation, review findings, or residual risks changed.
+9. Poll PR comments and checks one last time after the cleanup commit. If cleanup triggered new feedback or failing checks, address it before notifying and refresh the Elves Report if status, validation, review findings, or residual risks changed.
 10. Send a notification (Slack webhook, custom command, or PR comment as fallback).
 
 **You don't merge. The PR is ready for the user to review and merge when they return.**

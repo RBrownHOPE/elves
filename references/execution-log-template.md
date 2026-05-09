@@ -34,7 +34,7 @@
 - **Next exact batch:** [Batch N: Name]
 - **Active PR:** [#N / "not created yet"]
 - **Docs promoted this run:** [list / "none yet"]
-- **Latest run readout:** [/tmp/elves-run-readout-...html / "not generated yet"]
+- **Latest Elves Report:** [/tmp/elves-report-...html / "not generated yet"]
 
 ---
 
@@ -56,7 +56,7 @@
 - Documentation & orientation: [total]
 
 **Status:** [All planned work complete / Stopped at batch N (ran out of time) / Blocked on X]
-**Run readout:** [/tmp/elves-run-readout-...html / "not generated"]
+**Elves Report:** [/tmp/elves-report-...html / "not generated"]
 
 **Problems found:**
 - [Major bug, UX gap, review blocker, repeated failure pattern, or "none beyond planned scope"]
