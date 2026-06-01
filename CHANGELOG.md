@@ -17,8 +17,8 @@ All notable changes to the Elves skill are documented here.
   Non-Negotiables / Rollback sections, the kickoff template, and README. Motivated by a real
   Claude-and-Codex collision in one shared checkout.
 - **Sharper continuation language.** The Forbidden Stop Reasons and Pre-Final Guard now name the
-  specific rationalizations agents stop on — "the remaining work feels like a lot for one turn" and
-  "this feels like a natural place to check in" — and reframe the volume of remaining work as the
+  specific rationalizations agents stop on ("the remaining work feels like a lot for one turn" and
+  "this feels like a natural place to check in") and reframe the volume of remaining work as the
   reason the run exists, not a reason to stop.
 - **Two-stage lifecycle made explicit.** SKILL.md, AGENTS.md, and README now state up front that a
   run is two separate calls: first you **stage**, then you **start**. The kickoff template's
@@ -26,7 +26,7 @@ All notable changes to the Elves skill are documented here.
 - **Stronger closeout.** The Final Readiness Review is now the mandatory last step of every finite
   run: review `git diff <default-branch>...HEAD`, read every PR comment, run every test that makes
   sense, confirm the branch is green, then hand the user the Elves Report and tell them to review it.
-- **Merge-policy opt-in.** Default is unchanged — the user merges; the agent never merges and never
+- **Merge-policy opt-in.** Default is unchanged: the user merges; the agent never merges and never
   squashes. New: the user may set a `merge-on-green` preference in Run Control, in which case the
   agent lands a regular merge commit (never a squash) after the Final Readiness Review passes.
 
