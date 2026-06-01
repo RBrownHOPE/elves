@@ -9,7 +9,7 @@
 - **Next exact batch:** none; wait for user review
 - **Active PR:** #24
 - **Docs promoted this run:** none yet
-- **Latest Elves Report:** not generated yet
+- **Latest Elves Report:** `/tmp/elves-report-elves-math-module-2026-06-01.html`
 
 ## Session Setup: 2026-06-01 15:12 EDT
 
@@ -259,6 +259,7 @@ review-ready.
 - `python3 scripts/sync_installed_skills.py --check` -> expected STALE result because the branch
   adds new math references and the global Claude/Codex installed skill copies have not been synced
   from this PR. This is understood and not a branch blocker.
+- Elves Report generated at `/tmp/elves-report-elves-math-module-2026-06-01.html`.
 
 **PR feedback:**
 - Copilot review: no comments.
