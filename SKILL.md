@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "1.11.0"
+  version: "1.12.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -54,9 +54,11 @@ relevant durable docs, human docs, or recovery docs stayed stale.
 
 ## Math Research Workflows
 
-Elves can also run configurable mathematical research workflows. These are still Elves runs: stage
-the plan, open a PR or review surface early, keep durable memory, run independent review loops, and
-let the human own the final mathematical judgment.
+Elves can also run configurable mathematical research workflows. This beta module is a lightweight
+public version of a fuller Aigora workflow: prompts, ledgers, provider roles, and review loops that
+work with ordinary tools. It is still an Elves run: stage the plan, open a PR or review surface
+early, keep durable memory, run independent review loops, and let the human own the final
+mathematical judgment.
 
 Use the math workflow when the task involves preliminary research, proof search, source audit,
 paper drafting, or post-draft review. If the mathematical target is still uncertain, start with a

@@ -1,7 +1,8 @@
 # Math Provider Configuration
 
 The math workflow is provider-configurable. V1 assumes no custom service and no fixed model list.
-Configure roles, not model names.
+Configure roles, not model names. OpenRouter is the minimum useful setup; native providers and
+search tools are optional upgrades.
 
 ## Baseline Policy
 

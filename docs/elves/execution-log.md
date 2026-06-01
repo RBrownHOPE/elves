@@ -2,7 +2,7 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-01 15:33 EDT
+- **Last updated:** 2026-06-01 16:05 EDT
 - **Current phase:** Complete / PR review-ready
 - **Active batch:** none
 - **Last completed batch:** Batch 5: Consistency And Final Review
@@ -273,3 +273,36 @@ review-ready.
 
 **Next:** push this closeout, resolve addressed GitHub review threads, confirm checks, and hand PR
 #24 to the user for review. Do not merge.
+
+## Post-Readiness Polish: 2026-06-01 16:05 EDT
+
+**Trigger:** User requested a fresh subagent review, PR-comment audit, version bump, Codex/Claude
+skill sync check, humanized prose pass, and short X announcement copy.
+
+**Work completed:**
+- Re-read all PR review threads and comments for PR #24. The two Gemini threads are resolved and
+  outdated; there are no open issue comments.
+- Spawned a read-only review subagent for the full `origin/main...HEAD` diff. It found one blocker:
+  the advertised `v1.12.0` release still had `1.11.0` skill metadata and an `Unreleased` changelog
+  entry. This pass fixes that.
+- Applied the humanizer guidance from the geometry project: concrete claims, no inflated AI
+  language, and no model-as-authority phrasing.
+- Bumped the release surfaces from `1.11.0` to `1.12.0` and moved the math module from
+  `Unreleased` into the dated changelog release.
+- Made the beta status explicit in the core docs: this is a portable public workflow, not Aigora's
+  full private toolchain.
+- Synced the local installed Claude and Codex Elves skill copies from this checkout. Both now report
+  `1.12.0`.
+
+**Validation:**
+- `python3 scripts/check_repo_consistency.py` -> PASS.
+- `python3 -m json.tool .elves-session.json` -> PASS.
+- `python3 -m json.tool config.json.example` -> PASS.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` -> PASS.
+- `git diff --check origin/main...HEAD` -> PASS.
+- `python3 scripts/sync_installed_skills.py --check` -> PASS for Claude and Codex installed copies.
+- `python3 scripts/install_doctor.py --doctor` -> PASS, with latest published release still
+  `v1.11.0` because `v1.12.0` has not been released yet.
+
+**Next:** commit and push the polish pass, update the PR body with the final validation summary, and
+leave PR #24 open for human review.

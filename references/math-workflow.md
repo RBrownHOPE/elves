@@ -1,12 +1,12 @@
 # Math Research Workflow
 
-This reference configures Elves for mathematical research. It is a workflow kit, not a proof
+This reference configures Elves for mathematical research. It is a beta workflow kit, not a proof
 oracle. Use it when the work may involve preliminary research, proof search, source audit,
 manuscript drafting, or post-draft review.
 
-The core rule is simple: models can help generate, search, criticize, and explain, but they do not
-certify mathematics. A claim becomes verified only when a human records the proof and source checks
-in ordinary mathematical form.
+The core rule is simple: models can generate ideas, search literature, criticize derivations, and
+explain drafts. They do not certify mathematics. A claim becomes verified only when a human records
+the proof and source checks in ordinary mathematical form.
 
 ## When To Use This Workflow
 
@@ -57,7 +57,7 @@ are:
   entry points.
 
 Add or remove lanes to match the problem. The point is independence and diversity: scouts should
-not merely search for the same keywords.
+not only search for the same keywords.
 
 ### Scout Questions
 

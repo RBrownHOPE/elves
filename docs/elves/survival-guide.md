@@ -2,9 +2,9 @@
 
 ## Mission
 
-Add a configurable math-research module to Elves. The module should support rough-goal discovery,
-subfield scouting, cross-field synthesis, proof review, source audit, manuscript drafting, and
-human verification as a portable documentation-driven workflow kit.
+Add a configurable beta math-research module to Elves. The module should support rough-goal
+discovery, subfield scouting, cross-field synthesis, proof review, source audit, manuscript
+drafting, and human verification as a portable documentation-driven workflow kit.
 
 ## Run Control
 

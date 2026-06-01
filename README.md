@@ -111,9 +111,11 @@ people, or project-specific workflows.
 
 Elves can be configured for mathematical research runs as well as software work. The math workflow
 is useful for preliminary research, proof search, source audit, paper drafting, and post-draft
-review. It treats a rough mathematical goal as a starting point, not as a hidden theorem: when the
-target is uncertain, the first step is a Discovery Sprint with independent scouts across relevant
-and adjacent subfields.
+review. This module is beta. It is a portable public version of a fuller Aigora workflow, pared
+down to prompts, ledgers, provider roles, and ordinary PR-based review so people can use it without
+our internal tools. It treats a rough mathematical goal as a starting point, not as a hidden theorem:
+when the target is uncertain, the first step is a Discovery Sprint with independent scouts across
+relevant and adjacent subfields.
 
 Those scouts look for related solved problems, transferable techniques, natural assumptions, and
 plausible quick wins. The coordinator then synthesizes their reports into a ranked research agenda
