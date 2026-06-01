@@ -2,11 +2,11 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-01 15:31 EDT
-- **Current phase:** Batch 4 ready
-- **Active batch:** Batch 4: Review Prompts And Ledgers
-- **Last completed batch:** Batch 3: Model And Tool Configuration
-- **Next exact batch:** Batch 4: Review Prompts And Ledgers
+- **Last updated:** 2026-06-01 15:37 EDT
+- **Current phase:** Batch 5 ready
+- **Active batch:** Batch 5: Consistency And Final Review
+- **Last completed batch:** Batch 4: Review Prompts And Ledgers
+- **Next exact batch:** Batch 5: Consistency And Final Review
 - **Active PR:** #24
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -167,3 +167,44 @@ provider hooks, and stable math role slots across the config example and templat
 - `rg` check confirmed provider-policy, role-slot, required-env, and fallback-policy wording.
 
 **Next:** Begin Batch 4: Review Prompts And Ledgers.
+
+## Batch 4 Contract: 2026-06-01 15:32 EDT
+
+**Goal:** Add reusable math reviewer prompts and artifact ledgers so mathematical claims are
+traceable from idea through human verification.
+
+**Build on:**
+- Batch 2 claim lifecycle.
+- Batch 3 role slots.
+- Existing Elves habit of durable memory surfaces.
+
+**Tasks:**
+- Add `references/math-review-prompts.md`.
+- Add `references/math-artifact-ledgers.md`.
+- Link the new references from README and `references/math-workflow.md`.
+
+**Acceptance criteria:**
+- Prompt templates cover subfield scouts, transfer scouts, proof skeptics, derivation checkers,
+  reference auditors, notation auditors, manuscript reviewers, and formalization scouts.
+- Ledgers cover claims, sources, model calls, open questions, failed approaches, and human
+  verification.
+- The references distinguish ideas, checks, draft prose, and verified results.
+
+## Batch 4 Completion: 2026-06-01 15:37 EDT
+
+**Batch:** Review Prompts And Ledgers.
+
+**Outcome:** Completed. The module now has reusable prompts and traceability ledgers for serious
+mathematical work.
+
+**Implementation notes:**
+- Added `references/math-review-prompts.md`.
+- Added `references/math-artifact-ledgers.md`.
+- Linked both from README and `references/math-workflow.md`.
+
+**Validation:**
+- `python3 scripts/check_repo_consistency.py` -> PASS.
+- `rg` check confirmed proof critic, derivation checker, source auditor, claim ledger, model-call
+  ledger, and human-verification language.
+
+**Next:** Begin Batch 5: Consistency And Final Review.

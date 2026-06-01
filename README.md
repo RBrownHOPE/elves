@@ -129,7 +129,10 @@ until a human records the proof and source checks.
 
 Start with [`references/math-workflow.md`](references/math-workflow.md) for the operating model,
 [`references/math-plan-template.md`](references/math-plan-template.md) for a ready-to-edit plan,
-and [`references/math-provider-config.md`](references/math-provider-config.md) for provider setup.
+[`references/math-provider-config.md`](references/math-provider-config.md) for provider setup,
+[`references/math-review-prompts.md`](references/math-review-prompts.md) for reusable reviewer
+roles, and [`references/math-artifact-ledgers.md`](references/math-artifact-ledgers.md) for claim
+and source traceability.
 
 ### Stage, then launch
 

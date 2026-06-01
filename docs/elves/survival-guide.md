@@ -29,14 +29,14 @@ human verification as a portable documentation-driven workflow kit.
 - **Checkpoint expectation:** PR-ready math module
 - **Time budget:** finite run, no hard deadline
 - **Average batch time so far:** 6m
-- **Batches remaining:** 2 of 5
+- **Batches remaining:** 1 of 5
 
 ## Stop Gate
 
-- **Planned batches remaining:** 2
+- **Planned batches remaining:** 1
 - **Stop allowed right now:** no
-- **Why:** review prompts, ledgers, consistency, and final review remain.
-- **Next required action:** complete Batch 4 review prompts and ledgers.
+- **Why:** consistency checker and final readiness review remain.
+- **Next required action:** complete Batch 5 consistency and final review.
 
 ## Effort Standard
 
@@ -54,7 +54,7 @@ human verification as a portable documentation-driven workflow kit.
 
 ## Current Phase
 
-Batch 3 is complete and Batch 4 is ready to start.
+Batch 4 is complete and Batch 5 is ready to start.
 
 ## Active Compute
 
@@ -62,8 +62,8 @@ No paid compute, model jobs, local servers, or remote jobs are active.
 
 ## Next Exact Batch
 
-Batch 4: add `references/math-review-prompts.md` and `references/math-artifact-ledgers.md`, then
-wire them into the README and verification language.
+Batch 5: extend `scripts/check_repo_consistency.py` for math-module drift, run final validation,
+read PR feedback, and prepare the PR for human review.
 
 ## Tool Configuration
 

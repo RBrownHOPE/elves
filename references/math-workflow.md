@@ -148,3 +148,7 @@ A math run is review-ready only when:
 - failed approaches and rejected ideas are recorded enough to avoid rework;
 - unresolved risks are explicit;
 - all retained mathematical claims have human-verification status, or are clearly marked as draft.
+
+Use [`math-artifact-ledgers.md`](math-artifact-ledgers.md) for ledger formats and
+[`math-review-prompts.md`](math-review-prompts.md) for reusable scout, critic, audit, and
+manuscript-review prompts.
