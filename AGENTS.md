@@ -190,7 +190,7 @@ git worktree list
 START_TIP=$(git rev-parse HEAD); echo "Collision tripwire (branch tip at staging): $START_TIP"
 ```
 
-**Own your branch and checkout.** One run owns one branch and one checkout — never share a working tree or branch with another active agent (a teammate, another Elves run, or Claude running alongside Codex). When other agents may touch the same repo, stage in a dedicated git worktree (`git worktree add ../<repo>-<branch> <branch>`). `START_TIP` is your collision tripwire: if HEAD or the remote branch tip later moves to a commit you didn't create, another writer is in your checkout — stop and surface it (see **Merge Conflicts**).
+**Own your branch and checkout.** One run owns one branch and one checkout — never share a working tree or branch with another active agent (a teammate, another Elves run, or Claude running alongside Codex). When other agents may touch the same repo, stage in a dedicated git worktree (`git worktree add -b <branch> ../<repo>-<branch>`). `START_TIP` is your collision tripwire: if HEAD or the remote branch tip later moves to a commit you didn't create, another writer is in your checkout — stop and surface it (see **Merge Conflicts**).
 
 If `scripts/install_doctor.py` exists beside the active skill bundle, run
 `python3 scripts/install_doctor.py --startup` once at the start of staging. If it reports a newer
@@ -221,7 +221,7 @@ Record session start. If the user hasn't given a return time, ask once; default 
 
 **Before writing any code**, set up the working environment. This is still staging, not implementation:
 
-1. Create a feature branch if not on one. One run owns one branch and one checkout; never share a working tree or branch with another active agent. When other agents may touch the repo, stage in a dedicated git worktree (`git worktree add ../<repo>-<branch> <branch>`).
+1. Create a feature branch if not on one. One run owns one branch and one checkout; never share a working tree or branch with another active agent. When other agents may touch the repo, create it in a dedicated git worktree instead (`git worktree add -b <branch> ../<repo>-<branch>`).
 2. Generate survival guide, learnings file, and execution log from templates (if they don't
    exist). Decompose the plan into batches. Record batch breakdown in the execution log.
 3. Commit all planning documents, push, and open a PR immediately.
@@ -731,7 +731,7 @@ The only exception: an explicit **"stop"** — even with the tag — triggers a 
 
 Stop only when:
 1. Genuinely blocked with no viable path.
-2. A merge is requested and the user has not set a merge-on-green preference. By default you do not merge; hand off and let the user merge. (Only when that preference is set, and only after a clean Final Readiness Review, do you land a regular merge commit yourself instead of stopping.)
+2. A merge is requested and the user has not set a merge-on-green preference. By default you do not merge; hand off and let the user merge. (Only when that preference is set, and only after a clean Final Readiness Review, do you land a regular merge commit yourself (never a squash) instead of stopping.)
 3. A destructive action is required that was explicitly listed as a non-negotiable in the survival guide.
 4. The branch tip moved to a commit you didn't create — another agent is in your checkout. Stop and surface the collision (see **Merge Conflicts**).
 

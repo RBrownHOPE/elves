@@ -135,7 +135,7 @@ When more than one agent may touch the same repo, give each run its own
 [git worktree](https://git-scm.com/docs/git-worktree):
 
 ```bash
-git worktree add ../<repo>-<branch> <branch>   # then run the agent inside that directory
+git worktree add -b <branch> ../<repo>-<branch>   # then run the agent inside that directory
 ```
 
 A solo run in a repo no other agent will touch can use the main checkout. Either way, the agent

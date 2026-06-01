@@ -38,7 +38,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - Generate or refresh the survival guide, learnings file, and execution log
 - Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-in: merge-commit-on-green), and `Active Compute` if relevant
 - Create or switch to the branch, open or update the PR, and record the PR number
-- Claim a dedicated checkout: confirm no other agent is working this branch or working tree, and when other agents may touch the repo, stage in a dedicated `git worktree` (`git worktree add ../<repo>-<branch> <branch>`)
+- Claim a dedicated checkout: confirm no other agent is working this branch or working tree, and when other agents may touch the repo, stage in a dedicated `git worktree` (`git worktree add -b <branch> ../<repo>-<branch>`)
 - Run preflight and log any warnings or blockers
 - Record any durable-doc paths the run should use (`.ai-docs/*`) if the repo keeps them
 - Prepare a short launch prompt for the next call
@@ -68,7 +68,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - Generate or refresh the survival guide, learnings file, and execution log
 - Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-in: merge-commit-on-green), and `Active Compute` if relevant
 - Create or switch to the branch, open or update the PR, and record the PR number
-- Claim a dedicated checkout: confirm no other agent is working this branch or working tree, and when other agents may touch the repo, stage in a dedicated `git worktree` (`git worktree add ../<repo>-<branch> <branch>`)
+- Claim a dedicated checkout: confirm no other agent is working this branch or working tree, and when other agents may touch the repo, stage in a dedicated `git worktree` (`git worktree add -b <branch> ../<repo>-<branch>`)
 - Run preflight and log any warnings or blockers
 - Record any durable-doc paths the run should use (`.ai-docs/*`) if the repo keeps them
 - Prepare a short launch prompt for the next call

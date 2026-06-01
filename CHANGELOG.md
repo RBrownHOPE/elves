@@ -10,7 +10,7 @@ All notable changes to the Elves skill are documented here.
 
 - **Concurrent-run isolation (new).** One run now owns one branch and one checkout. The skill adds a
   hard rule against sharing a working tree or branch with another active agent, a strong default to
-  stage in a dedicated `git worktree` (`git worktree add ../<repo>-<branch> <branch>`) when agents
+  stage in a dedicated `git worktree` (`git worktree add -b <branch> ../<repo>-<branch>`) when agents
   may share a repo, and a collision tripwire: the agent records the branch tip at staging and stops
   if HEAD or the remote moves to a commit it didn't create. Added to Preflight, Stage the Run,
   Forbidden Commands, Merge Conflicts, Hard Stops, the survival-guide Run Control / Launch Readiness /

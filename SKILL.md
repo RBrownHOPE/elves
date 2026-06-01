@@ -299,7 +299,7 @@ Before the user walks away, verify everything will work. This is part of staging
 9. **Stale branch detection:** check if the branch is behind main.
 10. **Workspace ownership and collision tripwire:** confirm this run owns its branch and its checkout — no other agent (a teammate, another Elves run, or Codex running alongside Claude) is operating in this working tree or on this branch. When other agents may touch the same repo, stage the run in a dedicated git worktree so concurrent agents can't collide:
     ```bash
-    git worktree add ../<repo>-<branch> <branch>   # then work inside that directory
+    git worktree add -b <branch> ../<repo>-<branch>   # then work inside that directory
     ```
     Then record the branch tip as your collision tripwire: `git rev-parse HEAD`. If HEAD or the remote branch tip later moves to a commit you did not create, another writer is in your checkout — stop, treat it as a collision (see **Merge Conflicts**), and surface it to the user instead of committing on top.
 
@@ -325,9 +325,9 @@ Record the time budget in the execution log.
    ```bash
    git checkout -b feat/<name-from-plan>
    ```
-   **One run owns one branch and one checkout.** Never share a working tree or branch with another active agent. If other agents may touch this repo during the run (a teammate, another Elves run, or Codex working alongside Claude), stage the run in a dedicated git worktree so concurrent agents can't overwrite each other's working tree or move your branch out from under you:
+   **One run owns one branch and one checkout.** Never share a working tree or branch with another active agent. If other agents may touch this repo during the run (a teammate, another Elves run, or Codex working alongside Claude), create the branch in a dedicated git worktree **instead of** the `git checkout -b` above, so concurrent agents can't overwrite each other's working tree or move your branch out from under you:
    ```bash
-   git worktree add ../<repo>-<branch> <branch>   # then work inside that directory
+   git worktree add -b <branch> ../<repo>-<branch>   # then work inside that directory
    ```
    A solo run in a repo no other agent will touch can use the main checkout. Record the branch tip (`git rev-parse HEAD`) as a collision tripwire; an unexpected move means another writer is in your checkout.
 
@@ -1134,7 +1134,7 @@ Bad (no tag, no "do not stop" — agent may pause):
 Stop only when:
 
 1. Genuinely blocked with no viable path. Not a decision, but a dependency you can't resolve.
-2. A merge is requested and the user has not set a merge-on-green preference. By default you do not merge; hand off and let the user merge. (Only when that preference is set, and only after a clean Final Readiness Review, do you land a regular merge commit yourself instead of stopping.)
+2. A merge is requested and the user has not set a merge-on-green preference. By default you do not merge; hand off and let the user merge. (Only when that preference is set, and only after a clean Final Readiness Review, do you land a regular merge commit yourself (never a squash) instead of stopping.)
 3. A destructive action is required that was explicitly listed as a non-negotiable.
 4. The branch tip moved to a commit you didn't create — another agent is in your checkout. Stop and surface the collision (see **Merge Conflicts**).
 
