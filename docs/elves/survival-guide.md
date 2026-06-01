@@ -28,15 +28,15 @@ human verification as a portable documentation-driven workflow kit.
 - **User returns:** not specified
 - **Checkpoint expectation:** PR-ready math module
 - **Time budget:** finite run, no hard deadline
-- **Average batch time so far:** not yet measured
-- **Batches remaining:** 5 of 5
+- **Average batch time so far:** 7m
+- **Batches remaining:** 4 of 5
 
 ## Stop Gate
 
-- **Planned batches remaining:** 5
+- **Planned batches remaining:** 4
 - **Stop allowed right now:** no
-- **Why:** implementation has just started.
-- **Next required action:** finish Batch 1 runtime surfaces and open the PR.
+- **Why:** four implementation batches remain.
+- **Next required action:** complete Batch 2 math discovery workflow references.
 
 ## Effort Standard
 
@@ -54,7 +54,7 @@ human verification as a portable documentation-driven workflow kit.
 
 ## Current Phase
 
-Staging and Batch 1 are in progress.
+Batch 1 is complete and Batch 2 is ready to start.
 
 ## Active Compute
 
@@ -62,8 +62,8 @@ No paid compute, model jobs, local servers, or remote jobs are active.
 
 ## Next Exact Batch
 
-Batch 1: add the plan/session docs, update core runtime docs and changelog, commit, push, and open
-the PR early.
+Batch 2: add `references/math-workflow.md` and `references/math-plan-template.md`, including the
+Discovery Sprint, subfield-scout pattern, cross-pollination guidance, and ranked research agenda.
 
 ## Tool Configuration
 

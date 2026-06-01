@@ -2,12 +2,12 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-01 15:12 EDT
-- **Current phase:** Staging / Batch 1
-- **Active batch:** Batch 1: Plan And Runtime Surfaces
-- **Last completed batch:** none yet
-- **Next exact batch:** Batch 1: Plan And Runtime Surfaces
-- **Active PR:** not created yet
+- **Last updated:** 2026-06-01 15:19 EDT
+- **Current phase:** Batch 2 ready
+- **Active batch:** Batch 2: Math Discovery Workflow
+- **Last completed batch:** Batch 1: Plan And Runtime Surfaces
+- **Next exact batch:** Batch 2: Math Discovery Workflow
+- **Active PR:** #24
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
 
@@ -64,3 +64,23 @@
 **Validation planned:**
 - Manual cross-file inspection.
 - `python3 scripts/check_repo_consistency.py` after checker updates land in Batch 5.
+
+## Batch 1 Completion: 2026-06-01 15:19 EDT
+
+**Batch:** Plan And Runtime Surfaces.
+
+**Outcome:** Completed. The run now has a committed plan, survival guide, execution log, structured
+session file, early PR, and core-doc introduction to the optional math-research workflow kit.
+
+**Implementation notes:**
+- Added `docs/plans/v1.12.0-math-module.md`.
+- Added live Elves run surfaces under `docs/elves/` and `.elves-session.json`.
+- Updated `SKILL.md`, `AGENTS.md`, `README.md`, and `CHANGELOG.md` to describe preliminary
+  discovery, proof search, source audit, paper drafting, post-draft review, OpenRouter-first
+  configurability, and human verification.
+- Opened PR #24 early: `https://github.com/aigorahub/elves/pull/24`.
+
+**Validation:**
+- `python3 scripts/check_repo_consistency.py` -> PASS.
+
+**Next:** Begin Batch 2: Math Discovery Workflow.
