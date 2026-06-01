@@ -2,11 +2,11 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-01 15:19 EDT
-- **Current phase:** Batch 2 ready
-- **Active batch:** Batch 2: Math Discovery Workflow
-- **Last completed batch:** Batch 1: Plan And Runtime Surfaces
-- **Next exact batch:** Batch 2: Math Discovery Workflow
+- **Last updated:** 2026-06-01 15:25 EDT
+- **Current phase:** Batch 3 ready
+- **Active batch:** Batch 3: Model And Tool Configuration
+- **Last completed batch:** Batch 2: Math Discovery Workflow
+- **Next exact batch:** Batch 3: Model And Tool Configuration
 - **Active PR:** #24
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -84,3 +84,41 @@ session file, early PR, and core-doc introduction to the optional math-research 
 - `python3 scripts/check_repo_consistency.py` -> PASS.
 
 **Next:** Begin Batch 2: Math Discovery Workflow.
+
+## Batch 2 Contract: 2026-06-01 15:20 EDT
+
+**Goal:** Add the math discovery operating model and a reusable math plan template.
+
+**Build on:**
+- Existing plan-template style in `references/plan-template.md`.
+- Batch 1 framing that uncertain mathematical goals start with discovery.
+
+**Tasks:**
+- Add `references/math-workflow.md`.
+- Add `references/math-plan-template.md`.
+- Update README links to the new math references.
+
+**Acceptance criteria:**
+- A vague mathematical goal can produce a ranked research agenda before theorem drafting starts.
+- Subfield scouts are independent and include adjacent fields, not just keyword matches.
+- "Quick win" means plausible proof path plus clean verification story.
+
+## Batch 2 Completion: 2026-06-01 15:25 EDT
+
+**Batch:** Math Discovery Workflow.
+
+**Outcome:** Completed. The module now has a Discovery Sprint workflow and a reusable plan template
+for preliminary mathematical research.
+
+**Implementation notes:**
+- Added `references/math-workflow.md` with scout lanes, cross-pollination guidance, claim lifecycle,
+  ranking criteria, and done criteria.
+- Added `references/math-plan-template.md` with discovery, source grounding, candidate theorem,
+  proof attempt, and manuscript/research-packet batches.
+- Updated README to point readers to the two math references.
+
+**Validation:**
+- `python3 scripts/check_repo_consistency.py` -> PASS.
+- `rg` check confirmed Discovery Sprint, `quick_win`, OpenRouter, and human-verification wording is present.
+
+**Next:** Begin Batch 3: Model And Tool Configuration.

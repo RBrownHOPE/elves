@@ -127,6 +127,9 @@ Model output is never treated as mathematical authority. It can generate ideas, 
 check derivations, audit references, and improve exposition, but claims are not considered verified
 until a human records the proof and source checks.
 
+Start with [`references/math-workflow.md`](references/math-workflow.md) for the operating model and
+[`references/math-plan-template.md`](references/math-plan-template.md) for a ready-to-edit plan.
+
 ### Stage, then launch
 
 Most "the elves stopped" failures come from one mistake: combining a giant plan and the launch

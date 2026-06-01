@@ -21,16 +21,16 @@
     {
       "id": 2,
       "name": "Math Discovery Workflow",
-      "status": "in_progress",
+      "status": "completed",
       "commit": null,
       "rollback_tag": null,
-      "started_at": null,
-      "completed_at": null
+      "started_at": "2026-06-01T15:20:00-04:00",
+      "completed_at": "2026-06-01T15:25:00-04:00"
     },
     {
       "id": 3,
       "name": "Model And Tool Configuration",
-      "status": "pending",
+      "status": "in_progress",
       "commit": null,
       "rollback_tag": null,
       "started_at": null,
@@ -56,10 +56,10 @@
     }
   ],
   "continuation_guard": {
-    "remaining_batches": 4,
+    "remaining_batches": 3,
     "stop_allowed": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Complete Batch 2 math discovery workflow references."
+    "next_required_action": "Complete Batch 3 model and tool configuration."
   },
   "review_comments": []
 }

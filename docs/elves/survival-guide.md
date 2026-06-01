@@ -28,15 +28,15 @@ human verification as a portable documentation-driven workflow kit.
 - **User returns:** not specified
 - **Checkpoint expectation:** PR-ready math module
 - **Time budget:** finite run, no hard deadline
-- **Average batch time so far:** 7m
-- **Batches remaining:** 4 of 5
+- **Average batch time so far:** 6m
+- **Batches remaining:** 3 of 5
 
 ## Stop Gate
 
-- **Planned batches remaining:** 4
+- **Planned batches remaining:** 3
 - **Stop allowed right now:** no
-- **Why:** four implementation batches remain.
-- **Next required action:** complete Batch 2 math discovery workflow references.
+- **Why:** provider configuration, ledgers, consistency, and final review remain.
+- **Next required action:** complete Batch 3 model and tool configuration.
 
 ## Effort Standard
 
@@ -54,7 +54,7 @@ human verification as a portable documentation-driven workflow kit.
 
 ## Current Phase
 
-Batch 1 is complete and Batch 2 is ready to start.
+Batch 2 is complete and Batch 3 is ready to start.
 
 ## Active Compute
 
@@ -62,8 +62,8 @@ No paid compute, model jobs, local servers, or remote jobs are active.
 
 ## Next Exact Batch
 
-Batch 2: add `references/math-workflow.md` and `references/math-plan-template.md`, including the
-Discovery Sprint, subfield-scout pattern, cross-pollination guidance, and ranked research agenda.
+Batch 3: add provider configuration guidance, update `config.json.example`, and extend the
+survival-guide/tool-config examples with OpenRouter-first math role slots.
 
 ## Tool Configuration
 
