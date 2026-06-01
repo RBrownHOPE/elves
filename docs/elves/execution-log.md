@@ -2,11 +2,11 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-01 15:37 EDT
-- **Current phase:** Batch 5 ready
-- **Active batch:** Batch 5: Consistency And Final Review
-- **Last completed batch:** Batch 4: Review Prompts And Ledgers
-- **Next exact batch:** Batch 5: Consistency And Final Review
+- **Last updated:** 2026-06-01 15:33 EDT
+- **Current phase:** Complete / PR review-ready
+- **Active batch:** none
+- **Last completed batch:** Batch 5: Consistency And Final Review
+- **Next exact batch:** none; wait for user review
 - **Active PR:** #24
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -158,7 +158,7 @@ provider hooks, and stable math role slots across the config example and templat
 - Added copyable math configuration blocks to `references/survival-guide-template.md` and
   `references/tool-config-examples.md`.
 - Updated README to link provider setup.
-- Addressed PR feedback by changing `analogues` to `analogs` and smoothing the changelog sentence.
+- Addressed PR feedback by using American spelling and smoothing the changelog sentence.
 
 **Validation:**
 - `python3 -m json.tool config.json.example` -> PASS.
@@ -168,7 +168,7 @@ provider hooks, and stable math role slots across the config example and templat
 
 **Next:** Begin Batch 4: Review Prompts And Ledgers.
 
-## Batch 4 Contract: 2026-06-01 15:32 EDT
+## Batch 4 Contract: 2026-06-01 15:30 EDT
 
 **Goal:** Add reusable math reviewer prompts and artifact ledgers so mathematical claims are
 traceable from idea through human verification.
@@ -190,7 +190,7 @@ traceable from idea through human verification.
   verification.
 - The references distinguish ideas, checks, draft prose, and verified results.
 
-## Batch 4 Completion: 2026-06-01 15:37 EDT
+## Batch 4 Completion: 2026-06-01 15:31 EDT
 
 **Batch:** Review Prompts And Ledgers.
 
@@ -208,3 +208,67 @@ mathematical work.
   ledger, and human-verification language.
 
 **Next:** Begin Batch 5: Consistency And Final Review.
+
+## Batch 5 Contract: 2026-06-01 15:31 EDT
+
+**Goal:** Make the math module durable against documentation drift and confirm the PR is
+review-ready.
+
+**Build on:**
+- Existing phrase-pin pattern in `scripts/check_repo_consistency.py`.
+- The full set of math references and provider configuration added in Batches 1-4.
+- PR #24 review comments from Gemini Code Assist and Copilot.
+
+**Tasks:**
+- Extend `scripts/check_repo_consistency.py` with math-module phrase checks.
+- Run consistency, JSON, Python compile, install-doctor, sync-check, and diff-whitespace gates.
+- Read PR comments and address actionable feedback.
+- Run a final cumulative review.
+
+**Acceptance criteria:**
+- `python3 scripts/check_repo_consistency.py` passes.
+- JSON examples parse.
+- Python scripts compile.
+- `git diff --check` is clean.
+- Installed-skill drift is understood and documented.
+- Final review finds no blocking issues.
+
+## Batch 5 Completion: 2026-06-01 15:33 EDT
+
+**Batch:** Consistency And Final Review.
+
+**Outcome:** Completed. The math workflow kit is implemented and PR #24 is ready for human review.
+
+**Implementation notes:**
+- Extended `scripts/check_repo_consistency.py` with `MATH_MODULE_PHRASES` covering `SKILL.md`,
+  `AGENTS.md`, README, config example, survival-guide/tool-config examples, and every new math
+  reference.
+- Addressed Gemini Code Assist review comments by using American spelling and rephrasing the
+  changelog line.
+- Ran a fresh read-only subagent review. The module content was accepted as substantively complete;
+  the subagent correctly found stale run-state docs and unresolved review-thread bookkeeping, which
+  this closeout entry fixes.
+
+**Validation:**
+- `python3 scripts/check_repo_consistency.py` -> PASS.
+- `python3 -m json.tool .elves-session.json` -> PASS.
+- `python3 -m json.tool config.json.example` -> PASS.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` -> PASS.
+- `git diff --check` -> PASS.
+- `python3 scripts/install_doctor.py --doctor` -> PASS with advisory that this checkout is active.
+- `python3 scripts/sync_installed_skills.py --check` -> expected STALE result because the branch
+  adds new math references and the global Claude/Codex installed skill copies have not been synced
+  from this PR. This is understood and not a branch blocker.
+
+**PR feedback:**
+- Copilot review: no comments.
+- Gemini review: spelling and changelog wording comments addressed in the closeout commit.
+
+**Final readiness review:**
+- Blocking findings from the first read-only review were stale run state, unresolved review threads,
+  uncommitted local fixes, and undocumented installed-copy drift.
+- This closeout records Batch 5 as complete, documents the expected drift, and leaves the PR ready
+  for final thread resolution after push.
+
+**Next:** push this closeout, resolve addressed GitHub review threads, confirm checks, and hand PR
+#24 to the user for review. Do not merge.

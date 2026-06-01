@@ -8,7 +8,7 @@ All notable changes to the Elves skill are documented here.
 
 - Added the planned `v1.12.0` math module as an optional Elves workflow for preliminary research,
   proof search, source audit, paper drafting, and post-draft review.
-- The module starts uncertain mathematical goals with a Discovery Sprint: independent scouts across
+- For uncertain mathematical goals, the module starts with a Discovery Sprint: independent scouts across
   relevant and adjacent subfields look for solved related problems, transferable techniques, natural
   assumptions, and plausible quick wins before theorem drafting begins.
 - Provider guidance is OpenRouter-first, with optional native Gemini, Claude, xAI, OpenAI, Exa, and

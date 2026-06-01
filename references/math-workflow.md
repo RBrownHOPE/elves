@@ -49,7 +49,7 @@ are:
 - **PDE/spectral theory:** eigenvalues, heat kernels, boundary estimates, maximum principles.
 - **Convexity/optimization:** convex bodies, log-concavity, localization, variational methods.
 - **Probability/analysis:** concentration, stochastic representations, functional inequalities.
-- **Algebraic/combinatorial analogues:** discrete models, graph versions, representation-theoretic
+- **Algebraic/combinatorial analogs:** discrete models, graph versions, representation-theoretic
   shadows, extremal constructions.
 - **Numerical experimentation:** asymptotics, model examples, counterexample search, symbolic
   simplification.
