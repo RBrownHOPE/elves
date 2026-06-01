@@ -36,8 +36,9 @@ Stage this Elves run. Do not start implementing the batches in this call.
 **Your job in this call:**
 - Tighten the plan if needed so it can survive compaction without the conversation
 - Generate or refresh the survival guide, learnings file, and execution log
-- Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, and `Active Compute` if relevant
+- Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-in: merge-commit-on-green), and `Active Compute` if relevant
 - Create or switch to the branch, open or update the PR, and record the PR number
+- Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated worktree instead of in the main checkout (`git worktree add -b <branch> ../<repo>-<branch>`), and record the branch tip as a collision tripwire
 - Run preflight and log any warnings or blockers
 - Record any durable-doc paths the run should use (`.ai-docs/*`) if the repo keeps them
 - Prepare a short launch prompt for the next call
@@ -65,8 +66,9 @@ Stage this Elves run. Do not start implementing the batches in this call.
 **Your job in this call:**
 - Tighten the plan if needed so it can survive compaction without the conversation
 - Generate or refresh the survival guide, learnings file, and execution log
-- Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, and `Active Compute` if relevant
+- Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-in: merge-commit-on-green), and `Active Compute` if relevant
 - Create or switch to the branch, open or update the PR, and record the PR number
+- Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated worktree instead of in the main checkout (`git worktree add -b <branch> ../<repo>-<branch>`), and record the branch tip as a collision tripwire
 - Run preflight and log any warnings or blockers
 - Record any durable-doc paths the run should use (`.ai-docs/*`) if the repo keeps them
 - Prepare a short launch prompt for the next call
@@ -75,7 +77,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - Never modify public /api/* response shapes
 - All commits must pass lint and typecheck before push
 - Do not touch the OAuth routes or password reset flow
-- You never merge. The PR is for me to review.
+- You never merge by default. The PR is for me to review (opt into merge-on-green if you want me to land it).
 
 **Stop condition for this call:**
 - Stop only after the run is launch-ready and you have handed me the launch prompt for the next call
@@ -96,6 +98,7 @@ By [WHEN], I want [CHECKPOINT DELIVERABLE]. This is a [delivery checkpoint / har
 Do not stop unless you hit a genuine blocker with no reasonable workaround.
 Do not be lazy. Work as hard as you can for the entire run.
 Do not coast after the first success, first green check, or first useful checkpoint. Push each batch to a thoroughly verified state, then continue immediately.
+If the remaining work feels like a lot for one turn, that is the point: the volume is the reason this run exists, not a reason to stop.
 Every completed batch must end with a commit and push before you start anything else.
 Immediately after every commit and push, re-read the survival guide before any other action.
 If this is a delivery checkpoint, log it, push it, and continue immediately. Do not stop at the checkpoint.
@@ -119,6 +122,7 @@ By 7:30am ET, I want a review-ready checkpoint with green local validation. This
 Do not stop unless you hit a genuine blocker with no reasonable workaround.
 Do not be lazy. Work as hard as you can for the entire run.
 Do not coast after the first success, first green check, or first useful checkpoint. Push each batch to a thoroughly verified state, then continue immediately.
+If the remaining work feels like a lot for one turn, that is the point: the volume is the reason this run exists, not a reason to stop.
 Every completed batch must end with a commit and push before you start anything else.
 Immediately after every commit and push, re-read the survival guide before any other action.
 This checkpoint is for delivery only. Log it, push it, and continue immediately. Do not stop at 7:30am ET.
@@ -179,10 +183,14 @@ the survival guide concise, archive old execution-log entries in place, promote 
 stop idle resources, and write a fresh-thread handoff if the active chat or app becomes sluggish.
 
 **Require a final readiness review**
-Before the final handoff, the agent should run a fresh cumulative review of
-`git diff <default-branch>...HEAD`, all unresolved PR feedback, checks, docs, and memory hygiene.
-Use a review subagent when the platform supports one; otherwise do the review directly. Fix
-blockers and repeat until clean.
+The final step of every run is a final readiness review, and it is not optional. Before the final
+handoff, the agent should run a fresh cumulative review of `git diff <default-branch>...HEAD`, read
+every PR review comment, run every test that makes sense, and confirm checks, docs, and memory
+hygiene are clean. Use a review subagent when the platform supports one; otherwise do the review
+directly. Fix blockers and repeat until you are confident the branch is green. Then hand the user
+the HTML Elves Report and tell them to review it, and either stop for the user to merge or — only
+if the user explicitly set a merge-on-green preference — perform a regular merge commit (never a
+squash).
 
 **Check in with `ra:`**
 You don't have to disappear completely. If you want to give context or change priorities during

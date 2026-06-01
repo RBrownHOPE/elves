@@ -127,6 +127,8 @@ These do not justify stopping an open-ended run:
 - user silence
 - finishing the current batch while later batches remain
 - uncertainty about whether the user wants more progress
+- the remaining work feeling like a lot for one turn — that volume is the reason the run exists, not a reason to stop
+- a clean batch boundary feeling like a natural place to check in — there is no one to check in with; continue
 
 Example for an open-ended QA audit:
 

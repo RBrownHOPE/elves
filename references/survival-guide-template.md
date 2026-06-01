@@ -8,7 +8,7 @@
 > Your core pattern is the Ralph Loop: try, check, feed back, repeat. Each batch is a draft
 > refined through validation and review. The tests are the watch. You are working overnight with
 > no one watching, and the tests are what keep you honest. The user operates on both ends (planning
-> and review). You run the loop in the middle. You never merge.
+> and review). You run the loop in the middle. You never merge unless the user set a merge-on-green preference.
 >
 > Assume the user may be offline for the rest of the run. If work remains and the recorded stop
 > conditions are not met, continue. Do not wait for acknowledgment after commits, checkpoints, or
@@ -36,6 +36,9 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
 - **Checkpoint semantics:** [delivery target only | hard stop boundary | none]
 - **May continue after checkpoint:** [yes | no]
 - **Actual stop conditions:** [one short sentence]
+- **Workspace ownership:** [owned branch + main checkout | dedicated worktree at `../<repo>-<branch>`] — never shared with another active agent
+- **Branch tip at start (collision tripwire):** [`git rev-parse HEAD` recorded at staging; an unexpected move means another writer is in your checkout]
+- **Merge policy:** [user-merges (default — you never merge) | merge-commit-on-green (opt-in: regular merge commit after the final readiness review passes, never squash)]
 - **Final-response policy:** [allowed | disallowed until stop]
 - **Batch completion rule:** Every completed batch ends with `update execution log -> update survival guide -> commit -> push`. A batch is not complete while its finished work exists only in the working tree.
 - **Re-read rule:** Immediately after every commit and push, re-read this survival guide before doing anything else.
@@ -92,6 +95,8 @@ These are not valid reasons to stop the run while work remains:
 - You wrote a useful summary
 - The current batch is complete but later batches remain
 - You feel unsure whether to continue
+- **The remaining work feels like a lot for one turn.** It is supposed to. The volume of work is the entire reason this run exists. The user set it up precisely so you would carry all of it through unattended. "This is a lot for one turn" is the feeling this run is designed to defeat, not a signal to stop.
+- **This feels like a natural place to pause and check in.** There is no one to check in with. A clean batch boundary is the middle of the work, not the end. Go straight to the next batch.
 
 If one of these happens, update the docs, commit, push, re-read this file, and continue.
 
@@ -146,9 +151,10 @@ plan, the codebase, or good engineering practice.
 
 - [Non-negotiable 1, e.g., "Never modify the public REST API response shapes"]
 - [Non-negotiable 2, e.g., "All commits must pass lint and typecheck before push"]
-- [Non-negotiable 3, e.g., "Do not merge. The user merges when they return."]
-- **You never merge. You never approve a merge. This is always a non-negotiable.**
+- [Non-negotiable 3, e.g., "Do not merge unless I set a merge-on-green preference."]
+- **You never merge by default. You never approve a merge. The only exception is an explicit merge-on-green preference recorded in `## Run Control`: a regular merge commit after the final readiness review passes, never a squash.**
 - **Never run destructive git commands:** `git reset --hard`, `git checkout .`, `git clean -fd`, `git push --force`, `git rebase` on shared branches. Never. If you think you need one, stop.
+- **One run owns one branch and one checkout.** Never share a working tree or branch with another active agent. If the branch tip moves to a commit you didn't create, stop — it is a collision, not a diverge.
 - **Never modify a test to make it pass.** Fix the code, not the test. If you believe a test is wrong, log it and move on. Don't change it.
 - **Never introduce regressions.** Every change must preserve existing functionality. Before marking a batch complete, verify: all pre-existing tests still pass (total test count never decreases), no shared utilities or interfaces were broken (grep for consumers), and the cumulative diff (`git diff <default-branch>...HEAD --stat`) contains no unexpected changes outside batch scope.
 
@@ -164,6 +170,7 @@ plan, the codebase, or good engineering practice.
 - [ ] Learnings file initialized or refreshed
 - [ ] Execution log initialized with batch breakdown and preflight notes
 - [ ] Branch created or confirmed
+- [ ] Branch and checkout ownership confirmed (dedicated worktree if other agents may touch the repo); no other agent shares this branch
 - [ ] PR opened or existing PR recorded
 - [ ] Preflight run and critical failures cleared
 - [ ] Run mode, return time, and non-negotiables recorded
@@ -307,6 +314,7 @@ editing live Codex/Claude session databases.
   available, and avoid generic AI-dashboard styling
 - **Template:** use `references/elves-report-template.html` as a starting point when present
 - **Images:** optional only on explicit request; prefer HTML/Markdown for precise audit detail
+- **Deliver to the user:** the final step of the run is a fresh Final Readiness Review (`git diff <default-branch>...HEAD`, every PR comment, and every test that makes sense) confirming the branch is green; then surface the report path in the notification and tell the user to read it before reviewing or merging — or, only if they set a merge-on-green preference, land a regular merge commit (never a squash).
 
 The Elves Report is the workers' morning report to their manager. It should answer: what did the
 elves do, what problems did they find, what changed, how do we know, what did they learn, what still
@@ -446,7 +454,7 @@ notification: pr-comment
    ```
 2. **Never force-push** the working branch.
 3. **Never rebase** the working branch during a run (it invalidates rollback tags).
-4. **Never merge.** Not even a fast-forward. The user merges when they return.
+4. **Never merge by default.** Not even a fast-forward. The user merges when they return — unless they set a merge-on-green preference, in which case you land a regular merge commit (never a squash) only after the final readiness review passes.
 5. **If something goes badly wrong**, stop and create a clean recovery branch from the last good tag instead of rewriting history:
    ```bash
    git checkout -b recovery/from-elves-pre-batch-N elves/pre-batch-N
@@ -454,6 +462,7 @@ notification: pr-comment
    ```
    Then document what happened in the execution log and stop. Leave the original branch untouched for later inspection.
 6. **Stage specific files.** Never `git add -A` blindly. Know what you're committing.
+7. **If the branch tip moves unexpectedly** (HEAD or the remote advanced to a commit you did not create), another agent is in your checkout. Stop, do not commit on top, and surface the collision to the user. Prevent it by owning a dedicated branch and worktree (see `## Run Control`).
 
 ---
 

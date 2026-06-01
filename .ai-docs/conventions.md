@@ -23,6 +23,9 @@
   `scripts/validate_survival_guide.py`. Repo-only maintenance helpers stay in the checkout.
 - Startup installation/update checks must stay advisory-only. They may alert the user, but they
   must never block a run or auto-update the installed skill.
+- When you add a cross-file behavioral concept, pin it with a `*_PHRASES` map in
+  `scripts/check_repo_consistency.py` (e.g. `WORKSPACE_ISOLATION_PHRASES`,
+  `NONSTOP_GUARDRAIL_PHRASES`) so the SKILL / AGENTS / README / template mirror can't silently drift.
 
 ## Documentation as part of done
 
@@ -40,3 +43,9 @@
   hydration or automation machinery without a clear need.
 - Preserve the stage-then-launch model and the PR-centric review loop unless a change explicitly
   improves them.
+- One run owns one branch and one checkout. Never share a working tree or branch with another active
+  agent; use a dedicated `git worktree` when agents may share a repo, and treat an unexpected
+  branch-tip move as a collision (Hard Stop), not a normal diverge.
+- Merge policy: by default the agent never merges and never squashes — the user merges. The user may
+  opt into a `merge-on-green` preference, in which case the agent lands a regular merge commit (never
+  a squash) only after the Final Readiness Review passes.

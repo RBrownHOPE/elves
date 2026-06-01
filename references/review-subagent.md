@@ -208,9 +208,10 @@ After fixing, the coordinator pushes and runs the review subagent again. The loo
 ## Final Readiness Review
 
 Run this once after the final summary and strategic-forgetting pass, before operational-artifact
-cleanup, and before the agent declares the branch review-ready. This is a cumulative performance
-and merge-readiness guard: it catches anything that slipped between per-batch reviews and makes
-sure the user returns to a clean PR and a clean memory workspace.
+cleanup, and before the agent declares the branch review-ready. **This is the mandatory final step
+of every finite run — never skip it.** It is a cumulative performance and merge-readiness guard: it
+catches anything that slipped between per-batch reviews and makes sure the user returns to a clean
+PR and a clean memory workspace, confident the branch is green to merge.
 
 Spawn a fresh review subagent if the platform supports subagents. If not, do the same analysis
 directly.
@@ -229,11 +230,14 @@ Read:
 4. The execution log at [EXECUTION_LOG_PATH]
 5. The survival guide at [SURVIVAL_GUIDE_PATH]
 6. .elves-session.json, especially review_comments and continuation_guard
-7. All unresolved PR review threads, unreplied issue comments, and current check runs
+7. Every PR review comment — resolved and unresolved, from humans, bots, and CI — plus issue comments and current check runs
 8. TODO.md and relevant docs touched by the run
 
+Run (or have the coordinator run and report results if you are read-only):
+- Every test that makes sense to confirm the branch is green: the full test suite plus any E2E or browser checks that apply. Report pass/fail counts and any skips.
+
 Assess:
-- Is the branch ready for the human to review and merge?
+- Is the branch green and ready to merge — for the human to merge, or for an opt-in merge-on-green commit if the user set that preference?
 - Are there any unresolved PR comments, failing checks, missing docs, or unhandled TODOs?
 - Does the cumulative diff include unrelated or surprising files?
 - Did any shared surface change without consumer proof?
@@ -261,6 +265,9 @@ If everything is clean, say: "Final readiness review clean."
 The coordinator fixes blocking findings, resolves or replies to PR comments, updates
 `.elves-session.json`, reruns relevant validation, pushes, and repeats this final review until it
 is clean. After the operational-artifact cleanup commit, poll comments and checks one last time.
+Then hand the user the Elves Report and tell them to review it, and either stop for the user to
+merge or — only if the user set a merge-on-green preference — land a regular merge commit (never a
+squash).
 
 ## When Subagents Aren't Available
 

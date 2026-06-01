@@ -53,3 +53,14 @@ For projects with APIs (REST, GraphQL, exported library interfaces), capture the
 
 - [ ] Add a lightweight release checklist or helper that sweeps embedded version examples,
   changelog heading promotion, and newly added human-facing doc surfaces during a minor release.
+
+## Follow-ups from v1.11.0
+
+- [ ] Consider a deterministic guard (PreToolUse hook or preflight check) that detects when a second
+  agent is operating in the same working tree/branch, complementing the prose-level
+  one-run-one-checkout rule with enforcement (similar to the forbidden-commands hook).
+- [ ] Optional preflight helper that offers to create the dedicated `git worktree` automatically when
+  it detects another active checkout of the same branch.
+- [ ] Partial progress on the v1.8.0 checker-expansion follow-up: v1.11.0 added
+  `WORKSPACE_ISOLATION_PHRASES` (covers the kickoff template, survival-guide template, and README).
+  The overnight-run-report template and `.ai-docs/*` surfaces are still not phrase-pinned.
