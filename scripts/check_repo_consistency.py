@@ -243,6 +243,74 @@ WORKSPACE_ISOLATION_PHRASES = {
     ],
 }
 
+MATH_MODULE_PHRASES = {
+    "SKILL.md": [
+        "## Math Research Workflows",
+        "Discovery Sprint",
+        "OpenRouter",
+        "Never treat model output as mathematical authority",
+    ],
+    "AGENTS.md": [
+        "## Math Research Workflows",
+        "Discovery Sprint",
+        "OpenRouter",
+        "Never treat model output as mathematical authority",
+    ],
+    "README.md": [
+        "### Math research workflows",
+        "Discovery Sprint",
+        "references/math-workflow.md",
+        "references/math-provider-config.md",
+        "references/math-artifact-ledgers.md",
+    ],
+    "references/survival-guide-template.md": [
+        "### Math Configuration (optional)",
+        "math-provider-policy: openrouter-first",
+        "subfield_scout: openrouter:<model-id>",
+        "formalization_scout: openrouter:<model-id>",
+    ],
+    "references/tool-config-examples.md": [
+        "## Math Research Workflow",
+        "math-provider-policy: openrouter-first",
+        "OPENROUTER_API_KEY",
+        "math-ledger-dir: docs/math",
+    ],
+    "references/math-workflow.md": [
+        "## The Discovery Sprint",
+        "## Cross-Pollination",
+        "## Claim Lifecycle",
+        "math-artifact-ledgers.md",
+    ],
+    "references/math-plan-template.md": [
+        "## Batch 1: Discovery Sprint",
+        "algebraic/combinatorial analogs",
+        "Every `quick_win` item has a plausible proof path",
+    ],
+    "references/math-provider-config.md": [
+        "## Role Slots",
+        "OPENROUTER_API_KEY",
+        "record-before-switching-provider",
+    ],
+    "references/math-review-prompts.md": [
+        "## Subfield Scout",
+        "## Proof Critic",
+        "## Source Auditor",
+        "## Formalization Scout",
+    ],
+    "references/math-artifact-ledgers.md": [
+        "## Claim Ledger",
+        "## Source Ledger",
+        "## Model-Call Ledger",
+        "## Human-Verification Ledger",
+    ],
+    "config.json.example": [
+        '"math"',
+        '"provider_policy": "openrouter-first"',
+        '"subfield_scout"',
+        '"fallback_policy": "record-before-switching-provider"',
+    ],
+}
+
 
 def read_text(path: Path) -> str:
     return path.read_text()
@@ -350,6 +418,16 @@ def main() -> int:
             if phrase not in text:
                 errors.append(f"{label}: missing workspace-isolation phrase `{phrase}`")
 
+    for label, phrases in MATH_MODULE_PHRASES.items():
+        path = REPO_ROOT / label
+        if not path.exists():
+            errors.append(f"{label}: missing math-module file")
+            continue
+        text = read_text(path)
+        for phrase in phrases:
+            if phrase not in text:
+                errors.append(f"{label}: missing math-module phrase `{phrase}`")
+
     if errors:
         print("Repo consistency check FAILED")
         for error in errors:
@@ -367,6 +445,7 @@ def main() -> int:
     print("- Final readiness review guardrails are aligned")
     print("- Strategic forgetting and memory hygiene guardrails are aligned")
     print("- Elves Report guardrails are aligned")
+    print("- Math research workflow guardrails are aligned")
     return 0
 
 
