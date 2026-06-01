@@ -270,6 +270,41 @@ notification: pr-comment
 
 ---
 
+## Math Research Workflow
+
+> Use when a run includes preliminary research, proof search, source audit, paper drafting, or
+> post-draft mathematical review. OpenRouter is the baseline; native providers and source-search
+> tools are optional.
+
+```yaml
+## Tool Configuration
+
+review: github-pr-comments
+notification: pr-comment
+
+math-provider-policy: openrouter-first
+math-required-env:
+  - OPENROUTER_API_KEY
+math-optional-env:
+  - GEMINI_API_KEY
+  - ANTHROPIC_API_KEY
+  - XAI_API_KEY
+  - OPENAI_API_KEY
+  - EXA_API_KEY
+math-role-models:
+  subfield_scout: openrouter:<model-id>
+  cross_field_synthesizer: openrouter:<model-id>
+  proof_critic: openrouter:<model-id>
+  derivation_checker: openrouter:<model-id>
+  source_auditor: openrouter:<model-id>
+  exposition_editor: openrouter:<model-id>
+  formalization_scout: openrouter:<model-id>
+math-fallback-policy: record-before-switching-provider
+math-ledger-dir: docs/math
+```
+
+---
+
 ## Notification Options Reference
 
 > Choose one notification method. Only one is active at a time.

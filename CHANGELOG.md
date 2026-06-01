@@ -4,6 +4,22 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-06-01
+
+### Math research workflow kit
+
+- Added the beta math module as an optional Elves workflow for preliminary research, proof search,
+  source audit, paper drafting, and post-draft review.
+- The module is a portable public version of a fuller Aigora workflow: prompts, ledgers, provider
+  roles, and review loops that can run with standard tools.
+- For uncertain mathematical goals, the module starts with a Discovery Sprint: independent scouts across
+  relevant and adjacent subfields look for solved related problems, transferable techniques, natural
+  assumptions, and plausible quick wins before theorem drafting begins.
+- Provider guidance is OpenRouter-first, with optional native Gemini, Claude, xAI, OpenAI, Exa, and
+  local tools configured by role rather than hardcoded model names.
+- The docs distinguish model-generated ideas, checks, and draft prose from human-verified
+  mathematical claims.
+
 ## [1.11.0] - 2026-05-31
 
 ### Run isolation, sharper continuation, and a stronger closeout
