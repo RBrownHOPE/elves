@@ -22,7 +22,7 @@
       "id": 2,
       "name": "Math Discovery Workflow",
       "status": "completed",
-      "commit": null,
+      "commit": "fbbfc3d",
       "rollback_tag": null,
       "started_at": "2026-06-01T15:20:00-04:00",
       "completed_at": "2026-06-01T15:25:00-04:00"
@@ -30,16 +30,16 @@
     {
       "id": 3,
       "name": "Model And Tool Configuration",
-      "status": "in_progress",
+      "status": "completed",
       "commit": null,
       "rollback_tag": null,
-      "started_at": null,
-      "completed_at": null
+      "started_at": "2026-06-01T15:25:00-04:00",
+      "completed_at": "2026-06-01T15:31:00-04:00"
     },
     {
       "id": 4,
       "name": "Review Prompts And Ledgers",
-      "status": "pending",
+      "status": "in_progress",
       "commit": null,
       "rollback_tag": null,
       "started_at": null,
@@ -56,10 +56,10 @@
     }
   ],
   "continuation_guard": {
-    "remaining_batches": 3,
+    "remaining_batches": 2,
     "stop_allowed": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Complete Batch 3 model and tool configuration."
+    "next_required_action": "Complete Batch 4 review prompts and ledgers."
   },
   "review_comments": []
 }

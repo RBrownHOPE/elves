@@ -30,5 +30,30 @@
     "create_reactivation_handoff": true,
     "local_app_cleanup": "inspect-only-unless-user-requests-maintenance",
     "_comment": "Performance hygiene for long runs. Keep live docs concise, archive old log entries in place, and never mutate Codex/Claude app state during a coding run."
+  },
+
+  "math": {
+    "enabled": false,
+    "provider_policy": "openrouter-first",
+    "required_env": ["OPENROUTER_API_KEY"],
+    "optional_env": [
+      "GEMINI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "XAI_API_KEY",
+      "OPENAI_API_KEY",
+      "EXA_API_KEY"
+    ],
+    "ledger_dir": "docs/math",
+    "role_models": {
+      "subfield_scout": "openrouter:<model-id>",
+      "cross_field_synthesizer": "openrouter:<model-id>",
+      "proof_critic": "openrouter:<model-id>",
+      "derivation_checker": "openrouter:<model-id>",
+      "source_auditor": "openrouter:<model-id>",
+      "exposition_editor": "openrouter:<model-id>",
+      "formalization_scout": "openrouter:<model-id>"
+    },
+    "fallback_policy": "record-before-switching-provider",
+    "_comment": "Optional math research workflow configuration. Configure role slots in your project survival guide; do not hardcode private keys or provider secrets."
   }
 }

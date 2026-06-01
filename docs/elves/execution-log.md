@@ -2,11 +2,11 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-01 15:25 EDT
-- **Current phase:** Batch 3 ready
-- **Active batch:** Batch 3: Model And Tool Configuration
-- **Last completed batch:** Batch 2: Math Discovery Workflow
-- **Next exact batch:** Batch 3: Model And Tool Configuration
+- **Last updated:** 2026-06-01 15:31 EDT
+- **Current phase:** Batch 4 ready
+- **Active batch:** Batch 4: Review Prompts And Ledgers
+- **Last completed batch:** Batch 3: Model And Tool Configuration
+- **Next exact batch:** Batch 4: Review Prompts And Ledgers
 - **Active PR:** #24
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -122,3 +122,48 @@ for preliminary mathematical research.
 - `rg` check confirmed Discovery Sprint, `quick_win`, OpenRouter, and human-verification wording is present.
 
 **Next:** Begin Batch 3: Model And Tool Configuration.
+
+## Batch 3 Contract: 2026-06-01 15:25 EDT
+
+**Goal:** Add OpenRouter-first, role-based provider configuration without hardcoding private model
+choices.
+
+**Build on:**
+- Existing `config.json.example` preferences structure.
+- Existing survival-guide and tool-config examples.
+- Batch 2 role vocabulary for scouts, synthesizers, proof critics, source auditors, and
+  formalization scouts.
+
+**Tasks:**
+- Add `references/math-provider-config.md`.
+- Extend `config.json.example`.
+- Extend `references/survival-guide-template.md` and `references/tool-config-examples.md`.
+- Address PR review wording nits from Gemini Code Assist.
+
+**Acceptance criteria:**
+- A user with only `OPENROUTER_API_KEY` can run the baseline workflow.
+- Native Gemini, Claude, xAI, OpenAI, and Exa tools are optional upgrades.
+- Provider configuration is role-based and user-editable.
+
+## Batch 3 Completion: 2026-06-01 15:31 EDT
+
+**Batch:** Model And Tool Configuration.
+
+**Outcome:** Completed. The module now has OpenRouter-first provider guidance, optional native
+provider hooks, and stable math role slots across the config example and templates.
+
+**Implementation notes:**
+- Added `references/math-provider-config.md`.
+- Extended `config.json.example` with an optional `math` block.
+- Added copyable math configuration blocks to `references/survival-guide-template.md` and
+  `references/tool-config-examples.md`.
+- Updated README to link provider setup.
+- Addressed PR feedback by changing `analogues` to `analogs` and smoothing the changelog sentence.
+
+**Validation:**
+- `python3 -m json.tool config.json.example` -> PASS.
+- `python3 -m json.tool .elves-session.json` -> PASS.
+- `python3 scripts/check_repo_consistency.py` -> PASS.
+- `rg` check confirmed provider-policy, role-slot, required-env, and fallback-policy wording.
+
+**Next:** Begin Batch 4: Review Prompts And Ledgers.

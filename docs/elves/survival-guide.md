@@ -29,14 +29,14 @@ human verification as a portable documentation-driven workflow kit.
 - **Checkpoint expectation:** PR-ready math module
 - **Time budget:** finite run, no hard deadline
 - **Average batch time so far:** 6m
-- **Batches remaining:** 3 of 5
+- **Batches remaining:** 2 of 5
 
 ## Stop Gate
 
-- **Planned batches remaining:** 3
+- **Planned batches remaining:** 2
 - **Stop allowed right now:** no
-- **Why:** provider configuration, ledgers, consistency, and final review remain.
-- **Next required action:** complete Batch 3 model and tool configuration.
+- **Why:** review prompts, ledgers, consistency, and final review remain.
+- **Next required action:** complete Batch 4 review prompts and ledgers.
 
 ## Effort Standard
 
@@ -54,7 +54,7 @@ human verification as a portable documentation-driven workflow kit.
 
 ## Current Phase
 
-Batch 2 is complete and Batch 3 is ready to start.
+Batch 3 is complete and Batch 4 is ready to start.
 
 ## Active Compute
 
@@ -62,8 +62,8 @@ No paid compute, model jobs, local servers, or remote jobs are active.
 
 ## Next Exact Batch
 
-Batch 3: add provider configuration guidance, update `config.json.example`, and extend the
-survival-guide/tool-config examples with OpenRouter-first math role slots.
+Batch 4: add `references/math-review-prompts.md` and `references/math-artifact-ledgers.md`, then
+wire them into the README and verification language.
 
 ## Tool Configuration
 

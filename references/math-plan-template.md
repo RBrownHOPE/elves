@@ -28,7 +28,7 @@ Example:
 **Tasks:**
 - [ ] Spawn independent subfield scouts across the default lanes:
   geometry/topology, PDE/spectral theory, convexity/optimization, probability/analysis,
-  algebraic/combinatorial analogues, numerical experimentation, and formalization prospects.
+  algebraic/combinatorial analogs, numerical experimentation, and formalization prospects.
 - [ ] Ask each scout for related solved problems, transferable techniques, natural assumptions,
   early examples/counterexamples, plausible quick wins, proof paths, and source requirements.
 - [ ] Run a cross-field synthesis pass that looks for translations and combinations between scout

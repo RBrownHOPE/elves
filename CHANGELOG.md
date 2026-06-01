@@ -13,8 +13,8 @@ All notable changes to the Elves skill are documented here.
   assumptions, and plausible quick wins before theorem drafting begins.
 - Provider guidance is OpenRouter-first, with optional native Gemini, Claude, xAI, OpenAI, Exa, and
   local tools configured by role rather than hardcoded model names.
-- The docs explicitly distinguish model-generated ideas, checks, and draft prose from
-  human-verified mathematical claims.
+- The docs distinguish model-generated ideas, checks, and draft prose from human-verified
+  mathematical claims.
 
 ## [1.11.0] - 2026-05-31
 
