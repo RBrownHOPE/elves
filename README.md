@@ -107,6 +107,26 @@ Committed examples should use non-identifying sample content. Real reports in `/
 the actual run, but public proof-of-concept pages should avoid private product names, client names,
 people, or project-specific workflows.
 
+### Math research workflows
+
+Elves can be configured for mathematical research runs as well as software work. The math workflow
+is useful for preliminary research, proof search, source audit, paper drafting, and post-draft
+review. It treats a rough mathematical goal as a starting point, not as a hidden theorem: when the
+target is uncertain, the first step is a Discovery Sprint with independent scouts across relevant
+and adjacent subfields.
+
+Those scouts look for related solved problems, transferable techniques, natural assumptions, and
+plausible quick wins. The coordinator then synthesizes their reports into a ranked research agenda
+before narrowing toward conjectures, proofs, or manuscript text. This is deliberately broader than
+keyword search; some of the best opportunities come from translating results across fields that do
+not use the same vocabulary.
+
+The workflow is provider-configurable. OpenRouter is the baseline model provider, while native
+Gemini, Claude, xAI, OpenAI, Exa, and local tools can be assigned to specific roles when available.
+Model output is never treated as mathematical authority. It can generate ideas, stress-test proofs,
+check derivations, audit references, and improve exposition, but claims are not considered verified
+until a human records the proof and source checks.
+
 ### Stage, then launch
 
 Most "the elves stopped" failures come from one mistake: combining a giant plan and the launch
@@ -254,6 +274,8 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Elves Reports**: substantial finite runs end with a temporary static HTML worker-to-manager
   report that highlights status, problems found, lessons learned, collapsible batch timeline,
   validation, residual risks, and human next steps; the agent hands it to you to review at closeout
+- **Math research workflow kit**: optional templates for preliminary discovery, subfield scouting,
+  cross-field synthesis, proof review, source audit, manuscript drafting, and human verification
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`
 - **Auto-discovered validation gates** for Node.js, Python, Go, Rust, and Makefile projects. No configuration required.
 - **Pluggable review**: GitHub PR comments by default (zero config), custom review API opt-in, additional custom checks

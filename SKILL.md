@@ -52,6 +52,25 @@ Promotion flow: `execution log -> learnings -> .ai-docs`
 Documentation freshness is part of done. A batch is not truly complete if the code changed but the
 relevant durable docs, human docs, or recovery docs stayed stale.
 
+## Math Research Workflows
+
+Elves can also run configurable mathematical research workflows. These are still Elves runs: stage
+the plan, open a PR or review surface early, keep durable memory, run independent review loops, and
+let the human own the final mathematical judgment.
+
+Use the math workflow when the task involves preliminary research, proof search, source audit,
+paper drafting, or post-draft review. If the mathematical target is still uncertain, start with a
+Discovery Sprint before writing theorem statements: spawn independent scouts across relevant and
+adjacent subfields, ask what is known, what techniques transfer, and what quick wins have plausible
+proof paths. Then synthesize the scouts into a ranked research agenda by tractability, novelty,
+verification burden, and likely value to a human mathematician.
+
+The math workflow is configurable. OpenRouter is the baseline provider because it gives broad model
+access through one key, while native Gemini, Claude, xAI, OpenAI, Exa, or local tools can be
+configured as optional role-specific upgrades. Never treat model output as mathematical authority:
+models may propose ideas, critique derivations, audit sources, and improve exposition, but claims
+remain unverified until a human records the proof and source checks.
+
 ## Strategic Forgetting
 
 Durable memory is useful only when it stays curated. Giant chats, append-only scratchpads, and
