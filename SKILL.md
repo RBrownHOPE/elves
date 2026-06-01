@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "1.10.1"
+  version: "1.11.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -13,9 +13,11 @@ metadata:
 
 You are the night shift. The user is the day manager handing you written notes before going offline. Your job is to execute plan-driven work autonomously, batch by batch, with testing, review, and documentation, until the plan is complete or you hit a genuine blocker.
 
-**You never merge. The user merges when they return.**
+**You never merge by default — the user merges when they return. The only exception is an explicit merge-on-green opt-in (recorded in Run Control): a regular merge commit after the final readiness review passes, never a squash.**
 
 **This skill is scaffolding.** It gives you a framework: the loop, the documents, the gates. But every project is different. The user will customize the survival guide, the test gates, and the review process for their specific needs. Follow the framework, but adapt to what the project actually requires.
+
+**A run happens in two stages, and they are separate calls.** First you **stage** the run (Phases 1-2 below: clean the plan, set up the branch / PR / worktree, write the survival guide, run preflight) and then stop. Then, in a fresh call, you **start** the run (Phase 3: a short launch prompt turns the loop loose). Most "the elves stopped" failures come from collapsing these into one overloaded message. Stage, then start.
 
 ## Why This Exists
 
@@ -167,6 +169,8 @@ Before sending any final response that would end the turn, answer these question
 6. If open-ended, is there a true blocker with no workaround?
 7. Is any paid compute, remote job, or long-running resource still active or ambiguous?
 
+None of the following is a reason to stop, and each is a rationalization to name and reject: the remaining work *feels like a lot for one turn* (that volume is exactly why the run exists — the user set it up so you would carry all of it through unattended), a clean batch boundary *feels like a natural place to check in* (there is no one to check in with; a batch boundary is the middle of the work), or you have already written a tidy summary. If you are tempted to end the turn because the work feels like enough for now, that temptation is the failure mode this guard exists to catch.
+
 If the answers don't justify stopping, do not send a final response. Continue the run.
 
 ## Phase 1: Planning
@@ -293,6 +297,11 @@ Before the user walks away, verify everything will work. This is part of staging
    - **Cursor / other tools:** check the tool's settings for telemetry and notification options. Disable anything interactive.
    If the user hasn't done this, warn them before they leave. A survey popup at 3am with nobody to dismiss it will stall the entire run.
 9. **Stale branch detection:** check if the branch is behind main.
+10. **Workspace ownership and collision tripwire:** confirm this run owns its branch and its checkout — no other agent (a teammate, another Elves run, or Codex running alongside Claude) is operating in this working tree or on this branch. When other agents may touch the same repo, stage the run in a dedicated git worktree so concurrent agents can't collide:
+    ```bash
+    git worktree add ../<repo>-<branch> <branch>   # then work inside that directory
+    ```
+    Then record the branch tip as your collision tripwire: `git rev-parse HEAD`. If HEAD or the remote branch tip later moves to a commit you did not create, another writer is in your checkout — stop, treat it as a collision (see **Merge Conflicts**), and surface it to the user instead of committing on top.
 
 If the survival guide already exists during staging, set `ELVES_SURVIVAL_GUIDE_PATH` to that file
 before running `./scripts/preflight.sh`. Preflight will run
@@ -316,6 +325,11 @@ Record the time budget in the execution log.
    ```bash
    git checkout -b feat/<name-from-plan>
    ```
+   **One run owns one branch and one checkout.** Never share a working tree or branch with another active agent. If other agents may touch this repo during the run (a teammate, another Elves run, or Codex working alongside Claude), stage the run in a dedicated git worktree so concurrent agents can't overwrite each other's working tree or move your branch out from under you:
+   ```bash
+   git worktree add ../<repo>-<branch> <branch>   # then work inside that directory
+   ```
+   A solo run in a repo no other agent will touch can use the main checkout. Record the branch tip (`git rev-parse HEAD`) as a collision tripwire; an unexpected move means another writer is in your checkout.
 
 2. **Write up the plans.** Generate the survival guide, learnings file, and execution log from templates (if they don't already exist). Read the plan and decompose it into batches. Record the batch breakdown with estimates in the execution log. Commit all planning documents:
    ```bash
@@ -344,7 +358,7 @@ If a PR already exists on the current branch, detect it and skip this setup.
 
 **The PR isn't the deliverable. The deliverable is work that has already been through many review cycles.** By the time the user wakes up, each batch has been implemented, tested, reviewed, fixed, re-tested, and re-reviewed, possibly multiple times. The human's final review is a pass on work that is already tight, not a first look at raw output.
 
-**You never merge. The user merges when they return.**
+**You never merge by default — the user merges when they return. The only exception is an explicit merge-on-green opt-in (recorded in Run Control): a regular merge commit after the final readiness review passes, never a squash.**
 
 When staging is complete, stop and hand the user the launch prompt. The unattended run begins in the next call.
 
@@ -785,6 +799,7 @@ The following commands are **never allowed** under any circumstances. They destr
 - `git push --force` or `git push -f`: rewrites remote history. Never.
 - `git rebase` on a shared/pushed branch: rewrites history other processes depend on.
 - `rm -rf` on any directory outside your immediate working scope.
+- Operating in a working tree or on a branch that another active agent owns. One run owns one branch and one checkout; if another writer is in your checkout, stop — do not commit on top of their work.
 
 If you think you need one of these commands, you're wrong. Find another way. If there truly is no other way, stop and log the situation. The user will handle it when they return.
 
@@ -793,6 +808,8 @@ This rule survives compaction. If you've lost context and aren't sure what is sa
 ## Merge Conflicts
 
 If `git push` fails because the remote branch has diverged (another process merged main, the user pushed a hotfix, CI auto-merged), handle it as follows:
+
+**First, rule out a collision.** Compare the new tip against your collision tripwire (the `git rev-parse HEAD` you recorded at staging). If your branch moved because *another agent committed to the same branch or worked in the same checkout* — not because main advanced or the user pushed a hotfix — this is a collision, not a normal diverge. Stop, log a **Hard Stop**, and surface it to the user. Do not merge your work on top of another agent's in-flight run; two unattended runs sharing one branch cannot be safely reconciled. (Prevent this at staging by owning a dedicated branch and worktree.)
 
 1. **Fetch and merge** the remote branch: `git fetch origin && git merge origin/<your-branch>`. Do not rebase — rebase on a shared/pushed branch is forbidden.
 2. **If the merge is clean** (no conflicts), push and continue.
@@ -947,7 +964,7 @@ Do not call a branch review-ready unless ALL of the following are true:
 2. **Local proof is green on the current tip.** All validation gates pass on the latest commit, not on an earlier commit that has since been amended by review fixes.
 3. **Preview proof is green on the current tip** (if deployed behavior was touched). Re-verify after every push that changes deployed code.
 4. **Artifact inspection done** for any export/download behavior changes. The actual output was inspected, not just the success status.
-5. **Final cumulative review is clean.** A fresh review subagent, if supported by the platform, has reviewed `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, and all unresolved PR comments/checks. If subagents are unavailable, do this review directly. Fix blockers, push, and repeat until the cumulative review is clean.
+5. **Final cumulative review is clean.** A fresh review subagent, if supported by the platform, has reviewed `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, and every PR comment and check (resolved and unresolved), and has run every test that makes sense. If subagents are unavailable, do this review directly. Fix blockers, push, and repeat until the cumulative review is clean.
 6. **PR comments and checks have been polled.** No unresolved threads, no unreplied bot comments, no failing checks.
 7. **Legality check is clean.** If a constitution exists, the judge has run on the final tip with no unresolved FAIL verdicts. WARN findings are documented with reasoning.
 8. **Strategic forgetting is complete.** The survival guide is concise, long execution logs are archived in place, durable lessons are promoted or pruned, and a reactivation handoff exists for any remaining work.
@@ -1038,8 +1055,8 @@ When all batches are done or time is up:
 2. Update `.elves-session.json`.
 3. Do a final TODO.md pass.
 4. Update the survival guide and perform strategic forgetting: condense live state, archive old execution-log entries in place if the log is large, promote durable lessons, prune superseded lessons, and leave a concise reactivation handoff for any remaining work or future follow-up.
-5. **Run the Final Readiness Review before operational-artifact cleanup.** Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if the platform supports it; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json`, and all unresolved PR feedback. Fix blocking findings, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun the final review.
-6. **Generate the Elves Report** for substantial runs. Use the current survival guide, execution log, `.elves-session.json`, learnings file, plan, and live PR/CI state. Include problems found, lessons learned, batch timeline, verification proof, residual risks, and human next steps. Save it under `/tmp` by default and do not commit it unless explicitly configured. This is the last normal point where all operational source documents are guaranteed present; fully regenerate the report here before cleanup if its content changed.
+5. **Run the Final Readiness Review before operational-artifact cleanup. This is the mandatory last step of every finite run — never skip it.** Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if the platform supports it; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json`, and **every** PR review comment (resolved and unresolved, from humans, bots, and CI), and must run every test that makes sense — the full suite plus any E2E or browser checks that apply — so you can be confident the branch is green to merge. Fix blocking findings, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun the final review.
+6. **Generate the Elves Report** for substantial runs. Use the current survival guide, execution log, `.elves-session.json`, learnings file, plan, and live PR/CI state. Include problems found, lessons learned, batch timeline, verification proof, residual risks, and human next steps. Save it under `/tmp` by default and do not commit it unless explicitly configured. This is the last normal point where all operational source documents are guaranteed present; fully regenerate the report here before cleanup if its content changed. The report is the user's morning briefing: surface its path in the final notification and explicitly tell them to read it before reviewing or merging the PR.
 7. **Clean up operational artifacts.** Remove Elves session infrastructure from the branch so the PR diff contains only product code. Use the actual paths from this session (recorded in the survival guide and `.elves-session.json`), not hard-coded defaults:
    ```bash
    git rm <survival-guide-path> <execution-log-path> .elves-session.json
@@ -1051,10 +1068,10 @@ When all batches are done or time is up:
 8. Push.
 9. Poll PR comments and checks one last time after the cleanup commit. If cleanup triggered new feedback or failing checks, address it before notifying. If only live status/check facts changed, update the existing Elves Report from PR/CI. If validation, review findings, residual risks, or batch content changed and the cleaned-up session files are needed, recover them from branch history or regenerate the report before re-running cleanup; do not silently skip the refresh because the files were removed.
 10. Send a notification (Slack webhook, custom command, or PR comment as fallback). Include the
-    Elves Report path, or write `Elves Report: not generated` if the run did not meet report
-    criteria.
+    Elves Report path and tell the user to review it, or write `Elves Report: not generated` if the
+    run did not meet report criteria.
 
-**You don't merge. The PR is ready for the user to review and merge when they return.**
+**Merge decision — the user's preference governs.** By default you do not merge: the PR is green and ready for the user to review and merge when they return. Only if the user has set a merge-on-green preference in Run Control do you merge yourself — and then only after the Final Readiness Review is clean, using a regular merge commit (never a squash). Either way, the Final Readiness Review and the delivered Elves Report are what make the branch trustworthy to merge; that is always the final step.
 
 ## Staying Unattended
 
@@ -1117,8 +1134,9 @@ Bad (no tag, no "do not stop" — agent may pause):
 Stop only when:
 
 1. Genuinely blocked with no viable path. Not a decision, but a dependency you can't resolve.
-2. A merge is requested. You never merge.
+2. A merge is requested and the user has not set a merge-on-green preference. By default you do not merge; hand off and let the user merge. (Only when that preference is set, and only after a clean Final Readiness Review, do you land a regular merge commit yourself instead of stopping.)
 3. A destructive action is required that was explicitly listed as a non-negotiable.
+4. The branch tip moved to a commit you didn't create — another agent is in your checkout. Stop and surface the collision (see **Merge Conflicts**).
 
 Everything else: ambiguous requirements, minor design decisions, unexpected tool behavior. Resolve with your best judgment and document in the execution log.
 

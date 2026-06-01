@@ -4,6 +4,32 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-05-31
+
+### Run isolation, sharper continuation, and a stronger closeout
+
+- **Concurrent-run isolation (new).** One run now owns one branch and one checkout. The skill adds a
+  hard rule against sharing a working tree or branch with another active agent, a strong default to
+  stage in a dedicated `git worktree` (`git worktree add ../<repo>-<branch> <branch>`) when agents
+  may share a repo, and a collision tripwire: the agent records the branch tip at staging and stops
+  if HEAD or the remote moves to a commit it didn't create. Added to Preflight, Stage the Run,
+  Forbidden Commands, Merge Conflicts, Hard Stops, the survival-guide Run Control / Launch Readiness /
+  Non-Negotiables / Rollback sections, the kickoff template, and README. Motivated by a real
+  Claude-and-Codex collision in one shared checkout.
+- **Sharper continuation language.** The Forbidden Stop Reasons and Pre-Final Guard now name the
+  specific rationalizations agents stop on — "the remaining work feels like a lot for one turn" and
+  "this feels like a natural place to check in" — and reframe the volume of remaining work as the
+  reason the run exists, not a reason to stop.
+- **Two-stage lifecycle made explicit.** SKILL.md, AGENTS.md, and README now state up front that a
+  run is two separate calls: first you **stage**, then you **start**. The kickoff template's
+  stage/launch split is reinforced.
+- **Stronger closeout.** The Final Readiness Review is now the mandatory last step of every finite
+  run: review `git diff <default-branch>...HEAD`, read every PR comment, run every test that makes
+  sense, confirm the branch is green, then hand the user the Elves Report and tell them to review it.
+- **Merge-policy opt-in.** Default is unchanged — the user merges; the agent never merges and never
+  squashes. New: the user may set a `merge-on-green` preference in Run Control, in which case the
+  agent lands a regular merge commit (never a squash) after the Final Readiness Review passes.
+
 ## [1.10.1] - 2026-05-09
 
 ### Human-facing Elves Reports

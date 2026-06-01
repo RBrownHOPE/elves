@@ -6,7 +6,9 @@
 
 Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs.
 
-You write the plan and do the final merge. The agent does everything in between.
+You write the plan and own the merge decision. The agent does everything in between.
+
+**Running Elves is a two-stage process: first you _stage_ the run, then in a separate call you _start_ it.** Staging lines up the plan, branch, PR, and survival guide, then stops. Launching is a short second prompt that turns the agent loose. Keeping the two calls separate is the single biggest thing that prevents "the elves stopped" failures — see [Stage, then launch](#stage-then-launch).
 
 **This is still early.** The system I use in production at [Aigora](https://aigora.ai) is more elaborate than what you see here. It includes custom review tools, proprietary verification infrastructure, and integration with our internal deployment pipeline. I've extracted the key ideas and patterns into something that works with standard tools (git, GitHub PRs, CI) so it's useful to anyone, not just people with my exact setup. I'll be using this open-source version myself going forward (with my additional tooling bolted on), so it will continue to improve from real production use. But this is scaffolding, not a finished product. It may not work for you out of the box. Your model, your stack, your test infrastructure, and your review setup will all be different from mine. I'm relying on community feedback to make this skill more generalizable. If something doesn't work, [open an issue](https://github.com/aigorahub/elves/issues). Your experience makes this better for everyone.
 
@@ -123,6 +125,23 @@ Elves works best as a two-call handoff:
 Think of staging as winding the spring. The launch call should feel small because the energy is
 already loaded into the repo artifacts.
 
+### One run, one branch, one checkout
+
+An Elves run owns its branch and its working tree. Never point two agents at the same branch or the
+same checkout. If Claude and Codex (or two Elves runs) write to one branch in one directory, they
+overwrite each other's files and move the branch out from under each other mid-run.
+
+When more than one agent may touch the same repo, give each run its own
+[git worktree](https://git-scm.com/docs/git-worktree):
+
+```bash
+git worktree add ../<repo>-<branch> <branch>   # then run the agent inside that directory
+```
+
+A solo run in a repo no other agent will touch can use the main checkout. Either way, the agent
+records the branch tip at staging as a collision tripwire: if HEAD moves to a commit it didn't
+create, another writer is in the checkout, so it stops instead of committing on top.
+
 ### Codex Goals
 
 Codex Goals can be a useful continuation backend for Elves. Goals keeps Codex working across turns;
@@ -165,7 +184,7 @@ The shape of productive work is changing. The human operates on both ends: speci
 - **Middle (agent):** Open a branch, commit the plans, open a PR, then run the loop: implement, validate, review, fix, iterate. For each batch, the agent builds the code, runs the tests, reads the PR review comments (from bots or humans), fixes what the reviews found, pushes, and iterates until the batch is tight. Then it moves to the next batch. This runs for hours or days while you sleep.
 - **Back end (human):** Review the output. By the time you look at the PR, every batch has already been through multiple rounds of implement-test-review-fix. Your review is a final pass on work that's already tight, not a first look at raw output. 30 minutes to an hour.
 
-The agent never merges. That gate stays with you.
+By default the agent never merges — that gate stays with you. You can opt in to having it land a regular merge commit once the final readiness review is green (never a squash).
 
 ### What to expect
 
@@ -234,7 +253,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
   history in place, promotes durable knowledge, and leaves reactivation handoffs for fresh threads
 - **Elves Reports**: substantial finite runs end with a temporary static HTML worker-to-manager
   report that highlights status, problems found, lessons learned, collapsible batch timeline,
-  validation, residual risks, and human next steps
+  validation, residual risks, and human next steps; the agent hands it to you to review at closeout
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`
 - **Auto-discovered validation gates** for Node.js, Python, Go, Rust, and Makefile projects. No configuration required.
 - **Pluggable review**: GitHub PR comments by default (zero config), custom review API opt-in, additional custom checks
@@ -245,12 +264,15 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **High-risk regression pass**: batches with medium/high blast radius can trigger a second,
   regression-only review pass that traces changed shared surfaces to their consumers and asks only
   "what could this break?"
-- **Final readiness review**: before handoff, the agent runs a fresh cumulative review of
-  `git diff <default-branch>...HEAD`, PR feedback, checks, docs, and memory hygiene so the branch
-  is ready to merge and the workspace is clean to resume
+- **Final readiness review**: the final step of every run is a fresh cumulative review of
+  `git diff <default-branch>...HEAD` — read every PR comment, run every test that makes sense, and
+  confirm checks, docs, and memory hygiene — so you can be confident the branch is green to merge.
+  Then you get the Elves Report to review, and either you merge or (opt-in) the agent lands a
+  regular merge commit on green (never a squash)
 - **Lightweight process retro**: entropy checks can tune the loop itself when the same friction
   repeats, for example by tightening the survival guide, templates, or tool config after repeated
   review findings
+- **Run isolation**: one run owns one branch and one checkout; when agents may share a repo, each run gets its own `git worktree`, and a collision tripwire stops the agent if another writer moves its branch
 - **Merge conflict handling**: when `git push` fails due to a diverged remote, the agent fetches and merges (never rebases), resolves conflicts or triggers a Hard Stop
 - **Two run modes**: finite (deadline-based, default) or open-ended (continue until explicitly stopped). Open-ended mode also covers "checkpointed continuation" runs like "have something by 8am, then keep going." A morning checkpoint, return time, or delivery target is not a stop condition unless the survival guide explicitly marks it as a hard stop.
 - **Live operator brief**: the survival guide is rewritten in place as the run evolves. `Run Control`, `Current Phase`, `Active Compute`, `Stop Gate`, and `Next Exact Batch` stay current; the execution log carries history.
@@ -500,7 +522,7 @@ elves/
 - **Three documents are the agent's memory.** Without them, long runs drift and repeat work. With them, a restarted agent picks up exactly where it left off. These aren't overhead: they're the minimum viable infrastructure for the loop to run unsupervised.
 - **Strategic forgetting keeps memory useful.** Permanent memory should be curated, not accumulated. Preserve decisions and reusable knowledge in handoff docs, learnings, and `.ai-docs`; archive raw history; start fresh threads when huge chats become the bottleneck.
 - **Tests are the watch.** An agent working overnight has no one watching. The tests are the watch. Without them, you wake up to code that compiles, passes lint, and does the wrong thing.
-- **Never merge.** The PR is for review, not for merging. That gate stays with the human.
+- **Never merge by default.** The PR is for review, not merging; that gate stays with the human. The one exception is an explicit opt-in to merge-on-green: a regular merge commit after the final readiness review passes, never a squash.
 - **Document every decision.** Anything the agent decides without user input goes in the execution log under *Decisions made*. The human reviews these choices when they return.
 - **Fail safely, not silently.** If the agent is genuinely blocked, it stops and says so. If a test gate fails, it fixes the issue before continuing. It doesn't skip gates or paper over failures.
 - **Rollback before every batch.** `elves/pre-batch-N` tags mean any batch can be cleanly unwound without touching other work.
@@ -538,6 +560,7 @@ Overnight agent runs fail in predictable ways. Knowing the failure modes makes t
 | **Terminal closes (SSH disconnect)** | The SSH connection drops and the session dies. | Use `tmux` or `screen`. Elves mentions this in the pre-run checklist. |
 | **Agent drifts from the plan** | After many batches, the agent starts making changes that weren't in the plan. | The agent re-reads the survival guide after every commit/push, checks the plan hash to detect modifications, and keeps durable lessons in `learnings.md` so the same confusion doesn't have to be rediscovered. The layered memory system anchors every decision. The survival guide should be rewritten in place as a live control surface, not treated as an append-only history log. |
 | **Merge conflicts on push** | `git push` fails because the remote has diverged. The agent may rebase and lose work, or stall. | Elves instructs the agent to fetch and merge (never rebase on shared branches). If conflicts can't be resolved cleanly, the agent triggers a Hard Stop rather than risking data loss. |
+| **Two agents share a branch/checkout** | Claude and Codex (or two runs) write to the same branch in the same directory and clobber each other's files or move the branch mid-run. | One run owns one branch and one checkout. Use a `git worktree` per run when agents share a repo. The agent records a collision tripwire and stops if its branch tip moves to a commit it didn't create. |
 
 Most of these are prevented by the preflight checks. Run preflight, fix the warnings, and most overnight failures never happen.
 

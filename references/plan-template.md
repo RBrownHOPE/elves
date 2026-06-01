@@ -132,7 +132,7 @@ Example:
 - [Hard constraint, e.g., "Never modify the public REST API response shapes"]
 - [Hard constraint, e.g., "All commits must pass lint and typecheck"]
 - [Hard constraint, e.g., "Do not install new dependencies without noting them in Decisions made"]
-- The agent never merges. The PR is for the user to review and merge on return.
+- The agent never merges by default. The PR is for the user to review and merge on return — unless the user sets a merge-on-green preference, in which case the agent lands a regular merge commit (never a squash) only after the final readiness review passes.
 
 ---
 
@@ -269,7 +269,7 @@ paths. Review carefully.
 - All commits must pass `npm run lint` and `npm run typecheck`
 - Do not install new dependencies without noting them in **Decisions made** in the execution log
 - Do not touch the password reset flow or OAuth routes. Those are in a separate project.
-- The agent never merges. PR is for user review.
+- The agent never merges by default; PR is for user review. (Opt-in: merge-commit-on-green after the final readiness review.)
 
 ---
 

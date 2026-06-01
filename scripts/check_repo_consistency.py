@@ -221,6 +221,28 @@ ELVES_REPORT_PHRASES = {
     ],
 }
 
+WORKSPACE_ISOLATION_PHRASES = {
+    "SKILL.md": [
+        "One run owns one branch and one checkout",
+        "collision tripwire",
+    ],
+    "AGENTS.md": [
+        "One run owns one branch and one checkout",
+        "collision tripwire",
+    ],
+    "README.md": [
+        "One run owns one branch and one checkout",
+        "collision tripwire",
+    ],
+    "references/survival-guide-template.md": [
+        "One run owns one branch and one checkout",
+        "collision tripwire",
+    ],
+    "references/kickoff-prompt-template.md": [
+        "git worktree",
+    ],
+}
+
 
 def read_text(path: Path) -> str:
     return path.read_text()
@@ -321,6 +343,13 @@ def main() -> int:
             if phrase not in text:
                 errors.append(f"{label}: missing Elves Report phrase `{phrase}`")
 
+    for label, phrases in WORKSPACE_ISOLATION_PHRASES.items():
+        path = REPO_ROOT / label
+        text = read_text(path)
+        for phrase in phrases:
+            if phrase not in text:
+                errors.append(f"{label}: missing workspace-isolation phrase `{phrase}`")
+
     if errors:
         print("Repo consistency check FAILED")
         for error in errors:
@@ -332,6 +361,7 @@ def main() -> int:
     print("- Recovery order is aligned across repo docs")
     print("- `PENDING-DOCS` guidance is present where expected")
     print("- Durable docs and learnings surfaces exist")
+    print("- Workspace-isolation guidance is present across docs")
     print("- Non-stop guardrails are aligned across runtime and template docs")
     print("- Effort guardrails are aligned across runtime and template docs")
     print("- Final readiness review guardrails are aligned")
