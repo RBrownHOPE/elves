@@ -183,6 +183,7 @@ REVIEWED_PR_LANDING_FORBIDDEN_PHRASES = {
     ],
     "references/kickoff-prompt-template.md": [
         "merge policy (default: you never merge; opt-in: merge-commit-on-green)",
+        "only if the user explicitly set a merge-on-green preference",
     ],
 }
 

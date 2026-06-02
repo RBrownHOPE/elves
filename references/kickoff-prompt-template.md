@@ -188,9 +188,9 @@ handoff, the agent should run a fresh cumulative review of `git diff <default-br
 every PR review comment, run every test that makes sense, and confirm checks, docs, and memory
 hygiene are clean. Use a review subagent when the platform supports one; otherwise do the review
 directly. Fix blockers and repeat until you are confident the branch is green. Then hand the user
-the HTML Elves Report and tell them to review it, and either stop for the user to merge or — only
-if the user explicitly set a merge-on-green preference — perform a regular merge commit (never a
-squash).
+the HTML Elves Report and tell them to review it. Stop for the user to merge unless they explicitly
+set a merge-on-green preference or asked for the reviewed-PR landing command; in either opt-in path,
+perform a regular merge commit (never a squash).
 
 If the user asks for the reviewed-PR landing command, treat that as a one-off merge opt-in for the
 current PR: get a fresh subagent review of `git diff <default-branch>...HEAD`, read every PR comment

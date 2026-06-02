@@ -71,6 +71,24 @@ class ConsistencyPhraseTests(unittest.TestCase):
             [f"{label}: stale reviewed-PR landing phrase `{stale}`"],
         )
 
+    def test_reviewed_pr_forbidden_corpus_catches_kickoff_final_readiness_drift(self) -> None:
+        label = "references/kickoff-prompt-template.md"
+        stale = "only if the user explicitly set a merge-on-green preference"
+
+        self.assertIn(label, self.consistency.REVIEWED_PR_LANDING_FORBIDDEN_PHRASES)
+        self.assertIn(stale, self.consistency.REVIEWED_PR_LANDING_FORBIDDEN_PHRASES[label])
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.REVIEWED_PR_LANDING_FORBIDDEN_PHRASES,
+            "reviewed-PR landing",
+        )
+
+        self.assertEqual(
+            errors,
+            [f"{label}: stale reviewed-PR landing phrase `{stale}`"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
