@@ -140,34 +140,48 @@ FINAL_READINESS_REVIEW_PHRASES = {
 REVIEWED_PR_LANDING_PHRASES = {
     "SKILL.md": [
         "## Reviewed PR Landing Command",
+        "\\land-pr",
+        "/land-pr",
         "gh pr merge --merge",
         "default when bots are expected",
     ],
     "AGENTS.md": [
         "## Reviewed PR Landing Command",
+        "\\land-pr",
+        "/land-pr",
         "gh pr merge --merge",
         "default when bots are expected",
     ],
     "README.md": [
         "### Reviewed PR landing command",
+        "\\land-pr",
+        "/land-pr",
         "gh pr merge --merge",
         "review the diff from main",
     ],
     "references/review-subagent.md": [
         "### Reviewed PR Landing Command",
+        "\\land-pr",
+        "/land-pr",
         "gh pr merge --merge",
         "one-off merge opt-in",
     ],
     "references/survival-guide-template.md": [
         "reviewed-pr-landing-command",
+        "\\land-pr",
+        "/land-pr",
         "one-off explicit merge opt-in",
     ],
     "references/kickoff-prompt-template.md": [
         "reviewed-PR landing command",
+        "\\land-pr",
+        "/land-pr",
         "gh pr merge --merge",
     ],
     "references/plan-template.md": [
         "reviewed-PR landing command",
+        "\\land-pr",
+        "/land-pr",
     ],
 }
 

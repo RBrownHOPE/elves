@@ -276,6 +276,8 @@ fix findings, test, and merge commit once green, treat that request as a one-off
 the current PR. The reviewer should use the Final Readiness Review shape, with extra attention to
 the live PR feedback queue and whether a regular merge commit is safe now.
 
+The shorthand aliases `\land-pr` and `/land-pr` are explicit reviewed-PR landing commands too.
+
 The coordinator may merge only after the review is clean, the PR is not draft, required checks are
 green, no unresolved requested changes remain, and comments/checks have been polled after the final
 push. Use `gh pr merge --merge`; never squash or rebase for this command.

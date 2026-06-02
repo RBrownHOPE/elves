@@ -16,6 +16,9 @@ When the user asks to get a subagent to review the diff from main, read all PR r
 address findings, run sensible tests, and merge commit once green, treat that as a one-off explicit
 merge opt-in for the current PR. This is a focused landing loop, not a normal unattended run.
 
+Shortcut aliases: `\land-pr` and `/land-pr` are equivalent to the command above. Treat either alias
+as an explicit reviewed-PR landing command and one-off merge opt-in for the current PR.
+
 1. Resolve branch, PR, base branch, draft state, review decision, and checks.
 2. Read every review surface: overview comments, inline comments, review threads, issue comments,
    bot comments, and check runs.

@@ -11,10 +11,12 @@ All notable changes to the Elves skill are documented here.
 - Added an explicit Reviewed PR Landing Command for the common instruction: get a subagent to
   review the diff from main, read every PR review surface, address actionable findings, run the
   tests that make sense, and land with a merge commit once everything is green.
+- Added `\land-pr` and `/land-pr` as shorthand aliases for the Reviewed PR Landing Command.
 - Clarified that this one-off command is an explicit merge opt-in for the current PR while the
   normal Elves default remains unchanged: the human merges unless merge-on-green is explicitly set.
 - Synchronized the command across Claude-compatible `SKILL.md`, Codex `AGENTS.md`, README, review
-  guidance, kickoff and survival-guide templates, and the repo consistency checker.
+  guidance, kickoff and survival-guide templates, and the repo consistency checker, including alias
+  coverage so the shorthand remains present across user-facing docs.
 
 ## [1.12.0] - 2026-06-01
 

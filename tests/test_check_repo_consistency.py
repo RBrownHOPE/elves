@@ -89,6 +89,13 @@ class ConsistencyPhraseTests(unittest.TestCase):
             [f"{label}: stale reviewed-PR landing phrase `{stale}`"],
         )
 
+    def test_reviewed_pr_landing_aliases_are_required_on_user_facing_surfaces(self) -> None:
+        for label in ("SKILL.md", "AGENTS.md", "README.md"):
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.REVIEWED_PR_LANDING_PHRASES)
+                self.assertIn("\\land-pr", self.consistency.REVIEWED_PR_LANDING_PHRASES[label])
+                self.assertIn("/land-pr", self.consistency.REVIEWED_PR_LANDING_PHRASES[label])
+
 
 if __name__ == "__main__":
     unittest.main()

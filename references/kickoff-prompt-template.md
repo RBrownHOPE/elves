@@ -192,10 +192,11 @@ the HTML Elves Report and tell them to review it. Stop for the user to merge unl
 set a merge-on-green preference or asked for the reviewed-PR landing command; in either opt-in path,
 perform a regular merge commit (never a squash).
 
-If the user asks for the reviewed-PR landing command, treat that as a one-off merge opt-in for the
-current PR: get a fresh subagent review of `git diff <default-branch>...HEAD`, read every PR comment
-and check, fix blockers, run sensible tests, wait for asynchronous review/CI updates, re-read the
-feedback queue, and then use `gh pr merge --merge` only when everything is green. Never squash.
+If the user asks for the reviewed-PR landing command, or types `\land-pr` or `/land-pr`, treat that
+as a one-off merge opt-in for the current PR: get a fresh subagent review of
+`git diff <default-branch>...HEAD`, read every PR comment and check, fix blockers, run sensible
+tests, wait for asynchronous review/CI updates, re-read the feedback queue, and then use
+`gh pr merge --merge` only when everything is green. Never squash.
 
 **Check in with `ra:`**
 You don't have to disappear completely. If you want to give context or change priorities during

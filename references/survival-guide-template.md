@@ -38,7 +38,7 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
 - **Actual stop conditions:** [one short sentence]
 - **Workspace ownership:** [owned branch + main checkout | dedicated worktree at `../<repo>-<branch>`] — never shared with another active agent
 - **Branch tip at start (collision tripwire):** [`git rev-parse HEAD` recorded at staging; an unexpected move means another writer is in your checkout]
-- **Merge policy:** [user-merges (default — you never merge) | merge-commit-on-green (opt-in: regular merge commit after the final readiness review passes, never squash) | reviewed-pr-landing-command (one-off explicit merge opt-in for the current PR)]
+- **Merge policy:** [user-merges (default — you never merge) | merge-commit-on-green (opt-in: regular merge commit after the final readiness review passes, never squash) | reviewed-pr-landing-command / `\land-pr` / `/land-pr` (one-off explicit merge opt-in for the current PR)]
 - **Final-response policy:** [allowed | disallowed until stop]
 - **Batch completion rule:** Every completed batch ends with `update execution log -> update survival guide -> commit -> push`. A batch is not complete while its finished work exists only in the working tree.
 - **Re-read rule:** Immediately after every commit and push, re-read this survival guide before doing anything else.

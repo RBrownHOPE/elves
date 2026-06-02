@@ -51,6 +51,9 @@ one more disciplined pass before it lands:
 > Get a subagent to review the diff from main, read all PR review comments, address everything that
 > needs addressing, do all testing that makes sense, and merge commit once all green.
 
+Short form: type `\land-pr` or `/land-pr` on the PR branch. Both aliases mean the same thing as
+the full command above.
+
 That command is an explicit one-off merge opt-in for the current PR. The agent reads every review
 surface, gets a fresh subagent review of `git diff <default-branch>...HEAD` when supported, fixes
 blockers, runs sensible targeted and broad checks, waits for asynchronous reviewers and CI after

@@ -1,6 +1,6 @@
 ---
 name: elves
-description: Autonomous multi-batch development agent for long unattended runs and reviewed-PR landing. Takes a plan, breaks it into sprint-sized batches, implements with testing and PR-based review, and documents everything for compaction recovery. Use when user says "run overnight", "I'm going offline", "implement this plan", "keep going without me", "do not stop", "I'll be back in the morning", "run this end-to-end", or asks to get a subagent to review the diff from main, read PR comments, test, fix, and merge commit once green.
+description: Autonomous multi-batch development agent for long unattended runs and reviewed-PR landing. Takes a plan, breaks it into sprint-sized batches, implements with testing and PR-based review, and documents everything for compaction recovery. Use when user says "run overnight", "I'm going offline", "implement this plan", "keep going without me", "do not stop", "I'll be back in the morning", "run this end-to-end", asks to get a subagent to review the diff from main, read PR comments, test, fix, and merge commit once green, or types \land-pr or /land-pr.
 license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
@@ -26,6 +26,9 @@ review comments, address everything that needs addressing, test what makes sense
 once all green,"** treat that as a one-off explicit merge opt-in for the current PR. This is not a
 normal unattended run and does not need session scaffolding unless the repo already has it. It is a
 focused landing loop:
+
+Shortcut aliases: `\land-pr` and `/land-pr` are equivalent to the phrase above. Treat either alias
+as an explicit reviewed-PR landing command and one-off merge opt-in for the current PR.
 
 1. Resolve the current branch, PR number, base branch, and draft/check status.
 2. Read every review surface: PR overview comments, inline review comments, review threads, issue
