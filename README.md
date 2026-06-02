@@ -56,7 +56,9 @@ surface, gets a fresh subagent review of `git diff <default-branch>...HEAD` when
 blockers, runs sensible targeted and broad checks, waits for asynchronous reviewers and CI after
 each push, re-reads the feedback queue, and finally lands with `gh pr merge --merge` only when the
 PR is not draft, the worktree is clean, checks are green, and there are no unresolved requested
-changes. It never squashes or rebases for this command.
+changes. It never squashes or rebases for this command. Agentic work should keep a merge bubble:
+if the run later needs to be reverted, audited, or split apart, the merge commit gives you a clean
+track to pull up without rewriting the whole history.
 
 ### The layered memory system
 
@@ -228,7 +230,7 @@ The shape of productive work is changing. The human operates on both ends: speci
 - **Middle (agent):** Open a branch, commit the plans, open a PR, then run the loop: implement, validate, review, fix, iterate. For each batch, the agent builds the code, runs the tests, reads the PR review comments (from bots or humans), fixes what the reviews found, pushes, and iterates until the batch is tight. Then it moves to the next batch. This runs for hours or days while you sleep.
 - **Back end (human):** Review the output. By the time you look at the PR, every batch has already been through multiple rounds of implement-test-review-fix. Your review is a final pass on work that's already tight, not a first look at raw output. 30 minutes to an hour.
 
-By default the agent never merges; that gate stays with you. You can opt in to having it land a regular merge commit once the final readiness review is green (never a squash).
+By default the agent never merges; that gate stays with you. You can opt in to having it land a regular merge commit once the final readiness review is green (never a squash). For agentic work, prefer merge commits because they preserve the run as a single inspectable unit that can be reverted or dissected later.
 
 ### What to expect
 
@@ -571,7 +573,7 @@ elves/
 - **Three documents are the agent's memory.** Without them, long runs drift and repeat work. With them, a restarted agent picks up exactly where it left off. These aren't overhead: they're the minimum viable infrastructure for the loop to run unsupervised.
 - **Strategic forgetting keeps memory useful.** Permanent memory should be curated, not accumulated. Preserve decisions and reusable knowledge in handoff docs, learnings, and `.ai-docs`; archive raw history; start fresh threads when huge chats become the bottleneck.
 - **Tests are the watch.** An agent working overnight has no one watching. The tests are the watch. Without them, you wake up to code that compiles, passes lint, and does the wrong thing.
-- **Never merge by default.** The PR is for review, not merging; that gate stays with the human. The exceptions are explicit: either merge-on-green in Run Control, or the reviewed-PR landing command. In both cases the agent lands a regular merge commit after the final readiness review passes, never a squash.
+- **Never merge by default.** The PR is for review, not merging; that gate stays with the human. The exceptions are explicit: either merge-on-green in Run Control, or the reviewed-PR landing command. In both cases the agent lands a regular merge commit after the final readiness review passes, never a squash. Merge commits are preferred for agentic work because they preserve a clean boundary around the whole run, which makes later rollback, audit, or surgery much easier.
 - **Document every decision.** Anything the agent decides without user input goes in the execution log under *Decisions made*. The human reviews these choices when they return.
 - **Fail safely, not silently.** If the agent is genuinely blocked, it stops and says so. If a test gate fails, it fixes the issue before continuing. It doesn't skip gates or paper over failures.
 - **Rollback before every batch.** `elves/pre-batch-N` tags mean any batch can be cleanly unwound without touching other work.
