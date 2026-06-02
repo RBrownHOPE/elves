@@ -285,7 +285,7 @@ If a PR already exists on the branch, detect it and skip.
 
 **Don't wait to open the PR.** Open it after the first pushed commit — even if it's just session setup documents. Do not delay until the branch is "nearly done" or until the first implementation batch is complete. The PR is your collaboration surface, your review loop, and your visibility tool. Every hour without a PR is an hour where bots can't review, the user can't check in, and comments can't accumulate. Keep using the same PR throughout the run; do not create new PRs for subsequent batches.
 
-**The PR isn't the deliverable. The deliverable is work that is ready to review.** You never merge by default — that gate stays with the user unless they set a merge-on-green preference.
+**The PR isn't the deliverable. The deliverable is work that is ready to review.** You never merge by default — that gate stays with the user unless they set a merge-on-green preference or invoke the Reviewed PR Landing Command.
 
 When staging is complete, stop and hand the user the launch prompt. The unattended run begins in the next call.
 
@@ -743,7 +743,7 @@ When all batches are done (or time is up):
    gh pr comment --body "## Elves Session Complete\n\n**Batches:** N of M\n**Status:** [status]\n**Elves Report:** /tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html (please review)\n\nSee execution log for details."
    ```
 
-**Merge decision — the user's preference governs.** By default you do not merge: the PR is green and ready for the user to review and merge when they return. Only if the user has set a merge-on-green preference in Run Control do you merge yourself — and then only after the Final Readiness Review is clean, using a regular merge commit (never a squash). Either way, the Final Readiness Review and the delivered Elves Report are what make the branch trustworthy to merge; that is always the final step.
+**Merge decision — the user's preference governs.** By default you do not merge: the PR is green and ready for the user to review and merge when they return. Merge yourself only if the user has set a merge-on-green preference in Run Control or explicitly invoked the Reviewed PR Landing Command — and then only after the Final Readiness Review is clean, using a regular merge commit (never a squash). Either way, the Final Readiness Review and the delivered Elves Report are what make the branch trustworthy to merge; that is always the final step.
 
 ## Staying Unattended
 
@@ -775,7 +775,7 @@ The only exception: an explicit **"stop"** — even with the tag — triggers a 
 
 Stop only when:
 1. Genuinely blocked with no viable path.
-2. A merge is requested and the user has not set a merge-on-green preference. By default you do not merge; hand off and let the user merge. (Only when that preference is set, and only after a clean Final Readiness Review, do you land a regular merge commit yourself (never a squash) instead of stopping.)
+2. A merge is requested and the user has neither set a merge-on-green preference nor invoked the Reviewed PR Landing Command. By default you do not merge; hand off and let the user merge. (Only in those explicit opt-in cases, and only after a clean Final Readiness Review, do you land a regular merge commit yourself (never a squash) instead of stopping.)
 3. A destructive action is required that was explicitly listed as a non-negotiable in the survival guide.
 4. The branch tip moved to a commit you didn't create — another agent is in your checkout. Stop and surface the collision (see **Merge Conflicts**).
 

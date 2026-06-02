@@ -1122,7 +1122,7 @@ When all batches are done or time is up:
     Elves Report path and tell the user to review it, or write `Elves Report: not generated` if the
     run did not meet report criteria.
 
-**Merge decision — the user's preference governs.** By default you do not merge: the PR is green and ready for the user to review and merge when they return. Only if the user has set a merge-on-green preference in Run Control do you merge yourself — and then only after the Final Readiness Review is clean, using a regular merge commit (never a squash). Either way, the Final Readiness Review and the delivered Elves Report are what make the branch trustworthy to merge; that is always the final step.
+**Merge decision — the user's preference governs.** By default you do not merge: the PR is green and ready for the user to review and merge when they return. Merge yourself only if the user has set a merge-on-green preference in Run Control or explicitly invoked the Reviewed PR Landing Command — and then only after the Final Readiness Review is clean, using a regular merge commit (never a squash). Either way, the Final Readiness Review and the delivered Elves Report are what make the branch trustworthy to merge; that is always the final step.
 
 ## Staying Unattended
 
@@ -1185,7 +1185,7 @@ Bad (no tag, no "do not stop" — agent may pause):
 Stop only when:
 
 1. Genuinely blocked with no viable path. Not a decision, but a dependency you can't resolve.
-2. A merge is requested and the user has not set a merge-on-green preference. By default you do not merge; hand off and let the user merge. (Only when that preference is set, and only after a clean Final Readiness Review, do you land a regular merge commit yourself (never a squash) instead of stopping.)
+2. A merge is requested and the user has neither set a merge-on-green preference nor invoked the Reviewed PR Landing Command. By default you do not merge; hand off and let the user merge. (Only in those explicit opt-in cases, and only after a clean Final Readiness Review, do you land a regular merge commit yourself (never a squash) instead of stopping.)
 3. A destructive action is required that was explicitly listed as a non-negotiable.
 4. The branch tip moved to a commit you didn't create — another agent is in your checkout. Stop and surface the collision (see **Merge Conflicts**).
 
