@@ -137,6 +137,40 @@ FINAL_READINESS_REVIEW_PHRASES = {
     ],
 }
 
+REVIEWED_PR_LANDING_PHRASES = {
+    "SKILL.md": [
+        "## Reviewed PR Landing Command",
+        "gh pr merge --merge",
+        "default when bots are expected",
+    ],
+    "AGENTS.md": [
+        "## Reviewed PR Landing Command",
+        "gh pr merge --merge",
+        "default when bots are expected",
+    ],
+    "README.md": [
+        "### Reviewed PR landing command",
+        "gh pr merge --merge",
+        "review the diff from main",
+    ],
+    "references/review-subagent.md": [
+        "### Reviewed PR Landing Command",
+        "gh pr merge --merge",
+        "one-off merge opt-in",
+    ],
+    "references/survival-guide-template.md": [
+        "reviewed-pr-landing-command",
+        "one-off explicit merge opt-in",
+    ],
+    "references/kickoff-prompt-template.md": [
+        "reviewed-PR landing command",
+        "gh pr merge --merge",
+    ],
+    "references/plan-template.md": [
+        "reviewed-PR landing command",
+    ],
+}
+
 MEMORY_HYGIENE_PHRASES = {
     "SKILL.md": [
         "## Strategic Forgetting",
@@ -428,6 +462,13 @@ def main() -> int:
             if phrase not in text:
                 errors.append(f"{label}: missing math-module phrase `{phrase}`")
 
+    for label, phrases in REVIEWED_PR_LANDING_PHRASES.items():
+        path = REPO_ROOT / label
+        text = read_text(path)
+        for phrase in phrases:
+            if phrase not in text:
+                errors.append(f"{label}: missing reviewed-PR landing phrase `{phrase}`")
+
     if errors:
         print("Repo consistency check FAILED")
         for error in errors:
@@ -446,6 +487,7 @@ def main() -> int:
     print("- Strategic forgetting and memory hygiene guardrails are aligned")
     print("- Elves Report guardrails are aligned")
     print("- Math research workflow guardrails are aligned")
+    print("- Reviewed PR landing command guardrails are aligned")
     return 0
 
 

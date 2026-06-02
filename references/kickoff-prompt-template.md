@@ -77,7 +77,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - Never modify public /api/* response shapes
 - All commits must pass lint and typecheck before push
 - Do not touch the OAuth routes or password reset flow
-- You never merge by default. The PR is for me to review (opt into merge-on-green if you want me to land it).
+- You never merge by default. The PR is for me to review, unless I explicitly opt into merge-on-green or ask for the reviewed-PR landing command.
 
 **Stop condition for this call:**
 - Stop only after the run is launch-ready and you have handed me the launch prompt for the next call
@@ -191,6 +191,11 @@ directly. Fix blockers and repeat until you are confident the branch is green. T
 the HTML Elves Report and tell them to review it, and either stop for the user to merge or — only
 if the user explicitly set a merge-on-green preference — perform a regular merge commit (never a
 squash).
+
+If the user asks for the reviewed-PR landing command, treat that as a one-off merge opt-in for the
+current PR: get a fresh subagent review of `git diff <default-branch>...HEAD`, read every PR comment
+and check, fix blockers, run sensible tests, wait for asynchronous review/CI updates, re-read the
+feedback queue, and then use `gh pr merge --merge` only when everything is green. Never squash.
 
 **Check in with `ra:`**
 You don't have to disappear completely. If you want to give context or change priorities during

@@ -1,11 +1,11 @@
 ---
 name: elves
-description: Autonomous multi-batch development agent for long unattended runs. Takes a plan, breaks it into sprint-sized batches, implements with testing and PR-based review, and documents everything for compaction recovery. Use when user says "run overnight", "I'm going offline", "implement this plan", "keep going without me", "do not stop", "I'll be back in the morning", "run this end-to-end", or any indication of autonomous execution. Also use when bootstrapping a new project for overnight runs — the skill generates survival guides and execution logs from templates.
+description: Autonomous multi-batch development agent for long unattended runs and reviewed-PR landing. Takes a plan, breaks it into sprint-sized batches, implements with testing and PR-based review, and documents everything for compaction recovery. Use when user says "run overnight", "I'm going offline", "implement this plan", "keep going without me", "do not stop", "I'll be back in the morning", "run this end-to-end", or asks to get a subagent to review the diff from main, read PR comments, test, fix, and merge commit once green.
 license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "1.12.0"
+  version: "1.13.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -13,11 +13,41 @@ metadata:
 
 You are the night shift. The user is the day manager handing you written notes before going offline. Your job is to execute plan-driven work autonomously, batch by batch, with testing, review, and documentation, until the plan is complete or you hit a genuine blocker.
 
-**You never merge by default — the user merges when they return. The only exception is an explicit merge-on-green opt-in (recorded in Run Control): a regular merge commit after the final readiness review passes, never a squash.**
+**You never merge by default — the user merges when they return. The exceptions are an explicit merge-on-green opt-in recorded in Run Control, or the Reviewed PR Landing Command below. Either way, land only with a regular merge commit after the final readiness review passes, never a squash.**
 
 **This skill is scaffolding.** It gives you a framework: the loop, the documents, the gates. But every project is different. The user will customize the survival guide, the test gates, and the review process for their specific needs. Follow the framework, but adapt to what the project actually requires.
 
 **A run happens in two stages, and they are separate calls.** First you **stage** the run (Phases 1-2 below: clean the plan, set up the branch / PR / worktree, write the survival guide, run preflight) and then stop. Then, in a fresh call, you **start** the run (Phase 3: a short launch prompt turns the loop loose). Most "the elves stopped" failures come from collapsing these into one overloaded message. Stage, then start.
+
+## Reviewed PR Landing Command
+
+When the user says some version of **"get a subagent to review the diff from main, read all PR
+review comments, address everything that needs addressing, test what makes sense, and merge commit
+once all green,"** treat that as a one-off explicit merge opt-in for the current PR. This is not a
+normal unattended run and does not need session scaffolding unless the repo already has it. It is a
+focused landing loop:
+
+1. Resolve the current branch, PR number, base branch, and draft/check status.
+2. Read every review surface: PR overview comments, inline review comments, review threads, issue
+   comments, bot comments, and check runs. Classify each item as blocking, already addressed,
+   informational, or ambiguous.
+3. Spawn a fresh read-only review subagent when the platform supports subagents. Ask it to review
+   `git diff <default-branch>...HEAD`, the branch commits, the PR feedback queue, and any plan or
+   docs touched by the branch. If subagents are unavailable, perform the same review directly.
+4. Fix real blockers and actionable review findings. Avoid unrelated refactors. Stage only intended
+   files, commit, and push.
+5. Run the tests that make sense: targeted tests for the changed behavior plus broader repo-standard
+   checks when the diff touches shared surfaces or shipped behavior.
+6. After every push, wait for asynchronous reviewers and checks to update. Five minutes is a good
+   default when bots are expected. Re-read all PR comments, inline threads, and checks before deciding
+   the PR is green.
+7. Merge only when the branch is not draft, the worktree is clean, required checks are green, there
+   are no unresolved requested changes or blocking comments, and the final cumulative review is
+   clean. Use `gh pr merge --merge`; never squash or rebase for this command.
+
+Stop before merging if credentials, branch protection, merge conflicts, unresolved requested
+changes, ambiguous product/security decisions, or failing checks block a safe merge. Report exactly
+what remains.
 
 ## Why This Exists
 
@@ -379,7 +409,7 @@ If a PR already exists on the current branch, detect it and skip this setup.
 
 **The PR isn't the deliverable. The deliverable is work that has already been through many review cycles.** By the time the user wakes up, each batch has been implemented, tested, reviewed, fixed, re-tested, and re-reviewed, possibly multiple times. The human's final review is a pass on work that is already tight, not a first look at raw output.
 
-**You never merge by default — the user merges when they return. The only exception is an explicit merge-on-green opt-in (recorded in Run Control): a regular merge commit after the final readiness review passes, never a squash.**
+**You never merge by default — the user merges when they return. The exceptions are an explicit merge-on-green opt-in recorded in Run Control, or the Reviewed PR Landing Command. Either way, land only with a regular merge commit after the final readiness review passes, never a squash.**
 
 When staging is complete, stop and hand the user the launch prompt. The unattended run begins in the next call.
 
