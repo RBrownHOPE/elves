@@ -53,6 +53,24 @@ class ConsistencyPhraseTests(unittest.TestCase):
             [f"SKILL.md: stale reviewed-PR landing phrase `{stale}`"],
         )
 
+    def test_reviewed_pr_forbidden_corpus_catches_kickoff_merge_policy(self) -> None:
+        label = "references/kickoff-prompt-template.md"
+        stale = "merge policy (default: you never merge; opt-in: merge-commit-on-green)"
+
+        self.assertIn(label, self.consistency.REVIEWED_PR_LANDING_FORBIDDEN_PHRASES)
+        self.assertIn(stale, self.consistency.REVIEWED_PR_LANDING_FORBIDDEN_PHRASES[label])
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.REVIEWED_PR_LANDING_FORBIDDEN_PHRASES,
+            "reviewed-PR landing",
+        )
+
+        self.assertEqual(
+            errors,
+            [f"{label}: stale reviewed-PR landing phrase `{stale}`"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

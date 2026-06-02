@@ -181,6 +181,9 @@ REVIEWED_PR_LANDING_FORBIDDEN_PHRASES = {
         "A merge is requested and the user has not set a merge-on-green preference.",
         "that gate stays with the user unless they set a merge-on-green preference.",
     ],
+    "references/kickoff-prompt-template.md": [
+        "merge policy (default: you never merge; opt-in: merge-commit-on-green)",
+    ],
 }
 
 MEMORY_HYGIENE_PHRASES = {

@@ -36,7 +36,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 **Your job in this call:**
 - Tighten the plan if needed so it can survive compaction without the conversation
 - Generate or refresh the survival guide, learnings file, and execution log
-- Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-in: merge-commit-on-green), and `Active Compute` if relevant
+- Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-ins: merge-commit-on-green or reviewed-pr-landing-command), and `Active Compute` if relevant
 - Create or switch to the branch, open or update the PR, and record the PR number
 - Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated worktree instead of in the main checkout (`git worktree add -b <branch> ../<repo>-<branch>`), and record the branch tip as a collision tripwire
 - Run preflight and log any warnings or blockers
@@ -66,7 +66,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 **Your job in this call:**
 - Tighten the plan if needed so it can survive compaction without the conversation
 - Generate or refresh the survival guide, learnings file, and execution log
-- Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-in: merge-commit-on-green), and `Active Compute` if relevant
+- Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-ins: merge-commit-on-green or reviewed-pr-landing-command), and `Active Compute` if relevant
 - Create or switch to the branch, open or update the PR, and record the PR number
 - Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated worktree instead of in the main checkout (`git worktree add -b <branch> ../<repo>-<branch>`), and record the branch tip as a collision tripwire
 - Run preflight and log any warnings or blockers
