@@ -36,7 +36,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 **Your job in this call:**
 - Tighten the plan if needed so it can survive compaction without the conversation
 - Generate or refresh the survival guide, learnings file, and execution log
-- Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-in: merge-commit-on-green), and `Active Compute` if relevant
+- Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-ins: merge-commit-on-green or reviewed-pr-landing-command), and `Active Compute` if relevant
 - Create or switch to the branch, open or update the PR, and record the PR number
 - Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated worktree instead of in the main checkout (`git worktree add -b <branch> ../<repo>-<branch>`), and record the branch tip as a collision tripwire
 - Run preflight and log any warnings or blockers
@@ -66,7 +66,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 **Your job in this call:**
 - Tighten the plan if needed so it can survive compaction without the conversation
 - Generate or refresh the survival guide, learnings file, and execution log
-- Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-in: merge-commit-on-green), and `Active Compute` if relevant
+- Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-ins: merge-commit-on-green or reviewed-pr-landing-command), and `Active Compute` if relevant
 - Create or switch to the branch, open or update the PR, and record the PR number
 - Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated worktree instead of in the main checkout (`git worktree add -b <branch> ../<repo>-<branch>`), and record the branch tip as a collision tripwire
 - Run preflight and log any warnings or blockers
@@ -77,7 +77,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - Never modify public /api/* response shapes
 - All commits must pass lint and typecheck before push
 - Do not touch the OAuth routes or password reset flow
-- You never merge by default. The PR is for me to review (opt into merge-on-green if you want me to land it).
+- You never merge by default. The PR is for me to review, unless I explicitly opt into merge-on-green or ask for the reviewed-PR landing command.
 
 **Stop condition for this call:**
 - Stop only after the run is launch-ready and you have handed me the launch prompt for the next call
@@ -188,9 +188,14 @@ handoff, the agent should run a fresh cumulative review of `git diff <default-br
 every PR review comment, run every test that makes sense, and confirm checks, docs, and memory
 hygiene are clean. Use a review subagent when the platform supports one; otherwise do the review
 directly. Fix blockers and repeat until you are confident the branch is green. Then hand the user
-the HTML Elves Report and tell them to review it, and either stop for the user to merge or — only
-if the user explicitly set a merge-on-green preference — perform a regular merge commit (never a
-squash).
+the HTML Elves Report and tell them to review it. Stop for the user to merge unless they explicitly
+set a merge-on-green preference or asked for the reviewed-PR landing command; in either opt-in path,
+perform a regular merge commit (never a squash).
+
+If the user asks for the reviewed-PR landing command, treat that as a one-off merge opt-in for the
+current PR: get a fresh subagent review of `git diff <default-branch>...HEAD`, read every PR comment
+and check, fix blockers, run sensible tests, wait for asynchronous review/CI updates, re-read the
+feedback queue, and then use `gh pr merge --merge` only when everything is green. Never squash.
 
 **Check in with `ra:`**
 You don't have to disappear completely. If you want to give context or change priorities during

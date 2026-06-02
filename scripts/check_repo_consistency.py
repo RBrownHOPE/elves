@@ -137,6 +137,56 @@ FINAL_READINESS_REVIEW_PHRASES = {
     ],
 }
 
+REVIEWED_PR_LANDING_PHRASES = {
+    "SKILL.md": [
+        "## Reviewed PR Landing Command",
+        "gh pr merge --merge",
+        "default when bots are expected",
+    ],
+    "AGENTS.md": [
+        "## Reviewed PR Landing Command",
+        "gh pr merge --merge",
+        "default when bots are expected",
+    ],
+    "README.md": [
+        "### Reviewed PR landing command",
+        "gh pr merge --merge",
+        "review the diff from main",
+    ],
+    "references/review-subagent.md": [
+        "### Reviewed PR Landing Command",
+        "gh pr merge --merge",
+        "one-off merge opt-in",
+    ],
+    "references/survival-guide-template.md": [
+        "reviewed-pr-landing-command",
+        "one-off explicit merge opt-in",
+    ],
+    "references/kickoff-prompt-template.md": [
+        "reviewed-PR landing command",
+        "gh pr merge --merge",
+    ],
+    "references/plan-template.md": [
+        "reviewed-PR landing command",
+    ],
+}
+
+REVIEWED_PR_LANDING_FORBIDDEN_PHRASES = {
+    "SKILL.md": [
+        "Only if the user has set a merge-on-green preference in Run Control do you merge yourself",
+        "A merge is requested and the user has not set a merge-on-green preference.",
+    ],
+    "AGENTS.md": [
+        "Only if the user has set a merge-on-green preference in Run Control do you merge yourself",
+        "A merge is requested and the user has not set a merge-on-green preference.",
+        "that gate stays with the user unless they set a merge-on-green preference.",
+    ],
+    "references/kickoff-prompt-template.md": [
+        "merge policy (default: you never merge; opt-in: merge-commit-on-green)",
+        "only if the user explicitly set a merge-on-green preference",
+    ],
+}
+
 MEMORY_HYGIENE_PHRASES = {
     "SKILL.md": [
         "## Strategic Forgetting",
@@ -337,6 +387,34 @@ def verify_order(label: str, text: str, tokens: list[str], errors: list[str]) ->
         cursor = index + len(token)
 
 
+def find_missing_phrases(
+    texts: dict[str, str],
+    phrase_map: dict[str, list[str]],
+    category: str,
+) -> list[str]:
+    errors: list[str] = []
+    for label, phrases in phrase_map.items():
+        text = texts.get(label, "")
+        for phrase in phrases:
+            if phrase not in text:
+                errors.append(f"{label}: missing {category} phrase `{phrase}`")
+    return errors
+
+
+def find_forbidden_phrases(
+    texts: dict[str, str],
+    phrase_map: dict[str, list[str]],
+    category: str,
+) -> list[str]:
+    errors: list[str] = []
+    for label, phrases in phrase_map.items():
+        text = texts.get(label, "")
+        for phrase in phrases:
+            if phrase in text:
+                errors.append(f"{label}: stale {category} phrase `{phrase}`")
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
 
@@ -428,6 +506,25 @@ def main() -> int:
             if phrase not in text:
                 errors.append(f"{label}: missing math-module phrase `{phrase}`")
 
+    reviewed_pr_texts = {
+        label: read_text(REPO_ROOT / label)
+        for label in set(REVIEWED_PR_LANDING_PHRASES) | set(REVIEWED_PR_LANDING_FORBIDDEN_PHRASES)
+    }
+    errors.extend(
+        find_missing_phrases(
+            reviewed_pr_texts,
+            REVIEWED_PR_LANDING_PHRASES,
+            "reviewed-PR landing",
+        )
+    )
+    errors.extend(
+        find_forbidden_phrases(
+            reviewed_pr_texts,
+            REVIEWED_PR_LANDING_FORBIDDEN_PHRASES,
+            "reviewed-PR landing",
+        )
+    )
+
     if errors:
         print("Repo consistency check FAILED")
         for error in errors:
@@ -446,6 +543,7 @@ def main() -> int:
     print("- Strategic forgetting and memory hygiene guardrails are aligned")
     print("- Elves Report guardrails are aligned")
     print("- Math research workflow guardrails are aligned")
+    print("- Reviewed PR landing command guardrails are aligned")
     return 0
 
 

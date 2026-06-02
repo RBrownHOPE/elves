@@ -4,6 +4,18 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-06-02
+
+### Reviewed PR landing command
+
+- Added an explicit Reviewed PR Landing Command for the common instruction: get a subagent to
+  review the diff from main, read every PR review surface, address actionable findings, run the
+  tests that make sense, and land with a merge commit once everything is green.
+- Clarified that this one-off command is an explicit merge opt-in for the current PR while the
+  normal Elves default remains unchanged: the human merges unless merge-on-green is explicitly set.
+- Synchronized the command across Claude-compatible `SKILL.md`, Codex `AGENTS.md`, README, review
+  guidance, kickoff and survival-guide templates, and the repo consistency checker.
+
 ## [1.12.0] - 2026-06-01
 
 ### Math research workflow kit

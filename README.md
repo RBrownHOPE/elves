@@ -43,6 +43,21 @@ Judge → Document → Update → Push → Re-read → PR Loop → Entropy Check
 
 Elves runs a tight loop. For each batch of planned work, the agent implements the changes, runs validation gates, reads PR review comments, fixes any blocking findings, updates the documentation, and pushes a checkpoint, then immediately starts the next batch. No waiting, no prompting, no drift.
 
+### Reviewed PR landing command
+
+Elves also has a focused landing command for the moment when a PR is basically ready but you want
+one more disciplined pass before it lands:
+
+> Get a subagent to review the diff from main, read all PR review comments, address everything that
+> needs addressing, do all testing that makes sense, and merge commit once all green.
+
+That command is an explicit one-off merge opt-in for the current PR. The agent reads every review
+surface, gets a fresh subagent review of `git diff <default-branch>...HEAD` when supported, fixes
+blockers, runs sensible targeted and broad checks, waits for asynchronous reviewers and CI after
+each push, re-reads the feedback queue, and finally lands with `gh pr merge --merge` only when the
+PR is not draft, the worktree is clean, checks are green, and there are no unresolved requested
+changes. It never squashes or rebases for this command.
+
 ### The layered memory system
 
 AI agents are stateless. Context compaction erases working memory. Elves solves this with a small
@@ -300,6 +315,9 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
   confirm checks, docs, and memory hygiene, so you can be confident the branch is green to merge.
   Then you get the Elves Report to review, and either you merge or (opt-in) the agent lands a
   regular merge commit on green (never a squash)
+- **Reviewed PR landing command**: for an attended landing, ask Elves to get a subagent to review
+  the diff from main, read all PR comments, fix blockers, run sensible tests, wait for review/CI
+  updates, and land with a regular merge commit once green
 - **Lightweight process retro**: entropy checks can tune the loop itself when the same friction
   repeats, for example by tightening the survival guide, templates, or tool config after repeated
   review findings
@@ -553,7 +571,7 @@ elves/
 - **Three documents are the agent's memory.** Without them, long runs drift and repeat work. With them, a restarted agent picks up exactly where it left off. These aren't overhead: they're the minimum viable infrastructure for the loop to run unsupervised.
 - **Strategic forgetting keeps memory useful.** Permanent memory should be curated, not accumulated. Preserve decisions and reusable knowledge in handoff docs, learnings, and `.ai-docs`; archive raw history; start fresh threads when huge chats become the bottleneck.
 - **Tests are the watch.** An agent working overnight has no one watching. The tests are the watch. Without them, you wake up to code that compiles, passes lint, and does the wrong thing.
-- **Never merge by default.** The PR is for review, not merging; that gate stays with the human. The one exception is an explicit opt-in to merge-on-green: a regular merge commit after the final readiness review passes, never a squash.
+- **Never merge by default.** The PR is for review, not merging; that gate stays with the human. The exceptions are explicit: either merge-on-green in Run Control, or the reviewed-PR landing command. In both cases the agent lands a regular merge commit after the final readiness review passes, never a squash.
 - **Document every decision.** Anything the agent decides without user input goes in the execution log under *Decisions made*. The human reviews these choices when they return.
 - **Fail safely, not silently.** If the agent is genuinely blocked, it stops and says so. If a test gate fails, it fixes the issue before continuing. It doesn't skip gates or paper over failures.
 - **Rollback before every batch.** `elves/pre-batch-N` tags mean any batch can be cleanly unwound without touching other work.

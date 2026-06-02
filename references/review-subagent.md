@@ -237,7 +237,7 @@ Run (or have the coordinator run and report results if you are read-only):
 - Every test that makes sense to confirm the branch is green: the full test suite plus any E2E or browser checks that apply. Report pass/fail counts and any skips.
 
 Assess:
-- Is the branch green and ready to merge — for the human to merge, or for an opt-in merge-on-green commit if the user set that preference?
+- Is the branch green and ready to merge — for the human to merge, for an opt-in merge-on-green commit, or for the reviewed-PR landing command if the user invoked it?
 - Are there any unresolved PR comments, failing checks, missing docs, or unhandled TODOs?
 - Does the cumulative diff include unrelated or surprising files?
 - Did any shared surface change without consumer proof?
@@ -266,8 +266,19 @@ The coordinator fixes blocking findings, resolves or replies to PR comments, upd
 `.elves-session.json`, reruns relevant validation, pushes, and repeats this final review until it
 is clean. After the operational-artifact cleanup commit, poll comments and checks one last time.
 Then hand the user the Elves Report and tell them to review it, and either stop for the user to
-merge or — only if the user set a merge-on-green preference — land a regular merge commit (never a
-squash).
+merge or — only if the user set a merge-on-green preference or invoked the reviewed-PR landing
+command — land a regular merge commit (never a squash).
+
+### Reviewed PR Landing Command
+
+If the user explicitly asks to get a subagent to review the diff from main, read all PR comments,
+fix findings, test, and merge commit once green, treat that request as a one-off merge opt-in for
+the current PR. The reviewer should use the Final Readiness Review shape, with extra attention to
+the live PR feedback queue and whether a regular merge commit is safe now.
+
+The coordinator may merge only after the review is clean, the PR is not draft, required checks are
+green, no unresolved requested changes remain, and comments/checks have been polled after the final
+push. Use `gh pr merge --merge`; never squash or rebase for this command.
 
 ## When Subagents Aren't Available
 
