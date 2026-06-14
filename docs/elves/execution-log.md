@@ -72,6 +72,12 @@ checkpoint_is_stop=yes | next_required_action=hand the user the launch prompt
 
 **Launch readiness:** READY. PR #27 is open at `https://github.com/aigorahub/elves/pull/27`.
 
+**PR feedback after staging push:**
+- Gemini Code Assist reported two markdown formatting comments in the staging plan/survival guide.
+  Fixed in `0f629fc` and resolved both review threads.
+- No issue comments.
+- GitHub checks were still queued/in progress at the staging handoff.
+
 **Launch prompt:**
 > Start the staged Elves run for v1.14.0 Elves Council.
 >

@@ -67,7 +67,28 @@
       "completed_at": null
     }
   ],
-  "review_comments": [],
+  "review_comments": [
+    {
+      "id": 3409567004,
+      "type": "review_thread",
+      "source": "gemini-code-assist",
+      "batch": 0,
+      "cycle": 1,
+      "summary": "Manual review checklist item needed nested-list semicolon formatting in docs/plans/v1.14.0-elves-council.md.",
+      "disposition": "fixed",
+      "fix_commit": "0f629fc"
+    },
+    {
+      "id": 3409567006,
+      "type": "review_thread",
+      "source": "gemini-code-assist",
+      "batch": 0,
+      "cycle": 1,
+      "summary": "Survival-guide Batch 1 acceptance criteria wrapping needed markdown cleanup.",
+      "disposition": "fixed",
+      "fix_commit": "0f629fc"
+    }
+  ],
   "council": {
     "default_mode": "quick",
     "default_backend": "native-subagents",
