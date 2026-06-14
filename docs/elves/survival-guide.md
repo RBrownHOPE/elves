@@ -82,8 +82,8 @@ key.
 - **Why:** The user explicitly said to keep going and not stop. All five planned batches are
   complete, but final readiness, landing, GitHub release/tag, announcement drafting, and follow-up
   release-hardening work remain.
-- **Next required action:** Commit and push Batch 5, then begin final readiness review and
-  reviewed-PR landing.
+- **Next required action:** Poll PR checks/comments on the Batch 5 head, then begin final readiness
+  review and reviewed-PR landing.
 
 ---
 
@@ -194,8 +194,8 @@ release wording, and the new v1.15 plan's public framing. Local validation passe
 installed Claude/Codex copies were synced to `1.15.0`, and preflight passed with advisory warnings
 only.
 
-**Single next action:** Commit and push Batch 5, re-read this file, then poll PR checks/comments and
-begin final readiness review.
+**Single next action:** Poll PR checks/comments on the Batch 5 head, then begin final readiness
+review.
 
 ---
 
@@ -221,8 +221,7 @@ begin final readiness review.
 **Batch:** Final readiness review and reviewed-PR landing
 
 **Scope:**
-- Commit and push Batch 5.
-- Re-read this survival guide after push.
+- Poll PR checks/comments on the Batch 5 head.
 - Reply to or resolve addressed PR feedback.
 - Run final cumulative review of `git diff main...HEAD`, commits, PR comments, checks, plan, and
   docs.
@@ -230,7 +229,8 @@ begin final readiness review.
 - After merge, publish GitHub tag/release `v1.15.0` and draft the X announcement post.
 
 **Acceptance criteria:**
-- [ ] Batch 5 commit is pushed and PR checks are green on the new head.
+- [x] Batch 5 commit is pushed.
+- [ ] PR checks are green on the new head.
 - [ ] PR feedback is addressed or explicitly dispositioned with replies/resolution where possible.
 - [ ] Final cumulative review finds no blockers.
 - [ ] PR #28 lands with a regular merge commit if final readiness is clean.

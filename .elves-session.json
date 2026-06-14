@@ -25,7 +25,7 @@
     "reason": "The user explicitly said to keep going and do not stop; all five planned batches are complete, but reviewed-PR landing, GitHub release, X announcement draft, and follow-up release-hardening remain.",
     "remaining_batches": 0,
     "checkpoint_is_stop": false,
-    "next_required_action": "Commit and push Batch 5, then begin final readiness review and reviewed-PR landing."
+    "next_required_action": "Poll PR checks/comments on the Batch 5 head, then begin final readiness review and reviewed-PR landing."
   },
   "run_control": {
     "user_intent": "Complete the staged v1.15.0 Cobbler run. When complete, run the Elves land-PR protocol, make docs fully current, bump the version everywhere including GitHub, then write an X announcement post with the Fable orchestration framing. Latest update: leverage Cobbler's own ideas while doing the work, including ideas and reviews from Gemini 3.1 Pro, Gemini 3.5 Flash, Opus 4.8, Grok 4.3, and Qwen 3.7 Max with high/deep thinking where available; keep going and do not stop.",
