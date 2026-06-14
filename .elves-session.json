@@ -65,7 +65,7 @@
       "name": "Cobbler Product Hierarchy",
       "status": "in_progress",
       "started_at": "2026-06-14T18:18:00-04:00",
-      "rollback_tag": null
+      "rollback_tag": "elves/pre-batch-1-cobbler"
     },
     {
       "id": 2,
@@ -101,6 +101,48 @@
     "github_release": "pending",
     "x_announcement_post": "pending"
   },
+  "review_comments": [
+    {
+      "id": 3410161379,
+      "type": "review_comment",
+      "source": "gemini-code-assist",
+      "batch": 1,
+      "cycle": 1,
+      "summary": "Consistency checker must move with Cobbler wording instead of waiting for Batch 5.",
+      "disposition": "planned",
+      "reason": "Folded into Batch 1 contract."
+    },
+    {
+      "id": 3410161381,
+      "type": "review_comment",
+      "source": "gemini-code-assist",
+      "batch": 5,
+      "cycle": 1,
+      "summary": "Strict sync_installed_skills.py --check may fail in environments without Claude Code or Codex installed.",
+      "disposition": "planned",
+      "reason": "Carry to release hardening unless it blocks earlier validation."
+    },
+    {
+      "id": 3410161383,
+      "type": "review_comment",
+      "source": "gemini-code-assist",
+      "batch": 1,
+      "cycle": 1,
+      "summary": "Survival guide compatibility alias list should include $elves council: <task>.",
+      "disposition": "planned",
+      "reason": "Folded into Batch 1 contract."
+    },
+    {
+      "id": 3410161385,
+      "type": "review_comment",
+      "source": "gemini-code-assist",
+      "batch": 1,
+      "cycle": 1,
+      "summary": "Plan compatibility alias list should include $elves council: <task>.",
+      "disposition": "planned",
+      "reason": "Plan already includes the alias; will verify final alignment in Batch 1."
+    }
+  ],
   "preflight": {
     "status": "pass_with_warnings",
     "checked_at": "2026-06-14T16:11:00-04:00",

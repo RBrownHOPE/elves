@@ -124,18 +124,24 @@ checkpoint_is_stop=yes for this staging call | next_required_action=wait for the
 
 ---
 
-## Batch 1 Contract: draft for launch
+## Batch 1 Contract: 2026-06-14 18:23 EDT
 
 **Behaviors:**
 - Cobbler becomes the visible coordinator in the core skill/docs.
 - Council remains a read-only compatibility mechanism Cobbler may convene.
 - Version metadata moves to `1.15.0`.
+- The consistency checker is updated in the same batch as the Cobbler wording so validation stays
+  green immediately after the rename.
+- Compatibility aliases include `$elves council: <task>` anywhere compatibility aliases are listed.
 
 **Build on:**
 - Existing `v1.14.0` Council sections in `SKILL.md`, `AGENTS.md`, README, references, and
   `config.json.example`.
 - Existing cross-file consistency checker patterns in `scripts/check_repo_consistency.py`.
 - Existing durable repo docs in `.ai-docs/*` and `docs/elves/learnings.md`.
+- Gemini review comments on PR #28:
+  - `3410161379`: update the consistency checker in Batch 1 rather than waiting for Batch 5.
+  - `3410161383` / `3410161385`: keep `$elves council: <task>` aligned as a compatibility alias.
 
 **Acceptance criteria:**
 - [ ] `SKILL.md`, `AGENTS.md`, README, and CHANGELOG all present Cobbler as the user-facing
@@ -143,10 +149,13 @@ checkpoint_is_stop=yes for this staging call | next_required_action=wait for the
 - [ ] Council remains documented as a read-only compatibility path.
 - [ ] Version metadata and latest changelog agree on `1.15.0`.
 - [ ] Forbidden public wording search passes.
+- [ ] `scripts/check_repo_consistency.py` passes after the Cobbler wording changes.
+- [ ] Compatibility alias coverage includes `/council`, `/ec`, `/elves-council`, and
+      `$elves council: <task>` where relevant.
 
 **Blast radius:**
-- `SKILL.md`, `AGENTS.md`, README, CHANGELOG, references, and consistency scripts; modified
-  documentation and validation surfaces.
+- `SKILL.md`, `AGENTS.md`, README, CHANGELOG, and consistency scripts; modified documentation and
+  validation surfaces.
 - Risk: medium, because this repo's main regression mode is cross-file documentation drift.
 
 **Pre-implementation survey:**
@@ -155,6 +164,11 @@ checkpoint_is_stop=yes for this staging call | next_required_action=wait for the
   `scripts/check_repo_consistency.py`.
 - `.ai-docs/conventions.md` requires `SKILL.md` and `AGENTS.md` to move together and recommends a
   phrase map in the consistency checker for cross-file behavior changes.
+- Verify Green on 2026-06-14 18:21 EDT passed: repo consistency, 13 unit tests, script compile,
+  JSON/diff checks, sync check, and preflight. Preflight warnings were the same expected
+  docs/scripts repo warnings from staging.
+- Rollback tag for this run is `elves/pre-batch-1-cobbler`; plain `elves/pre-batch-1` already
+  points to an older run and was not overwritten.
 
 ---
 

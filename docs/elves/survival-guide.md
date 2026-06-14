@@ -143,8 +143,8 @@ Promotion flow: `execution log -> learnings -> .ai-docs`
 - Public docs must not advertise or copy external vendor identity, persona, policy, safety framing,
   or "Fable-like" wording.
 - `SKILL.md` and `AGENTS.md` must move together for behavior changes.
-- Preserve `/council`, `/ec`, and `/elves-council` as compatibility aliases while making
-  `/cobbler` and `$elves cobbler: ...` the primary user experience.
+- Preserve `/council`, `/ec`, `/elves-council`, and `$elves council: <task>` as compatibility
+  aliases while making `/cobbler` and `$elves cobbler: ...` the primary user experience.
 - Never run destructive git commands: `git reset --hard`, `git checkout .`, `git clean -fd`,
   `git push --force`, or shared-branch rebases.
 - Never merge by default. This run has an explicit reviewed-PR landing command opt-in recorded in
@@ -223,7 +223,8 @@ contract, and implement the Cobbler Product Hierarchy changes.
 **Risk:** Wording drift into two competing products. Keep Cobbler as the coordinator and Council as
 the mechanism.
 
-**Rollback tag:** `elves/pre-batch-1`
+**Rollback tag:** `elves/pre-batch-1-cobbler` (`elves/pre-batch-1` already existed from an older
+run and must not be overwritten)
 
 ---
 
