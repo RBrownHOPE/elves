@@ -174,6 +174,10 @@ Deep Council is optional. It can be configured later for external provider diver
 idea of independent role reports followed by synthesis without importing vendor identity, policy,
 persona, or safety text.
 
+Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
+model and [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
+synthesis prompt templates.
+
 ### Stage, then launch
 
 Most "the elves stopped" failures come from one mistake: combining a giant plan and the launch
@@ -564,6 +568,8 @@ elves/
 │   ├── validation-guide.md               # Detailed validation gates and auto-discovery
 │   ├── autonomy-guide.md                 # Non-interactive operation and mid-run protocols
 │   ├── review-subagent.md                # Built-in review protocol and adversarial review
+│   ├── council-workflow.md               # Elves Council modes, invariants, and synthesis flow
+│   ├── council-prompts.md                # Elves Council role and synthesis prompt templates
 │   ├── verification-patterns.md          # Headless browser, video recording, state assertions
 │   └── open-ended-guide.md              # Open-ended mode patterns, QA/audit expansion rules
 ├── scripts/

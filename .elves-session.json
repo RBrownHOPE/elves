@@ -24,10 +24,10 @@
     "status": "captured",
     "reason": "Captured during launch Verify Green with python3 -m unittest discover -s tests -p 'test_*.py'."
   },
-  "current_batch": {
-    "id": 2,
-    "name": "Council Workflow And Role Prompts",
-    "status": "pending"
+    "current_batch": {
+        "id": 2,
+        "name": "Council Workflow And Role Prompts",
+        "status": "in_progress"
   },
   "batches": [
     {
@@ -40,17 +40,17 @@
       "completed_at": "2026-06-14T12:37:00-04:00"
     },
     {
-      "id": 2,
-      "name": "Council Workflow And Role Prompts",
-      "status": "pending",
-      "commit": null,
-      "rollback_tag": null,
-      "started_at": null,
-      "completed_at": null
+            "id": 2,
+            "name": "Council Workflow And Role Prompts",
+            "status": "in_progress",
+            "commit": null,
+            "rollback_tag": "elves/pre-batch-2-council",
+            "started_at": "2026-06-14T12:39:00-04:00",
+            "completed_at": null
     },
     {
       "id": 3,
-      "name": "Config, Ledgers, And Tool Examples",
+      "name": "Config, Run Logging, And Tool Examples",
       "status": "pending",
       "commit": null,
       "rollback_tag": null,

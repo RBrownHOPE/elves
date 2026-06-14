@@ -60,18 +60,17 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
   `.elves-session.json`
 - **Time budget:** ~8 hours after launch unless user overrides
 - **Average batch time so far:** N/A
-- **Batches remaining:** 3 of 4
+- **Batches remaining:** 2 of 4
 
 ---
 
 ## Stop Gate
 
-- **Planned batches remaining:** 3
+- **Planned batches remaining:** 2
 - **Stop allowed right now:** no
-- **Why:** Batch 1 is pushed, and Batches 2-4 plus final landing, GitHub version update, and X
-  statement remain.
-- **Next required action:** start Batch 2 with Verify Green, rollback tag, contract, and
-  pre-implementation survey.
+- **Why:** Batch 2 is complete pending commit/push, and Batches 3-4 plus final landing, GitHub
+  version update, and X statement remain.
+- **Next required action:** commit and push Batch 2, poll PR feedback, then start Batch 3.
 
 ---
 
@@ -99,28 +98,31 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
 
 ## Current Phase
 
-- **Status:** Batch 2 ready to start
-- **Active batch:** Batch 2: Council Workflow And Role Prompts
-- **What was just finished:** version metadata, Council concept docs, README feature summary, and
-  changelog release skeleton were updated and validated.
-- **Single next action:** start Batch 2 with Verify Green, rollback tag, contract, and
-  pre-implementation survey.
+- **Status:** Batch 2 complete pending commit/push
+- **Active batch:** Batch 2 closeout
+- **What was just finished:** Council workflow and prompt references were added, README links were
+  updated, and the plan was corrected to use Run Council logging through existing memory instead of
+  a separate Council ledger.
+- **Single next action:** commit and push Batch 2, poll PR feedback, then start Batch 3.
 
 ---
 
 ## Next Exact Batch
 
-- **Batch:** Batch 2: Council Workflow And Role Prompts
-- **Scope:** add `references/council-workflow.md` and `references/council-prompts.md`, then link
-  them from README where appropriate.
-- **Acceptance criteria:** workflow states role-agent independence and Quick Council read-only
-  invariants; role prompts are lens/obligation prompts, not theatrical personas; synthesis leads
-  with one recommendation while preserving dissent.
-- **Risk:** medium, because prompt docs can grow too ceremonial or accidentally imply a parallel
-  Council run system.
+- **Batch:** Batch 3: Config, Run Logging, And Tool Examples
+- **Scope:** add optional Deep Council provider configuration, extend `config.json.example`,
+  `references/tool-config-examples.md`, and the survival-guide template, and document Run Council
+  logging through existing Elves memory surfaces.
+- **Acceptance criteria:** config defaults require no external provider key; external provider
+  configuration is clearly optional for Deep Council; Run Council logging reuses the execution log
+  and `.elves-session.json`; Quick Council remains stateless unless the user asks for `--run` or is
+  already inside an Elves run.
+- **Risk:** medium, because config docs can accidentally make external providers or parallel
+  ledgers look required.
 
-Before editing reference docs, write the Batch 2 contract in the execution log. Build on the
-existing math reference docs, review-subagent protocol, and the Batch 1 Council concept.
+Before editing config/reference docs, write the Batch 3 contract in the execution log. Build on
+`references/council-workflow.md`, `config.json.example` math config style, and the no-parallel-ledger
+review finding from Batch 2.
 
 ---
 
@@ -130,7 +132,7 @@ existing math reference docs, review-subagent protocol, and the Batch 1 Council 
    core skill surfaces, README, and changelog.
 2. **Council Workflow And Role Prompts** — add workflow and prompt references for Quick Council,
    Run Council, optional Deep Council, role reports, and synthesis.
-3. **Config, Ledgers, And Tool Examples** — add optional council config, Run Council logging
+3. **Config, Run Logging, And Tool Examples** — add optional council config, Run Council logging
    guidance that reuses existing Elves memory, survival-guide template block, and tool-config
    examples.
 4. **Consistency Checks And Release Hardening** — extend checker/tests and run final validation.

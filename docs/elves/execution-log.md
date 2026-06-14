@@ -7,11 +7,11 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 12:38 EDT
+- **Last updated:** 2026-06-14 12:43 EDT
 - **Current phase:** Launch active
-- **Active batch:** Batch 2 pending start
-- **Last completed batch:** Batch 1
-- **Next exact batch:** Batch 2: Council Workflow And Role Prompts
+- **Active batch:** Batch 2 closeout
+- **Last completed batch:** Batch 2 pending commit/push
+- **Next exact batch:** Batch 3: Config, Run Logging, And Tool Examples
 - **Active PR:** #27
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -28,6 +28,135 @@ version/release state, and prepare an X statement.
 Non-Negotiables so the merge opt-in is durable. Landing is allowed only after final readiness is
 clean, with a regular merge commit via `gh pr merge --merge`; squash/rebase remain forbidden.
 **Continuation guard:** `stop_allowed=false`; next required action is Verify Green and Batch 1.
+
+---
+
+## Batch 2: Council Workflow And Role Prompts
+
+**Started:** 2026-06-14 12:39 EDT
+**Rollback tag:** `elves/pre-batch-2-council`
+
+**Verify Green baseline:** PASS after sync
+- `python3 scripts/check_repo_consistency.py`: PASS.
+- `python3 -m json.tool config.json.example`: PASS.
+- `python3 -m json.tool .elves-session.json`: PASS.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py`: PASS.
+- `python3 -m unittest discover -s tests -p 'test_*.py'`: PASS, 9 tests.
+- `git diff --check`: PASS.
+- `python3 scripts/install_doctor.py --doctor`: PASS.
+- `python3 scripts/sync_installed_skills.py --check`: initially STALE because the installed
+  Claude/Codex copies had not received the final Batch 1 `SKILL.md` description polish; fixed with
+  `python3 scripts/sync_installed_skills.py --apply`, then PASS.
+
+**Contract:**
+- Add `references/council-workflow.md` defining Quick Council, Run Council, optional Deep Council,
+  role selection, report flow, synthesis, and non-goals.
+- Add `references/council-prompts.md` with reusable role and synthesis prompt templates.
+- Link the new references from README without making the main README verbose.
+- Preserve the independence invariant: role agents do not see each other's reports before
+  synthesis.
+- Preserve the Quick Council invariant: read-only and stateless by default.
+- Keep role prompts as lenses/obligations, not theatrical personas or identity prompts.
+- Ensure synthesis leads with one recommendation and preserves dissent, risks, and next actions.
+
+**Build on:**
+- `references/math-workflow.md`: concise operating-model reference with inputs, lanes/roles,
+  lifecycle, and done criteria.
+- `references/math-review-prompts.md`: fenced prompt templates with bracketed placeholders and
+  explicit "do not overclaim" constraints.
+- `references/review-subagent.md`: structured review protocol, contract verification, and
+  documentation freshness checks.
+- Batch 1 Council concept: native-subagent-first, default read-only/stateless Quick Council,
+  optional external-provider Deep Council, no Fable identity/policy/safety text.
+
+**Acceptance criteria:**
+- [ ] `references/council-workflow.md` exists and documents Quick Council, Run Council, and optional
+  Deep Council.
+- [ ] The workflow states that role agents do not see each other's reports before synthesis.
+- [ ] The workflow states the read-only/stateless invariant for Quick Council.
+- [ ] `references/council-prompts.md` exists and role prompts are lens/obligation prompts, not
+  theatrical personas.
+- [ ] The synthesis prompt leads with one recommendation and preserves dissent.
+- [ ] README links to the new Council references.
+- [ ] No new docs imply that Quick Council automatically edits code or requires OpenRouter.
+- [ ] Baseline unit-test count stays at 9 or increases.
+
+**Blast radius:**
+- `references/council-workflow.md` and `references/council-prompts.md`: new reference docs; additive
+  but medium risk because they establish the pattern for future Council behavior.
+- README: additive links; low risk.
+- `.elves-session.json` and `docs/elves/*`: live run-state updates; low risk after JSON validation.
+
+**Pre-implementation survey:**
+- `references/math-workflow.md` uses concrete sections (`When To Use`, inputs, lanes, lifecycle,
+  done criteria) and points to a separate prompt reference; Council should mirror that split.
+- `references/math-review-prompts.md` uses role prompts as obligations with exact return shapes,
+  not persona theater; Council prompts should follow this style.
+- `references/review-subagent.md` already gives a strong model for structured review reports and
+  contract verification; Council synthesis can reuse the same directness without copying the entire
+  review protocol.
+- README already links math workflow references inline after the math overview; Council links can
+  sit at the end of the Council section and in the file tree.
+
+**Implementation notes:**
+- Added `references/council-workflow.md` with Quick Council, Run Council, optional Deep Council,
+  invocation semantics, role selection, independence invariant, report shape, synthesis shape,
+  non-goals, and done criteria.
+- Added `references/council-prompts.md` with shared role instructions, role selector, six role
+  lenses, synthesizer prompt, and JSON output variant.
+- Linked both Council references from README and the README file tree.
+- Fixed reviewer-identified planning drift by renaming Batch 3 from "Config, Ledgers..." to
+  "Config, Run Logging..." and removing the proposed `references/council-ledgers.md` artifact.
+
+**Validation:** PASS
+- `python3 scripts/check_repo_consistency.py`: PASS.
+- `python3 -m json.tool config.json.example`: PASS.
+- `python3 -m json.tool .elves-session.json`: PASS.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py`: PASS.
+- `python3 -m unittest discover -s tests -p 'test_*.py'`: PASS, 9 tests.
+- `git diff --check`: PASS.
+- `python3 scripts/install_doctor.py --doctor`: PASS, local repo and installed Claude/Codex copies
+  are v1.14.0; latest published GitHub release remains v1.13.0 until final release.
+- `python3 scripts/sync_installed_skills.py --check`: initially stale because the new Council
+  reference files were not installed; fixed with `python3 scripts/sync_installed_skills.py --apply`,
+  then PASS.
+
+**Review findings:**
+- Read-only reviewer Chandrasekhar found no blockers. It confirmed Quick Council stays
+  read-only/stateless/native-first, Deep Council remains optional with no normal `/council`
+  OpenRouter requirement, prompts are lens/obligation based, and synthesis leads with one
+  recommendation while preserving dissent.
+- Warning fixed: the plan still asked for `references/council-ledgers.md`, which conflicted with
+  the no-parallel-ledger invariant. Batch 3 is now "Config, Run Logging, And Tool Examples" and
+  requires Run Council logging through existing Elves memory surfaces only.
+
+**Acceptance criteria:**
+- [x] `references/council-workflow.md` exists and documents Quick Council, Run Council, and
+  optional Deep Council.
+- [x] The workflow states that role agents do not see each other's reports before synthesis.
+- [x] The workflow states the read-only/stateless invariant for Quick Council.
+- [x] `references/council-prompts.md` exists and role prompts are lens/obligation prompts, not
+  theatrical personas.
+- [x] The synthesis prompt leads with one recommendation and preserves dissent.
+- [x] README links to the new Council references.
+- [x] No new docs imply that Quick Council automatically edits code or requires OpenRouter.
+- [x] Baseline unit-test count stays at 9 or increases.
+
+**Regression attestation:**
+- Cumulative diff review: additions are reference docs, README links/file tree updates, and run
+  state corrections. The only plan change removes a proposed parallel ledger artifact and aligns
+  Batch 3 with the existing-memory invariant.
+- Shared surfaces: README and reference docs are shared operator-facing documentation. Changes are
+  additive except the planned Batch 3 naming correction. No runtime commands or existing validation
+  semantics changed.
+- Test baseline comparison: 9/9 tests pass, skipped 0; total unchanged from baseline.
+- Confidence: HIGH. The reference split follows the math workflow/prompt pattern, validation and
+  installed-skill sync pass, and independent review found only the now-fixed planning drift.
+
+**Docs impacted:** README, `references/council-workflow.md`, `references/council-prompts.md`,
+`docs/plans/v1.14.0-elves-council.md`, live survival guide, execution log, `.elves-session.json`.
+**Docs promoted:** none yet; Batch 4 will pin Council guardrails in the consistency checker.
+**Commit SHA:** pending.
 
 ---
 
@@ -181,7 +310,7 @@ checkpoint_is_stop=yes | next_required_action=hand the user the launch prompt
 **Batch breakdown:**
 1. Release Skeleton And Council Concept — version bump and core docs for Claude/Codex/README/CHANGELOG.
 2. Council Workflow And Role Prompts — reference docs for modes, roles, reports, and synthesis.
-3. Config, Ledgers, And Tool Examples — optional config, Run Council logging through existing Elves memory, and templates.
+3. Config, Run Logging, And Tool Examples — optional config, Run Council logging through existing Elves memory, and templates.
 4. Consistency Checks And Release Hardening — checker/tests plus validation and final review.
 
 **Planning inputs:**
