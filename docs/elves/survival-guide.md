@@ -53,7 +53,7 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
 
 - **Started:** 2026-06-14 08:52 EDT
 - **User returns:** assumed 2026-06-14 16:52 EDT if launched without a different return time
-- **Checkpoint expectation:** launch-ready branch, PR, plan, survival guide, execution log, and
+- **Checkpoint expectation:** launch-ready branch, PR #27, plan, survival guide, execution log, and
   `.elves-session.json`
 - **Time budget:** ~8 hours after launch unless user overrides
 - **Average batch time so far:** N/A
@@ -211,8 +211,9 @@ read-only explorer subagents were spawned during staging to inspect docs/release
 - [x] Plan path recorded.
 - [x] Survival guide, execution log, learnings path, and session JSON recorded.
 - [x] Branch created and collision tripwire recorded.
-- [ ] PR created.
-- [ ] Preflight run and critical failures cleared or explicitly accepted.
+- [x] PR created: #27.
+- [x] Preflight run; no critical failures remain. Warnings: docs-only repo has no package manifest,
+  and recommended non-interactive env vars are not exported.
 - [x] Stop Gate initialized with `Stop allowed right now: no` for launch mode; staging handoff is
   the only current exception.
 - [x] Launch prompt prepared.

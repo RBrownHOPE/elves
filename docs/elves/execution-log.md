@@ -12,7 +12,7 @@
 - **Active batch:** Batch 0: Staging
 - **Last completed batch:** none yet
 - **Next exact batch:** Batch 1: Release Skeleton And Council Concept
-- **Active PR:** not created yet
+- **Active PR:** #27
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
 
@@ -20,14 +20,14 @@
 
 ## Session Setup: 2026-06-14 08:52 EDT
 
-**Phase:** Staging in progress
+**Phase:** Staging complete
 **Plan:** `docs/plans/v1.14.0-elves-council.md`
 **Survival guide:** `docs/elves/survival-guide.md`
 **Learnings:** `docs/elves/learnings.md`
 **Execution log:** `docs/elves/execution-log.md`
 **Durable docs manifest (optional):** N/A
 **Branch:** `codex/v1.14.0-elves-council`
-**PR:** not created yet
+**PR:** #27
 **Run mode:** finite | **User returns:** assumed 2026-06-14 16:52 EDT if launched without a
 different return time
 **Checkpoint semantics:** staging handoff is a hard stop before implementation | **Actual stop
@@ -70,7 +70,7 @@ checkpoint_is_stop=yes | next_required_action=hand the user the launch prompt
 - Notes: preflight reports no package-managed project type, which is expected for this docs/scripts
   repo.
 
-**Launch readiness:** ready except for PR creation, which happens immediately after the setup commit.
+**Launch readiness:** READY. PR #27 is open at `https://github.com/aigorahub/elves/pull/27`.
 
 **Launch prompt:**
 > Start the staged Elves run for v1.14.0 Elves Council.
