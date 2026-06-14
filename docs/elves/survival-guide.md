@@ -19,28 +19,32 @@ key.
 
 ## Run Control
 
-- **Run mode:** finite
-- **Stop policy:** do not stop until all five batches are complete, final readiness is clean, the
-  reviewed-PR landing protocol has landed the PR, the GitHub version release/tag is created, and
-  the X announcement post is drafted; also stop for an explicit user stop or a genuine blocker with
-  no reasonable workaround
+- **Run mode:** open-ended
+- **Stop policy:** do not stop. Continue through the five planned batches, final readiness,
+  reviewed-PR landing, GitHub version release/tag, and X announcement draft, then continue with the
+  next highest-value release-hardening or follow-up task until the user explicitly stops or a
+  genuine blocker prevents safe progress.
 - **User intent:** The user launched the staged run and added: when complete, run the Elves
   land-PR protocol, make all documentation fully current, bump the version everywhere including
   GitHub, then write an X announcement post that explains Cobbler as an attempt to recreate the
-  public Fable orchestration insight.
+  public Fable orchestration insight. Latest update: use Cobbler's own method while doing the work;
+  get ideas and review from Gemini 3.1 Pro, Gemini 3.5 Flash, Opus 4.8, Grok 4.3, and Qwen 3.7 Max
+  with high/deep thinking where available; use keys/syntax from this repo or the local
+  geometry-exploration project if needed; keep going and do not stop.
 - **Checkpoint due by:** 2026-06-15 02:18 EDT, default 8 hours from launch
 - **Checkpoint semantics:** delivery budget only, not a stop boundary
 - **May continue after checkpoint:** yes
-- **Actual stop conditions:** stop only when all planned batches, final readiness, reviewed-PR
-  landing, GitHub release/tag, and X announcement draft are complete; or when the user explicitly
-  stops the run; or when a true blocker prevents safe progress
+- **Actual stop conditions:** stop only when the user explicitly stops the run or when a true
+  blocker prevents safe progress. Completion of the planned v1.15.0 deliverables becomes a
+  checkpoint, not a stop boundary.
 - **Workspace ownership:** owned branch in the main checkout; `git worktree list` shows only
   `/Users/john/aigora/dev/elves` on `codex/v1.15.0-cobbler`
 - **Branch tip at start (collision tripwire):** `6fe775e334d3af446de75587957ac11b029258a3`
 - **Merge policy:** reviewed-pr-landing-command one-off opt-in for PR #28; land only with a regular
   merge commit after final readiness is clean, never squash or rebase
-- **Final-response policy:** disallowed until the Stop Gate says stopping is allowed, the objective
-  is fully complete, or a true blocker forces it
+- **Final-response policy:** disallowed while the Stop Gate says stopping is not allowed. Because
+  the run is now open-ended, final completion is disabled unless the user explicitly stops or a
+  true blocker forces it.
 - **Batch completion rule:** Every completed batch ends with `update execution log -> update
   survival guide -> commit -> push`.
 - **Re-read rule:** Immediately after every commit and push, re-read this survival guide before
@@ -49,6 +53,9 @@ key.
   continue immediately if work remains.
 - **Continuation rule:** After launch, if work remains and actual stop conditions are not met,
   continue without waiting for user acknowledgment.
+- **Cobbler self-application rule:** Use Cobbler-style orchestration for this run: coordinator
+  judgment first, independent lenses where useful, visible dissent/risk synthesis in the execution
+  log, and external provider-backed model review when explicitly requested by the user.
 
 ---
 
@@ -60,7 +67,7 @@ key.
   required work remains
 - **Time budget:** default 8-hour checkpoint budget; objective remains active across turns
 - **Average batch time so far:** Batch 1 completed in roughly 10 minutes after launch-state setup
-- **Batches remaining:** 4 of 5
+- **Batches remaining:** 4 of 5, then open-ended follow-up/release-hardening work until stopped
 
 ---
 
@@ -68,11 +75,12 @@ key.
 
 > Rewrite this section in place. This is the explicit answer to "may I stop now?" Do not infer it.
 
-- **Planned batches remaining:** 4
+- **Planned batches remaining:** 4 plus final deliverables and open-ended follow-up
 - **Stop allowed right now:** no
-- **Why:** Batch 1 is complete, but Batches 2-5 and final landing/release/announcement deliverables
-  are not complete.
-- **Next required action:** Start Batch 2: Claude Code Cobbler Alias.
+- **Why:** The user explicitly said to keep going and not stop. Batch 1 is complete, but Batches
+  2-5, final landing/release/announcement deliverables, and follow-up release-hardening work remain.
+- **Next required action:** Record the new provider-backed Cobbler consultation requirement, find
+  available keys/syntax without exposing secrets, and continue Batch 2.
 
 ---
 
@@ -183,7 +191,8 @@ Local validation passed, installed Claude/Codex skill copies were synced to `1.1
 are green.
 
 **Single next action:** Create rollback tag `elves/pre-batch-2-cobbler`, write the Batch 2
-contract, and survey the existing sync/install patterns before designing Claude Code aliases.
+contract, survey the existing sync/install patterns before designing Claude Code aliases, and start
+the requested provider-backed Cobbler consultation as a sidecar review path.
 
 ---
 

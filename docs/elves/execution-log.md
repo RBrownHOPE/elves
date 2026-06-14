@@ -7,7 +7,7 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 18:28 EDT
+- **Last updated:** 2026-06-14 18:32 EDT
 - **Current phase:** In progress
 - **Active batch:** Between batches
 - **Last completed batch:** Batch 1: Cobbler Product Hierarchy
@@ -18,7 +18,33 @@
 
 ---
 
-## 2026-06-14 18:18 EDT
+## 2026-06-14 18:32 EDT
+
+**Batch:** Run-control update / Cobbler self-application
+
+**What changed:**
+- User explicitly instructed the run to use Cobbler's own ideas while doing the work.
+- User requested ideas and review from Gemini 3.1 Pro, Gemini 3.5 Flash, Opus 4.8, Grok 4.3, and
+  Qwen 3.7 Max, with high/deep thinking where available.
+- User said to keep going and not stop.
+
+**Decisions made:**
+- Reclassify the run as open-ended in the survival guide and session JSON. The v1.15.0 deliverables
+  remain the immediate objective, but completion is a checkpoint rather than a stop boundary until
+  the user explicitly stops.
+- Treat the named-model work as provider-backed Cobbler consultation for this run only. Product docs
+  must still keep normal Cobbler use native-subagent-first and no-provider-required.
+- Search for provider keys/syntax without printing token values. If exact requested model IDs are
+  unavailable, use the nearest available provider/model match and record the substitution.
+
+**Next:**
+1. Locate available provider configuration safely.
+2. Launch host-native subagents for parallel Batch 2 exploration/review.
+3. Query the requested external model lenses where credentials and model availability allow.
+
+---
+
+## 2026-06-14 18:28 EDT
 
 **Batch:** 1: Cobbler Product Hierarchy
 
