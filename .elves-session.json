@@ -2,7 +2,7 @@
   "session_name": "v1.15.0-cobbler",
   "status": "in_progress",
   "created_at": "2026-06-14T16:07:00-04:00",
-  "updated_at": "2026-06-14T18:18:00-04:00",
+  "updated_at": "2026-06-14T18:28:00-04:00",
   "run_mode": "finite",
   "branch": "codex/v1.15.0-cobbler",
   "base_branch": "main",
@@ -22,10 +22,10 @@
   },
   "continuation_guard": {
     "stop_allowed": false,
-    "reason": "The run has launched; planned batches, reviewed-PR landing, GitHub release, and X announcement draft remain.",
-    "remaining_batches": 5,
+    "reason": "Batch 1 is complete; Batches 2-5, reviewed-PR landing, GitHub release, and X announcement draft remain.",
+    "remaining_batches": 4,
     "checkpoint_is_stop": false,
-    "next_required_action": "Start Batch 1: Cobbler Product Hierarchy."
+    "next_required_action": "Start Batch 2: Claude Code Cobbler Alias."
   },
   "run_control": {
     "user_intent": "Complete the staged v1.15.0 Cobbler run. When complete, run the Elves land-PR protocol, make docs fully current, bump the version everywhere including GitHub, then write an X announcement post with the Fable orchestration framing.",
@@ -63,9 +63,25 @@
     {
       "id": 1,
       "name": "Cobbler Product Hierarchy",
-      "status": "in_progress",
+      "status": "completed",
       "started_at": "2026-06-14T18:18:00-04:00",
-      "rollback_tag": "elves/pre-batch-1-cobbler"
+      "completed_at": "2026-06-14T18:28:00-04:00",
+      "rollback_tag": "elves/pre-batch-1-cobbler",
+      "commit": "5f4d3561a5bec7f9b93662b91304998057c4d206",
+      "validation": {
+        "local": "pass",
+        "unit_tests": {
+          "passed": 13,
+          "total": 13,
+          "skipped": 0
+        },
+        "pr_checks": "pass",
+        "notes": [
+          "Repo consistency, unit tests, script py_compile, JSON validation, sync check, and git diff --check passed.",
+          "Installed Claude and Codex skill copies were synced to 1.15.0 and rechecked.",
+          "Preflight passed with OPENAI_CODEX=1 and advisory warnings only."
+        ]
+      }
     },
     {
       "id": 2,
@@ -109,8 +125,8 @@
       "batch": 1,
       "cycle": 1,
       "summary": "Consistency checker must move with Cobbler wording instead of waiting for Batch 5.",
-      "disposition": "planned",
-      "reason": "Folded into Batch 1 contract."
+      "disposition": "addressed",
+      "reason": "Implemented in Batch 1 commit 5f4d356 by updating check_repo_consistency.py and its tests with the Cobbler wording."
     },
     {
       "id": 3410161381,
@@ -129,8 +145,8 @@
       "batch": 1,
       "cycle": 1,
       "summary": "Survival guide compatibility alias list should include $elves council: <task>.",
-      "disposition": "planned",
-      "reason": "Folded into Batch 1 contract."
+      "disposition": "addressed",
+      "reason": "The survival guide and runtime docs now include $elves council: <task> as a compatibility alias."
     },
     {
       "id": 3410161385,
@@ -139,8 +155,8 @@
       "batch": 1,
       "cycle": 1,
       "summary": "Plan compatibility alias list should include $elves council: <task>.",
-      "disposition": "planned",
-      "reason": "Plan already includes the alias; will verify final alignment in Batch 1."
+      "disposition": "verified",
+      "reason": "The plan already included $elves council: <task>; Batch 1 verified the alias remains aligned across user-facing surfaces."
     }
   ],
   "preflight": {

@@ -59,8 +59,8 @@ key.
 - **Checkpoint expectation:** best review-ready state by checkpoint; continue after checkpoint if
   required work remains
 - **Time budget:** default 8-hour checkpoint budget; objective remains active across turns
-- **Average batch time so far:** N/A - Batch 1 in progress
-- **Batches remaining:** 5 of 5
+- **Average batch time so far:** Batch 1 completed in roughly 10 minutes after launch-state setup
+- **Batches remaining:** 4 of 5
 
 ---
 
@@ -68,11 +68,11 @@ key.
 
 > Rewrite this section in place. This is the explicit answer to "may I stop now?" Do not infer it.
 
-- **Planned batches remaining:** 5
+- **Planned batches remaining:** 4
 - **Stop allowed right now:** no
-- **Why:** The run has launched, all five batches remain, and final landing/release/announcement
-  deliverables are not complete.
-- **Next required action:** Start Batch 1: Cobbler Product Hierarchy.
+- **Why:** Batch 1 is complete, but Batches 2-5 and final landing/release/announcement deliverables
+  are not complete.
+- **Next required action:** Start Batch 2: Claude Code Cobbler Alias.
 
 ---
 
@@ -175,14 +175,15 @@ Promotion flow: `execution log -> learnings -> .ai-docs`
 
 **Status:** In progress
 
-**Active batch:** Batch 1: Cobbler Product Hierarchy
+**Active batch:** Between batches; next is Batch 2: Claude Code Cobbler Alias
 
-**What was just finished:** The staged run was launched and the latest controlling instruction was
-recorded: finish the batches, land PR #28 via the reviewed-PR landing protocol, publish the GitHub
-version, and draft the X announcement.
+**What was just finished:** Batch 1 landed commit `5f4d356`, making Cobbler the core
+user-facing coordinator in `SKILL.md`, `AGENTS.md`, README, CHANGELOG, and the consistency checker.
+Local validation passed, installed Claude/Codex skill copies were synced to `1.15.0`, and PR checks
+are green.
 
-**Single next action:** Create rollback tag `elves/pre-batch-1`, verify green, write the Batch 1
-contract, and implement the Cobbler Product Hierarchy changes.
+**Single next action:** Create rollback tag `elves/pre-batch-2-cobbler`, write the Batch 2
+contract, and survey the existing sync/install patterns before designing Claude Code aliases.
 
 ---
 
@@ -205,26 +206,26 @@ contract, and implement the Cobbler Product Hierarchy changes.
 
 ## Next Exact Batch
 
-**Batch:** 1: Cobbler Product Hierarchy
+**Batch:** 2: Claude Code Cobbler Alias
 
 **Scope:**
-- Bump canonical version metadata to `1.15.0`.
-- Rework `SKILL.md`, `AGENTS.md`, README, and CHANGELOG so Cobbler is the coordinator and Council
-  is a read-only gathering mechanism.
-- Preserve Council compatibility aliases while adding primary Cobbler language.
+- Survey existing install/sync patterns before choosing the alias-file layout.
+- Add the smallest maintainable Claude Code alias skill surface for `/cobbler`.
+- Preserve `/council`, `/ec`, and `/elves-council` as compatibility aliases that route to the
+  same Cobbler behavior.
+- Update install/sync guidance so aliases can be copied to Claude Code safely.
+- Ensure sync/check behavior reports alias conflicts instead of overwriting user-owned skills.
 
 **Acceptance criteria:**
-- [ ] `SKILL.md`, `AGENTS.md`, README, and CHANGELOG all present Cobbler as the user-facing
-      coordinator.
-- [ ] Council remains documented as a read-only compatibility path.
-- [ ] Version metadata and latest changelog agree on `1.15.0`.
-- [ ] Forbidden public wording search passes.
+- [ ] A Claude Code user can install or sync a real `/cobbler` entry point from this repo.
+- [ ] Compatibility aliases are documented and route to the same Cobbler semantics.
+- [ ] The sync/check script reports alias conflicts instead of clobbering user-owned skills.
+- [ ] README installation docs explain how Claude Code aliases relate to the main `elves` skill.
 
-**Risk:** Wording drift into two competing products. Keep Cobbler as the coordinator and Council as
-the mechanism.
+**Risk:** Alias installation can accidentally mutate a user's personal Claude Code skills. Prefer
+safe check/report behavior over aggressive syncing.
 
-**Rollback tag:** `elves/pre-batch-1-cobbler` (`elves/pre-batch-1` already existed from an older
-run and must not be overwritten)
+**Rollback tag:** `elves/pre-batch-2-cobbler`
 
 ---
 
@@ -253,6 +254,21 @@ Staging result on 2026-06-14 16:11 EDT:
   at `1.14.0`.
 - JSON validation and `git diff --check` passed.
 - PR checks for #28 passed: GitHub Actions analyze jobs, CodeQL, and Socket Security checks.
+
+Batch 1 result on 2026-06-14 18:28 EDT:
+
+- `python3 scripts/check_repo_consistency.py` -> PASS, repo version `1.15.0`.
+- `python3 -m unittest discover -s tests -p 'test_*.py'` -> PASS, 13 tests.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` -> PASS.
+- `python3 -m json.tool config.json.example >/dev/null` and
+  `python3 -m json.tool .elves-session.json >/dev/null` -> PASS.
+- `git diff --check` -> PASS.
+- `python3 scripts/sync_installed_skills.py --check` -> PASS after syncing installed Claude and
+  Codex skill copies to repo version `1.15.0`.
+- `OPENAI_CODEX=1 ELVES_SURVIVAL_GUIDE_PATH=docs/elves/survival-guide.md ./scripts/preflight.sh`
+  -> PASS with advisory warnings only.
+- PR checks for #28 at commit `5f4d356` passed: GitHub Actions analyze jobs, CodeQL, Socket
+  Security, and repo check.
 
 ---
 

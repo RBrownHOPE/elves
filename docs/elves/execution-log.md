@@ -7,14 +7,67 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 18:18 EDT
+- **Last updated:** 2026-06-14 18:28 EDT
 - **Current phase:** In progress
-- **Active batch:** Batch 1: Cobbler Product Hierarchy
-- **Last completed batch:** none yet
-- **Next exact batch:** Batch 1: Cobbler Product Hierarchy
+- **Active batch:** Between batches
+- **Last completed batch:** Batch 1: Cobbler Product Hierarchy
+- **Next exact batch:** Batch 2: Claude Code Cobbler Alias
 - **Active PR:** #28 <https://github.com/aigorahub/elves/pull/28>
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
+
+---
+
+## 2026-06-14 18:18 EDT
+
+**Batch:** 1: Cobbler Product Hierarchy
+
+**What changed:**
+- Bumped runtime metadata and release docs to `1.15.0`.
+- Reframed `SKILL.md`, `AGENTS.md`, README, and CHANGELOG around Cobbler as the user-facing
+  coordinator inside Elves.
+- Preserved `/council`, `/ec`, `/elves-council`, and `$elves council: <task>` as compatibility
+  aliases.
+- Updated `scripts/check_repo_consistency.py` and its tests in the same batch so Cobbler wording is
+  protected by the normal validation gate.
+- Synced installed Claude and Codex skill copies to `1.15.0`.
+
+**Commit:** `5f4d356` `[codex/v1.15.0-cobbler · Batch 1/5] Add Cobbler product hierarchy`
+
+**Acceptance evidence:**
+- `SKILL.md`, `AGENTS.md`, README, and CHANGELOG all present Cobbler as the coordinator.
+- Council remains documented as a read-only compatibility mechanism, not a separate product.
+- Version metadata and latest changelog agree on `1.15.0`.
+- Forbidden public wording search was scoped to public runtime docs and found no Fable/vendor
+  framing in `SKILL.md`, `AGENTS.md`, README, CHANGELOG, `references`, or `config.json.example`.
+- Compatibility aliases include `/council`, `/ec`, `/elves-council`, and `$elves council: <task>`.
+
+**Validation evidence:**
+- `python3 scripts/check_repo_consistency.py` -> PASS, repo version `1.15.0`.
+- `python3 -m unittest discover -s tests -p 'test_*.py'` -> PASS, 13 tests.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` -> PASS.
+- `python3 -m json.tool config.json.example >/dev/null` and
+  `python3 -m json.tool .elves-session.json >/dev/null` -> PASS.
+- `git diff --check` -> PASS.
+- `python3 scripts/sync_installed_skills.py --check` -> PASS after syncing installed Claude and
+  Codex skill copies to repo version `1.15.0`.
+- `OPENAI_CODEX=1 ELVES_SURVIVAL_GUIDE_PATH=docs/elves/survival-guide.md ./scripts/preflight.sh`
+  -> PASS with advisory warnings only.
+- PR checks for #28 at commit `5f4d356` -> PASS: GitHub Actions analyze jobs, CodeQL, Socket
+  Security, and repo check.
+
+**Review disposition:**
+- Gemini `3410161379` -> addressed by moving checker and tests into Batch 1.
+- Gemini `3410161383` -> addressed by preserving `$elves council: <task>` in compatibility lists.
+- Gemini `3410161385` -> verified; the plan already included `$elves council: <task>` and the
+  runtime docs now align.
+- Gemini `3410161381` -> still planned for Batch 5 / release hardening, unless Batch 2 sync work
+  naturally handles the missing-installed-target behavior earlier.
+
+**Next:**
+1. Create rollback tag `elves/pre-batch-2-cobbler`.
+2. Write the Batch 2 contract and survey install/sync patterns.
+3. Implement the safest `/cobbler` Claude Code alias path without overwriting user-owned skills.
 
 ---
 
