@@ -10,7 +10,8 @@
 
   "notification": {
     "method": "gh-pr-comment",
-    "_alternatives": "slack, custom-cmd, gh-pr-comment"
+    "_alternatives": "slack, custom-cmd, gh-pr-comment",
+    "_comment": "PR comments are the zero-config fallback. Runtime completion notification order is ELVES_SLACK_WEBHOOK, then ELVES_NOTIFY_CMD, then PR comment unless your project overrides it."
   },
 
   "review": {
@@ -85,6 +86,7 @@
 
   "council": {
     "compatibility_for": "cobbler",
+    "precedence": "cobbler",
     "enabled": true,
     "default_mode": "quick",
     "default_backend": "native-subagents",
@@ -97,7 +99,7 @@
       "provider_policy": "optional-external-providers",
       "required_env": []
     },
-    "_comment": "Legacy v1.14 Council-compatible config. Prefer the top-level cobbler block in new configs; keep this for older projects that already refer to council keys."
+    "_comment": "Legacy v1.14 Council-compatible config. Prefer the top-level cobbler block in new configs. If both blocks are present, cobbler wins; keep council for older projects that already refer to council keys."
   },
 
   "math": {

@@ -19,8 +19,8 @@ All notable changes to the Elves skill are documented here.
   without subagents should perform the same read-only lens analysis directly.
 - Reframed external model diversity as optional provider-backed council configuration. Ordinary
   Cobbler and Council-compatible use requires no OpenRouter or other provider key.
-- Began synchronizing the Cobbler hierarchy across `SKILL.md`, `AGENTS.md`, README, changelog, and
-  the repo consistency checker.
+- Synchronized the Cobbler hierarchy across `SKILL.md`, `AGENTS.md`, README, changelog, reference
+  templates, config examples, managed Claude Code alias skills, and repo consistency guardrails.
 
 ## [1.14.0] - 2026-06-14
 

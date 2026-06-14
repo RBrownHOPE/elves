@@ -66,9 +66,9 @@ key.
 - **Checkpoint expectation:** best review-ready state by checkpoint; continue after checkpoint if
   required work remains
 - **Time budget:** default 8-hour checkpoint budget; objective remains active across turns
-- **Average batch time so far:** Batches 1-4 each completed in short focused passes after
+- **Average batch time so far:** Batches 1-5 each completed in short focused passes after
   launch-state setup
-- **Batches remaining:** 1 of 5, then final deliverables and open-ended follow-up/release-hardening
+- **Batches remaining:** 0 of 5, then final deliverables and open-ended follow-up/release-hardening
   work until stopped
 
 ---
@@ -77,12 +77,13 @@ key.
 
 > Rewrite this section in place. This is the explicit answer to "may I stop now?" Do not infer it.
 
-- **Planned batches remaining:** 1 plus final deliverables and open-ended follow-up
+- **Planned batches remaining:** 0 plus final deliverables and open-ended follow-up
 - **Stop allowed right now:** no
-- **Why:** The user explicitly said to keep going and not stop. Batches 1-4 are complete, but
-  Batch 5, final landing/release/announcement deliverables, and follow-up release-hardening work
-  remain.
-- **Next required action:** Start Batch 5: Consistency Checks and Release Hardening.
+- **Why:** The user explicitly said to keep going and not stop. All five planned batches are
+  complete, but final readiness, landing, GitHub release/tag, announcement drafting, and follow-up
+  release-hardening work remain.
+- **Next required action:** Commit and push Batch 5, then begin final readiness review and
+  reviewed-PR landing.
 
 ---
 
@@ -185,18 +186,16 @@ Promotion flow: `execution log -> learnings -> .ai-docs`
 
 **Status:** In progress
 
-**Active batch:** Between batches; next is Batch 5: Consistency Checks and Release Hardening
+**Active batch:** Between planned batches; next is final readiness review and reviewed-PR landing
 
-**What was just finished:** Batch 4 rewrote deeper references, prompt templates, provider config,
-tool config examples, survival-guide template, and `config.json.example` so Cobbler leads, Council
-is a compatibility/gathering mechanism, and provider-backed council is optional advanced plumbing.
-The default fitted-answer shape is now `Recommendation`, `Why this fits`, `Strongest dissent`,
-`Risks`, `Next move`, and `Confidence`. Local validation passed with 25 tests, installed
-Claude/Codex copies were synced to `1.15.0`, and preflight passed with advisory warnings only.
+**What was just finished:** Batch 5 hardened CI path filters, public-wording checks,
+provider-policy forbidden patterns, README install guidance, config precedence notes, changelog
+release wording, and the new v1.15 plan's public framing. Local validation passed with 31 tests,
+installed Claude/Codex copies were synced to `1.15.0`, and preflight passed with advisory warnings
+only.
 
-**Single next action:** Create rollback tag `elves/pre-batch-5-cobbler`, write the Batch 5
-contract, then perform final hardening: consistency checks, docs sweep, installed sync, PR feedback
-disposition replies, final readiness review preparation, and release/landing readiness.
+**Single next action:** Commit and push Batch 5, re-read this file, then poll PR checks/comments and
+begin final readiness review.
 
 ---
 
@@ -219,27 +218,30 @@ disposition replies, final readiness review preparation, and release/landing rea
 
 ## Next Exact Batch
 
-**Batch:** 5: Consistency Checks and Release Hardening
+**Batch:** Final readiness review and reviewed-PR landing
 
 **Scope:**
-- Harden consistency checks and tests across Cobbler, Council compatibility, provider policy,
-  version metadata, alias surfaces, and forbidden wording.
-- Run full validation and installed-skill sync.
+- Commit and push Batch 5.
+- Re-read this survival guide after push.
 - Reply to or resolve addressed PR feedback.
-- Prepare final readiness review and release/landing workflow.
-- Keep docs fully current for `1.15.0`.
+- Run final cumulative review of `git diff main...HEAD`, commits, PR comments, checks, plan, and
+  docs.
+- If clean, execute the reviewed-PR landing protocol for PR #28 using a regular merge commit.
+- After merge, publish GitHub tag/release `v1.15.0` and draft the X announcement post.
 
 **Acceptance criteria:**
-- [ ] Full validation gates pass locally.
-- [ ] Installed Claude and Codex copies are synced and checked.
-- [ ] PR checks are green and PR feedback is addressed or explicitly dispositioned.
-- [ ] Documentation and version metadata are coherent for `1.15.0`.
-- [ ] Final readiness review can begin with no known batch debt.
+- [ ] Batch 5 commit is pushed and PR checks are green on the new head.
+- [ ] PR feedback is addressed or explicitly dispositioned with replies/resolution where possible.
+- [ ] Final cumulative review finds no blockers.
+- [ ] PR #28 lands with a regular merge commit if final readiness is clean.
+- [ ] GitHub release/tag `v1.15.0` is published after merge.
+- [ ] X announcement draft is prepared.
 
-**Risk:** Final hardening can become a shallow checkbox pass. Treat it as cumulative review, not
-ceremony.
+**Risk:** The branch is close to release, so false stop signals are especially tempting. Keep the
+loop moving through landing, release, announcement, and follow-up hardening.
 
-**Rollback tag:** `elves/pre-batch-5-cobbler`
+**Rollback tag:** `elves/pre-batch-5-cobbler` for the completed hardening batch; final landing uses
+GitHub PR merge/release history rather than a batch rollback tag.
 
 ---
 

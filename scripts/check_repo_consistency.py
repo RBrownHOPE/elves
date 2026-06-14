@@ -137,6 +137,15 @@ FINAL_READINESS_REVIEW_PHRASES = {
     ],
 }
 
+REPO_CONSISTENCY_WORKFLOW_PHRASES = {
+    ".github/workflows/repo-consistency.yml": [
+        '"config.json.example"',
+        '".github/workflows/repo-consistency.yml"',
+        '"aliases/**"',
+        "scripts/validate_survival_guide.py",
+    ],
+}
+
 REVIEWED_PR_LANDING_PHRASES = {
     "SKILL.md": [
         "## Reviewed PR Landing Command",
@@ -403,7 +412,7 @@ COUNCIL_MODULE_PHRASES = {
         "Confidence",
         "mutate run state",
         "Provider-backed council is optional",
-        "must not require OpenRouter",
+        "must not require",
         "vendor identity",
     ],
     "AGENTS.md": [
@@ -433,7 +442,7 @@ COUNCIL_MODULE_PHRASES = {
         "Confidence",
         "mutate run state",
         "Provider-backed council is optional",
-        "must not require OpenRouter",
+        "must not require",
         "vendor identity",
     ],
     "README.md": [
@@ -460,7 +469,7 @@ COUNCIL_MODULE_PHRASES = {
         "Risks",
         "Next move",
         "Confidence",
-        "requires no OpenRouter",
+        "require no OpenRouter",
         "vendor identity",
         "references/council-workflow.md",
         "references/council-prompts.md",
@@ -541,6 +550,7 @@ COUNCIL_MODULE_PHRASES = {
         '"default_answer_shape"',
         '"provider_backed_council"',
         '"compatibility_for": "cobbler"',
+        '"precedence": "cobbler"',
         '"default_backend": "native-subagents"',
         '"quick_read_only": true',
         '"quick_stateless": true',
@@ -726,6 +736,47 @@ COUNCIL_FORBIDDEN_PHRASES = {
     ],
 }
 
+COBBLER_FORBIDDEN_PATTERNS = {
+    label: [
+        r"\bquick\s+cobbler\s+(?:needs|requires)\s+openrouter\b",
+        r"\bnormal\s+cobbler\s+requires\s+(?:an\s+)?external\s+provider\s+key\b",
+        r"\bcobbler\s+requires\s+openrouter\b",
+        r"\bcouncil-compatible\s+use\s+requires\s+openrouter\b",
+        r"\bopenrouter_api_key\b\s+is\s+required\s+for\s+cobbler\b",
+    ]
+    for label in (
+        "SKILL.md",
+        "AGENTS.md",
+        "README.md",
+        "references/council-workflow.md",
+        "references/council-provider-config.md",
+        "references/tool-config-examples.md",
+        "references/survival-guide-template.md",
+        "config.json.example",
+        "aliases/claude/cobbler/SKILL.md",
+        "aliases/claude/council/SKILL.md",
+        "aliases/claude/ec/SKILL.md",
+        "aliases/claude/elves-council/SKILL.md",
+    )
+}
+
+PUBLIC_WORDING_FILES = [
+    REPO_ROOT / "SKILL.md",
+    REPO_ROOT / "AGENTS.md",
+    REPO_ROOT / "README.md",
+    REPO_ROOT / "CHANGELOG.md",
+    REPO_ROOT / "config.json.example",
+]
+
+PUBLIC_WORDING_FORBIDDEN_PHRASES = [
+    "Fable",
+    "Fable-like",
+    "Fable-style",
+    "inspired by Fable",
+    "cobbled together",
+    "cobbled-together",
+]
+
 
 def read_text(path: Path) -> str:
     return path.read_text()
@@ -780,6 +831,20 @@ def find_forbidden_phrases(
     return errors
 
 
+def find_forbidden_patterns(
+    texts: dict[str, str],
+    pattern_map: dict[str, list[str]],
+    category: str,
+) -> list[str]:
+    errors: list[str] = []
+    for label, patterns in pattern_map.items():
+        text = texts.get(label, "")
+        for pattern in patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                errors.append(f"{label}: stale {category} pattern `{pattern}`")
+    return errors
+
+
 def extract_markdown_section(text: str, heading: str) -> str:
     lines = text.splitlines()
     heading_level = len(heading) - len(heading.lstrip("#"))
@@ -798,6 +863,19 @@ def extract_markdown_section(text: str, heading: str) -> str:
             break
         section.append(line)
     return "\n".join(section)
+
+
+def public_wording_texts() -> dict[str, str]:
+    paths = [
+        *PUBLIC_WORDING_FILES,
+        *sorted((REPO_ROOT / "references").glob("*.md")),
+        *sorted((REPO_ROOT / "aliases" / "claude").glob("*/SKILL.md")),
+    ]
+    return {
+        path.relative_to(REPO_ROOT).as_posix(): read_text(path)
+        for path in paths
+        if path.exists()
+    }
 
 
 def find_missing_section_phrases(
@@ -875,6 +953,13 @@ def main() -> int:
         for phrase in phrases:
             if phrase not in text:
                 errors.append(f"{label}: missing final-readiness-review phrase `{phrase}`")
+
+    for label, phrases in REPO_CONSISTENCY_WORKFLOW_PHRASES.items():
+        path = REPO_ROOT / label
+        text = read_text(path)
+        for phrase in phrases:
+            if phrase not in text:
+                errors.append(f"{label}: missing repo-consistency workflow phrase `{phrase}`")
 
     for label, phrases in MEMORY_HYGIENE_PHRASES.items():
         path = REPO_ROOT / label
@@ -965,6 +1050,22 @@ def main() -> int:
             "Cobbler",
         )
     )
+    errors.extend(
+        find_forbidden_patterns(
+            council_texts,
+            COBBLER_FORBIDDEN_PATTERNS,
+            "Cobbler",
+        )
+    )
+
+    public_texts = public_wording_texts()
+    errors.extend(
+        find_forbidden_phrases(
+            public_texts,
+            {label: PUBLIC_WORDING_FORBIDDEN_PHRASES for label in public_texts},
+            "public wording",
+        )
+    )
 
     alias_texts = {label: read_text(REPO_ROOT / label) for label in CLAUDE_ALIAS_SKILL_PHRASES}
     errors.extend(
@@ -990,11 +1091,13 @@ def main() -> int:
     print("- Non-stop guardrails are aligned across runtime and template docs")
     print("- Effort guardrails are aligned across runtime and template docs")
     print("- Final readiness review guardrails are aligned")
+    print("- Repo consistency workflow guardrails are aligned")
     print("- Strategic forgetting and memory hygiene guardrails are aligned")
     print("- Elves Report guardrails are aligned")
     print("- Math research workflow guardrails are aligned")
     print("- Reviewed PR landing command guardrails are aligned")
     print("- Cobbler guardrails are aligned")
+    print("- Public wording guardrails are aligned")
     print("- Claude Cobbler alias guardrails are aligned")
     return 0
 

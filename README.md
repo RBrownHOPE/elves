@@ -182,9 +182,8 @@ does not edit files, create branches, open PRs, install packages, or mutate run 
 
 Provider-backed council is optional. It can be configured later for external provider diversity,
 but ordinary Cobbler use and compatibility-alias use require no OpenRouter or other provider key.
-Normal Cobbler use requires no OpenRouter or external provider key. The pattern borrows the useful
-harness idea of independent role reports followed by synthesis without importing vendor identity,
-policy, persona, or safety text.
+The pattern borrows the useful harness idea of independent role reports followed by synthesis
+without importing vendor identity, policy, persona, or safety text.
 
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
 model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
@@ -305,8 +304,8 @@ See [Installation](#installation) below for full details. The short version:
 - **Claude Code:** install the main `elves` skill plus the managed `/cobbler`, `/council`, `/ec`,
   and `/elves-council` alias skills
 - **Codex:** copy the skill bundle into `~/.codex/skills/elves/` (at minimum `SKILL.md`,
-  `references/`, and the runtime scripts `scripts/preflight.sh`, `scripts/notify.sh`, and
-  `scripts/install_doctor.py`)
+  `AGENTS.md`, `references/`, and the runtime scripts `scripts/preflight.sh`,
+  `scripts/notify.sh`, `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`)
 - **Claude.ai:** zip the `elves/` directory and upload via Settings > Features > Skills
 
 **2. Write a plan**
@@ -781,6 +780,9 @@ mkdir -p .codex/skills
 git clone https://github.com/aigorahub/elves.git .codex/skills/elves
 rm -rf .codex/skills/elves/.git
 ```
+
+Codex uses `$elves cobbler: <task>` or natural language such as "Ask the Cobbler..." rather than
+the Claude Code slash aliases.
 
 ### Claude.ai (upload)
 

@@ -2,7 +2,7 @@
   "session_name": "v1.15.0-cobbler",
   "status": "in_progress",
   "created_at": "2026-06-14T16:07:00-04:00",
-  "updated_at": "2026-06-14T18:49:00-04:00",
+  "updated_at": "2026-06-14T19:00:00-04:00",
   "run_mode": "open-ended",
   "branch": "codex/v1.15.0-cobbler",
   "base_branch": "main",
@@ -22,10 +22,10 @@
   },
   "continuation_guard": {
     "stop_allowed": false,
-    "reason": "The user explicitly said to keep going and do not stop; Batches 1-4 are complete, but Batch 5, reviewed-PR landing, GitHub release, X announcement draft, and follow-up release-hardening remain.",
-    "remaining_batches": 1,
+    "reason": "The user explicitly said to keep going and do not stop; all five planned batches are complete, but reviewed-PR landing, GitHub release, X announcement draft, and follow-up release-hardening remain.",
+    "remaining_batches": 0,
     "checkpoint_is_stop": false,
-    "next_required_action": "Start Batch 5: Consistency Checks and Release Hardening."
+    "next_required_action": "Commit and push Batch 5, then begin final readiness review and reviewed-PR landing."
   },
   "run_control": {
     "user_intent": "Complete the staged v1.15.0 Cobbler run. When complete, run the Elves land-PR protocol, make docs fully current, bump the version everywhere including GitHub, then write an X announcement post with the Fable orchestration framing. Latest update: leverage Cobbler's own ideas while doing the work, including ideas and reviews from Gemini 3.1 Pro, Gemini 3.5 Flash, Opus 4.8, Grok 4.3, and Qwen 3.7 Max with high/deep thinking where available; keep going and do not stop.",
@@ -134,6 +134,7 @@
       "started_at": "2026-06-14T18:45:00-04:00",
       "completed_at": "2026-06-14T18:49:00-04:00",
       "rollback_tag": "elves/pre-batch-4-cobbler",
+      "commit": "d21f289f02df712942c0561fa8fa7d345c733112",
       "validation": {
         "local": "pass",
         "unit_tests": {
@@ -152,7 +153,24 @@
     {
       "id": 5,
       "name": "Consistency Checks and Release Hardening",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-14T18:53:00-04:00",
+      "completed_at": "2026-06-14T19:00:00-04:00",
+      "rollback_tag": "elves/pre-batch-5-cobbler",
+      "validation": {
+        "local": "pass",
+        "unit_tests": {
+          "passed": 31,
+          "total": 31,
+          "skipped": 0
+        },
+        "installed_sync": "pass",
+        "notes": [
+          "Added public wording guardrails, provider-policy regex guardrails, workflow path coverage, README install parity, config precedence notes, and changelog release polish.",
+          "Gemini 3.1 Pro, Gemini 3.5 Flash, Opus 4.8, Grok 4.3, Qwen 3.7 Max, and native Codex lenses found no remaining blockers after fixes.",
+          "PR checks must be repolled after the Batch 5 push."
+        ]
+      }
     }
   ],
   "test_baseline": {

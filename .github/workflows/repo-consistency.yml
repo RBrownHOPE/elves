@@ -8,12 +8,16 @@ on:
       - "README.md"
       - "CHANGELOG.md"
       - "TODO.md"
+      - "config.json.example"
+      - ".github/workflows/repo-consistency.yml"
+      - "aliases/**"
       - "references/**"
       - ".ai-docs/**"
       - "docs/elves/learnings.md"
       - "scripts/check_repo_consistency.py"
       - "scripts/install_doctor.py"
       - "scripts/sync_installed_skills.py"
+      - "scripts/validate_survival_guide.py"
       - "tests/**"
   push:
     branches:
@@ -24,12 +28,16 @@ on:
       - "README.md"
       - "CHANGELOG.md"
       - "TODO.md"
+      - "config.json.example"
+      - ".github/workflows/repo-consistency.yml"
+      - "aliases/**"
       - "references/**"
       - ".ai-docs/**"
       - "docs/elves/learnings.md"
       - "scripts/check_repo_consistency.py"
       - "scripts/install_doctor.py"
       - "scripts/sync_installed_skills.py"
+      - "scripts/validate_survival_guide.py"
       - "tests/**"
 
 permissions:
@@ -49,7 +57,7 @@ jobs:
           python-version: "3.12"
 
       - name: Validate helper scripts
-        run: python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py
+        run: python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py
 
       - name: Run repo consistency checker
         run: python3 scripts/check_repo_consistency.py

@@ -175,6 +175,7 @@ class ConsistencyPhraseTests(unittest.TestCase):
         self.assertIn('"default_answer_shape"', phrases)
         self.assertIn('"provider_backed_council"', phrases)
         self.assertIn('"compatibility_for": "cobbler"', phrases)
+        self.assertIn('"precedence": "cobbler"', phrases)
 
     def test_claude_cobbler_alias_skill_files_are_required(self) -> None:
         expected_aliases = {
@@ -264,6 +265,83 @@ Cobbler
             errors,
             [f"{label}: stale Cobbler phrase `{stale}`"],
         )
+
+    def test_cobbler_forbidden_patterns_catch_provider_requirement_variants(self) -> None:
+        label = "README.md"
+        text = "Quick Cobbler needs OpenRouter before it can answer."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.COBBLER_FORBIDDEN_PATTERNS,
+            "Cobbler",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "README.md: stale Cobbler pattern "
+                    "`\\bquick\\s+cobbler\\s+(?:needs|requires)\\s+openrouter\\b`"
+                )
+            ],
+        )
+
+    def test_cobbler_forbidden_patterns_are_case_insensitive(self) -> None:
+        label = "SKILL.md"
+        text = "OPENROUTER_API_KEY is required for Cobbler."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.COBBLER_FORBIDDEN_PATTERNS,
+            "Cobbler",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "SKILL.md: stale Cobbler pattern "
+                    "`\\bopenrouter_api_key\\b\\s+is\\s+required\\s+for\\s+cobbler\\b`"
+                )
+            ],
+        )
+
+    def test_repo_consistency_workflow_guards_alias_and_config_paths(self) -> None:
+        phrases = self.consistency.REPO_CONSISTENCY_WORKFLOW_PHRASES[
+            ".github/workflows/repo-consistency.yml"
+        ]
+
+        self.assertIn('"config.json.example"', phrases)
+        self.assertIn('"aliases/**"', phrases)
+        self.assertIn("scripts/validate_survival_guide.py", phrases)
+
+    def test_public_wording_guardrails_catch_fable_framing(self) -> None:
+        label = "README.md"
+        stale = "Fable"
+
+        self.assertIn(stale, self.consistency.PUBLIC_WORDING_FORBIDDEN_PHRASES)
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            {label: self.consistency.PUBLIC_WORDING_FORBIDDEN_PHRASES},
+            "public wording",
+        )
+
+        self.assertEqual(errors, [f"{label}: stale public wording phrase `{stale}`"])
+
+    def test_public_wording_surfaces_include_references_and_aliases(self) -> None:
+        surfaces = self.consistency.public_wording_texts()
+
+        self.assertIn("SKILL.md", surfaces)
+        self.assertIn("references/council-workflow.md", surfaces)
+        self.assertIn("aliases/claude/cobbler/SKILL.md", surfaces)
+
+    def test_public_wording_surfaces_exclude_live_run_artifacts(self) -> None:
+        surfaces = self.consistency.public_wording_texts()
+
+        self.assertNotIn("docs/plans/v1.15.0-cobbler.md", surfaces)
+        self.assertNotIn("docs/elves/survival-guide.md", surfaces)
+        self.assertNotIn("docs/elves/execution-log.md", surfaces)
 
 
 if __name__ == "__main__":

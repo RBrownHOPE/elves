@@ -7,14 +7,142 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 18:51 EDT
+- **Last updated:** 2026-06-14 19:00 EDT
 - **Current phase:** In progress
-- **Active batch:** Between batches
-- **Last completed batch:** Batch 4: Fitted Answer Synthesis
-- **Next exact batch:** Batch 5: Consistency Checks and Release Hardening
+- **Active batch:** Between planned batches
+- **Last completed batch:** Batch 5: Consistency Checks and Release Hardening
+- **Next exact batch:** Final readiness review and reviewed-PR landing
 - **Active PR:** #28 <https://github.com/aigorahub/elves/pull/28>
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
+
+---
+
+## 2026-06-14 19:00 EDT
+
+**Batch:** 5: Consistency Checks and Release Hardening
+
+**What changed:**
+- Added public-surface forbidden-wording guardrails so external vendor-prompt/Fable/cobbled wording
+  cannot drift into runtime docs, references, alias skills, config examples, README, or changelog.
+- Added case-insensitive provider-policy forbidden patterns to catch variants such as "Quick
+  Cobbler needs OpenRouter" or "OPENROUTER_API_KEY is required for Cobbler".
+- Widened the repo-consistency workflow path filters so config examples, alias skills, the workflow
+  file itself, and `scripts/validate_survival_guide.py` trigger CI; also compiled
+  `validate_survival_guide.py` in CI.
+- Fixed README install parity for Codex by adding `AGENTS.md` and `scripts/validate_survival_guide.py`
+  to the quick-start bundle description.
+- Polished duplicate OpenRouter wording in `SKILL.md`, `AGENTS.md`, and README.
+- Updated `config.json.example` to clarify notification fallback order and to state that the
+  top-level `cobbler` block wins when a legacy `council` block is also present.
+- Updated the `1.15.0` changelog entry from "began synchronizing" to release-ready language.
+- Scrubbed the new `v1.15.0` plan file so it no longer adds external-prompt/Fable wording to public
+  plan history; older `v1.14.0` historical plan wording was left untouched.
+
+**Cobbler review synthesis:**
+- Native Codex lenses found actionable hardening issues around CI path coverage, README install
+  parity, provider-policy wording variants, changelog release tone, and packaging risk from run
+  artifacts.
+- Gemini 3.1 Pro, Gemini 3.5 Flash, Qwen 3.7 Max, and Grok 4.3 found no blockers; Gemini/Qwen
+  converged on the duplicate OpenRouter sentence as polish.
+- Opus 4.8 via OpenRouter retry found no blockers and suggested config precedence/notification
+  clarifications plus a Codex install reminder. Implemented.
+- Native Anthropic credentials were not available; OpenRouter was used for the Opus 4.8 retry after
+  the first OpenRouter Opus call returned empty content.
+
+**Acceptance evidence:**
+- Full local validation passes on the current working tree.
+- Installed Claude and Codex copies were synced after runtime-skill edits and rechecked clean.
+- PR checks on the latest pushed Batch 4 head were green before this local Batch 5 commit; checks
+  must be repolled after the Batch 5 push.
+- Existing Gemini PR comments are recorded in `.elves-session.json` and will be replied to after
+  this commit is pushed.
+- Public runtime docs and aliases contain no external vendor-prompt/Fable/cobbled wording; the new
+  `v1.15.0` plan was scrubbed as well.
+
+**Regression attestation:**
+- Current Batch 5 diff before commit: 11 files, 276 insertions, 29 deletions.
+- Cumulative branch diff before commit: 23 files, 2565 insertions, 280 deletions.
+- Shared surfaces changed: workflow trigger config, README/changelog/config docs, runtime skill
+  docs, consistency checker, and checker tests. No runtime CLI or sync-helper mutation semantics
+  changed in Batch 5.
+- Test baseline was 13 tests; current total is 31 tests with 0 skipped. Coverage increased.
+- Confidence: HIGH for documentation/config/checker coherence because local gates, native lenses,
+  and five provider-backed model reviews found no remaining blockers. Residual risk: final merge
+  readiness still depends on post-push PR checks and comment disposition.
+
+**Validation evidence:**
+- `python3 -m json.tool .elves-session.json >/dev/null` and
+  `python3 -m json.tool config.json.example >/dev/null` -> PASS.
+- `python3 scripts/validate_survival_guide.py docs/elves/survival-guide.md` -> PASS.
+- `python3 scripts/check_repo_consistency.py` -> PASS, including public wording, provider-pattern,
+  workflow, and alias guardrails.
+- `python3 -m unittest discover -s tests -p 'test_*.py'` -> PASS, 31 tests.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` -> PASS.
+- `python3 scripts/sync_installed_skills.py --apply && python3 scripts/sync_installed_skills.py --check`
+  -> PASS for Claude and Codex installed copies.
+- `git diff --check` -> PASS.
+- `OPENAI_CODEX=1 ELVES_SURVIVAL_GUIDE_PATH=docs/elves/survival-guide.md ./scripts/preflight.sh`
+  -> PASS with two advisory warnings: no package-managed project type, and missing recommended
+  non-interactive env vars in the current shell.
+
+**Next:**
+1. Commit and push Batch 5.
+2. Re-read the survival guide.
+3. Poll PR checks/comments and reply to addressed Gemini comments.
+4. Begin final readiness review and reviewed-PR landing.
+
+---
+
+## 2026-06-14 18:53 EDT
+
+**Batch:** 5: Consistency Checks and Release Hardening
+
+**Contract:**
+- The cumulative branch is coherent for `v1.15.0`: version metadata, changelog, README, skill
+  surfaces, config examples, alias docs, and reference docs agree.
+- Normal Cobbler use remains native-subagent-first and does not require OpenRouter or another
+  external provider key.
+- Council compatibility remains visible and safe without letting Council read as a second product.
+- The consistency checker and tests guard the release's important drift risks: Cobbler naming,
+  host-specific invocation honesty, provider policy, fitted-answer output shape, Claude alias
+  coverage, sync-helper safety, and forbidden public wording.
+- Existing PR comments are replied to or otherwise dispositioned, checks are polled, and final
+  readiness can begin with no known batch debt.
+
+**Build on:**
+- `scripts/check_repo_consistency.py` phrase maps and unit-test pattern from Batches 1, 3, and 4.
+- `scripts/sync_installed_skills.py` managed-alias marker behavior and tests from Batch 2.
+- Cross-file sync convention in `.ai-docs/conventions.md`: behavior changes must move through
+  `SKILL.md`, `AGENTS.md`, README, templates, and checker guardrails together.
+- PR review loop and `.elves-session.json` review-comment dispositions already recorded for Gemini
+  comments `3410161379`, `3410161381`, `3410161383`, and `3410161385`.
+
+**Acceptance criteria:**
+- [ ] Full validation gates pass locally on the current tip.
+- [ ] Installed Claude and Codex copies are synced and checked.
+- [ ] PR checks are green or any pending/non-required checks are explicitly recorded before final
+      readiness.
+- [ ] PR feedback is addressed or explicitly dispositioned with GitHub replies/resolution where
+      possible.
+- [ ] Documentation and version metadata are coherent for `1.15.0`.
+- [ ] Final readiness review can begin with no known batch debt.
+
+**Blast radius:**
+- Checker/tests: medium risk, because over-broad rules can create false blockers while under-broad
+  rules miss release drift.
+- Run memory and PR replies: low-to-medium risk, because they affect operator recovery and review
+  clarity but not runtime behavior.
+- Release mechanics: medium risk, because tag/release/merge will follow this batch if final
+  readiness is clean.
+
+**Pre-implementation survey:**
+- `rg` review shows intended Cobbler/Council language across runtime docs, references, aliases, and
+  tests. Stale Council-first strings remain only in compatibility history, forbidden-phrase tests,
+  and `v1.14.0` changelog context.
+- `git status --short` is clean, and local/remote head both point at `d21f289`.
+- PR polling after Batch 4 found no new comments; latest CI/checks are still running, not failing.
+- Two native Codex read-only review lenses were launched for Batch 5 hardening review.
 
 ---
 

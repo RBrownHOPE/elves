@@ -112,7 +112,6 @@ Provider-backed council is optional. It may use configured external providers fo
 diversity, but normal Cobbler, `/council`, `/ec`, and `/elves-council` use must not require
 OpenRouter or any external provider key. Cobbler borrows the useful harness pattern of role-specific
 reports plus synthesis; it does not copy vendor identity, policy, persona, or safety framing.
-Normal Cobbler use must not require OpenRouter or any external provider key.
 
 ## Strategic Forgetting
 
