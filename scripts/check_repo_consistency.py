@@ -143,6 +143,15 @@ REPO_CONSISTENCY_WORKFLOW_PHRASES = {
         '".github/workflows/repo-consistency.yml"',
         '"aliases/**"',
         "scripts/validate_survival_guide.py",
+        "actions/checkout@v6",
+        "actions/setup-python@v6",
+    ],
+}
+
+REPO_CONSISTENCY_WORKFLOW_FORBIDDEN_PHRASES = {
+    ".github/workflows/repo-consistency.yml": [
+        "actions/checkout@v4",
+        "actions/setup-python@v5",
     ],
 }
 
@@ -960,6 +969,16 @@ def main() -> int:
         for phrase in phrases:
             if phrase not in text:
                 errors.append(f"{label}: missing repo-consistency workflow phrase `{phrase}`")
+    errors.extend(
+        find_forbidden_phrases(
+            {
+                label: read_text(REPO_ROOT / label)
+                for label in REPO_CONSISTENCY_WORKFLOW_FORBIDDEN_PHRASES
+            },
+            REPO_CONSISTENCY_WORKFLOW_FORBIDDEN_PHRASES,
+            "repo-consistency workflow",
+        )
+    )
 
     for label, phrases in MEMORY_HYGIENE_PHRASES.items():
         path = REPO_ROOT / label
