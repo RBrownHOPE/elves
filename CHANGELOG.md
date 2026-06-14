@@ -4,6 +4,10 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+- Expanded the repo consistency checker to phrase-pin operator-facing docs, including durable
+  `.ai-docs/*` guidance, the overnight run report issue template, and kickoff run-control fields.
+- Updated the repo consistency workflow so issue template changes trigger the checker.
+
 ## [1.15.0] - 2026-06-14
 
 ### Cobbler

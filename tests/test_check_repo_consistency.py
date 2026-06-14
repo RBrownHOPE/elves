@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 
@@ -312,8 +314,67 @@ Cobbler
         ]
 
         self.assertIn('"config.json.example"', phrases)
+        self.assertIn('".github/ISSUE_TEMPLATE/**"', phrases)
         self.assertIn('"aliases/**"', phrases)
         self.assertIn("scripts/validate_survival_guide.py", phrases)
+
+    def test_operator_doc_guardrails_cover_durable_docs_and_run_report_template(self) -> None:
+        expected = {
+            ".ai-docs/manifest.md",
+            ".ai-docs/architecture.md",
+            ".ai-docs/conventions.md",
+            ".ai-docs/gotchas.md",
+            ".github/ISSUE_TEMPLATE/overnight_run_report.md",
+            "references/kickoff-prompt-template.md",
+        }
+
+        self.assertTrue(expected.issubset(self.consistency.OPERATOR_DOC_PHRASES))
+        self.assertIn(
+            "- **Run mode:**",
+            self.consistency.OPERATOR_DOC_PHRASES[
+                ".github/ISSUE_TEMPLATE/overnight_run_report.md"
+            ],
+        )
+        self.assertIn(
+            "`Active Compute` if relevant",
+            self.consistency.OPERATOR_DOC_PHRASES["references/kickoff-prompt-template.md"],
+        )
+
+    def test_operator_doc_guardrails_report_missing_phrase(self) -> None:
+        label = ".ai-docs/conventions.md"
+
+        errors = self.consistency.find_missing_phrases(
+            {label: "Run control is live metadata"},
+            {label: ["Run control is live metadata", "Stop Gate"]},
+            "operator-doc",
+        )
+
+        self.assertEqual(errors, [f"{label}: missing operator-doc phrase `Stop Gate`"])
+
+    def test_main_reports_missing_operator_doc_phrase(self) -> None:
+        label = ".github/ISSUE_TEMPLATE/overnight_run_report.md"
+        target_path = self.consistency.REPO_ROOT / label
+        original_read_text = self.consistency.read_text
+
+        def fake_read_text(path: Path) -> str:
+            text = original_read_text(path)
+            if path == target_path:
+                return text.replace("Run-control behavior", "Behavior during the run")
+            return text
+
+        self.consistency.read_text = fake_read_text
+        output = io.StringIO()
+        try:
+            with redirect_stdout(output):
+                exit_code = self.consistency.main()
+        finally:
+            self.consistency.read_text = original_read_text
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(
+            f"{label}: missing operator-doc phrase `Run-control behavior`",
+            output.getvalue(),
+        )
 
     def test_public_wording_guardrails_catch_fable_framing(self) -> None:
         label = "README.md"
