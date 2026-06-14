@@ -9,9 +9,10 @@
 
 - **Last updated:** 2026-06-14 12:47 EDT
 - **Current phase:** Launch active
-- **Active batch:** Batch 3 closeout
-- **Last completed batch:** Batch 3 pending commit/push
-- **Next exact batch:** Batch 4: Consistency Checks And Release Hardening
+- **Active batch:** Batch 4 pending start
+- **Last completed batch:** Batch 3
+- **Next exact batch:** Push Batch 3 completion state, poll PR feedback, then start Batch 4:
+  Consistency Checks And Release Hardening
 - **Active PR:** #27
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -153,7 +154,7 @@ clean, with a regular merge commit via `gh pr merge --merge`; squash/rebase rema
 `references/council-workflow.md`, `references/tool-config-examples.md`,
 `references/survival-guide-template.md`, live execution log, `.elves-session.json`.
 **Docs promoted:** none yet; Batch 4 will pin Council guardrails in the checker.
-**Commit SHA:** pending.
+**Commit SHA:** `a6010af747ff`
 
 ---
 
