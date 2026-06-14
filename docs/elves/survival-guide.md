@@ -21,23 +21,26 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
 ## Run Control
 
 - **Run mode:** finite
-- **Stop policy:** stop after staging in this call; after launch, stop only when all planned batches
-  are complete and final readiness review is clean, or when genuinely blocked.
+- **Stop policy:** launch is active; stop only when all planned batches are complete, final
+  readiness review is clean, PR #27 has been landed under the explicit user opt-in below, GitHub
+  release/version state is updated, or when genuinely blocked.
 - **User intent:** "plan this update out as an elves run and apply the principles as you work.
   get help from other agents. update all docs, bump version number, and do this for both codex and
   claude"
 - **Checkpoint due by:** none
-- **Checkpoint semantics:** staging boundary is a required stop before unattended implementation
-- **May continue after checkpoint:** yes, after the user sends the launch prompt in a fresh call
-- **Actual stop conditions:** staging complete now; after launch, all four batches complete,
-  validated, reviewed, documented, and pushed, or a genuine blocker.
+- **Checkpoint semantics:** staging boundary was satisfied in the prior call; this call is launch
+  mode.
+- **May continue after checkpoint:** yes
+- **Actual stop conditions:** all four batches complete, validated, reviewed, documented, pushed,
+  PR #27 landed with a regular merge commit after final readiness, GitHub version/release state
+  updated, X statement prepared, or a genuine blocker.
 - **Workspace ownership:** owned branch + main checkout; read-only explorer subagents may inspect
   but must not write.
 - **Branch tip at start (collision tripwire):** `26bb766ea8512d252dc93997a83b2d498d0f219c`
-- **Merge policy:** user-merges; never merge unless the user explicitly opts in later via
-  merge-on-green or reviewed-PR landing.
-- **Final-response policy:** allowed for staging handoff only. After launch, final response is
-  allowed only when the finite run is complete or blocked.
+- **Merge policy:** explicit one-off merge opt-in for PR #27 from latest user instruction; land
+  only after final readiness is clean, with `gh pr merge --merge`, never squash or rebase.
+- **Final-response policy:** allowed only when the finite run, landing, GitHub version update, and
+  X statement are complete, or when genuinely blocked.
 - **Batch completion rule:** Every completed batch ends with `update execution log -> update
   survival guide -> commit -> push`.
 - **Re-read rule:** Immediately after every commit and push, re-read this survival guide before
@@ -57,16 +60,17 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
   `.elves-session.json`
 - **Time budget:** ~8 hours after launch unless user overrides
 - **Average batch time so far:** N/A
-- **Batches remaining:** 4 of 4
+- **Batches remaining:** 3 of 4
 
 ---
 
 ## Stop Gate
 
-- **Planned batches remaining:** 4
-- **Stop allowed right now:** yes, for staging handoff only
-- **Why:** Elves requires staging and launch to happen in separate calls.
-- **Next required action:** hand the user the short launch prompt; on launch, start Batch 1.
+- **Planned batches remaining:** 3
+- **Stop allowed right now:** no
+- **Why:** Batch 1 is complete pending commit/push, and Batches 2-4 plus final landing, GitHub
+  version update, and X statement remain.
+- **Next required action:** commit and push Batch 1, poll PR feedback, then start Batch 2.
 
 ---
 
@@ -94,26 +98,27 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
 
 ## Current Phase
 
-- **Status:** staging complete / launch-ready
-- **Active batch:** Batch 0: Staging
-- **What was just finished:** plan, survival guide, execution log, and `.elves-session.json` were
-  initialized for v1.14.0 Elves Council.
-- **Single next action:** hand the user the launch prompt; on launch, start Batch 1.
+- **Status:** Batch 1 complete pending commit/push
+- **Active batch:** Batch 1 closeout
+- **What was just finished:** version metadata, Council concept docs, README feature summary, and
+  changelog release skeleton were updated and validated.
+- **Single next action:** commit and push Batch 1, poll PR feedback, then start Batch 2.
 
 ---
 
 ## Next Exact Batch
 
-- **Batch:** Batch 1: Release Skeleton And Council Concept
-- **Scope:** bump version metadata and add the council concept to `SKILL.md`, `AGENTS.md`,
-  `README.md`, and `CHANGELOG.md`.
-- **Acceptance criteria:** Claude and Codex surfaces both mention the same aliases; Quick Council is
-  native-subagent-first, read-only, and stateless by default; Deep Council is optional; no docs
-  imply automatic implementation.
-- **Risk:** medium, because this repo's main failure mode is cross-file documentation drift.
+- **Batch:** Batch 2: Council Workflow And Role Prompts
+- **Scope:** add `references/council-workflow.md` and `references/council-prompts.md`, then link
+  them from README where appropriate.
+- **Acceptance criteria:** workflow states role-agent independence and Quick Council read-only
+  invariants; role prompts are lens/obligation prompts, not theatrical personas; synthesis leads
+  with one recommendation while preserving dissent.
+- **Risk:** medium, because prompt docs can grow too ceremonial or accidentally imply a parallel
+  Council run system.
 
-Before editing implementation docs, write the Batch 1 contract in the execution log. Build on the
-existing math-module documentation pattern and update both `SKILL.md` and `AGENTS.md`.
+Before editing reference docs, write the Batch 2 contract in the execution log. Build on the
+existing math reference docs, review-subagent protocol, and the Batch 1 Council concept.
 
 ---
 
@@ -139,7 +144,8 @@ existing math-module documentation pattern and update both `SKILL.md` and `AGENT
 - The synthesizer returns one recommendation with visible dissent, not a dump of role reports.
 - Do not copy Fable identity, policy, or safety text.
 - Update both Claude and Codex surfaces.
-- Do not merge by default.
+- Do not merge before final readiness; the latest user instruction is a one-off landing opt-in for
+  this PR only.
 
 ---
 

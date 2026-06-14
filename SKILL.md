@@ -1,11 +1,11 @@
 ---
 name: elves
-description: Autonomous multi-batch development agent for long unattended runs and reviewed-PR landing. Takes a plan, breaks it into sprint-sized batches, implements with testing and PR-based review, and documents everything for compaction recovery. Use when user says "run overnight", "I'm going offline", "implement this plan", "keep going without me", "do not stop", "I'll be back in the morning", "run this end-to-end", asks to get a subagent to review the diff from main, read PR comments, test, fix, and merge commit once green, or types \land-pr or /land-pr.
+description: Autonomous multi-batch development agent for long unattended runs, reviewed-PR landing, and lightweight Elves Council review. Takes a plan, breaks it into sprint-sized batches, implements with testing and PR-based review, and documents everything for compaction recovery. Use when user says "run overnight", "I'm going offline", "implement this plan", "keep going without me", "do not stop", "I'll be back in the morning", "run this end-to-end", asks to get a subagent to review the diff from main, read PR comments, test, fix, and merge commit once green, types \land-pr or /land-pr, or asks for `/council`, `/ec`, or `/elves-council`.
 license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "1.13.0"
+  version: "1.14.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -105,6 +105,24 @@ access through one key, while native Gemini, Claude, xAI, OpenAI, Exa, or local 
 configured as optional role-specific upgrades. Never treat model output as mathematical authority:
 models may propose ideas, critique derivations, audit sources, and improve exposition, but claims
 remain unverified until a human records the proof and source checks.
+
+## Elves Council
+
+Elves can also run a lightweight chat-native council for planning, design, debugging, and review
+questions that benefit from a few independent lenses before one synthesized answer. The natural
+aliases are `/council`, `/ec`, and `/elves-council`.
+
+Quick Council is the default. It is read-only and stateless unless the user explicitly asks to
+attach the result to an active Elves run. Use native subagents first: Codex subagents in Codex,
+Claude Code subagents in Claude Code, or the same read-only analysis directly when subagents are
+unavailable. The coordinator chooses two or three useful roles, asks them to inspect independently,
+then returns one recommendation with visible dissent, risks, and next actions. It should not edit
+files, create branches, open PRs, install packages, or mutate run state.
+
+Deep Council is optional. It may use configured external providers for broader model diversity, but
+normal `/council` must not require OpenRouter or any external provider key. Council borrows the
+useful harness pattern of role-specific reports plus synthesis; it does not copy vendor identity,
+policy, persona, or safety framing.
 
 ## Strategic Forgetting
 
