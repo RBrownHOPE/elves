@@ -7,14 +7,128 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 18:43 EDT
+- **Last updated:** 2026-06-14 18:51 EDT
 - **Current phase:** In progress
 - **Active batch:** Between batches
-- **Last completed batch:** Batch 3: Codex Cobbler Invocation
-- **Next exact batch:** Batch 4: Fitted Answer Synthesis
+- **Last completed batch:** Batch 4: Fitted Answer Synthesis
+- **Next exact batch:** Batch 5: Consistency Checks and Release Hardening
 - **Active PR:** #28 <https://github.com/aigorahub/elves/pull/28>
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
+
+---
+
+## 2026-06-14 18:51 EDT
+
+**Batch:** 4: Fitted Answer Synthesis
+
+**What changed:**
+- Rewrote the deeper Council-named reference files so they are Cobbler-first while preserving their
+  filenames as `v1.14.0` compatibility paths.
+- Updated prompt templates so roles are independent Cobbler lenses and synthesis returns one fitted
+  answer.
+- Added a primary `cobbler` block to `config.json.example`, with a compatibility `council` block
+  left in place for older projects.
+- Updated tool config examples and the survival-guide template with `cobbler-*` keys,
+  provider-backed council as optional advanced plumbing, and no external-provider requirement for
+  normal use.
+- Tightened the consistency checker and tests so stale Council-first labels, unsupported Codex
+  invocation promises, and missing fitted-answer headings are caught by the normal validation gate.
+
+**Cobbler consultation synthesis:**
+- Gemini 3.1 Pro, Opus 4.8, Grok 4.3, Qwen 3.7 Max, and native Codex review lenses converged on
+  the same finding: the release would feel unfinished while references and config remained
+  Council-first.
+- Gemini 3.5 Flash's useful dissent was to keep migration compatibility obvious instead of
+  deleting `council-*` examples outright. Implemented by making Cobbler primary and Council
+  compatibility explicit.
+
+**Acceptance evidence:**
+- `references/council-workflow.md` now starts with `# Cobbler Workflow (Council Compatibility)`
+  and explains that Council is the compatibility path and gathering mechanism.
+- `references/council-prompts.md` now gives Cobbler lens prompts and a synthesizer template with
+  `Recommendation`, `Why this fits`, `Strongest dissent`, `Risks`, `Next move`, and `Confidence`.
+- `references/council-provider-config.md`, `references/tool-config-examples.md`,
+  `references/survival-guide-template.md`, and `config.json.example` all make provider-backed
+  council opt-in and normal Cobbler no-key.
+- `README.md`, `SKILL.md`, and `AGENTS.md` now share the same default fitted-answer sections.
+
+**Regression attestation:**
+- Cumulative committed diff reviewed with `git diff main...HEAD --stat`: 18 files, 2054 insertions,
+  102 deletions before the Batch 4 commit.
+- Current Batch 4 working diff reviewed with `git diff --stat`: 13 files, 452 insertions, 233
+  deletions before this log closeout.
+- Shared surfaces changed are docs, config examples, the consistency checker, and its tests. No
+  runtime API, CLI parser, or installed-skill mutation contract changed in this batch.
+- Test baseline was 13 unit tests at launch; current total is 25 with 0 skipped. The total
+  increased and did not remove coverage.
+- Confidence: HIGH for documentation/config coherence because the checker now pins the relevant
+  cross-file phrases and the full unit suite passed; MEDIUM for future host-specific UX because
+  actual slash-skill behavior still depends on each host's skill discovery outside this repo.
+
+**Validation evidence:**
+- `python3 scripts/check_repo_consistency.py` -> PASS.
+- `python3 -m unittest discover -s tests -p 'test_*.py'` -> PASS, 25 tests.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` -> PASS.
+- `python3 -m json.tool config.json.example >/dev/null` and
+  `python3 -m json.tool .elves-session.json >/dev/null` -> PASS.
+- `python3 scripts/sync_installed_skills.py --check` -> PASS after syncing installed Claude and
+  Codex copies to repo content.
+- `git diff --check` -> PASS.
+- `OPENAI_CODEX=1 ELVES_SURVIVAL_GUIDE_PATH=docs/elves/survival-guide.md ./scripts/preflight.sh`
+  -> PASS with advisory warnings only.
+
+**Next:**
+1. Commit and push Batch 4.
+2. Re-read the survival guide.
+3. Start Batch 5: Consistency Checks and Release Hardening.
+
+---
+
+## 2026-06-14 18:45 EDT
+
+**Batch:** 4: Fitted Answer Synthesis
+
+**Contract:**
+- Cobbler, not Council, is the product frame in deeper workflow, prompt, provider, tool-config, and
+  survival-guide-template references.
+- Council remains searchable and compatibility-preserving for `v1.14.0` users.
+- The default Cobbler answer shape is explicit and human-facing:
+  `Recommendation`, `Why this fits`, `Strongest dissent`, `Risks`, `Next move`, and `Confidence`.
+- Optional external diversity is called `provider-backed council`; normal Cobbler does not require
+  OpenRouter or other provider keys.
+
+**Build on:**
+- Batch 1 product hierarchy in `SKILL.md`, `AGENTS.md`, README, and CHANGELOG.
+- Batch 2 managed Claude alias surfaces and safe sync behavior.
+- Batch 3 host-honest Codex invocation rules and Goals-not-required wording.
+- Existing `scripts/check_repo_consistency.py` phrase maps and tests as the repo's cross-file drift
+  guardrail.
+
+**Acceptance criteria:**
+- [x] Reference docs lead with Cobbler and explain Council as a temporary read-only gathering or
+      compatibility path.
+- [x] The default synthesis template includes all six fitted-answer sections.
+- [x] Normal Cobbler use requires no OpenRouter or external provider key.
+- [x] Provider-backed behavior is opt-in, disabled by default, and documented as advanced.
+- [x] Backward-compatible Council terms remain searchable for users upgrading from `1.14.0`.
+
+**Blast radius:**
+- Reference docs and config examples: medium user-facing risk because stale labels can create a
+  confusing two-product experience.
+- `scripts/check_repo_consistency.py` and `tests/test_check_repo_consistency.py`: medium validation
+  risk because over-specific phrase checks can block legitimate edits. Mitigated by focused tests
+  and additive phrases instead of brittle full-file snapshots.
+
+**Pre-implementation survey:**
+- `references/council-workflow.md`, `references/council-prompts.md`, and
+  `references/council-provider-config.md` still led with Council/Quick Council/Deep Council labels.
+- `config.json.example` had only a `council` block, so new projects would configure the
+  compatibility mechanism instead of the Cobbler product.
+- `references/tool-config-examples.md` and `references/survival-guide-template.md` still presented
+  Council as the optional feature section.
+- Existing consistency checker already grouped phrase expectations by surface, so Batch 4 could
+  extend that pattern rather than inventing another doc validation mechanism.
 
 ---
 

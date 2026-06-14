@@ -102,7 +102,8 @@ Quick Cobbler is the default. It is read-only and stateless unless the user expl
 attach the result to an active Elves run. Use native subagents first: Codex subagents in Codex,
 Claude Code subagents in Claude Code, or the same read-only analysis directly when subagents are
 unavailable. Cobbler chooses two or three useful roles, asks them to inspect independently, then
-returns one recommendation with why it fits, the strongest dissent, risks, and next actions. It
+returns one fitted answer with Recommendation, Why this fits, Strongest dissent, Risks, Next move,
+and Confidence. It
 should not edit files, create branches, open PRs, install packages, or mutate run state.
 
 Codex Goals are optional continuation plumbing for full Elves runs. They are not required for a Quick Cobbler answer.

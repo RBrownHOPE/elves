@@ -1,22 +1,25 @@
-# Elves Council Prompts
+# Cobbler Prompt Templates (Council Compatibility)
 
-Use these prompts as templates for read-only Council roles. Fill in the bracketed fields from the
+Use these prompts as templates for read-only Cobbler roles. Fill in the bracketed fields from the
 user request and the available repo, PR, plan, or document context. Do not paste secrets.
 
-Council roles are lenses with obligations, not theatrical personas. They should be direct, bounded,
-and evidence-seeking.
+This file keeps its `council-prompts.md` name for `v1.14.0` compatibility. In `v1.15.0+`, Council
+is the compatibility path and temporary read-only gathering; Cobbler is the coordinator.
+
+Cobbler roles are lenses with obligations, not theatrical personas. They should be direct,
+bounded, and evidence-seeking.
 
 ## Shared Role Instructions
 
 Add this block to every role prompt:
 
 ```text
-Mode: [Quick Council / Run Council / Deep Council]
+Mode: [Quick Cobbler / Run Cobbler / Provider-backed council]
 Question: [USER QUESTION]
 Relevant context: [FILES / PLAN / PR / LOGS / CONSTRAINTS]
 Date: [CURRENT DATE]
 
-You are contributing one independent Council lens. Do not read or rely on other role reports before
+You are contributing one independent Cobbler lens. Do not read or rely on other role reports before
 synthesis. Work read-only: inspect and reason, but do not edit files, create branches, open PRs,
 install packages, or mutate run state.
 
@@ -36,7 +39,7 @@ Prefer concrete evidence over vibes. If context is missing, say what would chang
 ## Role Selector
 
 ```text
-Classify this Council request and choose two or three roles.
+Classify this Cobbler request and choose two or three roles.
 
 Question: [USER QUESTION]
 Available context: [CONTEXT SUMMARY]
@@ -53,7 +56,7 @@ Available roles:
 Return:
 1. selected_roles:
 2. why_each_role:
-3. mode: quick | run | deep
+3. mode: quick | run | provider-backed
 4. context_to_give_every_role:
 5. constraints:
 
@@ -166,21 +169,32 @@ Return the role report. Mark each lead as useful, speculative, blocked, or irrel
 ## Synthesizer
 
 ```text
-You are synthesizing independent Elves Council reports.
+You are synthesizing independent Cobbler lens reports.
 
 Question: [USER QUESTION]
-Mode: [Quick Council / Run Council / Deep Council]
+Mode: [Quick Cobbler / Run Cobbler / Provider-backed council]
 Role reports: [INDEPENDENT REPORTS]
 Constraints: [CONSTRAINTS]
 
-Return one answer:
-recommendation:
-why:
-dissent:
-risks:
-next_actions:
-confidence:
-action_contract:
+Return one fitted answer:
+
+Recommendation
+[One recommendation that takes a position.]
+
+Why this fits
+[Why this recommendation best satisfies the context and constraints.]
+
+Strongest dissent
+[The strongest objection, uncertainty, or verification gap.]
+
+Risks
+[Material risks, not generic caveats.]
+
+Next move
+[The single next action or short action list.]
+
+Confidence
+[High / medium / low, with a short reason.]
 
 Rules:
 - Lead with one recommendation that takes a position.
@@ -199,10 +213,10 @@ Use this shape when the user asks for `--json`:
 ```json
 {
   "recommendation": "",
-  "why": [],
-  "dissent": [],
+  "why_this_fits": [],
+  "strongest_dissent": [],
   "risks": [],
-  "next_actions": [],
+  "next_move": [],
   "confidence": "",
   "action_contract": {
     "do": [],

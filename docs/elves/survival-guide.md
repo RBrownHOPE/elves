@@ -66,9 +66,10 @@ key.
 - **Checkpoint expectation:** best review-ready state by checkpoint; continue after checkpoint if
   required work remains
 - **Time budget:** default 8-hour checkpoint budget; objective remains active across turns
-- **Average batch time so far:** Batches 1-3 each completed in short focused passes after
+- **Average batch time so far:** Batches 1-4 each completed in short focused passes after
   launch-state setup
-- **Batches remaining:** 2 of 5, then open-ended follow-up/release-hardening work until stopped
+- **Batches remaining:** 1 of 5, then final deliverables and open-ended follow-up/release-hardening
+  work until stopped
 
 ---
 
@@ -76,12 +77,12 @@ key.
 
 > Rewrite this section in place. This is the explicit answer to "may I stop now?" Do not infer it.
 
-- **Planned batches remaining:** 2 plus final deliverables and open-ended follow-up
+- **Planned batches remaining:** 1 plus final deliverables and open-ended follow-up
 - **Stop allowed right now:** no
-- **Why:** The user explicitly said to keep going and not stop. Batches 1-3 are complete, but
-  Batches 4-5, final landing/release/announcement deliverables, and follow-up release-hardening
-  work remain.
-- **Next required action:** Start Batch 4: Fitted Answer Synthesis.
+- **Why:** The user explicitly said to keep going and not stop. Batches 1-4 are complete, but
+  Batch 5, final landing/release/announcement deliverables, and follow-up release-hardening work
+  remain.
+- **Next required action:** Start Batch 5: Consistency Checks and Release Hardening.
 
 ---
 
@@ -184,18 +185,18 @@ Promotion flow: `execution log -> learnings -> .ai-docs`
 
 **Status:** In progress
 
-**Active batch:** Between batches; next is Batch 4: Fitted Answer Synthesis
+**Active batch:** Between batches; next is Batch 5: Consistency Checks and Release Hardening
 
-**What was just finished:** Batch 3 made Codex invocation explicit: use `$elves cobbler: <task>` or
-natural chat such as "Ask the Cobbler...", use `$elves council: <task>` as the compatibility path,
-and do not promise top-level Codex slash commands. Codex Goals are now documented as optional
-continuation plumbing for full Elves runs, not a Quick Cobbler requirement. Local validation passed
-with 22 tests, installed Claude/Codex copies were synced to `1.15.0`, and preflight passed with
-advisory warnings only.
+**What was just finished:** Batch 4 rewrote deeper references, prompt templates, provider config,
+tool config examples, survival-guide template, and `config.json.example` so Cobbler leads, Council
+is a compatibility/gathering mechanism, and provider-backed council is optional advanced plumbing.
+The default fitted-answer shape is now `Recommendation`, `Why this fits`, `Strongest dissent`,
+`Risks`, `Next move`, and `Confidence`. Local validation passed with 25 tests, installed
+Claude/Codex copies were synced to `1.15.0`, and preflight passed with advisory warnings only.
 
-**Single next action:** Create rollback tag `elves/pre-batch-4-cobbler`, write the Batch 4
-contract, and rewrite reference/config surfaces so Cobbler leads, Council is compatibility
-mechanism, and the default answer shape is fitted and human-facing.
+**Single next action:** Create rollback tag `elves/pre-batch-5-cobbler`, write the Batch 5
+contract, then perform final hardening: consistency checks, docs sweep, installed sync, PR feedback
+disposition replies, final readiness review preparation, and release/landing readiness.
 
 ---
 
@@ -218,29 +219,27 @@ mechanism, and the default answer shape is fitted and human-facing.
 
 ## Next Exact Batch
 
-**Batch:** 4: Fitted Answer Synthesis
+**Batch:** 5: Consistency Checks and Release Hardening
 
 **Scope:**
-- Rename or revise Council references so the operating model is Cobbler-first without breaking
-  compatibility links.
-- Update role, selector, and synthesizer prompts around fitted-answer output.
-- Add a `cobbler` configuration example while keeping `council` compatibility or migration
-  guidance.
-- Replace "Deep Council" as the main product label with optional "provider-backed council" wording.
-- Preserve the no-provider happy path and graceful fallback behavior.
+- Harden consistency checks and tests across Cobbler, Council compatibility, provider policy,
+  version metadata, alias surfaces, and forbidden wording.
+- Run full validation and installed-skill sync.
+- Reply to or resolve addressed PR feedback.
+- Prepare final readiness review and release/landing workflow.
+- Keep docs fully current for `1.15.0`.
 
 **Acceptance criteria:**
-- [ ] Reference docs lead with Cobbler and explain Council as a temporary read-only gathering.
-- [ ] The default synthesis template includes `Recommendation`, `Why this fits`, `Strongest
-      dissent`, `Risks`, `Next move`, and `Confidence`.
-- [ ] Normal Cobbler use requires no OpenRouter or external provider key.
-- [ ] Provider-backed behavior is opt-in, disabled by default, and documented as advanced.
-- [ ] Backward-compatible Council terms remain searchable for users upgrading from `1.14.0`.
+- [ ] Full validation gates pass locally.
+- [ ] Installed Claude and Codex copies are synced and checked.
+- [ ] PR checks are green and PR feedback is addressed or explicitly dispositioned.
+- [ ] Documentation and version metadata are coherent for `1.15.0`.
+- [ ] Final readiness review can begin with no known batch debt.
 
-**Risk:** Config churn could break existing `council` examples. Prefer additive `cobbler` examples
-and explicit compatibility over hard removal.
+**Risk:** Final hardening can become a shallow checkbox pass. Treat it as cumulative review, not
+ceremony.
 
-**Rollback tag:** `elves/pre-batch-4-cobbler`
+**Rollback tag:** `elves/pre-batch-5-cobbler`
 
 ---
 
@@ -308,6 +307,20 @@ Batch 3 result on 2026-06-14 18:43 EDT:
 - `python3 scripts/sync_installed_skills.py --check` -> PASS after syncing installed Claude and
   Codex copies.
 - `git diff --check` -> PASS.
+- `OPENAI_CODEX=1 ELVES_SURVIVAL_GUIDE_PATH=docs/elves/survival-guide.md ./scripts/preflight.sh`
+  -> PASS with advisory warnings only.
+
+Batch 4 result on 2026-06-14 18:49 EDT:
+
+- `python3 scripts/check_repo_consistency.py` -> PASS, including Cobbler-first reference/config
+  guardrails.
+- `python3 -m unittest discover -s tests -p 'test_*.py'` -> PASS, 25 tests.
+- `python3 -m json.tool config.json.example >/dev/null` and
+  `python3 -m json.tool .elves-session.json >/dev/null` -> PASS.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` -> PASS.
+- `git diff --check` -> PASS.
+- `python3 scripts/sync_installed_skills.py --check` -> PASS after syncing installed Claude and
+  Codex copies.
 - `OPENAI_CODEX=1 ELVES_SURVIVAL_GUIDE_PATH=docs/elves/survival-guide.md ./scripts/preflight.sh`
   -> PASS with advisory warnings only.
 

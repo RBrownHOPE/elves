@@ -145,6 +145,37 @@ class ConsistencyPhraseTests(unittest.TestCase):
 
         self.assertEqual(errors, [f"{label}: stale Cobbler phrase `{stale}`"])
 
+    def test_cobbler_reference_docs_require_fitted_answer_shape(self) -> None:
+        for label in ("references/council-workflow.md", "references/council-prompts.md"):
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.COUNCIL_MODULE_PHRASES)
+                self.assertIn("Recommendation", self.consistency.COUNCIL_MODULE_PHRASES[label])
+                self.assertIn("Why this fits", self.consistency.COUNCIL_MODULE_PHRASES[label])
+                self.assertIn("Strongest dissent", self.consistency.COUNCIL_MODULE_PHRASES[label])
+                self.assertIn("Next move", self.consistency.COUNCIL_MODULE_PHRASES[label])
+
+    def test_cobbler_reference_docs_forbid_stale_council_primary_labels(self) -> None:
+        label = "references/council-workflow.md"
+        stale = "Quick Council is the default"
+
+        self.assertIn(stale, self.consistency.COUNCIL_FORBIDDEN_PHRASES[label])
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.COUNCIL_FORBIDDEN_PHRASES,
+            "Cobbler",
+        )
+
+        self.assertEqual(errors, [f"{label}: stale Cobbler phrase `{stale}`"])
+
+    def test_config_example_requires_cobbler_primary_and_council_compatibility(self) -> None:
+        phrases = self.consistency.COUNCIL_MODULE_PHRASES["config.json.example"]
+
+        self.assertIn('"cobbler"', phrases)
+        self.assertIn('"default_answer_shape"', phrases)
+        self.assertIn('"provider_backed_council"', phrases)
+        self.assertIn('"compatibility_for": "cobbler"', phrases)
+
     def test_claude_cobbler_alias_skill_files_are_required(self) -> None:
         expected_aliases = {
             "aliases/claude/cobbler/SKILL.md": "/cobbler",

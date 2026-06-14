@@ -161,8 +161,8 @@ and source traceability.
 Cobbler is the coordinator inside Elves. Ask Cobbler a hard question, and it decides how much help
 to bring in: a direct answer, a few specialist elves, or a read-only council of independent lenses.
 
-The user gets the fit, not the chatter: one recommendation, the reason it fits, the strongest
-dissent, the risks, and the next move.
+The user gets the fit, not the chatter: `Recommendation`, `Why this fits`, `Strongest dissent`,
+`Risks`, `Next move`, and `Confidence`.
 
 Use `/cobbler <task>` in Claude Code when the alias skill is installed. In Codex, use
 `$elves cobbler: <task>` or natural language such as "Ask the Cobbler..." Compatibility aliases
@@ -177,9 +177,8 @@ Goals are for full Elves runs, not Quick Cobbler.
 Quick Cobbler is the default. It is read-only, stateless, and native-subagent-first: Codex uses
 Codex subagents, Claude Code uses Claude Code subagents, and environments without subagents perform
 the same read-only analysis directly. Cobbler chooses a small role set, usually two or three
-lenses, gathers bounded independent reports, and answers with one recommendation plus why it fits,
-the strongest dissent, risks, and next actions. It does not edit files, create branches, open PRs,
-install packages, or mutate run state.
+lenses, gathers bounded independent reports, and answers with the fitted-answer headings above. It
+does not edit files, create branches, open PRs, install packages, or mutate run state.
 
 Provider-backed council is optional. It can be configured later for external provider diversity,
 but ordinary Cobbler use and compatibility-alias use require no OpenRouter or other provider key.
