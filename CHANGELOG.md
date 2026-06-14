@@ -4,6 +4,21 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-06-14
+
+### Elves Council
+
+- Added the Elves Council concept: `/council`, `/ec`, and `/elves-council` are documented as
+  chat-native aliases for a fast, read-only Quick Council that gathers independent native-subagent
+  lenses and returns one synthesized recommendation with visible dissent.
+- Clarified that Quick Council is native-subagent-first, read-only, and stateless by default. Codex
+  should use Codex subagents, Claude Code should use Claude Code subagents, and environments without
+  subagents should perform the same read-only analysis directly.
+- Reserved Deep Council as an optional external-provider mode for broader model diversity without
+  requiring OpenRouter or any provider key for normal `/council` use.
+- Synchronized the release skeleton across `SKILL.md`, `AGENTS.md`, README, and changelog while
+  avoiding imported vendor identity, persona, policy, or safety framing.
+
 ## [1.13.0] - 2026-06-02
 
 ### Reviewed PR landing command

@@ -375,6 +375,159 @@ MATH_MODULE_PHRASES = {
     ],
 }
 
+COUNCIL_MODULE_PHRASES = {
+    "SKILL.md": [
+        "Elves Council",
+        "/council",
+        "/ec",
+        "/elves-council",
+        "Quick Council is the default",
+        "read-only",
+        "stateless",
+        "Codex subagents",
+        "Claude Code subagents",
+        "read-only analysis directly",
+        "dissent",
+        "risks",
+        "next actions",
+        "mutate run state",
+        "Deep Council is optional",
+        "must not require OpenRouter",
+        "vendor identity",
+    ],
+    "AGENTS.md": [
+        "Elves Council",
+        "/council",
+        "/ec",
+        "/elves-council",
+        "Quick Council is the default",
+        "read-only",
+        "stateless",
+        "Codex subagents",
+        "Claude Code subagents",
+        "read-only analysis directly",
+        "dissent",
+        "risks",
+        "next actions",
+        "mutate run state",
+        "Deep Council is optional",
+        "must not require OpenRouter",
+        "vendor identity",
+    ],
+    "README.md": [
+        "Elves Council",
+        "/council",
+        "/ec",
+        "/elves-council",
+        "Quick Council is the default",
+        "read-only",
+        "stateless",
+        "Codex subagents",
+        "Claude Code subagents",
+        "read-only analysis directly",
+        "dissent",
+        "risks",
+        "next actions",
+        "requires no OpenRouter",
+        "vendor identity",
+        "references/council-workflow.md",
+        "references/council-prompts.md",
+        "references/council-provider-config.md",
+    ],
+    "references/council-workflow.md": [
+        "Quick Council is the default",
+        "Role agents do not see each other's reports before synthesis",
+        "Run Council reuses existing Elves memory surfaces",
+        "Deep Council is optional",
+        "normal `/council` must not require OpenRouter",
+        "Do not make Quick Council require OpenRouter",
+        "Do not create a separate PR, branch, survival guide, execution log, or ledger",
+    ],
+    "references/council-prompts.md": [
+        "Council roles are lenses with obligations, not theatrical personas",
+        "Do not read or rely on other role reports",
+        "Work read-only",
+        "Lead with one recommendation",
+        "Preserve the strongest dissent",
+    ],
+    "references/council-provider-config.md": [
+        "Normal `/council`, `/ec`, and `/elves-council` use must work without",
+        "Quick Council needs no provider configuration",
+        "council-deep-required-env: []",
+        "Do not make ordinary `/council` depend on that setting",
+        "Do not create a separate Council ledger",
+    ],
+    "references/tool-config-examples.md": [
+        "## Elves Council",
+        "Quick Council requires no external provider key",
+        "council-default-backend: native-subagents",
+        "council-run-logging: existing-elves-memory",
+        "council-deep-required-env: []",
+    ],
+    "references/survival-guide-template.md": [
+        "### Elves Council Configuration (optional)",
+        "External providers are optional Deep Council",
+        "council-default-backend: native-subagents",
+        "council-run-logging: existing-elves-memory",
+        "council-deep-required-env: []",
+    ],
+    "config.json.example": [
+        '"council"',
+        '"default_backend": "native-subagents"',
+        '"quick_read_only": true',
+        '"quick_stateless": true',
+        '"run_logging": "existing-elves-memory"',
+        '"required_env": []',
+        '"provider_policy": "optional-external-providers"',
+    ],
+}
+
+COUNCIL_SECTION_HEADINGS = {
+    "SKILL.md": "## Elves Council",
+    "AGENTS.md": "## Elves Council",
+    "README.md": "### Elves Council",
+}
+
+COUNCIL_FORBIDDEN_PHRASES = {
+    "SKILL.md": [
+        "ordinary `/council` requires OpenRouter",
+        "normal `/council` requires OpenRouter",
+        "Council requires `OPENROUTER_API_KEY`",
+        "Council can edit files",
+        "Council can create branches",
+        "Council can open PRs",
+    ],
+    "AGENTS.md": [
+        "ordinary `/council` requires OpenRouter",
+        "normal `/council` requires OpenRouter",
+        "Council requires `OPENROUTER_API_KEY`",
+        "Council can edit files",
+        "Council can create branches",
+        "Council can open PRs",
+    ],
+    "README.md": [
+        "ordinary `/council` requires OpenRouter",
+        "normal `/council` requires OpenRouter",
+        "Council requires `OPENROUTER_API_KEY`",
+        "Council can edit files",
+        "Council can create branches",
+        "Council can open PRs",
+    ],
+    "references/council-workflow.md": [
+        "ordinary `/council` requires OpenRouter",
+        "normal `/council` requires OpenRouter",
+        "Council requires `OPENROUTER_API_KEY`",
+        "Council can edit files",
+        "Council can create branches",
+        "Council can open PRs",
+    ],
+    "references/council-provider-config.md": [
+        "ordinary `/council` requires OpenRouter",
+        "normal `/council` requires OpenRouter",
+        "Council requires `OPENROUTER_API_KEY`",
+    ],
+}
+
 
 def read_text(path: Path) -> str:
     return path.read_text()
@@ -426,6 +579,45 @@ def find_forbidden_phrases(
         for phrase in phrases:
             if phrase in text:
                 errors.append(f"{label}: stale {category} phrase `{phrase}`")
+    return errors
+
+
+def extract_markdown_section(text: str, heading: str) -> str:
+    lines = text.splitlines()
+    heading_level = len(heading) - len(heading.lstrip("#"))
+    start_index: int | None = None
+    for index, line in enumerate(lines):
+        if line.strip() == heading:
+            start_index = index
+            break
+    if start_index is None:
+        return ""
+
+    section: list[str] = []
+    next_heading_re = re.compile(rf"^#{{1,{heading_level}}}\s+")
+    for line in lines[start_index:]:
+        if section and next_heading_re.match(line):
+            break
+        section.append(line)
+    return "\n".join(section)
+
+
+def find_missing_section_phrases(
+    texts: dict[str, str],
+    phrase_map: dict[str, list[str]],
+    headings: dict[str, str],
+    category: str,
+) -> list[str]:
+    errors: list[str] = []
+    for label, heading in headings.items():
+        text = texts.get(label, "")
+        section = extract_markdown_section(text, heading)
+        if not section:
+            errors.append(f"{label}: missing {category} section `{heading}`")
+            continue
+        for phrase in phrase_map.get(label, []):
+            if phrase not in section:
+                errors.append(f"{label}: missing {category} phrase `{phrase}`")
     return errors
 
 
@@ -539,6 +731,43 @@ def main() -> int:
         )
     )
 
+    council_texts = {
+        label: read_text(REPO_ROOT / label)
+        for label in set(COUNCIL_MODULE_PHRASES)
+        | set(COUNCIL_FORBIDDEN_PHRASES)
+        | set(COUNCIL_SECTION_HEADINGS)
+    }
+    council_section_phrases = {
+        label: COUNCIL_MODULE_PHRASES[label] for label in COUNCIL_SECTION_HEADINGS
+    }
+    council_file_phrases = {
+        label: phrases
+        for label, phrases in COUNCIL_MODULE_PHRASES.items()
+        if label not in COUNCIL_SECTION_HEADINGS
+    }
+    errors.extend(
+        find_missing_section_phrases(
+            council_texts,
+            council_section_phrases,
+            COUNCIL_SECTION_HEADINGS,
+            "Elves Council",
+        )
+    )
+    errors.extend(
+        find_missing_phrases(
+            council_texts,
+            council_file_phrases,
+            "Elves Council",
+        )
+    )
+    errors.extend(
+        find_forbidden_phrases(
+            council_texts,
+            COUNCIL_FORBIDDEN_PHRASES,
+            "Elves Council",
+        )
+    )
+
     if errors:
         print("Repo consistency check FAILED")
         for error in errors:
@@ -558,6 +787,7 @@ def main() -> int:
     print("- Elves Report guardrails are aligned")
     print("- Math research workflow guardrails are aligned")
     print("- Reviewed PR landing command guardrails are aligned")
+    print("- Elves Council guardrails are aligned")
     return 0
 
 

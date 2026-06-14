@@ -156,6 +156,30 @@ Start with [`references/math-workflow.md`](references/math-workflow.md) for the 
 roles, and [`references/math-artifact-ledgers.md`](references/math-artifact-ledgers.md) for claim
 and source traceability.
 
+### Elves Council
+
+Elves Council is a lightweight, chat-native way to ask for a few independent expert lenses before
+the agent gives you one synthesized answer. Use `/council`, `/ec`, or `/elves-council` for design,
+planning, debugging, and review questions where a single straight-line answer feels too brittle.
+
+Quick Council is the default. It is read-only, stateless, and native-subagent-first: Codex uses
+Codex subagents, Claude Code uses Claude Code subagents, and environments without subagents perform
+the same read-only analysis directly. The coordinator picks a small role set, usually two or three
+lenses, gathers bounded independent reports, and answers with one recommendation plus the strongest
+dissent, risks, and next actions. It does not edit files, create branches, open PRs, install
+packages, or mutate run state.
+
+Deep Council is optional. It can be configured later for external provider diversity, but ordinary
+`/council` use requires no OpenRouter or other provider key. The pattern borrows the useful harness
+idea of independent role reports followed by synthesis without importing vendor identity, policy,
+persona, or safety text.
+
+Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
+model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
+synthesis prompt templates, and
+[`references/council-provider-config.md`](references/council-provider-config.md) for optional Deep
+Council provider setup.
+
 ### Stage, then launch
 
 Most "the elves stopped" failures come from one mistake: combining a giant plan and the launch
@@ -303,6 +327,8 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Elves Reports**: substantial finite runs end with a temporary static HTML worker-to-manager
   report that highlights status, problems found, lessons learned, collapsible batch timeline,
   validation, residual risks, and human next steps; the agent hands it to you to review at closeout
+- **Elves Council**: `/council`, `/ec`, and `/elves-council` give you a read-only,
+  native-subagent-first synthesis for planning, design, debugging, and review questions
 - **Math research workflow kit**: optional templates for preliminary discovery, subfield scouting,
   cross-field synthesis, proof review, source audit, manuscript drafting, and human verification
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`
@@ -544,6 +570,9 @@ elves/
 │   ├── validation-guide.md               # Detailed validation gates and auto-discovery
 │   ├── autonomy-guide.md                 # Non-interactive operation and mid-run protocols
 │   ├── review-subagent.md                # Built-in review protocol and adversarial review
+│   ├── council-workflow.md               # Elves Council modes, invariants, and synthesis flow
+│   ├── council-prompts.md                # Elves Council role and synthesis prompt templates
+│   ├── council-provider-config.md        # Optional Deep Council provider setup
 │   ├── verification-patterns.md          # Headless browser, video recording, state assertions
 │   └── open-ended-guide.md              # Open-ended mode patterns, QA/audit expansion rules
 ├── scripts/

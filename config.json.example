@@ -32,6 +32,39 @@
     "_comment": "Performance hygiene for long runs. Keep live docs concise, archive old log entries in place, and never mutate Codex/Claude app state during a coding run."
   },
 
+  "council": {
+    "enabled": true,
+    "default_mode": "quick",
+    "default_backend": "native-subagents",
+    "aliases": ["/council", "/ec", "/elves-council"],
+    "default_role_count": 3,
+    "max_role_count": 5,
+    "quick_read_only": true,
+    "quick_stateless": true,
+    "run_logging": "existing-elves-memory",
+    "deep": {
+      "enabled": false,
+      "provider_policy": "optional-external-providers",
+      "required_env": [],
+      "optional_env": [
+        "OPENROUTER_API_KEY",
+        "GEMINI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "XAI_API_KEY",
+        "OPENAI_API_KEY"
+      ],
+      "role_models": {
+        "architect": "native-subagent",
+        "skeptic": "native-subagent",
+        "implementation_analyst": "native-subagent",
+        "tester": "native-subagent",
+        "maintainer": "native-subagent",
+        "domain_scout": "native-subagent"
+      }
+    },
+    "_comment": "Optional Elves Council configuration. Quick Council uses native subagents and requires no external provider key. Deep Council providers are opt-in; do not hardcode private keys."
+  },
+
   "math": {
     "enabled": false,
     "provider_policy": "openrouter-first",

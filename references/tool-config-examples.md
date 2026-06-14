@@ -305,6 +305,52 @@ math-ledger-dir: docs/math
 
 ---
 
+## Elves Council
+
+> Use when you want `/council`, `/ec`, or `/elves-council` to fan out to native read-only subagents
+> and return one synthesis. Quick Council requires no external provider key. Deep Council providers
+> are optional.
+
+```yaml
+## Tool Configuration
+
+review: github-pr-comments
+notification: pr-comment
+
+council-enabled: true
+council-default-mode: quick
+council-default-backend: native-subagents
+council-aliases:
+  - /council
+  - /ec
+  - /elves-council
+council-default-role-count: 3
+council-max-role-count: 5
+council-quick-read-only: true
+council-quick-stateless: true
+council-run-logging: existing-elves-memory
+
+# Optional Deep Council provider diversity. Leave disabled unless the user opts in.
+council-deep-enabled: false
+council-deep-provider-policy: optional-external-providers
+council-deep-required-env: []
+council-deep-optional-env:
+  - OPENROUTER_API_KEY
+  - GEMINI_API_KEY
+  - ANTHROPIC_API_KEY
+  - XAI_API_KEY
+  - OPENAI_API_KEY
+council-deep-role-models:
+  architect: native-subagent
+  skeptic: native-subagent
+  implementation_analyst: native-subagent
+  tester: native-subagent
+  maintainer: native-subagent
+  domain_scout: native-subagent
+```
+
+---
+
 ## Notification Options Reference
 
 > Choose one notification method. Only one is active at a time.

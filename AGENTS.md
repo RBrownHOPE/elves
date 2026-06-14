@@ -1,5 +1,5 @@
 ---
-version: "1.13.0"
+version: "1.14.0"
 ---
 
 # Elves: Autonomous Development Agent (Codex)
@@ -79,6 +79,24 @@ access through one key, while native Gemini, Claude, xAI, OpenAI, Exa, or local 
 configured as optional role-specific upgrades. Never treat model output as mathematical authority:
 models may propose ideas, critique derivations, audit sources, and improve exposition, but claims
 remain unverified until a human records the proof and source checks.
+
+## Elves Council
+
+Elves can also run a lightweight chat-native council for planning, design, debugging, and review
+questions that benefit from a few independent lenses before one synthesized answer. The natural
+aliases are `/council`, `/ec`, and `/elves-council`.
+
+Quick Council is the default. It is read-only and stateless unless the user explicitly asks to
+attach the result to an active Elves run. Use native subagents first: Codex subagents in Codex,
+Claude Code subagents in Claude Code, or the same read-only analysis directly when subagents are
+unavailable. The coordinator chooses two or three useful roles, asks them to inspect independently,
+then returns one recommendation with visible dissent, risks, and next actions. It should not edit
+files, create branches, open PRs, install packages, or mutate run state.
+
+Deep Council is optional. It may use configured external providers for broader model diversity, but
+normal `/council` must not require OpenRouter or any external provider key. Council borrows the
+useful harness pattern of role-specific reports plus synthesis; it does not copy vendor identity,
+policy, persona, or safety framing.
 
 ## Strategic Forgetting
 
