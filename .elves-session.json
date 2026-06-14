@@ -15,7 +15,7 @@
     "remaining_batches": 3,
     "stop_allowed": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Push Batch 1 completion state, poll PR feedback, then start Batch 2: Council Workflow And Role Prompts."
+    "next_required_action": "Start Batch 2 with Verify Green, rollback tag, contract, and pre-implementation survey."
   },
   "test_baseline": {
     "passed": 9,

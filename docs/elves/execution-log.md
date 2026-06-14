@@ -7,12 +7,11 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 12:37 EDT
+- **Last updated:** 2026-06-14 12:38 EDT
 - **Current phase:** Launch active
 - **Active batch:** Batch 2 pending start
 - **Last completed batch:** Batch 1
-- **Next exact batch:** Push Batch 1 completion state, poll PR feedback, then start Batch 2:
-  Council Workflow And Role Prompts
+- **Next exact batch:** Batch 2: Council Workflow And Role Prompts
 - **Active PR:** #27
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -154,6 +153,10 @@ commit and was left untouched)
 `.elves-session.json`.
 **Docs promoted:** none yet; Batch 4 will add durable checker coverage for the Council invariants.
 **Commit SHA:** `3421630e237d`
+**Completion-state commit:** `ef73c0c`
+**Post-push PR poll:** PASS at 2026-06-14 12:38 EDT. The two Gemini Code Assist review threads
+from staging are resolved and outdated; no issue comments were present. Checks were queued/in
+progress, not failing.
 
 ---
 
