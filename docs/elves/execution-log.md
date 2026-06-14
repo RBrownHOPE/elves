@@ -7,14 +7,102 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 18:38 EDT
+- **Last updated:** 2026-06-14 18:43 EDT
 - **Current phase:** In progress
 - **Active batch:** Between batches
-- **Last completed batch:** Batch 2: Claude Code Cobbler Alias
-- **Next exact batch:** Batch 3: Codex Cobbler Invocation
+- **Last completed batch:** Batch 3: Codex Cobbler Invocation
+- **Next exact batch:** Batch 4: Fitted Answer Synthesis
 - **Active PR:** #28 <https://github.com/aigorahub/elves/pull/28>
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
+
+---
+
+## 2026-06-14 18:43 EDT
+
+**Batch:** 3: Codex Cobbler Invocation
+
+**What changed:**
+- Added explicit host-boundary language to `SKILL.md`, `AGENTS.md`, README,
+  `references/codex-goals.md`, and `references/council-workflow.md`.
+- Codex primary path is now consistently `$elves cobbler: <task>` or natural language such as
+  "Ask the Cobbler...".
+- Codex compatibility path is `$elves council: <task>` and natural Council references.
+- Claude Code slash aliases are scoped to Claude Code and the managed alias skills.
+- Codex Goals are documented as optional continuation plumbing for full Elves runs, not required
+  for Quick Cobbler.
+- Added consistency guardrails and tests to catch Codex slash-command drift and accidental Goals
+  requirements.
+
+**Cobbler review disposition:**
+- Native Codex lens Cicero recommended blunt host boundaries, explicit `$elves cobbler: <task>`,
+  and checker rules for unsupported Codex slash commands. Implemented.
+
+**Acceptance evidence:**
+- Runtime docs say not to assume Codex has top-level `/cobbler`.
+- README and `AGENTS.md` say what a Codex user should type.
+- `references/codex-goals.md` says Goals are not required for Quick Cobbler.
+- `references/council-workflow.md` includes host-specific invocation semantics.
+
+**Validation evidence:**
+- `python3 scripts/check_repo_consistency.py` -> PASS, including Codex Cobbler guardrails.
+- `python3 -m unittest discover -s tests -p 'test_*.py'` -> PASS, 22 tests.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` -> PASS.
+- `python3 -m json.tool config.json.example >/dev/null` and
+  `python3 -m json.tool .elves-session.json >/dev/null` -> PASS.
+- `python3 scripts/sync_installed_skills.py --check` -> PASS after syncing installed Claude and
+  Codex copies to repo content.
+- `git diff --check` -> PASS.
+- `OPENAI_CODEX=1 ELVES_SURVIVAL_GUIDE_PATH=docs/elves/survival-guide.md ./scripts/preflight.sh`
+  -> PASS with advisory warnings only.
+
+**Next:**
+1. Commit and push Batch 3.
+2. Re-read the survival guide.
+3. Start Batch 4: Fitted Answer Synthesis.
+
+---
+
+## 2026-06-14 18:39 EDT
+
+**Batch:** 3: Codex Cobbler Invocation
+
+**Contract:**
+- Codex users can tell exactly what to type for Cobbler: `$elves cobbler: <task>` or natural chat
+  such as "Ask the Cobbler to...".
+- Codex compatibility remains `$elves council: <task>` and natural Council references.
+- Codex docs do not imply top-level `/cobbler`, `/council`, `/ec`, or `/elves-council` commands
+  are supported in Codex.
+- Quick Cobbler remains read-only/stateless and independent of Codex Goals. Goals are optional
+  continuation plumbing for full Elves runs.
+
+**Build on:**
+- Batch 1 product hierarchy in `SKILL.md`, `AGENTS.md`, and README.
+- Batch 2 distinction: Claude Code gets real slash-skill aliases; Codex gets reliable `$elves`
+  skill invocation and natural language.
+- `references/codex-goals.md` already frames Goals as continuation backend, not Elves replacement.
+- Cobbler consultation consensus: keep the happy path short, avoid provider-router copy, and do not
+  document unsupported Codex top-level slash commands.
+
+**Acceptance criteria:**
+- [ ] Codex docs do not promise unsupported top-level slash commands.
+- [ ] README and `AGENTS.md` tell Codex users exactly what to type for Cobbler.
+- [ ] Quick Cobbler stays read-only and stateless unless attached to an active Elves run.
+- [ ] Goals are clearly optional for full Elves runs and not required for Quick Cobbler.
+
+**Blast radius:**
+- `AGENTS.md`, README, possibly `references/codex-goals.md` and consistency checker phrases.
+- Risk: low-to-medium; this is docs-only but user-facing wording can create false expectations.
+
+**Pre-implementation survey:**
+- `SKILL.md` and `AGENTS.md` already list Claude Code `/cobbler <task>` and Codex
+  `$elves cobbler: <task>` together.
+- README's Cobbler section includes the Codex primary path, but feature bullets still mention
+  `/cobbler` first and could be read as universal.
+- Deep reference docs still list Council slash aliases only; Batch 4 will make them Cobbler-first,
+  but Batch 3 should add a host-specific invocation table if touching command guidance.
+- Rollback tag for this run is `elves/pre-batch-3-cobbler`; older `elves/pre-batch-3-council` tag
+  was left untouched.
 
 ---
 

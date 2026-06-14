@@ -5,7 +5,15 @@ before one answer. It is not an Elves run, not a command runtime, and not a para
 Use it for planning, design, debugging, review, and risk analysis when a single straight-line answer
 would be too brittle.
 
-The natural aliases are `/council`, `/ec`, and `/elves-council`.
+Host invocation depends on the agent surface:
+
+- Claude Code primary: `/cobbler <task>`.
+- Codex primary: `$elves cobbler: <task>` or natural language such as "Ask the Cobbler..."
+- Claude Code compatibility: `/council <task>`, `/ec <task>`, and `/elves-council <task>`.
+- Codex compatibility: `$elves council: <task>` and natural Council references.
+
+Do not document Codex as having a top-level `/cobbler`, `/council`, `/ec`, or `/elves-council`
+command unless the user's Codex install explicitly provides one.
 
 ## Modes
 
@@ -54,9 +62,12 @@ See [`council-provider-config.md`](council-provider-config.md) for optional prov
 
 Document these semantics when a host supports slash-command style use:
 
+- `/cobbler <task>`: Claude Code primary Cobbler entry point.
 - `/council <task>`: Quick Council, native/read-only/default.
 - `/ec <task>`: short alias for Quick Council.
 - `/elves-council <task>`: explicit alias.
+- `$elves cobbler: <task>`: Codex primary Cobbler entry point.
+- `$elves council: <task>`: Codex compatibility path.
 - `--brief`: two-role fast pass.
 - `--verbose` or `--show-reports`: include individual role reports.
 - `--json`: return the structured synthesis.

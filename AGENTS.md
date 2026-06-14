@@ -95,12 +95,17 @@ Primary invocation depends on the host:
 Compatibility aliases remain supported: `/council`, `/ec`, `/elves-council`, and
 `$elves council: <task>` all invoke the same Cobbler behavior.
 
+Host honesty matters. Claude Code can use the managed slash-skill aliases. Codex should use the
+`$elves cobbler: <task>` skill invocation or natural chat; do not assume Codex has a top-level `/cobbler` command unless the user's Codex install explicitly provides one.
+
 Quick Cobbler is the default. It is read-only and stateless unless the user explicitly asks to
 attach the result to an active Elves run. Use native subagents first: Codex subagents in Codex,
 Claude Code subagents in Claude Code, or the same read-only analysis directly when subagents are
 unavailable. Cobbler chooses two or three useful roles, asks them to inspect independently, then
 returns one recommendation with why it fits, the strongest dissent, risks, and next actions. It
 should not edit files, create branches, open PRs, install packages, or mutate run state.
+
+Codex Goals are optional continuation plumbing for full Elves runs. They are not required for a Quick Cobbler answer.
 
 Provider-backed council is optional. It may use configured external providers for broader model
 diversity, but normal Cobbler, `/council`, `/ec`, and `/elves-council` use must not require

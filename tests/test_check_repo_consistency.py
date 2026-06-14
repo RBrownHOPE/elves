@@ -113,6 +113,38 @@ class ConsistencyPhraseTests(unittest.TestCase):
                     self.consistency.COUNCIL_MODULE_PHRASES[label],
                 )
 
+    def test_codex_cobbler_guardrails_are_required(self) -> None:
+        self.assertIn(
+            "do not assume Codex has a top-level `/cobbler` command",
+            self.consistency.COUNCIL_MODULE_PHRASES["SKILL.md"],
+        )
+        self.assertIn(
+            "Codex users should not need or expect a top-level `/cobbler` command",
+            self.consistency.COUNCIL_MODULE_PHRASES["README.md"],
+        )
+        self.assertIn(
+            "Codex Goals are not required for Quick Cobbler",
+            self.consistency.COUNCIL_MODULE_PHRASES["references/codex-goals.md"],
+        )
+        self.assertIn(
+            "Do not document Codex as having a top-level `/cobbler`",
+            self.consistency.COUNCIL_MODULE_PHRASES["references/council-workflow.md"],
+        )
+
+    def test_codex_cobbler_forbidden_phrases_catch_slash_command_drift(self) -> None:
+        label = "README.md"
+        stale = "Use `/cobbler` in Codex"
+
+        self.assertIn(stale, self.consistency.COUNCIL_FORBIDDEN_PHRASES[label])
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.COUNCIL_FORBIDDEN_PHRASES,
+            "Cobbler",
+        )
+
+        self.assertEqual(errors, [f"{label}: stale Cobbler phrase `{stale}`"])
+
     def test_claude_cobbler_alias_skill_files_are_required(self) -> None:
         expected_aliases = {
             "aliases/claude/cobbler/SKILL.md": "/cobbler",

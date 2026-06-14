@@ -166,8 +166,13 @@ dissent, the risks, and the next move.
 
 Use `/cobbler <task>` in Claude Code when the alias skill is installed. In Codex, use
 `$elves cobbler: <task>` or natural language such as "Ask the Cobbler..." Compatibility aliases
-remain supported: `/council`, `/ec`, `/elves-council`, and `$elves council: <task>` all invoke the
-same Cobbler behavior.
+remain supported: Claude Code keeps `/council`, `/ec`, and `/elves-council`, while Codex keeps
+`$elves council: <task>` and natural Council references. They all invoke the same Cobbler behavior.
+
+Host honesty matters. Claude Code gets real slash-skill aliases through the managed alias skills.
+Codex users should not need or expect a top-level `/cobbler` command; `$elves cobbler: <task>` is
+the reliable Codex form.
+Goals are for full Elves runs, not Quick Cobbler.
 
 Quick Cobbler is the default. It is read-only, stateless, and native-subagent-first: Codex uses
 Codex subagents, Claude Code uses Claude Code subagents, and environments without subagents perform
@@ -228,6 +233,8 @@ create, another writer is in the checkout, so it stops instead of committing on 
 Codex Goals can be a useful continuation backend for Elves. Goals keeps Codex working across turns;
 Elves tells it what "working well" means: staged docs, batch contracts, validation gates, PR review
 loops, memory hygiene, and a final Readiness Gate.
+
+Goals are for full Elves runs, not Quick Cobbler. For a one-off Cobbler answer in Codex, use `$elves cobbler: <task>` or ask naturally: "Ask the Cobbler to..."
 
 If your Codex install supports `/goal`, stage the Elves run normally, then launch the prepared
 Elves prompt inside a goal:
@@ -337,8 +344,9 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
   report that highlights status, problems found, lessons learned, collapsible batch timeline,
   validation, residual risks, and human next steps; the agent hands it to you to review at closeout
 - **Cobbler**: `/cobbler` in Claude Code and `$elves cobbler: ...` in Codex give you a read-only,
-  native-subagent-first synthesis for planning, design, debugging, and review questions; `/council`,
-  `/ec`, `/elves-council`, and `$elves council: ...` remain compatibility aliases
+  native-subagent-first synthesis for planning, design, debugging, and review questions; Claude
+  keeps `/council`, `/ec`, and `/elves-council`, while Codex keeps `$elves council: ...` as the
+  compatibility path
 - **Math research workflow kit**: optional templates for preliminary discovery, subfield scouting,
   cross-field synthesis, proof review, source audit, manuscript drafting, and human verification
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`

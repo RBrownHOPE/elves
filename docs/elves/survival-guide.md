@@ -66,9 +66,9 @@ key.
 - **Checkpoint expectation:** best review-ready state by checkpoint; continue after checkpoint if
   required work remains
 - **Time budget:** default 8-hour checkpoint budget; objective remains active across turns
-- **Average batch time so far:** Batches 1-2 each completed in short focused passes after
+- **Average batch time so far:** Batches 1-3 each completed in short focused passes after
   launch-state setup
-- **Batches remaining:** 3 of 5, then open-ended follow-up/release-hardening work until stopped
+- **Batches remaining:** 2 of 5, then open-ended follow-up/release-hardening work until stopped
 
 ---
 
@@ -76,12 +76,12 @@ key.
 
 > Rewrite this section in place. This is the explicit answer to "may I stop now?" Do not infer it.
 
-- **Planned batches remaining:** 3 plus final deliverables and open-ended follow-up
+- **Planned batches remaining:** 2 plus final deliverables and open-ended follow-up
 - **Stop allowed right now:** no
-- **Why:** The user explicitly said to keep going and not stop. Batches 1-2 are complete, but
-  Batches 3-5, final landing/release/announcement deliverables, and follow-up release-hardening
+- **Why:** The user explicitly said to keep going and not stop. Batches 1-3 are complete, but
+  Batches 4-5, final landing/release/announcement deliverables, and follow-up release-hardening
   work remain.
-- **Next required action:** Start Batch 3: Codex Cobbler Invocation.
+- **Next required action:** Start Batch 4: Fitted Answer Synthesis.
 
 ---
 
@@ -184,17 +184,18 @@ Promotion flow: `execution log -> learnings -> .ai-docs`
 
 **Status:** In progress
 
-**Active batch:** Between batches; next is Batch 3: Codex Cobbler Invocation
+**Active batch:** Between batches; next is Batch 4: Fitted Answer Synthesis
 
-**What was just finished:** Batch 2 made `/cobbler`, `/council`, `/ec`, and `/elves-council` real
-Claude Code alias skills via marker-gated sibling skill directories. The sync helper creates or
-updates only Elves-managed aliases, refuses unmarked user-owned aliases, and now treats no installed
-targets as advisory success for default `--check`. Local validation passed with 20 tests, installed
-Claude/Codex copies were synced to `1.15.0`, and preflight passed with advisory warnings only.
+**What was just finished:** Batch 3 made Codex invocation explicit: use `$elves cobbler: <task>` or
+natural chat such as "Ask the Cobbler...", use `$elves council: <task>` as the compatibility path,
+and do not promise top-level Codex slash commands. Codex Goals are now documented as optional
+continuation plumbing for full Elves runs, not a Quick Cobbler requirement. Local validation passed
+with 22 tests, installed Claude/Codex copies were synced to `1.15.0`, and preflight passed with
+advisory warnings only.
 
-**Single next action:** Create rollback tag `elves/pre-batch-3-cobbler`, write the Batch 3
-contract, and tighten Codex-facing invocation docs so `$elves cobbler: <task>` and natural chat are
-the clear primary path without promising top-level slash commands.
+**Single next action:** Create rollback tag `elves/pre-batch-4-cobbler`, write the Batch 4
+contract, and rewrite reference/config surfaces so Cobbler leads, Council is compatibility
+mechanism, and the default answer shape is fitted and human-facing.
 
 ---
 
@@ -217,29 +218,29 @@ the clear primary path without promising top-level slash commands.
 
 ## Next Exact Batch
 
-**Batch:** 3: Codex Cobbler Invocation
+**Batch:** 4: Fitted Answer Synthesis
 
 **Scope:**
-- Update Codex-facing `AGENTS.md` wording to make `$elves cobbler: ...` the reliable primary
-  invocation.
-- Document natural chat forms such as "Ask the Cobbler to..." and compatibility `$elves
-  council: ...` forms.
-- Clarify how Cobbler uses Codex subagents when available and falls back to direct read-only lens
-  analysis when they are not.
-- Connect Cobbler guidance to Codex Goals only where a full Elves run needs continuation; do not
-  make Goals required for a quick Cobbler answer.
+- Rename or revise Council references so the operating model is Cobbler-first without breaking
+  compatibility links.
+- Update role, selector, and synthesizer prompts around fitted-answer output.
+- Add a `cobbler` configuration example while keeping `council` compatibility or migration
+  guidance.
+- Replace "Deep Council" as the main product label with optional "provider-backed council" wording.
+- Preserve the no-provider happy path and graceful fallback behavior.
 
 **Acceptance criteria:**
-- [ ] Codex docs do not promise unsupported top-level slash commands.
-- [ ] A Codex user can read README or `AGENTS.md` and know exactly what to type for Cobbler.
-- [ ] Quick Cobbler stays read-only and stateless unless the user attaches it to an active Elves
-      run.
-- [ ] Codex and Claude Code docs use the same product hierarchy while respecting host differences.
+- [ ] Reference docs lead with Cobbler and explain Council as a temporary read-only gathering.
+- [ ] The default synthesis template includes `Recommendation`, `Why this fits`, `Strongest
+      dissent`, `Risks`, `Next move`, and `Confidence`.
+- [ ] Normal Cobbler use requires no OpenRouter or external provider key.
+- [ ] Provider-backed behavior is opt-in, disabled by default, and documented as advanced.
+- [ ] Backward-compatible Council terms remain searchable for users upgrading from `1.14.0`.
 
-**Risk:** Over-explaining Codex mechanics could make the user experience feel less natural. Keep
-the happy path short and precise.
+**Risk:** Config churn could break existing `council` examples. Prefer additive `cobbler` examples
+and explicit compatibility over hard removal.
 
-**Rollback tag:** `elves/pre-batch-3-cobbler`
+**Rollback tag:** `elves/pre-batch-4-cobbler`
 
 ---
 
@@ -292,6 +293,20 @@ Batch 2 result on 2026-06-14 18:38 EDT:
 - `python3 -m json.tool config.json.example >/dev/null` and
   `python3 -m json.tool .elves-session.json >/dev/null` -> PASS.
 - `python3 scripts/sync_installed_skills.py --check` -> PASS after applying managed aliases.
+- `git diff --check` -> PASS.
+- `OPENAI_CODEX=1 ELVES_SURVIVAL_GUIDE_PATH=docs/elves/survival-guide.md ./scripts/preflight.sh`
+  -> PASS with advisory warnings only.
+
+Batch 3 result on 2026-06-14 18:43 EDT:
+
+- `python3 scripts/check_repo_consistency.py` -> PASS, including Codex Cobbler host-boundary
+  guardrails.
+- `python3 -m unittest discover -s tests -p 'test_*.py'` -> PASS, 22 tests.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` -> PASS.
+- `python3 -m json.tool config.json.example >/dev/null` and
+  `python3 -m json.tool .elves-session.json >/dev/null` -> PASS.
+- `python3 scripts/sync_installed_skills.py --check` -> PASS after syncing installed Claude and
+  Codex copies.
 - `git diff --check` -> PASS.
 - `OPENAI_CODEX=1 ELVES_SURVIVAL_GUIDE_PATH=docs/elves/survival-guide.md ./scripts/preflight.sh`
   -> PASS with advisory warnings only.
