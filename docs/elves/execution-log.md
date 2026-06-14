@@ -7,12 +7,11 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 12:47 EDT
+- **Last updated:** 2026-06-14 12:48 EDT
 - **Current phase:** Launch active
 - **Active batch:** Batch 4 pending start
 - **Last completed batch:** Batch 3
-- **Next exact batch:** Push Batch 3 completion state, poll PR feedback, then start Batch 4:
-  Consistency Checks And Release Hardening
+- **Next exact batch:** Batch 4: Consistency Checks And Release Hardening
 - **Active PR:** #27
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -155,6 +154,10 @@ clean, with a regular merge commit via `gh pr merge --merge`; squash/rebase rema
 `references/survival-guide-template.md`, live execution log, `.elves-session.json`.
 **Docs promoted:** none yet; Batch 4 will pin Council guardrails in the checker.
 **Commit SHA:** `a6010af747ff`
+**Completion-state commit:** `862cf73`
+**Post-push PR poll:** PASS at 2026-06-14 12:48 EDT. The two Gemini Code Assist review threads
+from staging remain resolved/outdated; no issue comments were present. Checks were queued/in
+progress, not failing.
 
 ---
 

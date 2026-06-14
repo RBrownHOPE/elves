@@ -68,9 +68,10 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
 
 - **Planned batches remaining:** 1
 - **Stop allowed right now:** no
-- **Why:** Batch 3 is complete pending commit/push, and Batch 4 plus final landing, GitHub version
-  update, and X statement remain.
-- **Next required action:** commit and push Batch 3, poll PR feedback, then start Batch 4.
+- **Why:** Batch 3 is pushed, and Batch 4 plus final landing, GitHub version update, and X
+  statement remain.
+- **Next required action:** start Batch 4 with Verify Green, rollback tag, contract, and
+  pre-implementation survey.
 
 ---
 
@@ -98,12 +99,13 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
 
 ## Current Phase
 
-- **Status:** Batch 3 complete pending commit/push
-- **Active batch:** Batch 3 closeout
+- **Status:** Batch 4 ready to start
+- **Active batch:** Batch 4: Consistency Checks And Release Hardening
 - **What was just finished:** Council config defaults, optional Deep Council provider docs, Run
   Council logging guidance, tool-config examples, and survival-guide template config were added and
   validated.
-- **Single next action:** commit and push Batch 3, poll PR feedback, then start Batch 4.
+- **Single next action:** start Batch 4 with Verify Green, rollback tag, contract, and
+  pre-implementation survey.
 
 ---
 
