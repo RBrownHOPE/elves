@@ -4,6 +4,24 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-06-14
+
+### Cobbler
+
+- Added Cobbler as the user-facing coordinator inside Elves: ask once, and Cobbler decides whether
+  to answer directly, bring in specialist elves, or convene a read-only council of independent
+  lenses.
+- Made `/cobbler` the primary Claude Code entry point and `$elves cobbler: ...` the reliable Codex
+  invocation while preserving `/council`, `/ec`, `/elves-council`, and `$elves council: ...` as
+  compatibility aliases.
+- Clarified that Quick Cobbler is native-subagent-first, read-only, and stateless by default:
+  Codex should use Codex subagents, Claude Code should use Claude Code subagents, and environments
+  without subagents should perform the same read-only lens analysis directly.
+- Reframed external model diversity as optional provider-backed council configuration. Ordinary
+  Cobbler and Council-compatible use requires no OpenRouter or other provider key.
+- Synchronized the Cobbler hierarchy across `SKILL.md`, `AGENTS.md`, README, changelog, reference
+  templates, config examples, managed Claude Code alias skills, and repo consistency guardrails.
+
 ## [1.14.0] - 2026-06-14
 
 ### Elves Council

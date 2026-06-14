@@ -8,8 +8,9 @@ Usage:
 
 `--check` reports drift between this repo checkout and the local installed copies.
 `--apply` overwrites the managed files/directories in the installed copies so they match
-this checkout exactly. When `--target all` is used, the script only operates on installed
-targets it actually finds.
+this checkout exactly. Claude Code Cobbler alias skills are marker-gated: unmarked user-owned
+alias skill directories are reported as conflicts and are never overwritten. When `--target all` is
+used, the script only operates on installed targets it actually finds.
 """
 
 from __future__ import annotations
@@ -30,12 +31,16 @@ RUNTIME_SCRIPT_PATHS = [
     "scripts/validate_survival_guide.py",
 ]
 REPO_ONLY_SCRIPT_PATHS = ["scripts/check_repo_consistency.py", "scripts/sync_installed_skills.py"]
+CLAUDE_ALIAS_MARKER = "<!-- elves-managed-alias: claude-skill-alias v1 -->"
+CLAUDE_ALIAS_NAMES = ["cobbler", "council", "ec", "elves-council"]
 
 TARGETS = {
     "claude": {
         "root": Path.home() / ".claude" / "skills" / "elves",
         "managed_paths": ["SKILL.md", "references", *RUNTIME_SCRIPT_PATHS],
         "cleanup_paths": REPO_ONLY_SCRIPT_PATHS,
+        "alias_root": Path.home() / ".claude" / "skills",
+        "managed_aliases": CLAUDE_ALIAS_NAMES,
     },
     "codex": {
         "root": Path.home() / ".codex" / "skills" / "elves",
@@ -142,6 +147,34 @@ def compare_dir(src_dir: Path, dst_dir: Path, rel_path: str) -> list[str]:
     return problems
 
 
+def alias_source_dir(alias_name: str) -> Path:
+    return REPO_ROOT / "aliases" / "claude" / alias_name
+
+
+def alias_display_path(alias_name: str) -> str:
+    return f"aliases/claude/{alias_name}/"
+
+
+def is_elves_managed_alias(alias_dir: Path) -> bool:
+    skill_path = alias_dir / "SKILL.md"
+    if not skill_path.exists():
+        return False
+    return CLAUDE_ALIAS_MARKER in skill_path.read_text(errors="ignore")
+
+
+def compare_alias(alias_name: str, dst_dir: Path) -> list[str]:
+    src_dir = alias_source_dir(alias_name)
+    display_path = alias_display_path(alias_name)
+
+    if not src_dir.exists():
+        return [f"missing source alias: {display_path}"]
+    if not dst_dir.exists():
+        return [f"missing alias skill: {dst_dir}"]
+    if not is_elves_managed_alias(dst_dir):
+        return [f"alias conflict: {dst_dir} exists without Elves managed alias marker"]
+    return compare_dir(src_dir, dst_dir, display_path.rstrip("/"))
+
+
 def check_target(name: str) -> tuple[bool, list[str]]:
     root = TARGETS[name]["root"]
     problems: list[str] = []
@@ -161,6 +194,10 @@ def check_target(name: str) -> tuple[bool, list[str]]:
     for relative in TARGETS[name]["cleanup_paths"]:
         if (root / relative).exists():
             problems.append(f"unexpected repo-only helper: {relative}")
+
+    alias_root = TARGETS[name].get("alias_root")
+    for alias_name in TARGETS[name].get("managed_aliases", []):
+        problems.extend(compare_alias(alias_name, alias_root / alias_name))
 
     return not problems, problems
 
@@ -188,13 +225,24 @@ def remove_path(path: Path) -> None:
         path.unlink()
 
 
-def apply_target(name: str) -> None:
+def apply_target(name: str) -> list[str]:
     root = TARGETS[name]["root"]
     root.mkdir(parents=True, exist_ok=True)
     for relative in TARGETS[name]["managed_paths"]:
         sync_path(REPO_ROOT / relative, root / relative)
     for relative in TARGETS[name]["cleanup_paths"]:
         remove_path(root / relative)
+
+    problems: list[str] = []
+    alias_root = TARGETS[name].get("alias_root")
+    for alias_name in TARGETS[name].get("managed_aliases", []):
+        src_dir = alias_source_dir(alias_name)
+        dst_dir = alias_root / alias_name
+        if dst_dir.exists() and not is_elves_managed_alias(dst_dir):
+            problems.append(f"alias conflict: {dst_dir} exists without Elves managed alias marker")
+            continue
+        sync_path(src_dir, dst_dir)
+    return problems
 
 
 def main() -> int:
@@ -206,6 +254,8 @@ def main() -> int:
     if not targets:
         print("No installed Elves skill copies were detected.")
         print("Use `--target claude` or `--target codex` with `--apply` to create one explicitly.")
+        if args.check and args.target == "all":
+            return 0
         return 1
 
     for name in targets:
@@ -222,8 +272,10 @@ def main() -> int:
             continue
 
         print(f"[{name}] syncing repo={repo_version} -> {root}")
-        apply_target(name)
+        apply_problems = apply_target(name)
         ok, problems = check_target(name)
+        problems = apply_problems + [problem for problem in problems if problem not in apply_problems]
+        ok = ok and not apply_problems
         if ok:
             synced_version = read_version(root / "SKILL.md") or "unknown"
             print(f"  - synced successfully (installed={synced_version})")

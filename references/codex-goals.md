@@ -7,6 +7,10 @@ defines what the agent must do before the branch is review-ready.
 Goals should not replace the Elves loop. The plan, survival guide, execution log,
 `.elves-session.json`, learnings file, PR feedback, and Readiness Gate remain the source of truth.
 
+Codex Goals are not required for Quick Cobbler. For a one-off Cobbler answer in Codex, use
+`$elves cobbler: <task>` or natural language such as "Ask the Cobbler to..." Use
+`$elves council: <task>` only as the Council-compatible path.
+
 ## When To Use Goals
 
 Use Codex Goals when:
@@ -21,6 +25,7 @@ Use the normal Elves launch prompt when:
 - You are running in Claude Code, Claude.ai, or another non-Codex environment.
 - `/goal` is unavailable or disabled in your Codex install.
 - The task is short enough that the normal launch prompt is simpler.
+- You only need a Quick Cobbler answer instead of a full multi-batch Elves run.
 
 ## Setup
 

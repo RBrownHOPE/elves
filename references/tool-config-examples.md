@@ -305,11 +305,11 @@ math-ledger-dir: docs/math
 
 ---
 
-## Elves Council
+## Cobbler
 
-> Use when you want `/council`, `/ec`, or `/elves-council` to fan out to native read-only subagents
-> and return one synthesis. Quick Council requires no external provider key. Deep Council providers
-> are optional.
+> Use when you want Cobbler to answer directly or convene a temporary read-only council of native
+> subagents and return one fitted answer. Quick Cobbler requires no external provider key.
+> Provider-backed council is optional advanced plumbing.
 
 ```yaml
 ## Tool Configuration
@@ -317,30 +317,41 @@ math-ledger-dir: docs/math
 review: github-pr-comments
 notification: pr-comment
 
-council-enabled: true
-council-default-mode: quick
-council-default-backend: native-subagents
-council-aliases:
+cobbler-enabled: true
+cobbler-default-mode: quick
+cobbler-default-backend: native-subagents
+cobbler-primary-invocations:
+  claude-code: /cobbler
+  codex: "$elves cobbler: <task>"
+cobbler-compatibility-aliases:
   - /council
   - /ec
   - /elves-council
-council-default-role-count: 3
-council-max-role-count: 5
-council-quick-read-only: true
-council-quick-stateless: true
-council-run-logging: existing-elves-memory
+  - "$elves council: <task>"
+cobbler-default-answer-shape:
+  - Recommendation
+  - Why this fits
+  - Strongest dissent
+  - Risks
+  - Next move
+  - Confidence
+cobbler-default-role-count: 3
+cobbler-max-role-count: 5
+cobbler-quick-read-only: true
+cobbler-quick-stateless: true
+cobbler-run-logging: existing-elves-memory
 
-# Optional Deep Council provider diversity. Leave disabled unless the user opts in.
-council-deep-enabled: false
-council-deep-provider-policy: optional-external-providers
-council-deep-required-env: []
-council-deep-optional-env:
+# Optional provider-backed council diversity. Leave disabled unless the user opts in.
+cobbler-provider-backed-enabled: false
+cobbler-provider-backed-policy: optional-external-providers
+cobbler-provider-backed-required-env: []
+cobbler-provider-backed-optional-env:
   - OPENROUTER_API_KEY
   - GEMINI_API_KEY
   - ANTHROPIC_API_KEY
   - XAI_API_KEY
   - OPENAI_API_KEY
-council-deep-role-models:
+cobbler-provider-backed-role-models:
   architect: native-subagent
   skeptic: native-subagent
   implementation_analyst: native-subagent
@@ -348,6 +359,9 @@ council-deep-role-models:
   maintainer: native-subagent
   domain_scout: native-subagent
 ```
+
+Legacy `council-*` config keys remain compatibility aliases for existing `v1.14.0` setups. Prefer
+new `cobbler-*` keys in fresh configs, but do not rename working project config just for style.
 
 ---
 

@@ -10,7 +10,8 @@
 
   "notification": {
     "method": "gh-pr-comment",
-    "_alternatives": "slack, custom-cmd, gh-pr-comment"
+    "_alternatives": "slack, custom-cmd, gh-pr-comment",
+    "_comment": "PR comments are the zero-config fallback. Runtime completion notification order is ELVES_SLACK_WEBHOOK, then ELVES_NOTIFY_CMD, then PR comment unless your project overrides it."
   },
 
   "review": {
@@ -32,17 +33,35 @@
     "_comment": "Performance hygiene for long runs. Keep live docs concise, archive old log entries in place, and never mutate Codex/Claude app state during a coding run."
   },
 
-  "council": {
+  "cobbler": {
     "enabled": true,
     "default_mode": "quick",
     "default_backend": "native-subagents",
-    "aliases": ["/council", "/ec", "/elves-council"],
+    "primary_invocations": {
+      "claude_code": "/cobbler <task>",
+      "codex": "$elves cobbler: <task>",
+      "codex_natural": "Ask the Cobbler to <task>"
+    },
+    "compatibility_aliases": [
+      "/council",
+      "/ec",
+      "/elves-council",
+      "$elves council: <task>"
+    ],
+    "default_answer_shape": [
+      "Recommendation",
+      "Why this fits",
+      "Strongest dissent",
+      "Risks",
+      "Next move",
+      "Confidence"
+    ],
     "default_role_count": 3,
     "max_role_count": 5,
     "quick_read_only": true,
     "quick_stateless": true,
     "run_logging": "existing-elves-memory",
-    "deep": {
+    "provider_backed_council": {
       "enabled": false,
       "provider_policy": "optional-external-providers",
       "required_env": [],
@@ -62,7 +81,25 @@
         "domain_scout": "native-subagent"
       }
     },
-    "_comment": "Optional Elves Council configuration. Quick Council uses native subagents and requires no external provider key. Deep Council providers are opt-in; do not hardcode private keys."
+    "_comment": "Optional Cobbler configuration. Quick Cobbler uses native subagents and requires no external provider key. Provider-backed council is opt-in; do not hardcode private keys."
+  },
+
+  "council": {
+    "compatibility_for": "cobbler",
+    "precedence": "cobbler",
+    "enabled": true,
+    "default_mode": "quick",
+    "default_backend": "native-subagents",
+    "aliases": ["/council", "/ec", "/elves-council"],
+    "quick_read_only": true,
+    "quick_stateless": true,
+    "run_logging": "existing-elves-memory",
+    "provider_backed": {
+      "enabled": false,
+      "provider_policy": "optional-external-providers",
+      "required_env": []
+    },
+    "_comment": "Legacy v1.14 Council-compatible config. Prefer the top-level cobbler block in new configs. If both blocks are present, cobbler wins; keep council for older projects that already refer to council keys."
   },
 
   "math": {

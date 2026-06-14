@@ -137,6 +137,15 @@ FINAL_READINESS_REVIEW_PHRASES = {
     ],
 }
 
+REPO_CONSISTENCY_WORKFLOW_PHRASES = {
+    ".github/workflows/repo-consistency.yml": [
+        '"config.json.example"',
+        '".github/workflows/repo-consistency.yml"',
+        '"aliases/**"',
+        "scripts/validate_survival_guide.py",
+    ],
+}
+
 REVIEWED_PR_LANDING_PHRASES = {
     "SKILL.md": [
         "## Reviewed PR Landing Command",
@@ -377,102 +386,171 @@ MATH_MODULE_PHRASES = {
 
 COUNCIL_MODULE_PHRASES = {
     "SKILL.md": [
-        "Elves Council",
+        "## Cobbler",
+        "Cobbler",
+        "/cobbler",
+        "$elves cobbler: <task>",
         "/council",
         "/ec",
         "/elves-council",
-        "Quick Council is the default",
+        "$elves council: <task>",
+        "Host honesty matters",
+        "do not assume Codex has a top-level `/cobbler` command",
+        "Codex Goals are optional continuation plumbing",
+        "not required for a Quick Cobbler answer",
+        "Quick Cobbler is the default",
         "read-only",
         "stateless",
         "Codex subagents",
         "Claude Code subagents",
         "read-only analysis directly",
-        "dissent",
-        "risks",
-        "next actions",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Risks",
+        "Next move",
+        "Confidence",
         "mutate run state",
-        "Deep Council is optional",
-        "must not require OpenRouter",
+        "Provider-backed council is optional",
+        "must not require",
         "vendor identity",
     ],
     "AGENTS.md": [
-        "Elves Council",
+        "## Cobbler",
+        "Cobbler",
+        "/cobbler",
+        "$elves cobbler: <task>",
         "/council",
         "/ec",
         "/elves-council",
-        "Quick Council is the default",
+        "$elves council: <task>",
+        "Host honesty matters",
+        "do not assume Codex has a top-level `/cobbler` command",
+        "Codex Goals are optional continuation plumbing",
+        "not required for a Quick Cobbler answer",
+        "Quick Cobbler is the default",
         "read-only",
         "stateless",
         "Codex subagents",
         "Claude Code subagents",
         "read-only analysis directly",
-        "dissent",
-        "risks",
-        "next actions",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Risks",
+        "Next move",
+        "Confidence",
         "mutate run state",
-        "Deep Council is optional",
-        "must not require OpenRouter",
+        "Provider-backed council is optional",
+        "must not require",
         "vendor identity",
     ],
     "README.md": [
-        "Elves Council",
+        "### Cobbler",
+        "Cobbler",
+        "/cobbler",
+        "$elves cobbler: <task>",
         "/council",
         "/ec",
         "/elves-council",
-        "Quick Council is the default",
+        "$elves council: <task>",
+        "Host honesty matters",
+        "Codex users should not need or expect a top-level `/cobbler` command",
+        "Goals are for full Elves runs, not Quick Cobbler",
+        "Quick Cobbler is the default",
         "read-only",
         "stateless",
         "Codex subagents",
         "Claude Code subagents",
         "read-only analysis directly",
-        "dissent",
-        "risks",
-        "next actions",
-        "requires no OpenRouter",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Risks",
+        "Next move",
+        "Confidence",
+        "require no OpenRouter",
         "vendor identity",
         "references/council-workflow.md",
         "references/council-prompts.md",
         "references/council-provider-config.md",
     ],
     "references/council-workflow.md": [
-        "Quick Council is the default",
+        "# Cobbler Workflow",
+        "Council is the compatibility path and gathering mechanism",
+        "Claude Code primary: `/cobbler <task>`",
+        "Codex primary: `$elves cobbler: <task>`",
+        "Codex compatibility: `$elves council: <task>`",
+        "Do not document Codex as having a top-level `/cobbler`",
+        "Quick Cobbler is the default",
         "Role agents do not see each other's reports before synthesis",
-        "Run Council reuses existing Elves memory surfaces",
-        "Deep Council is optional",
-        "normal `/council` must not require OpenRouter",
-        "Do not make Quick Council require OpenRouter",
+        "Run Cobbler reuses existing Elves memory surfaces",
+        "Provider-backed council is optional",
+        "use must not require OpenRouter or any external provider key",
+        "Do not make Quick Cobbler require OpenRouter",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Risks",
+        "Next move",
+        "Confidence",
         "Do not create a separate PR, branch, survival guide, execution log, or ledger",
     ],
     "references/council-prompts.md": [
-        "Council roles are lenses with obligations, not theatrical personas",
+        "# Cobbler Prompt Templates",
+        "Cobbler roles are lenses with obligations, not theatrical personas",
         "Do not read or rely on other role reports",
         "Work read-only",
-        "Lead with one recommendation",
-        "Preserve the strongest dissent",
+        "Return one fitted answer",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Next move",
+        "why_this_fits",
+        "strongest_dissent",
+        "next_move",
     ],
     "references/council-provider-config.md": [
-        "Normal `/council`, `/ec`, and `/elves-council` use must work without",
-        "Quick Council needs no provider configuration",
-        "council-deep-required-env: []",
-        "Do not make ordinary `/council` depend on that setting",
+        "# Cobbler Provider-Backed Council Configuration",
+        "Normal Cobbler",
+        "$elves cobbler: <task>",
+        "use must work without",
+        "Quick Cobbler needs no provider configuration",
+        "cobbler-provider-backed-required-env: []",
+        "Do not make ordinary Cobbler or Council-compatible use",
         "Do not create a separate Council ledger",
     ],
+    "references/codex-goals.md": [
+        "Codex Goals are not required for Quick Cobbler",
+        "$elves cobbler: <task>",
+        "Ask the Cobbler",
+        "$elves council: <task>",
+        "You only need a Quick Cobbler answer",
+    ],
     "references/tool-config-examples.md": [
-        "## Elves Council",
-        "Quick Council requires no external provider key",
-        "council-default-backend: native-subagents",
-        "council-run-logging: existing-elves-memory",
-        "council-deep-required-env: []",
+        "## Cobbler",
+        "Quick Cobbler requires no external provider key",
+        "cobbler-default-backend: native-subagents",
+        "cobbler-run-logging: existing-elves-memory",
+        "cobbler-provider-backed-required-env: []",
+        "Legacy `council-*` config keys remain compatibility aliases",
     ],
     "references/survival-guide-template.md": [
-        "### Elves Council Configuration (optional)",
-        "External providers are optional Deep Council",
-        "council-default-backend: native-subagents",
-        "council-run-logging: existing-elves-memory",
-        "council-deep-required-env: []",
+        "### Cobbler Configuration (optional)",
+        "Provider-backed council is optional advanced plumbing",
+        "cobbler-default-backend: native-subagents",
+        "cobbler-run-logging: existing-elves-memory",
+        "cobbler-provider-backed-required-env: []",
+        "Legacy `council-*` config keys remain compatibility aliases",
     ],
     "config.json.example": [
+        '"cobbler"',
         '"council"',
+        '"primary_invocations"',
+        '"default_answer_shape"',
+        '"provider_backed_council"',
+        '"compatibility_for": "cobbler"',
+        '"precedence": "cobbler"',
         '"default_backend": "native-subagents"',
         '"quick_read_only": true',
         '"quick_stateless": true',
@@ -483,35 +561,139 @@ COUNCIL_MODULE_PHRASES = {
 }
 
 COUNCIL_SECTION_HEADINGS = {
-    "SKILL.md": "## Elves Council",
-    "AGENTS.md": "## Elves Council",
-    "README.md": "### Elves Council",
+    "SKILL.md": "## Cobbler",
+    "AGENTS.md": "## Cobbler",
+    "README.md": "### Cobbler",
+}
+
+CLAUDE_ALIAS_MARKER = "<!-- elves-managed-alias: claude-skill-alias v1 -->"
+
+CLAUDE_ALIAS_SKILL_PHRASES = {
+    "aliases/claude/cobbler/SKILL.md": [
+        CLAUDE_ALIAS_MARKER,
+        "name: cobbler",
+        "/cobbler",
+        "installed `elves` skill's `## Cobbler` instructions",
+        "read-only",
+        "stateless",
+        "Claude Code subagents",
+        "Do not edit files",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Next move",
+        "must not require OpenRouter",
+    ],
+    "aliases/claude/council/SKILL.md": [
+        CLAUDE_ALIAS_MARKER,
+        "name: council",
+        "/council",
+        "compatibility alias",
+        "installed `elves` skill's `## Cobbler` instructions",
+        "read-only",
+        "stateless",
+        "Claude Code subagents",
+        "Do not edit files",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Next move",
+        "must not require OpenRouter",
+    ],
+    "aliases/claude/ec/SKILL.md": [
+        CLAUDE_ALIAS_MARKER,
+        "name: ec",
+        "/ec",
+        "compatibility alias",
+        "installed `elves` skill's `## Cobbler` instructions",
+        "read-only",
+        "stateless",
+        "Claude Code subagents",
+        "Do not edit files",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Next move",
+        "must not require OpenRouter",
+    ],
+    "aliases/claude/elves-council/SKILL.md": [
+        CLAUDE_ALIAS_MARKER,
+        "name: elves-council",
+        "/elves-council",
+        "compatibility alias",
+        "installed `elves` skill's `## Cobbler` instructions",
+        "read-only",
+        "stateless",
+        "Claude Code subagents",
+        "Do not edit files",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Next move",
+        "must not require OpenRouter",
+    ],
 }
 
 COUNCIL_FORBIDDEN_PHRASES = {
     "SKILL.md": [
         "ordinary `/council` requires OpenRouter",
         "normal `/council` requires OpenRouter",
+        "ordinary Cobbler requires OpenRouter",
+        "normal Cobbler requires OpenRouter",
+        "Cobbler requires `OPENROUTER_API_KEY`",
         "Council requires `OPENROUTER_API_KEY`",
+        "Cobbler can edit files",
+        "Cobbler can create branches",
+        "Cobbler can open PRs",
         "Council can edit files",
         "Council can create branches",
         "Council can open PRs",
+        "Use `/cobbler` in Codex",
+        "Use `/council` in Codex",
+        "Quick Cobbler requires Codex Goals",
+        "Cobbler requires `/goal`",
     ],
     "AGENTS.md": [
         "ordinary `/council` requires OpenRouter",
         "normal `/council` requires OpenRouter",
+        "ordinary Cobbler requires OpenRouter",
+        "normal Cobbler requires OpenRouter",
+        "Cobbler requires `OPENROUTER_API_KEY`",
         "Council requires `OPENROUTER_API_KEY`",
+        "Cobbler can edit files",
+        "Cobbler can create branches",
+        "Cobbler can open PRs",
         "Council can edit files",
         "Council can create branches",
         "Council can open PRs",
+        "Use `/cobbler` in Codex",
+        "Use `/council` in Codex",
+        "Quick Cobbler requires Codex Goals",
+        "Cobbler requires `/goal`",
     ],
     "README.md": [
         "ordinary `/council` requires OpenRouter",
         "normal `/council` requires OpenRouter",
+        "ordinary Cobbler requires OpenRouter",
+        "normal Cobbler requires OpenRouter",
+        "Cobbler requires `OPENROUTER_API_KEY`",
         "Council requires `OPENROUTER_API_KEY`",
+        "Cobbler can edit files",
+        "Cobbler can create branches",
+        "Cobbler can open PRs",
         "Council can edit files",
         "Council can create branches",
         "Council can open PRs",
+        "Use `/cobbler` in Codex",
+        "Use `/council` in Codex",
+        "Quick Cobbler requires Codex Goals",
+        "Cobbler requires `/goal`",
+    ],
+    "references/codex-goals.md": [
+        "Quick Cobbler requires Codex Goals",
+        "Cobbler requires `/goal`",
+        "Use `/cobbler` in Codex",
+        "Use `/council` in Codex",
     ],
     "references/council-workflow.md": [
         "ordinary `/council` requires OpenRouter",
@@ -520,13 +702,80 @@ COUNCIL_FORBIDDEN_PHRASES = {
         "Council can edit files",
         "Council can create branches",
         "Council can open PRs",
+        "# Elves Council Workflow",
+        "Quick Council is the default",
+        "Run Council reuses existing Elves memory surfaces",
+        "Deep Council is optional",
+        "Do not make Quick Council require OpenRouter",
     ],
     "references/council-provider-config.md": [
         "ordinary `/council` requires OpenRouter",
         "normal `/council` requires OpenRouter",
         "Council requires `OPENROUTER_API_KEY`",
+        "# Council Provider Configuration",
+        "Quick Council needs no provider configuration",
+        "Deep Council is opt-in",
+        "council-deep-required-env",
+    ],
+    "references/council-prompts.md": [
+        "# Elves Council Prompts",
+        "Council roles are lenses with obligations",
+        "You are synthesizing independent Elves Council reports",
+    ],
+    "references/tool-config-examples.md": [
+        "## Elves Council",
+        "Quick Council requires no external provider key",
+        "Optional Deep Council provider diversity",
+        "council-deep-required-env",
+    ],
+    "references/survival-guide-template.md": [
+        "### Elves Council Configuration (optional)",
+        "External providers are optional Deep Council",
+        "Optional Deep Council provider diversity",
+        "council-deep-required-env",
     ],
 }
+
+COBBLER_FORBIDDEN_PATTERNS = {
+    label: [
+        r"\bquick\s+cobbler\s+(?:needs|requires)\s+openrouter\b",
+        r"\bnormal\s+cobbler\s+requires\s+(?:an\s+)?external\s+provider\s+key\b",
+        r"\bcobbler\s+requires\s+openrouter\b",
+        r"\bcouncil-compatible\s+use\s+requires\s+openrouter\b",
+        r"\bopenrouter_api_key\b\s+is\s+required\s+for\s+cobbler\b",
+    ]
+    for label in (
+        "SKILL.md",
+        "AGENTS.md",
+        "README.md",
+        "references/council-workflow.md",
+        "references/council-provider-config.md",
+        "references/tool-config-examples.md",
+        "references/survival-guide-template.md",
+        "config.json.example",
+        "aliases/claude/cobbler/SKILL.md",
+        "aliases/claude/council/SKILL.md",
+        "aliases/claude/ec/SKILL.md",
+        "aliases/claude/elves-council/SKILL.md",
+    )
+}
+
+PUBLIC_WORDING_FILES = [
+    REPO_ROOT / "SKILL.md",
+    REPO_ROOT / "AGENTS.md",
+    REPO_ROOT / "README.md",
+    REPO_ROOT / "CHANGELOG.md",
+    REPO_ROOT / "config.json.example",
+]
+
+PUBLIC_WORDING_FORBIDDEN_PHRASES = [
+    "Fable",
+    "Fable-like",
+    "Fable-style",
+    "inspired by Fable",
+    "cobbled together",
+    "cobbled-together",
+]
 
 
 def read_text(path: Path) -> str:
@@ -582,6 +831,20 @@ def find_forbidden_phrases(
     return errors
 
 
+def find_forbidden_patterns(
+    texts: dict[str, str],
+    pattern_map: dict[str, list[str]],
+    category: str,
+) -> list[str]:
+    errors: list[str] = []
+    for label, patterns in pattern_map.items():
+        text = texts.get(label, "")
+        for pattern in patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                errors.append(f"{label}: stale {category} pattern `{pattern}`")
+    return errors
+
+
 def extract_markdown_section(text: str, heading: str) -> str:
     lines = text.splitlines()
     heading_level = len(heading) - len(heading.lstrip("#"))
@@ -600,6 +863,19 @@ def extract_markdown_section(text: str, heading: str) -> str:
             break
         section.append(line)
     return "\n".join(section)
+
+
+def public_wording_texts() -> dict[str, str]:
+    paths = [
+        *PUBLIC_WORDING_FILES,
+        *sorted((REPO_ROOT / "references").glob("*.md")),
+        *sorted((REPO_ROOT / "aliases" / "claude").glob("*/SKILL.md")),
+    ]
+    return {
+        path.relative_to(REPO_ROOT).as_posix(): read_text(path)
+        for path in paths
+        if path.exists()
+    }
 
 
 def find_missing_section_phrases(
@@ -678,6 +954,13 @@ def main() -> int:
             if phrase not in text:
                 errors.append(f"{label}: missing final-readiness-review phrase `{phrase}`")
 
+    for label, phrases in REPO_CONSISTENCY_WORKFLOW_PHRASES.items():
+        path = REPO_ROOT / label
+        text = read_text(path)
+        for phrase in phrases:
+            if phrase not in text:
+                errors.append(f"{label}: missing repo-consistency workflow phrase `{phrase}`")
+
     for label, phrases in MEMORY_HYGIENE_PHRASES.items():
         path = REPO_ROOT / label
         text = read_text(path)
@@ -750,21 +1033,46 @@ def main() -> int:
             council_texts,
             council_section_phrases,
             COUNCIL_SECTION_HEADINGS,
-            "Elves Council",
+            "Cobbler",
         )
     )
     errors.extend(
         find_missing_phrases(
             council_texts,
             council_file_phrases,
-            "Elves Council",
+            "Cobbler",
         )
     )
     errors.extend(
         find_forbidden_phrases(
             council_texts,
             COUNCIL_FORBIDDEN_PHRASES,
-            "Elves Council",
+            "Cobbler",
+        )
+    )
+    errors.extend(
+        find_forbidden_patterns(
+            council_texts,
+            COBBLER_FORBIDDEN_PATTERNS,
+            "Cobbler",
+        )
+    )
+
+    public_texts = public_wording_texts()
+    errors.extend(
+        find_forbidden_phrases(
+            public_texts,
+            {label: PUBLIC_WORDING_FORBIDDEN_PHRASES for label in public_texts},
+            "public wording",
+        )
+    )
+
+    alias_texts = {label: read_text(REPO_ROOT / label) for label in CLAUDE_ALIAS_SKILL_PHRASES}
+    errors.extend(
+        find_missing_phrases(
+            alias_texts,
+            CLAUDE_ALIAS_SKILL_PHRASES,
+            "Claude Cobbler alias",
         )
     )
 
@@ -783,11 +1091,14 @@ def main() -> int:
     print("- Non-stop guardrails are aligned across runtime and template docs")
     print("- Effort guardrails are aligned across runtime and template docs")
     print("- Final readiness review guardrails are aligned")
+    print("- Repo consistency workflow guardrails are aligned")
     print("- Strategic forgetting and memory hygiene guardrails are aligned")
     print("- Elves Report guardrails are aligned")
     print("- Math research workflow guardrails are aligned")
     print("- Reviewed PR landing command guardrails are aligned")
-    print("- Elves Council guardrails are aligned")
+    print("- Cobbler guardrails are aligned")
+    print("- Public wording guardrails are aligned")
+    print("- Claude Cobbler alias guardrails are aligned")
     return 0
 
 

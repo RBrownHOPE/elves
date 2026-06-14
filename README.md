@@ -156,29 +156,40 @@ Start with [`references/math-workflow.md`](references/math-workflow.md) for the 
 roles, and [`references/math-artifact-ledgers.md`](references/math-artifact-ledgers.md) for claim
 and source traceability.
 
-### Elves Council
+### Cobbler
 
-Elves Council is a lightweight, chat-native way to ask for a few independent expert lenses before
-the agent gives you one synthesized answer. Use `/council`, `/ec`, or `/elves-council` for design,
-planning, debugging, and review questions where a single straight-line answer feels too brittle.
+Cobbler is the coordinator inside Elves. Ask Cobbler a hard question, and it decides how much help
+to bring in: a direct answer, a few specialist elves, or a read-only council of independent lenses.
 
-Quick Council is the default. It is read-only, stateless, and native-subagent-first: Codex uses
+The user gets the fit, not the chatter: `Recommendation`, `Why this fits`, `Strongest dissent`,
+`Risks`, `Next move`, and `Confidence`.
+
+Use `/cobbler <task>` in Claude Code when the alias skill is installed. In Codex, use
+`$elves cobbler: <task>` or natural language such as "Ask the Cobbler..." Compatibility aliases
+remain supported: Claude Code keeps `/council`, `/ec`, and `/elves-council`, while Codex keeps
+`$elves council: <task>` and natural Council references. They all invoke the same Cobbler behavior.
+
+Host honesty matters. Claude Code gets real slash-skill aliases through the managed alias skills.
+Codex users should not need or expect a top-level `/cobbler` command; `$elves cobbler: <task>` is
+the reliable Codex form.
+Goals are for full Elves runs, not Quick Cobbler.
+
+Quick Cobbler is the default. It is read-only, stateless, and native-subagent-first: Codex uses
 Codex subagents, Claude Code uses Claude Code subagents, and environments without subagents perform
-the same read-only analysis directly. The coordinator picks a small role set, usually two or three
-lenses, gathers bounded independent reports, and answers with one recommendation plus the strongest
-dissent, risks, and next actions. It does not edit files, create branches, open PRs, install
-packages, or mutate run state.
+the same read-only analysis directly. Cobbler chooses a small role set, usually two or three
+lenses, gathers bounded independent reports, and answers with the fitted-answer headings above. It
+does not edit files, create branches, open PRs, install packages, or mutate run state.
 
-Deep Council is optional. It can be configured later for external provider diversity, but ordinary
-`/council` use requires no OpenRouter or other provider key. The pattern borrows the useful harness
-idea of independent role reports followed by synthesis without importing vendor identity, policy,
-persona, or safety text.
+Provider-backed council is optional. It can be configured later for external provider diversity,
+but ordinary Cobbler use and compatibility-alias use require no OpenRouter or other provider key.
+The pattern borrows the useful harness idea of independent role reports followed by synthesis
+without importing vendor identity, policy, persona, or safety text.
 
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
 model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
 synthesis prompt templates, and
-[`references/council-provider-config.md`](references/council-provider-config.md) for optional Deep
-Council provider setup.
+[`references/council-provider-config.md`](references/council-provider-config.md) for optional
+provider-backed council setup.
 
 ### Stage, then launch
 
@@ -220,6 +231,8 @@ create, another writer is in the checkout, so it stops instead of committing on 
 Codex Goals can be a useful continuation backend for Elves. Goals keeps Codex working across turns;
 Elves tells it what "working well" means: staged docs, batch contracts, validation gates, PR review
 loops, memory hygiene, and a final Readiness Gate.
+
+Goals are for full Elves runs, not Quick Cobbler. For a one-off Cobbler answer in Codex, use `$elves cobbler: <task>` or ask naturally: "Ask the Cobbler to..."
 
 If your Codex install supports `/goal`, stage the Elves run normally, then launch the prepared
 Elves prompt inside a goal:
@@ -288,10 +301,11 @@ Bad: "Looks good so far." (no tag, no instruction to continue)
 
 See [Installation](#installation) below for full details. The short version:
 
-- **Claude Code:** copy the `elves/` directory into `.claude/skills/elves/` in your repo
+- **Claude Code:** install the main `elves` skill plus the managed `/cobbler`, `/council`, `/ec`,
+  and `/elves-council` alias skills
 - **Codex:** copy the skill bundle into `~/.codex/skills/elves/` (at minimum `SKILL.md`,
-  `references/`, and the runtime scripts `scripts/preflight.sh`, `scripts/notify.sh`, and
-  `scripts/install_doctor.py`)
+  `AGENTS.md`, `references/`, and the runtime scripts `scripts/preflight.sh`,
+  `scripts/notify.sh`, `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`)
 - **Claude.ai:** zip the `elves/` directory and upload via Settings > Features > Skills
 
 **2. Write a plan**
@@ -327,8 +341,10 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Elves Reports**: substantial finite runs end with a temporary static HTML worker-to-manager
   report that highlights status, problems found, lessons learned, collapsible batch timeline,
   validation, residual risks, and human next steps; the agent hands it to you to review at closeout
-- **Elves Council**: `/council`, `/ec`, and `/elves-council` give you a read-only,
-  native-subagent-first synthesis for planning, design, debugging, and review questions
+- **Cobbler**: `/cobbler` in Claude Code and `$elves cobbler: ...` in Codex give you a read-only,
+  native-subagent-first synthesis for planning, design, debugging, and review questions; Claude
+  keeps `/council`, `/ec`, and `/elves-council`, while Codex keeps `$elves council: ...` as the
+  compatibility path
 - **Math research workflow kit**: optional templates for preliminary discovery, subfield scouting,
   cross-field synthesis, proof review, source audit, manuscript drafting, and human verification
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`
@@ -570,9 +586,9 @@ elves/
 │   ├── validation-guide.md               # Detailed validation gates and auto-discovery
 │   ├── autonomy-guide.md                 # Non-interactive operation and mid-run protocols
 │   ├── review-subagent.md                # Built-in review protocol and adversarial review
-│   ├── council-workflow.md               # Elves Council modes, invariants, and synthesis flow
-│   ├── council-prompts.md                # Elves Council role and synthesis prompt templates
-│   ├── council-provider-config.md        # Optional Deep Council provider setup
+│   ├── council-workflow.md               # Cobbler workflow and Council compatibility path
+│   ├── council-prompts.md                # Cobbler role and fitted-answer prompt templates
+│   ├── council-provider-config.md        # Optional provider-backed council setup
 │   ├── verification-patterns.md          # Headless browser, video recording, state assertions
 │   └── open-ended-guide.md              # Open-ended mode patterns, QA/audit expansion rules
 ├── scripts/
@@ -716,15 +732,16 @@ Global installation means the skill is always available, no matter which project
 
 **Claude Code:**
 ```bash
-# Create the global skills directory if it doesn't exist
-mkdir -p ~/.claude/skills/elves/scripts
-
-# Clone and copy
+# Clone and let the sync helper install the main skill plus managed aliases.
 git clone https://github.com/aigorahub/elves.git /tmp/elves
-cp -r /tmp/elves/SKILL.md /tmp/elves/references ~/.claude/skills/elves/
-cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py ~/.claude/skills/elves/scripts/
+python3 /tmp/elves/scripts/sync_installed_skills.py --apply --target claude
 rm -rf /tmp/elves
 ```
+
+This installs `~/.claude/skills/elves/` and four small Claude Code alias skills:
+`~/.claude/skills/cobbler/`, `~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
+`~/.claude/skills/elves-council/`. Those directories create `/cobbler`, `/council`, `/ec`, and
+`/elves-council`; every alias delegates to the same Cobbler behavior in the main `elves` skill.
 
 **Codex:**
 ```bash
@@ -746,6 +763,15 @@ Per-project installation puts the skill in your repo so it's versioned with your
 mkdir -p .claude/skills
 git clone https://github.com/aigorahub/elves.git .claude/skills/elves
 rm -rf .claude/skills/elves/.git  # remove the nested git repo
+
+# Optional project-local aliases. Skip any alias directory you already own.
+for alias in cobbler council ec elves-council; do
+  if [ -e ".claude/skills/${alias}" ]; then
+    echo "Skipping existing .claude/skills/${alias}"
+  else
+    cp -R ".claude/skills/elves/aliases/claude/${alias}" ".claude/skills/${alias}"
+  fi
+done
 ```
 
 **Codex** (if your setup supports project-local skills):
@@ -754,6 +780,9 @@ mkdir -p .codex/skills
 git clone https://github.com/aigorahub/elves.git .codex/skills/elves
 rm -rf .codex/skills/elves/.git
 ```
+
+Codex uses `$elves cobbler: <task>` or natural language such as "Ask the Cobbler..." rather than
+the Claude Code slash aliases.
 
 ### Claude.ai (upload)
 
@@ -795,12 +824,21 @@ By default, `--target all` syncs or checks only the installed copies it actually
 explicitly.
 
 This mirrors the managed skill bundle files from the repo into `~/.claude/skills/elves/` and
-`~/.codex/skills/elves/`. It intentionally ships the installable bundle only: `SKILL.md`,
-`AGENTS.md` (Codex), `references/`, and the runtime scripts `scripts/preflight.sh`,
-`scripts/notify.sh`, `scripts/install_doctor.py`, and
-`scripts/validate_survival_guide.py`. Repo-only maintenance helpers such as
-`scripts/check_repo_consistency.py` stay in the checkout. If you maintain hand-edited local
-customizations, prefer the manual diff workflow below instead of blindly applying the sync.
+`~/.codex/skills/elves/`. For Claude Code, it also manages the small alias skills at
+`~/.claude/skills/cobbler/`, `~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
+`~/.claude/skills/elves-council/` so `/cobbler` and the Council compatibility aliases are real
+slash-skill entry points.
+
+The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
+`references/`, and the runtime scripts `scripts/preflight.sh`, `scripts/notify.sh`,
+`scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`. Repo-only maintenance
+helpers such as `scripts/check_repo_consistency.py` stay in the checkout.
+
+Claude Code aliases are marker-gated. Elves creates or updates an alias skill only when it is
+missing or already contains the `elves-managed-alias` marker. If you already have your own
+`~/.claude/skills/cobbler/` or Council alias skill, the sync helper reports an alias conflict and
+leaves your files untouched. If you maintain hand-edited local customizations, prefer the manual
+diff workflow below instead of blindly applying the sync.
 
 To inspect what is actually installed and whether a newer published release exists:
 ```bash
