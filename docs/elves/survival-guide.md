@@ -60,18 +60,18 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
   `.elves-session.json`
 - **Time budget:** ~8 hours after launch unless user overrides
 - **Average batch time so far:** N/A
-- **Batches remaining:** 1 of 4
+- **Batches remaining:** 0 of 4
 
 ---
 
 ## Stop Gate
 
-- **Planned batches remaining:** 1
+- **Planned batches remaining:** 0
 - **Stop allowed right now:** no
-- **Why:** Batch 3 is pushed, and Batch 4 plus final landing, GitHub version update, and X
-  statement remain.
-- **Next required action:** start Batch 4 with Verify Green, rollback tag, contract, and
-  pre-implementation survey.
+- **Why:** planned batches are complete pending commit/push, but final readiness, report/cleanup,
+  PR landing, GitHub version update, and X statement remain.
+- **Next required action:** commit and push Batch 4, poll PR feedback/checks, then run final
+  readiness review.
 
 ---
 
@@ -99,30 +99,26 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
 
 ## Current Phase
 
-- **Status:** Batch 4 ready to start
-- **Active batch:** Batch 4: Consistency Checks And Release Hardening
-- **What was just finished:** Council config defaults, optional Deep Council provider docs, Run
-  Council logging guidance, tool-config examples, and survival-guide template config were added and
-  validated.
-- **Single next action:** start Batch 4 with Verify Green, rollback tag, contract, and
-  pre-implementation survey.
+- **Status:** Batch 4 complete pending commit/push
+- **Active batch:** Batch 4 closeout
+- **What was just finished:** Council guardrails were added to the consistency checker with
+  section-scoped phrase checks and unit tests; full validation passed.
+- **Single next action:** commit and push Batch 4, poll PR feedback/checks, then run final
+  readiness review.
 
 ---
 
 ## Next Exact Batch
 
-- **Batch:** Batch 4: Consistency Checks And Release Hardening
-- **Scope:** extend `scripts/check_repo_consistency.py` with section-scoped Council guardrails,
-  update tests, run final validation, sync installed Claude/Codex bundles, and prepare for final
-  readiness review.
-- **Acceptance criteria:** repo consistency, JSON validation, py-compile, unit tests, diff check,
-  install doctor, and installed-skill sync all pass; checker catches Council alias/default drift
-  without brittle golden prose; final review finds no blockers and no Fable identity/policy leakage.
-- **Risk:** medium, because checker assertions can become brittle or accidentally treat math
-  OpenRouter requirements as Council requirements.
-
-Before editing checker/tests, write the Batch 4 contract in the execution log. Build on Anscombe's
-section-scoped checker advice and the existing phrase-map patterns.
+- **Batch:** Final Readiness, Cleanup, Landing, And Release
+- **Scope:** push Batch 4, wait for PR checks/reviewers, run final cumulative review, generate the
+  Elves Report, remove live Elves session artifacts from the PR, land PR #27 with a regular merge
+  commit if clean, create/update GitHub v1.14.0 release state, and prepare the X statement.
+- **Acceptance criteria:** local gates pass on current tip; PR checks are green; no unresolved
+  comments; final review has no blockers; cleanup commit is pushed; merge uses `gh pr merge
+  --merge`; GitHub release/tag reflects v1.14.0.
+- **Risk:** medium, because landing requires clean async checks and release state must not race the
+  merge.
 
 ---
 

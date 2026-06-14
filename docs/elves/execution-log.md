@@ -7,11 +7,12 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 12:48 EDT
+- **Last updated:** 2026-06-14 12:50 EDT
 - **Current phase:** Launch active
-- **Active batch:** Batch 4 pending start
-- **Last completed batch:** Batch 3
-- **Next exact batch:** Batch 4: Consistency Checks And Release Hardening
+- **Active batch:** Batch 4 closeout
+- **Last completed batch:** Batch 4 pending commit/push
+- **Next exact batch:** Final readiness review, Elves Report, cleanup, PR landing, GitHub release,
+  and X statement
 - **Active PR:** #27
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -28,6 +29,119 @@ version/release state, and prepare an X statement.
 Non-Negotiables so the merge opt-in is durable. Landing is allowed only after final readiness is
 clean, with a regular merge commit via `gh pr merge --merge`; squash/rebase remain forbidden.
 **Continuation guard:** `stop_allowed=false`; next required action is Verify Green and Batch 1.
+
+---
+
+## Batch 4: Consistency Checks And Release Hardening
+
+**Started:** 2026-06-14 12:49 EDT
+**Rollback tag:** `elves/pre-batch-4-council`
+
+**Verify Green baseline:** PASS
+- `python3 scripts/check_repo_consistency.py`: PASS.
+- `python3 -m json.tool config.json.example`: PASS.
+- `python3 -m json.tool .elves-session.json`: PASS.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py`: PASS.
+- `python3 -m unittest discover -s tests -p 'test_*.py'`: PASS, 9 tests.
+- `git diff --check`: PASS.
+- `python3 scripts/install_doctor.py --doctor`: PASS.
+- `python3 scripts/sync_installed_skills.py --check`: PASS.
+
+**Contract:**
+- Extend `scripts/check_repo_consistency.py` with section-scoped Council guardrails.
+- Add or update tests in `tests/test_check_repo_consistency.py` covering Council aliases,
+  section-scoped missing phrases, and forbidden provider/editor drift.
+- Keep checks focused on durable promises, not exact prose or role-count wording.
+- Ensure checker does not treat the math workflow's OpenRouter requirement as a Council
+  requirement.
+- Run the full validation suite and sync installed Claude/Codex bundles.
+- Prepare for final readiness review and landing once checks/PR feedback are clean.
+
+**Build on:**
+- Existing phrase-map patterns in `scripts/check_repo_consistency.py`.
+- Existing unit tests for `find_missing_phrases`, `find_forbidden_phrases`, and alias coverage.
+- Anscombe's Batch 1 checker advice: use `COUNCIL_MODULE_PHRASES`,
+  `COUNCIL_FORBIDDEN_PHRASES`, section-scoped helpers, and avoid brittle golden prose.
+
+**Acceptance criteria:**
+- [ ] `python3 scripts/check_repo_consistency.py` passes.
+- [ ] `python3 -m json.tool config.json.example` passes.
+- [ ] `python3 -m json.tool .elves-session.json` passes.
+- [ ] `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` passes.
+- [ ] `python3 -m unittest discover -s tests -p 'test_*.py'` passes with 9 or more tests.
+- [ ] `git diff --check` passes.
+- [ ] `python3 scripts/install_doctor.py --doctor` runs.
+- [ ] `python3 scripts/sync_installed_skills.py --check` passes.
+- [ ] Checker catches Council drift without treating math OpenRouter config as Council drift.
+- [ ] Final review finds no blockers and no Fable identity/policy leakage.
+
+**Blast radius:**
+- `scripts/check_repo_consistency.py`: shared validation utility; modified; medium risk because
+  false positives can block future releases.
+- `tests/test_check_repo_consistency.py`: test suite; additive tests; low risk.
+- Live run docs/session JSON: additive run state; low risk after JSON validation.
+
+**Pre-implementation survey:**
+- Checker phrase maps are plain dictionaries of label -> phrases, with a small reusable
+  `find_missing_phrases` helper.
+- Existing checks are not section-scoped; Council needs section scope so math OpenRouter mentions
+  and generic `read-only` language elsewhere do not create false confidence.
+- Tests currently exercise helper functions and alias coverage; new tests should stay at that level
+  and avoid filesystem mutation.
+
+**Implementation notes:**
+- Added `COUNCIL_MODULE_PHRASES`, `COUNCIL_SECTION_HEADINGS`, and `COUNCIL_FORBIDDEN_PHRASES` to
+  `scripts/check_repo_consistency.py`.
+- Added `extract_markdown_section` and `find_missing_section_phrases` so SKILL/AGENTS/README
+  Council checks are scoped to their Council sections.
+- Added Council checker integration and success output line: `Elves Council guardrails are aligned`.
+- Added four unit tests covering Council alias requirements, section extraction, section-scoped
+  missing phrase behavior, and forbidden provider drift.
+
+**Validation:** PASS
+- `python3 scripts/check_repo_consistency.py`: PASS, including Elves Council guardrails.
+- `python3 -m json.tool config.json.example`: PASS.
+- `python3 -m json.tool .elves-session.json`: PASS.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py`: PASS.
+- `python3 -m unittest discover -s tests -p 'test_*.py'`: PASS, 13 tests.
+- `git diff --check`: PASS.
+- `python3 scripts/install_doctor.py --doctor`: PASS, local repo and installed Claude/Codex copies
+  are v1.14.0; latest published GitHub release remains v1.13.0 until final release.
+- `python3 scripts/sync_installed_skills.py --check`: PASS.
+
+**Review findings:**
+- Direct checker review found no forbidden Council drift on user-facing/reference Council docs.
+- Confirmed `references/council-ledgers.md` does not exist.
+- Section-scoped tests prove Council phrases outside the Council section do not satisfy the
+  SKILL/AGENTS/README checks.
+- The only `OPENROUTER_API_KEY` required-env requirement remains in the math workflow config, not
+  in Council.
+
+**Acceptance criteria:**
+- [x] `python3 scripts/check_repo_consistency.py` passes.
+- [x] `python3 -m json.tool config.json.example` passes.
+- [x] `python3 -m json.tool .elves-session.json` passes.
+- [x] `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` passes.
+- [x] `python3 -m unittest discover -s tests -p 'test_*.py'` passes with 9 or more tests.
+- [x] `git diff --check` passes.
+- [x] `python3 scripts/install_doctor.py --doctor` runs.
+- [x] `python3 scripts/sync_installed_skills.py --check` passes.
+- [x] Checker catches Council drift without treating math OpenRouter config as Council drift.
+- [x] Final review finds no blockers and no Fable identity/policy leakage. Pending final cumulative
+  review after push.
+
+**Regression attestation:**
+- Cumulative diff review: Batch 4 changes are limited to the consistency checker, its tests, and
+  live run-state docs. No unexpected deletions.
+- Shared surfaces: `scripts/check_repo_consistency.py` is a shared release guard. The change is
+  additive and keeps existing phrase maps/helpers intact; existing tests plus 4 new tests pass.
+- Test baseline comparison: 13/13 tests pass, skipped 0; total increased from baseline 9 to 13.
+- Confidence: HIGH. The checker is section-scoped where needed, avoids brittle role-count prose,
+  and has tests for the main false-positive/false-negative risks.
+
+**Docs impacted:** live execution log and `.elves-session.json`.
+**Docs promoted:** none; Council guardrails are now durable in `scripts/check_repo_consistency.py`.
+**Commit SHA:** pending.
 
 ---
 

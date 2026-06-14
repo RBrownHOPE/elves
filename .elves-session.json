@@ -25,9 +25,9 @@
     "reason": "Captured during launch Verify Green with python3 -m unittest discover -s tests -p 'test_*.py'."
   },
     "current_batch": {
-    "id": 4,
-    "name": "Consistency Checks And Release Hardening",
-    "status": "pending"
+        "id": 4,
+        "name": "Consistency Checks And Release Hardening",
+        "status": "in_progress"
   },
   "batches": [
     {
@@ -58,13 +58,13 @@
       "completed_at": "2026-06-14T12:47:00-04:00"
     },
     {
-      "id": 4,
-      "name": "Consistency Checks And Release Hardening",
-      "status": "pending",
-      "commit": null,
-      "rollback_tag": null,
-      "started_at": null,
-      "completed_at": null
+            "id": 4,
+            "name": "Consistency Checks And Release Hardening",
+            "status": "in_progress",
+            "commit": null,
+            "rollback_tag": "elves/pre-batch-4-council",
+            "started_at": "2026-06-14T12:49:00-04:00",
+            "completed_at": null
     }
   ],
   "review_comments": [
