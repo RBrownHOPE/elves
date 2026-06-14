@@ -60,18 +60,17 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
   `.elves-session.json`
 - **Time budget:** ~8 hours after launch unless user overrides
 - **Average batch time so far:** N/A
-- **Batches remaining:** 2 of 4
+- **Batches remaining:** 1 of 4
 
 ---
 
 ## Stop Gate
 
-- **Planned batches remaining:** 2
+- **Planned batches remaining:** 1
 - **Stop allowed right now:** no
-- **Why:** Batch 2 is pushed, and Batches 3-4 plus final landing, GitHub version update, and X
-  statement remain.
-- **Next required action:** start Batch 3 with Verify Green, rollback tag, contract, and
-  pre-implementation survey.
+- **Why:** Batch 3 is complete pending commit/push, and Batch 4 plus final landing, GitHub version
+  update, and X statement remain.
+- **Next required action:** commit and push Batch 3, poll PR feedback, then start Batch 4.
 
 ---
 
@@ -99,32 +98,29 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
 
 ## Current Phase
 
-- **Status:** Batch 3 ready to start
-- **Active batch:** Batch 3: Config, Run Logging, And Tool Examples
-- **What was just finished:** Council workflow and prompt references were added, README links were
-  updated, and the plan was corrected to use Run Council logging through existing memory instead of
-  a separate Council ledger.
-- **Single next action:** start Batch 3 with Verify Green, rollback tag, contract, and
-  pre-implementation survey.
+- **Status:** Batch 3 complete pending commit/push
+- **Active batch:** Batch 3 closeout
+- **What was just finished:** Council config defaults, optional Deep Council provider docs, Run
+  Council logging guidance, tool-config examples, and survival-guide template config were added and
+  validated.
+- **Single next action:** commit and push Batch 3, poll PR feedback, then start Batch 4.
 
 ---
 
 ## Next Exact Batch
 
-- **Batch:** Batch 3: Config, Run Logging, And Tool Examples
-- **Scope:** add optional Deep Council provider configuration, extend `config.json.example`,
-  `references/tool-config-examples.md`, and the survival-guide template, and document Run Council
-  logging through existing Elves memory surfaces.
-- **Acceptance criteria:** config defaults require no external provider key; external provider
-  configuration is clearly optional for Deep Council; Run Council logging reuses the execution log
-  and `.elves-session.json`; Quick Council remains stateless unless the user asks for `--run` or is
-  already inside an Elves run.
-- **Risk:** medium, because config docs can accidentally make external providers or parallel
-  ledgers look required.
+- **Batch:** Batch 4: Consistency Checks And Release Hardening
+- **Scope:** extend `scripts/check_repo_consistency.py` with section-scoped Council guardrails,
+  update tests, run final validation, sync installed Claude/Codex bundles, and prepare for final
+  readiness review.
+- **Acceptance criteria:** repo consistency, JSON validation, py-compile, unit tests, diff check,
+  install doctor, and installed-skill sync all pass; checker catches Council alias/default drift
+  without brittle golden prose; final review finds no blockers and no Fable identity/policy leakage.
+- **Risk:** medium, because checker assertions can become brittle or accidentally treat math
+  OpenRouter requirements as Council requirements.
 
-Before editing config/reference docs, write the Batch 3 contract in the execution log. Build on
-`references/council-workflow.md`, `config.json.example` math config style, and the no-parallel-ledger
-review finding from Batch 2.
+Before editing checker/tests, write the Batch 4 contract in the execution log. Build on Anscombe's
+section-scoped checker advice and the existing phrase-map patterns.
 
 ---
 

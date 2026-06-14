@@ -175,8 +175,10 @@ idea of independent role reports followed by synthesis without importing vendor 
 persona, or safety text.
 
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
-model and [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
-synthesis prompt templates.
+model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
+synthesis prompt templates, and
+[`references/council-provider-config.md`](references/council-provider-config.md) for optional Deep
+Council provider setup.
 
 ### Stage, then launch
 
@@ -570,6 +572,7 @@ elves/
 │   ├── review-subagent.md                # Built-in review protocol and adversarial review
 │   ├── council-workflow.md               # Elves Council modes, invariants, and synthesis flow
 │   ├── council-prompts.md                # Elves Council role and synthesis prompt templates
+│   ├── council-provider-config.md        # Optional Deep Council provider setup
 │   ├── verification-patterns.md          # Headless browser, video recording, state assertions
 │   └── open-ended-guide.md              # Open-ended mode patterns, QA/audit expansion rules
 ├── scripts/

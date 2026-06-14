@@ -25,9 +25,9 @@
     "reason": "Captured during launch Verify Green with python3 -m unittest discover -s tests -p 'test_*.py'."
   },
     "current_batch": {
-    "id": 3,
-    "name": "Config, Run Logging, And Tool Examples",
-    "status": "pending"
+        "id": 3,
+        "name": "Config, Run Logging, And Tool Examples",
+        "status": "in_progress"
   },
   "batches": [
     {
@@ -49,13 +49,13 @@
       "completed_at": "2026-06-14T12:43:00-04:00"
     },
     {
-      "id": 3,
-      "name": "Config, Run Logging, And Tool Examples",
-      "status": "pending",
-      "commit": null,
-      "rollback_tag": null,
-      "started_at": null,
-      "completed_at": null
+            "id": 3,
+            "name": "Config, Run Logging, And Tool Examples",
+            "status": "in_progress",
+            "commit": null,
+            "rollback_tag": "elves/pre-batch-3-council",
+            "started_at": "2026-06-14T12:45:00-04:00",
+            "completed_at": null
     },
     {
       "id": 4,

@@ -7,11 +7,11 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 12:44 EDT
+- **Last updated:** 2026-06-14 12:47 EDT
 - **Current phase:** Launch active
-- **Active batch:** Batch 3 pending start
-- **Last completed batch:** Batch 2
-- **Next exact batch:** Batch 3: Config, Run Logging, And Tool Examples
+- **Active batch:** Batch 3 closeout
+- **Last completed batch:** Batch 3 pending commit/push
+- **Next exact batch:** Batch 4: Consistency Checks And Release Hardening
 - **Active PR:** #27
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -28,6 +28,132 @@ version/release state, and prepare an X statement.
 Non-Negotiables so the merge opt-in is durable. Landing is allowed only after final readiness is
 clean, with a regular merge commit via `gh pr merge --merge`; squash/rebase remain forbidden.
 **Continuation guard:** `stop_allowed=false`; next required action is Verify Green and Batch 1.
+
+---
+
+## Batch 3: Config, Run Logging, And Tool Examples
+
+**Started:** 2026-06-14 12:45 EDT
+**Rollback tag:** `elves/pre-batch-3-council`
+
+**Verify Green baseline:** PASS
+- `python3 scripts/check_repo_consistency.py`: PASS.
+- `python3 -m json.tool config.json.example`: PASS.
+- `python3 -m json.tool .elves-session.json`: PASS.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py`: PASS.
+- `python3 -m unittest discover -s tests -p 'test_*.py'`: PASS, 9 tests.
+- `git diff --check`: PASS.
+- `python3 scripts/install_doctor.py --doctor`: PASS.
+- `python3 scripts/sync_installed_skills.py --check`: PASS.
+
+**Contract:**
+- Extend `config.json.example` with optional Council defaults that require no external provider
+  key for Quick Council.
+- Add `references/council-provider-config.md` documenting native-first Quick Council and optional
+  Deep Council providers.
+- Extend `references/tool-config-examples.md` with a Council configuration block.
+- Extend `references/survival-guide-template.md` with optional Council configuration guidance.
+- Extend `references/council-workflow.md` with Run Council logging guidance that records material
+  decisions in existing Elves memory surfaces only.
+- Do not add `references/council-ledgers.md` or any parallel Council ledger system.
+
+**Build on:**
+- Existing `config.json.example` math block: optional feature config, role slots, no hardcoded
+  private keys.
+- Existing `references/tool-config-examples.md` Math Research Workflow block for concise YAML
+  snippets.
+- Existing `references/survival-guide-template.md` Tool Configuration section.
+- Batch 2 reviewer finding: use "Run Council logging," not "ledgering," and reuse existing Elves
+  memory surfaces.
+
+**Acceptance criteria:**
+- [ ] Config defaults require no external provider key.
+- [ ] External provider configuration is clearly optional for Deep Council.
+- [ ] Run Council logging reuses existing Elves execution log / `.elves-session.json` patterns.
+- [ ] Quick Council remains stateless unless the user asks for `--run` or is already inside an
+  Elves run.
+- [ ] No `references/council-ledgers.md` file exists.
+- [ ] Baseline unit-test count stays at 9 or increases.
+
+**Blast radius:**
+- `config.json.example`: shared config template; additive Council block; medium risk if provider
+  wording implies required external keys.
+- `references/tool-config-examples.md` and `references/survival-guide-template.md`: operator
+  configuration examples; additive; medium risk for default/optional drift.
+- `references/council-workflow.md`: existing Council reference; additive logging section; medium
+  risk if it creates a parallel memory system.
+- `.elves-session.json` and `docs/elves/*`: live run-state updates; low risk after JSON validation.
+
+**Pre-implementation survey:**
+- `config.json.example` already keeps optional math providers under a feature key with role slots
+  and a warning not to hardcode secrets. Council should mirror the "role/config slots, not secrets"
+  pattern, but with native subagents as the default and no required env.
+- `references/tool-config-examples.md` has stack-specific YAML blocks plus a Math Research Workflow
+  block. Council belongs as a short optional block near the math workflow, before notification
+  options.
+- `references/survival-guide-template.md` puts optional workflow-specific config in `## Tool
+  Configuration`; Council should be commented/optional there so ordinary Elves runs do not inherit
+  extra requirements.
+- `references/council-workflow.md` already states Run Council reuses existing memory surfaces and
+  forbids separate ledgers; Batch 3 should expand that with concrete logging destinations.
+
+**Implementation notes:**
+- Added a `council` block to `config.json.example` with native-subagent Quick Council defaults,
+  empty Deep Council `required_env`, optional provider env names, and native role-model defaults.
+- Added `references/council-provider-config.md` for Quick Council defaults, optional Deep Council
+  providers, fallback policy, secret handling, and Run Council logging.
+- Extended `references/council-workflow.md` with concrete Run Council logging destinations across
+  execution log, survival guide, `.elves-session.json`, and learnings.
+- Added Council YAML blocks to `references/tool-config-examples.md` and
+  `references/survival-guide-template.md`.
+- Linked the provider config reference from README and the Council workflow doc.
+
+**Validation:** PASS
+- `python3 scripts/check_repo_consistency.py`: PASS.
+- `python3 -m json.tool config.json.example`: PASS.
+- `python3 -m json.tool .elves-session.json`: PASS.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py`: PASS.
+- `python3 -m unittest discover -s tests -p 'test_*.py'`: PASS, 9 tests.
+- `git diff --check`: PASS.
+- `python3 scripts/install_doctor.py --doctor`: PASS, local repo and installed Claude/Codex copies
+  are v1.14.0; latest published GitHub release remains v1.13.0 until final release.
+- `python3 scripts/sync_installed_skills.py --check`: initially stale after adding
+  `references/council-provider-config.md` and updating installable references; fixed with
+  `python3 scripts/sync_installed_skills.py --apply`, then PASS.
+
+**Review findings:**
+- Direct drift scan found no `references/council-ledgers.md`.
+- Direct provider scan found no Council-required OpenRouter wording. The only required
+  `OPENROUTER_API_KEY` occurrence is the existing math workflow block, which is intentionally
+  separate from Council.
+- Direct config review confirmed Council Deep required env is `[]` in JSON, tool examples, and
+  survival-guide template.
+
+**Acceptance criteria:**
+- [x] Config defaults require no external provider key.
+- [x] External provider configuration is clearly optional for Deep Council.
+- [x] Run Council logging reuses existing Elves execution log / `.elves-session.json` patterns.
+- [x] Quick Council remains stateless unless the user asks for `--run` or is already inside an
+  Elves run.
+- [x] No `references/council-ledgers.md` file exists.
+- [x] Baseline unit-test count stays at 9 or increases.
+
+**Regression attestation:**
+- Cumulative diff review: changes are additive config/reference docs plus live run-state updates.
+  No unexpected deletions.
+- Shared surfaces: `config.json.example`, `references/tool-config-examples.md`, and
+  `references/survival-guide-template.md` are shared operator-facing templates. Council additions
+  are isolated under Council-specific keys and keep existing math provider config untouched.
+- Test baseline comparison: 9/9 tests pass, skipped 0; total unchanged from baseline.
+- Confidence: HIGH. Validation passes, installed Claude/Codex bundles are synced, and the direct
+  review checked the main regression risks: provider requirements leaking into Quick Council and
+  creation of a parallel ledger system.
+
+**Docs impacted:** README, `config.json.example`, `references/council-provider-config.md`,
+`references/council-workflow.md`, `references/tool-config-examples.md`,
+`references/survival-guide-template.md`, live execution log, `.elves-session.json`.
+**Docs promoted:** none yet; Batch 4 will pin Council guardrails in the checker.
+**Commit SHA:** pending.
 
 ---
 

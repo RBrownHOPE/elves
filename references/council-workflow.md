@@ -30,12 +30,25 @@ but the coordinator may record the synthesized result in the execution log, surv
 Run Council reuses existing Elves memory surfaces. Do not create a separate council ledger for
 ordinary software work.
 
+Record only material outcomes:
+
+- execution log: Council recommendation, strongest dissent, evidence, and next action when it
+  changes the plan, risk picture, or review queue;
+- survival guide: live run-control, active compute, Stop Gate, or next-batch changes only;
+- `.elves-session.json`: machine-readable batch status, continuation guard, or review-comment
+  dispositions when needed;
+- learnings: stable reusable lessons only after they are no longer just one-off run context.
+
+If the Council answer does not change the run, do not log it just to create ceremony.
+
 ### Deep Council
 
 Deep Council is optional. It may use configured external providers for broader model diversity, but
 normal `/council` must not require OpenRouter or any external provider key. If Deep Council is
 requested and providers are unconfigured, degrade gracefully to native-subagent Quick Council and
 say what was unavailable.
+
+See [`council-provider-config.md`](council-provider-config.md) for optional provider setup.
 
 ## Invocation Semantics
 
