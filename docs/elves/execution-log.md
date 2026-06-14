@@ -9,9 +9,10 @@
 
 - **Last updated:** 2026-06-14 12:43 EDT
 - **Current phase:** Launch active
-- **Active batch:** Batch 2 closeout
-- **Last completed batch:** Batch 2 pending commit/push
-- **Next exact batch:** Batch 3: Config, Run Logging, And Tool Examples
+- **Active batch:** Batch 3 pending start
+- **Last completed batch:** Batch 2
+- **Next exact batch:** Push Batch 2 completion state, poll PR feedback, then start Batch 3:
+  Config, Run Logging, And Tool Examples
 - **Active PR:** #27
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -156,7 +157,7 @@ clean, with a regular merge commit via `gh pr merge --merge`; squash/rebase rema
 **Docs impacted:** README, `references/council-workflow.md`, `references/council-prompts.md`,
 `docs/plans/v1.14.0-elves-council.md`, live survival guide, execution log, `.elves-session.json`.
 **Docs promoted:** none yet; Batch 4 will pin Council guardrails in the consistency checker.
-**Commit SHA:** pending.
+**Commit SHA:** `95e19ba8fbe1`
 
 ---
 
