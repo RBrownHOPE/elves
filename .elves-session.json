@@ -1,16 +1,17 @@
 {
   "session_name": "v1.15.0-cobbler",
-  "status": "staging",
+  "status": "launch-ready",
   "created_at": "2026-06-14T16:07:00-04:00",
-  "updated_at": "2026-06-14T16:07:00-04:00",
+  "updated_at": "2026-06-14T16:11:00-04:00",
   "run_mode": "finite",
   "branch": "codex/v1.15.0-cobbler",
   "base_branch": "main",
   "collision_tripwire": "6fe775e334d3af446de75587957ac11b029258a3",
   "pr": {
-    "number": null,
-    "url": null,
-    "state": "not_created"
+    "number": 28,
+    "url": "https://github.com/aigorahub/elves/pull/28",
+    "state": "open",
+    "is_draft": false
   },
   "paths": {
     "plan": "docs/plans/v1.15.0-cobbler.md",
@@ -84,9 +85,23 @@
       "status": "pending"
     }
   ],
-  "test_baseline": null,
+  "test_baseline": {
+    "unit_tests": {
+      "command": "python3 -m unittest discover -s tests -p 'test_*.py'",
+      "passed": 13,
+      "total": 13,
+      "skipped": 0
+    }
+  },
   "preflight": {
-    "status": "pending",
-    "notes": []
+    "status": "pass_with_warnings",
+    "checked_at": "2026-06-14T16:11:00-04:00",
+    "notes": [
+      "Git remote, GitHub CLI auth, and push dry-run passed.",
+      "Preflight detected GitHub Actions CI and no package-managed project type, which is expected for this docs/scripts repo.",
+      "Current shell lacks some recommended non-interactive env vars; preflight uses safe defaults for gate dry-runs.",
+      "Survival guide validation passed.",
+      "Repo consistency, unit tests, script py_compile, JSON validation, sync check, git diff --check, and PR checks passed."
+    ]
   }
 }

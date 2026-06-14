@@ -22,7 +22,8 @@ key.
 - **Run mode:** finite
 - **Stop policy:** stage-only for this call; after launch, stop only at final completion, an
   explicit user stop, or a genuine blocker with no reasonable workaround
-- **User intent:** "sounds great, adjust the [$elves] run so it's staged. i'll kick it off with the next prompt"
+- **User intent:** The user asked to stage the `$elves` run now and said they will kick it off with
+  the next prompt.
 - **Checkpoint due by:** not specified; default to 8 hours from launch unless the launch prompt
   states a different return time
 - **Checkpoint semantics:** staging handoff now; after launch, finite completion unless the launch
@@ -32,8 +33,8 @@ key.
 - **Actual stop conditions:** during staging, stop when launch-ready; after launch, stop only when
   all batches are complete and final readiness is clean, the user explicitly stops the run, or a
   true blocker prevents safe progress
-- **Workspace ownership:** owned branch in the main checkout; no other active agent should write
-  this checkout or branch
+- **Workspace ownership:** owned branch in the main checkout; `git worktree list` shows only
+  `/Users/john/aigora/dev/elves` on `codex/v1.15.0-cobbler`
 - **Branch tip at start (collision tripwire):** `6fe775e334d3af446de75587957ac11b029258a3`
 - **Merge policy:** user-merges by default; never merge unless the user explicitly sets
   merge-on-green or invokes `/land-pr` / `\land-pr`; any opt-in landing uses a regular merge commit,
@@ -44,6 +45,8 @@ key.
   survival guide -> commit -> push`.
 - **Re-read rule:** Immediately after every commit and push, re-read this survival guide before
   doing anything else.
+- **Checkpoint rule:** During staging, the checkpoint is the launch-ready handoff. After launch,
+  if the user marks a later checkpoint as delivery-only, log it, push it, and continue immediately.
 - **Continuation rule:** After launch, if work remains and actual stop conditions are not met,
   continue without waiting for user acknowledgment.
 
@@ -80,6 +83,8 @@ stops the run, or a true blocker is reached.
 
 - Work as hard as you can for the full launched run. Do not be lazy.
 - Maintain the same level of effort on the last batch as on the first.
+- Do not settle for the minimum acceptable change when deeper verification or a better user
+  experience is still clearly in scope.
 - Do not settle for the minimum acceptable wording pass; this release is about user experience and
   cross-surface coherence.
 - When one task is complete, immediately take the next highest-value action from the plan, review
@@ -158,25 +163,27 @@ Promotion flow: `execution log -> learnings -> .ai-docs`
 - [x] Execution log initialized with batch breakdown and preflight notes
 - [x] Branch created or confirmed
 - [x] Branch and checkout ownership confirmed; no other agent should share this branch
-- [ ] PR opened or existing PR recorded
-- [ ] Preflight run and critical failures cleared
+- [x] PR opened or existing PR recorded: <https://github.com/aigorahub/elves/pull/28>
+- [x] Preflight run and critical failures cleared
 - [x] Run mode, return time default, and non-negotiables recorded
 - [x] Stop Gate initialized for staging handoff
-- [ ] Launch prompt prepared for the next call
+- [x] Stop Gate initialized with `Stop allowed right now: no` after launch; staging is the only
+      temporary exception because the user explicitly requested a staged handoff
+- [x] Launch prompt prepared for the next call
 
 ---
 
 ## Current Phase
 
-**Status:** Staging
+**Status:** Launch-ready
 
 **Active batch:** Batch 0: staging
 
-**What was just finished:** The Cobbler plan and live run memory were created; PR and preflight are
-still being finalized.
+**What was just finished:** The Cobbler plan, live run memory, branch, PR #28, preflight, and
+staging validation are ready.
 
-**Single next action:** Commit and push staging docs, open the PR, run preflight, then mark the run
-launch-ready.
+**Single next action:** Wait for the user's launch prompt, then start Batch 1 and immediately
+rewrite the Stop Gate and `.elves-session.json` continuation guard to `stop_allowed=false`.
 
 ---
 
@@ -223,12 +230,25 @@ Run these at staging and after relevant batches:
 - `python3 scripts/sync_installed_skills.py --check`
 - `git diff --check`
 
+Staging result on 2026-06-14 16:11 EDT:
+
+- `ELVES_SURVIVAL_GUIDE_PATH=docs/elves/survival-guide.md ./scripts/preflight.sh` passed with two
+  advisory warnings: no package-managed project type is expected for this repo, and the current
+  shell lacks some recommended non-interactive env vars that preflight dry-runs with safe defaults.
+- `python3 scripts/check_repo_consistency.py` passed at repo version `1.14.0`.
+- `python3 -m unittest discover -s tests -p 'test_*.py'` passed: 13 tests.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` passed.
+- `python3 scripts/sync_installed_skills.py --check` passed for installed Claude and Codex copies
+  at `1.14.0`.
+- JSON validation and `git diff --check` passed.
+- PR checks for #28 passed: GitHub Actions analyze jobs, CodeQL, and Socket Security checks.
+
 ---
 
 ## Post-Checkpoint Control Loop
 
-Every completed launched batch must end with a commit and push. Immediately after every commit and
-push, re-read this survival guide before doing anything else.
+Every completed batch must end with a commit and push. Immediately after every commit and push,
+re-read this survival guide before doing anything else.
 
 After every commit and push, answer:
 
@@ -236,7 +256,22 @@ After every commit and push, answer:
 2. What paid compute or long-running resources are active right now?
 3. Did the user change stop behavior, checkpoint meaning, priorities, or scope?
 4. Does the Stop Gate say stopping is allowed?
-5. If stopping is not allowed, what exact next work starts now?
+5. Does the Stop Gate still say `Stop allowed right now: no`, or does `.elves-session.json` still
+   say `continuation_guard.stop_allowed: false`?
+6. If stopping is not allowed, what exact next work starts now?
+
+---
+
+## After Any Compaction
+
+Read this file first. Trust the Run Control section and Stop Gate over memory, then read
+`.elves-session.json` and its `continuation_guard`, then `docs/elves/learnings.md`, then
+`docs/plans/v1.15.0-cobbler.md`, then `docs/elves/execution-log.md`, then `.ai-docs/manifest.md`
+and linked durable docs as needed.
+
+If the run has been launched and the Stop Gate or `continuation_guard` says stopping is not
+allowed, continue the next exact batch after rehydrating. If this file says staging is complete and
+the user has not launched yet, stop with the launch prompt rather than starting implementation.
 
 ---
 
