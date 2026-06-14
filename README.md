@@ -296,7 +296,8 @@ Bad: "Looks good so far." (no tag, no instruction to continue)
 
 See [Installation](#installation) below for full details. The short version:
 
-- **Claude Code:** copy the `elves/` directory into `.claude/skills/elves/` in your repo
+- **Claude Code:** install the main `elves` skill plus the managed `/cobbler`, `/council`, `/ec`,
+  and `/elves-council` alias skills
 - **Codex:** copy the skill bundle into `~/.codex/skills/elves/` (at minimum `SKILL.md`,
   `references/`, and the runtime scripts `scripts/preflight.sh`, `scripts/notify.sh`, and
   `scripts/install_doctor.py`)
@@ -579,9 +580,9 @@ elves/
 │   ├── validation-guide.md               # Detailed validation gates and auto-discovery
 │   ├── autonomy-guide.md                 # Non-interactive operation and mid-run protocols
 │   ├── review-subagent.md                # Built-in review protocol and adversarial review
-│   ├── council-workflow.md               # Elves Council modes, invariants, and synthesis flow
-│   ├── council-prompts.md                # Elves Council role and synthesis prompt templates
-│   ├── council-provider-config.md        # Optional Deep Council provider setup
+│   ├── council-workflow.md               # Cobbler workflow and Council compatibility path
+│   ├── council-prompts.md                # Cobbler role and fitted-answer prompt templates
+│   ├── council-provider-config.md        # Optional provider-backed council setup
 │   ├── verification-patterns.md          # Headless browser, video recording, state assertions
 │   └── open-ended-guide.md              # Open-ended mode patterns, QA/audit expansion rules
 ├── scripts/
@@ -725,15 +726,16 @@ Global installation means the skill is always available, no matter which project
 
 **Claude Code:**
 ```bash
-# Create the global skills directory if it doesn't exist
-mkdir -p ~/.claude/skills/elves/scripts
-
-# Clone and copy
+# Clone and let the sync helper install the main skill plus managed aliases.
 git clone https://github.com/aigorahub/elves.git /tmp/elves
-cp -r /tmp/elves/SKILL.md /tmp/elves/references ~/.claude/skills/elves/
-cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py ~/.claude/skills/elves/scripts/
+python3 /tmp/elves/scripts/sync_installed_skills.py --apply --target claude
 rm -rf /tmp/elves
 ```
+
+This installs `~/.claude/skills/elves/` and four small Claude Code alias skills:
+`~/.claude/skills/cobbler/`, `~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
+`~/.claude/skills/elves-council/`. Those directories create `/cobbler`, `/council`, `/ec`, and
+`/elves-council`; every alias delegates to the same Cobbler behavior in the main `elves` skill.
 
 **Codex:**
 ```bash
@@ -755,6 +757,15 @@ Per-project installation puts the skill in your repo so it's versioned with your
 mkdir -p .claude/skills
 git clone https://github.com/aigorahub/elves.git .claude/skills/elves
 rm -rf .claude/skills/elves/.git  # remove the nested git repo
+
+# Optional project-local aliases. Skip any alias directory you already own.
+for alias in cobbler council ec elves-council; do
+  if [ -e ".claude/skills/${alias}" ]; then
+    echo "Skipping existing .claude/skills/${alias}"
+  else
+    cp -R ".claude/skills/elves/aliases/claude/${alias}" ".claude/skills/${alias}"
+  fi
+done
 ```
 
 **Codex** (if your setup supports project-local skills):
@@ -804,12 +815,21 @@ By default, `--target all` syncs or checks only the installed copies it actually
 explicitly.
 
 This mirrors the managed skill bundle files from the repo into `~/.claude/skills/elves/` and
-`~/.codex/skills/elves/`. It intentionally ships the installable bundle only: `SKILL.md`,
-`AGENTS.md` (Codex), `references/`, and the runtime scripts `scripts/preflight.sh`,
-`scripts/notify.sh`, `scripts/install_doctor.py`, and
-`scripts/validate_survival_guide.py`. Repo-only maintenance helpers such as
-`scripts/check_repo_consistency.py` stay in the checkout. If you maintain hand-edited local
-customizations, prefer the manual diff workflow below instead of blindly applying the sync.
+`~/.codex/skills/elves/`. For Claude Code, it also manages the small alias skills at
+`~/.claude/skills/cobbler/`, `~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
+`~/.claude/skills/elves-council/` so `/cobbler` and the Council compatibility aliases are real
+slash-skill entry points.
+
+The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
+`references/`, and the runtime scripts `scripts/preflight.sh`, `scripts/notify.sh`,
+`scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`. Repo-only maintenance
+helpers such as `scripts/check_repo_consistency.py` stay in the checkout.
+
+Claude Code aliases are marker-gated. Elves creates or updates an alias skill only when it is
+missing or already contains the `elves-managed-alias` marker. If you already have your own
+`~/.claude/skills/cobbler/` or Council alias skill, the sync helper reports an alias conflict and
+leaves your files untouched. If you maintain hand-edited local customizations, prefer the manual
+diff workflow below instead of blindly applying the sync.
 
 To inspect what is actually installed and whether a newer published release exists:
 ```bash

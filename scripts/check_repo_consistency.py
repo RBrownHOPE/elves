@@ -503,6 +503,74 @@ COUNCIL_SECTION_HEADINGS = {
     "README.md": "### Cobbler",
 }
 
+CLAUDE_ALIAS_MARKER = "<!-- elves-managed-alias: claude-skill-alias v1 -->"
+
+CLAUDE_ALIAS_SKILL_PHRASES = {
+    "aliases/claude/cobbler/SKILL.md": [
+        CLAUDE_ALIAS_MARKER,
+        "name: cobbler",
+        "/cobbler",
+        "installed `elves` skill's `## Cobbler` instructions",
+        "read-only",
+        "stateless",
+        "Claude Code subagents",
+        "Do not edit files",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Next move",
+        "must not require OpenRouter",
+    ],
+    "aliases/claude/council/SKILL.md": [
+        CLAUDE_ALIAS_MARKER,
+        "name: council",
+        "/council",
+        "compatibility alias",
+        "installed `elves` skill's `## Cobbler` instructions",
+        "read-only",
+        "stateless",
+        "Claude Code subagents",
+        "Do not edit files",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Next move",
+        "must not require OpenRouter",
+    ],
+    "aliases/claude/ec/SKILL.md": [
+        CLAUDE_ALIAS_MARKER,
+        "name: ec",
+        "/ec",
+        "compatibility alias",
+        "installed `elves` skill's `## Cobbler` instructions",
+        "read-only",
+        "stateless",
+        "Claude Code subagents",
+        "Do not edit files",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Next move",
+        "must not require OpenRouter",
+    ],
+    "aliases/claude/elves-council/SKILL.md": [
+        CLAUDE_ALIAS_MARKER,
+        "name: elves-council",
+        "/elves-council",
+        "compatibility alias",
+        "installed `elves` skill's `## Cobbler` instructions",
+        "read-only",
+        "stateless",
+        "Claude Code subagents",
+        "Do not edit files",
+        "Recommendation",
+        "Why this fits",
+        "Strongest dissent",
+        "Next move",
+        "must not require OpenRouter",
+    ],
+}
+
 COUNCIL_FORBIDDEN_PHRASES = {
     "SKILL.md": [
         "ordinary `/council` requires OpenRouter",
@@ -801,6 +869,15 @@ def main() -> int:
         )
     )
 
+    alias_texts = {label: read_text(REPO_ROOT / label) for label in CLAUDE_ALIAS_SKILL_PHRASES}
+    errors.extend(
+        find_missing_phrases(
+            alias_texts,
+            CLAUDE_ALIAS_SKILL_PHRASES,
+            "Claude Cobbler alias",
+        )
+    )
+
     if errors:
         print("Repo consistency check FAILED")
         for error in errors:
@@ -821,6 +898,7 @@ def main() -> int:
     print("- Math research workflow guardrails are aligned")
     print("- Reviewed PR landing command guardrails are aligned")
     print("- Cobbler guardrails are aligned")
+    print("- Claude Cobbler alias guardrails are aligned")
     return 0
 
 

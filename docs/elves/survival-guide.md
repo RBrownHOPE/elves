@@ -66,8 +66,9 @@ key.
 - **Checkpoint expectation:** best review-ready state by checkpoint; continue after checkpoint if
   required work remains
 - **Time budget:** default 8-hour checkpoint budget; objective remains active across turns
-- **Average batch time so far:** Batch 1 completed in roughly 10 minutes after launch-state setup
-- **Batches remaining:** 4 of 5, then open-ended follow-up/release-hardening work until stopped
+- **Average batch time so far:** Batches 1-2 each completed in short focused passes after
+  launch-state setup
+- **Batches remaining:** 3 of 5, then open-ended follow-up/release-hardening work until stopped
 
 ---
 
@@ -75,12 +76,12 @@ key.
 
 > Rewrite this section in place. This is the explicit answer to "may I stop now?" Do not infer it.
 
-- **Planned batches remaining:** 4 plus final deliverables and open-ended follow-up
+- **Planned batches remaining:** 3 plus final deliverables and open-ended follow-up
 - **Stop allowed right now:** no
-- **Why:** The user explicitly said to keep going and not stop. Batch 1 is complete, but Batches
-  2-5, final landing/release/announcement deliverables, and follow-up release-hardening work remain.
-- **Next required action:** Record the new provider-backed Cobbler consultation requirement, find
-  available keys/syntax without exposing secrets, and continue Batch 2.
+- **Why:** The user explicitly said to keep going and not stop. Batches 1-2 are complete, but
+  Batches 3-5, final landing/release/announcement deliverables, and follow-up release-hardening
+  work remain.
+- **Next required action:** Start Batch 3: Codex Cobbler Invocation.
 
 ---
 
@@ -183,16 +184,17 @@ Promotion flow: `execution log -> learnings -> .ai-docs`
 
 **Status:** In progress
 
-**Active batch:** Between batches; next is Batch 2: Claude Code Cobbler Alias
+**Active batch:** Between batches; next is Batch 3: Codex Cobbler Invocation
 
-**What was just finished:** Batch 1 landed commit `5f4d356`, making Cobbler the core
-user-facing coordinator in `SKILL.md`, `AGENTS.md`, README, CHANGELOG, and the consistency checker.
-Local validation passed, installed Claude/Codex skill copies were synced to `1.15.0`, and PR checks
-are green.
+**What was just finished:** Batch 2 made `/cobbler`, `/council`, `/ec`, and `/elves-council` real
+Claude Code alias skills via marker-gated sibling skill directories. The sync helper creates or
+updates only Elves-managed aliases, refuses unmarked user-owned aliases, and now treats no installed
+targets as advisory success for default `--check`. Local validation passed with 20 tests, installed
+Claude/Codex copies were synced to `1.15.0`, and preflight passed with advisory warnings only.
 
-**Single next action:** Create rollback tag `elves/pre-batch-2-cobbler`, write the Batch 2
-contract, survey the existing sync/install patterns before designing Claude Code aliases, and start
-the requested provider-backed Cobbler consultation as a sidecar review path.
+**Single next action:** Create rollback tag `elves/pre-batch-3-cobbler`, write the Batch 3
+contract, and tighten Codex-facing invocation docs so `$elves cobbler: <task>` and natural chat are
+the clear primary path without promising top-level slash commands.
 
 ---
 
@@ -215,26 +217,29 @@ the requested provider-backed Cobbler consultation as a sidecar review path.
 
 ## Next Exact Batch
 
-**Batch:** 2: Claude Code Cobbler Alias
+**Batch:** 3: Codex Cobbler Invocation
 
 **Scope:**
-- Survey existing install/sync patterns before choosing the alias-file layout.
-- Add the smallest maintainable Claude Code alias skill surface for `/cobbler`.
-- Preserve `/council`, `/ec`, and `/elves-council` as compatibility aliases that route to the
-  same Cobbler behavior.
-- Update install/sync guidance so aliases can be copied to Claude Code safely.
-- Ensure sync/check behavior reports alias conflicts instead of overwriting user-owned skills.
+- Update Codex-facing `AGENTS.md` wording to make `$elves cobbler: ...` the reliable primary
+  invocation.
+- Document natural chat forms such as "Ask the Cobbler to..." and compatibility `$elves
+  council: ...` forms.
+- Clarify how Cobbler uses Codex subagents when available and falls back to direct read-only lens
+  analysis when they are not.
+- Connect Cobbler guidance to Codex Goals only where a full Elves run needs continuation; do not
+  make Goals required for a quick Cobbler answer.
 
 **Acceptance criteria:**
-- [ ] A Claude Code user can install or sync a real `/cobbler` entry point from this repo.
-- [ ] Compatibility aliases are documented and route to the same Cobbler semantics.
-- [ ] The sync/check script reports alias conflicts instead of clobbering user-owned skills.
-- [ ] README installation docs explain how Claude Code aliases relate to the main `elves` skill.
+- [ ] Codex docs do not promise unsupported top-level slash commands.
+- [ ] A Codex user can read README or `AGENTS.md` and know exactly what to type for Cobbler.
+- [ ] Quick Cobbler stays read-only and stateless unless the user attaches it to an active Elves
+      run.
+- [ ] Codex and Claude Code docs use the same product hierarchy while respecting host differences.
 
-**Risk:** Alias installation can accidentally mutate a user's personal Claude Code skills. Prefer
-safe check/report behavior over aggressive syncing.
+**Risk:** Over-explaining Codex mechanics could make the user experience feel less natural. Keep
+the happy path short and precise.
 
-**Rollback tag:** `elves/pre-batch-2-cobbler`
+**Rollback tag:** `elves/pre-batch-3-cobbler`
 
 ---
 
@@ -278,6 +283,18 @@ Batch 1 result on 2026-06-14 18:28 EDT:
   -> PASS with advisory warnings only.
 - PR checks for #28 at commit `5f4d356` passed: GitHub Actions analyze jobs, CodeQL, Socket
   Security, and repo check.
+
+Batch 2 result on 2026-06-14 18:38 EDT:
+
+- `python3 -m unittest discover -s tests -p 'test_*.py'` -> PASS, 20 tests.
+- `python3 scripts/check_repo_consistency.py` -> PASS, including Claude Cobbler alias guardrails.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` -> PASS.
+- `python3 -m json.tool config.json.example >/dev/null` and
+  `python3 -m json.tool .elves-session.json >/dev/null` -> PASS.
+- `python3 scripts/sync_installed_skills.py --check` -> PASS after applying managed aliases.
+- `git diff --check` -> PASS.
+- `OPENAI_CODEX=1 ELVES_SURVIVAL_GUIDE_PATH=docs/elves/survival-guide.md ./scripts/preflight.sh`
+  -> PASS with advisory warnings only.
 
 ---
 

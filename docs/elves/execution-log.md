@@ -7,14 +7,124 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 18:32 EDT
+- **Last updated:** 2026-06-14 18:38 EDT
 - **Current phase:** In progress
 - **Active batch:** Between batches
-- **Last completed batch:** Batch 1: Cobbler Product Hierarchy
-- **Next exact batch:** Batch 2: Claude Code Cobbler Alias
+- **Last completed batch:** Batch 2: Claude Code Cobbler Alias
+- **Next exact batch:** Batch 3: Codex Cobbler Invocation
 - **Active PR:** #28 <https://github.com/aigorahub/elves/pull/28>
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
+
+---
+
+## 2026-06-14 18:38 EDT
+
+**Batch:** 2: Claude Code Cobbler Alias
+
+**What changed:**
+- Added four small Claude Code alias skills:
+  - `aliases/claude/cobbler/SKILL.md`
+  - `aliases/claude/council/SKILL.md`
+  - `aliases/claude/ec/SKILL.md`
+  - `aliases/claude/elves-council/SKILL.md`
+- Extended `scripts/sync_installed_skills.py` so Claude alias skills are marker-gated. Missing or
+  marked aliases are created/synced; unmarked user-owned aliases are reported as conflicts and left
+  untouched.
+- Changed default `--check --target all` behavior to treat "no installed copies found" as advisory
+  success while keeping explicit target checks strict.
+- Updated README install/update docs so `/cobbler`, `/council`, `/ec`, and `/elves-council` are
+  real Claude Code skill entry points, not just prose aliases.
+- Added sync-helper tests and consistency guardrails for the alias files.
+- Synced installed Claude and Codex skill copies to `1.15.0`; local Claude now has the four
+  managed alias skill directories.
+
+**Cobbler consultation synthesis:**
+- Gemini 3.1 Pro, Gemini 3.5 Flash, Opus 4.8, Grok 4.3, Qwen 3.7 Max, and two native Codex
+  subagents agreed that Batch 2 was incomplete unless `/cobbler` became a real Claude Code surface.
+- Strongest dissent: do not edit global settings or legacy command files; use skill directories
+  and marker-gated sync.
+- Repeated risk: deeper reference docs still read Council-first. Carry this into Batches 3-4.
+
+**Acceptance evidence:**
+- Alias source files exist and include `<!-- elves-managed-alias: claude-skill-alias v1 -->`.
+- `scripts/sync_installed_skills.py --check` reported missing aliases before apply and passed after
+  apply.
+- Existing unmarked aliases are covered by tests and would be reported as conflicts instead of
+  overwritten.
+- Codex sync is covered by tests and does not create Claude aliases.
+
+**Validation evidence:**
+- `python3 -m unittest discover -s tests -p 'test_*.py'` -> PASS, 20 tests.
+- `python3 scripts/check_repo_consistency.py` -> PASS, including Claude Cobbler alias guardrails.
+- `python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py` -> PASS.
+- `python3 -m json.tool config.json.example >/dev/null` and
+  `python3 -m json.tool .elves-session.json >/dev/null` -> PASS.
+- `python3 scripts/sync_installed_skills.py --check` -> PASS after applying managed aliases.
+- `git diff --check` -> PASS.
+- `OPENAI_CODEX=1 ELVES_SURVIVAL_GUIDE_PATH=docs/elves/survival-guide.md ./scripts/preflight.sh`
+  -> PASS with advisory warnings only.
+
+**Review disposition:**
+- Gemini `3410161381` -> addressed early by making default `--check --target all` advisory-success
+  when no installed copies exist.
+
+**Next:**
+1. Commit and push Batch 2.
+2. Re-read the survival guide.
+3. Start Batch 3: Codex Cobbler Invocation.
+
+---
+
+## 2026-06-14 18:34 EDT
+
+**Batch:** 2: Claude Code Cobbler Alias
+
+**Contract:**
+- A Claude Code user can invoke `/cobbler` through a real skill directory, not just README prose.
+- `/council`, `/ec`, and `/elves-council` remain real compatibility aliases with the same Cobbler
+  behavior.
+- Alias installation/sync never overwrites user-owned Claude Code skills unless they carry an
+  explicit Elves-managed alias marker.
+- README installation/update guidance explains the alias relationship to the main `elves` skill.
+
+**Build on:**
+- Existing installed-skill sync table and compare/apply helpers in `scripts/sync_installed_skills.py`.
+- Claude Code's current skills model: `~/.claude/skills/<skill-name>/SKILL.md` creates a
+  `/skill-name` invocation, and command files are legacy-compatible with skills.
+- Batch 1 Cobbler wording in `SKILL.md`, `AGENTS.md`, and README.
+- Cobbler consultation synthesis:
+  - Native lens: use sibling Claude Code alias skills under `aliases/claude/<alias>/SKILL.md`.
+  - Gemini 3.1 Pro / 3.5 Flash: do not write global settings or clobber user-owned aliases.
+  - Opus 4.8 / Grok 4.3 / Qwen 3.7 Max: Batch 2 is incomplete until `/cobbler` is a real Claude
+    Code surface; deeper Council-first reference docs belong to Batches 3-4.
+
+**Acceptance criteria:**
+- [ ] `aliases/claude/cobbler/SKILL.md`, `aliases/claude/council/SKILL.md`,
+      `aliases/claude/ec/SKILL.md`, and `aliases/claude/elves-council/SKILL.md` exist and carry an
+      Elves-managed alias marker.
+- [ ] `scripts/sync_installed_skills.py --apply --target claude` creates/syncs managed alias
+      skills when safe.
+- [ ] `scripts/sync_installed_skills.py --check` reports missing/stale/conflicting aliases.
+- [ ] Unmarked existing alias skill directories are reported as conflicts and are not overwritten.
+- [ ] Codex sync does not create Claude aliases.
+- [ ] README install/update docs explain `/cobbler` and compatibility aliases.
+
+**Blast radius:**
+- `scripts/sync_installed_skills.py` and new tests; medium risk because this script mutates local
+  installed skill directories.
+- README and consistency checker; low-to-medium risk because they are docs/guardrails but can block
+  validation when drifted.
+
+**Pre-implementation survey:**
+- `sync_installed_skills.py` currently mirrors the main `elves` skill only and removes repo-only
+  helper scripts from installed bundles.
+- No existing `~/.claude/skills/cobbler`, `~/.claude/skills/council`, `~/.claude/skills/ec`, or
+  `~/.claude/skills/elves-council` directories exist on this machine.
+- Official Claude Code docs confirm skills under `~/.claude/skills/<skill-name>/SKILL.md` can be
+  invoked directly as `/<skill-name>`.
+- Rollback tag for this run is `elves/pre-batch-2-cobbler`; older `elves/pre-batch-2` and
+  `elves/pre-batch-2-council` tags were left untouched.
 
 ---
 

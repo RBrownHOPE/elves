@@ -113,6 +113,25 @@ class ConsistencyPhraseTests(unittest.TestCase):
                     self.consistency.COUNCIL_MODULE_PHRASES[label],
                 )
 
+    def test_claude_cobbler_alias_skill_files_are_required(self) -> None:
+        expected_aliases = {
+            "aliases/claude/cobbler/SKILL.md": "/cobbler",
+            "aliases/claude/council/SKILL.md": "/council",
+            "aliases/claude/ec/SKILL.md": "/ec",
+            "aliases/claude/elves-council/SKILL.md": "/elves-council",
+        }
+
+        for label, alias in expected_aliases.items():
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.CLAUDE_ALIAS_SKILL_PHRASES)
+                self.assertIn(
+                    self.consistency.CLAUDE_ALIAS_MARKER,
+                    self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label],
+                )
+                self.assertIn(alias, self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label])
+                self.assertIn("read-only", self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label])
+                self.assertIn("stateless", self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label])
+
     def test_extract_markdown_section_limits_to_requested_heading_level(self) -> None:
         text = """# Title
 
