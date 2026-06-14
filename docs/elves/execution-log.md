@@ -9,9 +9,10 @@
 
 - **Last updated:** 2026-06-14 12:37 EDT
 - **Current phase:** Launch active
-- **Active batch:** Batch 1 closeout
-- **Last completed batch:** Batch 1 pending commit/push
-- **Next exact batch:** Batch 2: Council Workflow And Role Prompts
+- **Active batch:** Batch 2 pending start
+- **Last completed batch:** Batch 1
+- **Next exact batch:** Push Batch 1 completion state, poll PR feedback, then start Batch 2:
+  Council Workflow And Role Prompts
 - **Active PR:** #27
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -152,7 +153,7 @@ commit and was left untouched)
 **Docs impacted:** `SKILL.md`, `AGENTS.md`, README, CHANGELOG, live survival guide, execution log,
 `.elves-session.json`.
 **Docs promoted:** none yet; Batch 4 will add durable checker coverage for the Council invariants.
-**Commit SHA:** pending.
+**Commit SHA:** `3421630e237d`
 
 ---
 
