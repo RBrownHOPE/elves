@@ -20,33 +20,33 @@ key.
 ## Run Control
 
 - **Run mode:** finite
-- **Stop policy:** stage-only for this call; after launch, stop only at final completion, an
-  explicit user stop, or a genuine blocker with no reasonable workaround
-- **User intent:** The user asked to stage the `$elves` run now and said they will kick it off with
-  the next prompt.
-- **Checkpoint due by:** not specified; default to 8 hours from launch unless the launch prompt
-  states a different return time
-- **Checkpoint semantics:** staging handoff now; after launch, finite completion unless the launch
-  prompt says a checkpoint is delivery-only or a hard stop
-- **May continue after checkpoint:** after launch, follow the launch prompt; default finite mode may
-  continue until plan completion unless near a hard-stop deadline
-- **Actual stop conditions:** during staging, stop when launch-ready; after launch, stop only when
-  all batches are complete and final readiness is clean, the user explicitly stops the run, or a
-  true blocker prevents safe progress
+- **Stop policy:** do not stop until all five batches are complete, final readiness is clean, the
+  reviewed-PR landing protocol has landed the PR, the GitHub version release/tag is created, and
+  the X announcement post is drafted; also stop for an explicit user stop or a genuine blocker with
+  no reasonable workaround
+- **User intent:** The user launched the staged run and added: when complete, run the Elves
+  land-PR protocol, make all documentation fully current, bump the version everywhere including
+  GitHub, then write an X announcement post that explains Cobbler as an attempt to recreate the
+  public Fable orchestration insight.
+- **Checkpoint due by:** 2026-06-15 02:18 EDT, default 8 hours from launch
+- **Checkpoint semantics:** delivery budget only, not a stop boundary
+- **May continue after checkpoint:** yes
+- **Actual stop conditions:** stop only when all planned batches, final readiness, reviewed-PR
+  landing, GitHub release/tag, and X announcement draft are complete; or when the user explicitly
+  stops the run; or when a true blocker prevents safe progress
 - **Workspace ownership:** owned branch in the main checkout; `git worktree list` shows only
   `/Users/john/aigora/dev/elves` on `codex/v1.15.0-cobbler`
 - **Branch tip at start (collision tripwire):** `6fe775e334d3af446de75587957ac11b029258a3`
-- **Merge policy:** user-merges by default; never merge unless the user explicitly sets
-  merge-on-green or invokes `/land-pr` / `\land-pr`; any opt-in landing uses a regular merge commit,
-  never squash or rebase
-- **Final-response policy:** allowed for staging handoff only; after launch, disallowed until the
-  Stop Gate says stopping is allowed or a true blocker forces it
+- **Merge policy:** reviewed-pr-landing-command one-off opt-in for PR #28; land only with a regular
+  merge commit after final readiness is clean, never squash or rebase
+- **Final-response policy:** disallowed until the Stop Gate says stopping is allowed, the objective
+  is fully complete, or a true blocker forces it
 - **Batch completion rule:** Every completed batch ends with `update execution log -> update
   survival guide -> commit -> push`.
 - **Re-read rule:** Immediately after every commit and push, re-read this survival guide before
   doing anything else.
-- **Checkpoint rule:** During staging, the checkpoint is the launch-ready handoff. After launch,
-  if the user marks a later checkpoint as delivery-only, log it, push it, and continue immediately.
+- **Checkpoint rule:** The 8-hour checkpoint is delivery-only. Log it, push current state, and
+  continue immediately if work remains.
 - **Continuation rule:** After launch, if work remains and actual stop conditions are not met,
   continue without waiting for user acknowledgment.
 
@@ -54,12 +54,12 @@ key.
 
 ## Session Budget
 
-- **Started:** 2026-06-14 16:07 EDT
-- **User returns:** not specified; default is ~8 hours after launch unless launch prompt overrides
-- **Checkpoint expectation:** staging call creates branch, plan, run memory, PR, and preflight
-  evidence; launch call starts Batch 1
-- **Time budget:** staging only in this call; default finite run budget is ~8 hours after launch
-- **Average batch time so far:** N/A - not launched
+- **Started:** 2026-06-14 18:18 EDT
+- **User returns:** not specified; checkpoint default is 2026-06-15 02:18 EDT
+- **Checkpoint expectation:** best review-ready state by checkpoint; continue after checkpoint if
+  required work remains
+- **Time budget:** default 8-hour checkpoint budget; objective remains active across turns
+- **Average batch time so far:** N/A - Batch 1 in progress
 - **Batches remaining:** 5 of 5
 
 ---
@@ -69,13 +69,10 @@ key.
 > Rewrite this section in place. This is the explicit answer to "may I stop now?" Do not infer it.
 
 - **Planned batches remaining:** 5
-- **Stop allowed right now:** yes, for staging handoff only
-- **Why:** The user explicitly asked to stage the run now and launch from the next prompt.
-- **Next required action:** Wait for the user's launch prompt, then start Batch 1 after reading the
-  durable memory stack.
-
-After launch, rewrite this to `Stop allowed right now: no` until the plan is complete, the user
-stops the run, or a true blocker is reached.
+- **Stop allowed right now:** no
+- **Why:** The run has launched, all five batches remain, and final landing/release/announcement
+  deliverables are not complete.
+- **Next required action:** Start Batch 1: Cobbler Product Hierarchy.
 
 ---
 
@@ -150,8 +147,9 @@ Promotion flow: `execution log -> learnings -> .ai-docs`
   `/cobbler` and `$elves cobbler: ...` the primary user experience.
 - Never run destructive git commands: `git reset --hard`, `git checkout .`, `git clean -fd`,
   `git push --force`, or shared-branch rebases.
-- Never merge by default. The user merges unless they explicitly opt into merge-on-green or invoke
-  the reviewed-PR landing command.
+- Never merge by default. This run has an explicit reviewed-PR landing command opt-in recorded in
+  Run Control, so landing is allowed only after final readiness is clean and only with a regular
+  merge commit.
 
 ---
 
@@ -175,21 +173,33 @@ Promotion flow: `execution log -> learnings -> .ai-docs`
 
 ## Current Phase
 
-**Status:** Launch-ready
+**Status:** In progress
 
-**Active batch:** Batch 0: staging
+**Active batch:** Batch 1: Cobbler Product Hierarchy
 
-**What was just finished:** The Cobbler plan, live run memory, branch, PR #28, preflight, and
-staging validation are ready.
+**What was just finished:** The staged run was launched and the latest controlling instruction was
+recorded: finish the batches, land PR #28 via the reviewed-PR landing protocol, publish the GitHub
+version, and draft the X announcement.
 
-**Single next action:** Wait for the user's launch prompt, then start Batch 1 and immediately
-rewrite the Stop Gate and `.elves-session.json` continuation guard to `stop_allowed=false`.
+**Single next action:** Create rollback tag `elves/pre-batch-1`, verify green, write the Batch 1
+contract, and implement the Cobbler Product Hierarchy changes.
 
 ---
 
 ## Active Compute
 
 **No active paid or long-running compute.**
+
+---
+
+## Final Deliverables
+
+- Complete all five planned Cobbler batches.
+- Run final readiness review on the cumulative diff and all PR feedback.
+- Run the reviewed-PR landing protocol for PR #28 as an explicit one-off merge opt-in.
+- Bump version everywhere and publish `v1.15.0` on GitHub after the merge.
+- Draft an X announcement post about Cobbler and the Fable orchestration framing. Keep that Fable
+  framing in the announcement/final handoff, not in the core repo docs.
 
 ---
 

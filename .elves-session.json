@@ -1,8 +1,8 @@
 {
   "session_name": "v1.15.0-cobbler",
-  "status": "launch-ready",
+  "status": "in_progress",
   "created_at": "2026-06-14T16:07:00-04:00",
-  "updated_at": "2026-06-14T16:11:00-04:00",
+  "updated_at": "2026-06-14T18:18:00-04:00",
   "run_mode": "finite",
   "branch": "codex/v1.15.0-cobbler",
   "base_branch": "main",
@@ -21,16 +21,17 @@
     "durable_docs_manifest": ".ai-docs/manifest.md"
   },
   "continuation_guard": {
-    "stop_allowed": true,
-    "reason": "Staging call only; user will launch from the next prompt.",
+    "stop_allowed": false,
+    "reason": "The run has launched; planned batches, reviewed-PR landing, GitHub release, and X announcement draft remain.",
     "remaining_batches": 5,
-    "checkpoint_is_stop": true,
-    "next_required_action": "Wait for the user's launch prompt, then start Batch 1 after reading the durable memory stack."
+    "checkpoint_is_stop": false,
+    "next_required_action": "Start Batch 1: Cobbler Product Hierarchy."
   },
   "run_control": {
-    "user_intent": "sounds great, adjust the [$elves] run so it's staged. i'll kick it off with the next prompt",
-    "default_return_time": "8 hours after launch unless the launch prompt overrides",
-    "merge_policy": "user-merges",
+    "user_intent": "Complete the staged v1.15.0 Cobbler run. When complete, run the Elves land-PR protocol, make docs fully current, bump the version everywhere including GitHub, then write an X announcement post with the Fable orchestration framing.",
+    "checkpoint_due_by": "2026-06-15T02:18:00-04:00",
+    "checkpoint_is_stop": false,
+    "merge_policy": "reviewed-pr-landing-command",
     "active_compute": []
   },
   "cobbler": {
@@ -62,7 +63,9 @@
     {
       "id": 1,
       "name": "Cobbler Product Hierarchy",
-      "status": "pending"
+      "status": "in_progress",
+      "started_at": "2026-06-14T18:18:00-04:00",
+      "rollback_tag": null
     },
     {
       "id": 2,
@@ -92,6 +95,11 @@
       "total": 13,
       "skipped": 0
     }
+  },
+  "final_deliverables": {
+    "reviewed_pr_landing": "pending",
+    "github_release": "pending",
+    "x_announcement_post": "pending"
   },
   "preflight": {
     "status": "pass_with_warnings",

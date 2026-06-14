@@ -7,14 +7,37 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 16:11 EDT
-- **Current phase:** Launch-ready
-- **Active batch:** Batch 0: staging
+- **Last updated:** 2026-06-14 18:18 EDT
+- **Current phase:** In progress
+- **Active batch:** Batch 1: Cobbler Product Hierarchy
 - **Last completed batch:** none yet
 - **Next exact batch:** Batch 1: Cobbler Product Hierarchy
 - **Active PR:** #28 <https://github.com/aigorahub/elves/pull/28>
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
+
+---
+
+## 2026-06-14 18:18 EDT
+
+**Batch:** Launch transition
+
+**What changed:**
+- User launched the staged run with the default 8-hour finite budget from launch.
+- User added an explicit final instruction to run the Elves reviewed-PR landing protocol after the
+  planned batches are complete.
+- User added final deliverables: docs fully current, version bumped everywhere, GitHub version
+  published, and X announcement post drafted with the Fable orchestration framing.
+
+**Decisions made:**
+- Treat the landing request as a reviewed-PR landing command and one-off merge opt-in for PR #28.
+- Keep Fable framing out of the core repo docs because the staged plan intentionally avoids
+  Fable-based product copy there; satisfy the user request in the announcement artifact/final
+  handoff instead.
+
+**Next:**
+1. Update `.elves-session.json` and survival-guide run control to `stop_allowed=false`.
+2. Verify green, tag `elves/pre-batch-1`, and start Batch 1.
 
 ---
 
