@@ -108,8 +108,8 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
 - **Scope:** bump version metadata and add the council concept to `SKILL.md`, `AGENTS.md`,
   `README.md`, and `CHANGELOG.md`.
 - **Acceptance criteria:** Claude and Codex surfaces both mention the same aliases; Quick Council is
-  native-subagent-first, read-only, and stateless by default; Deep Council is optional; no docs imply
-  automatic implementation.
+  native-subagent-first, read-only, and stateless by default; Deep Council is optional; no docs
+  imply automatic implementation.
 - **Risk:** medium, because this repo's main failure mode is cross-file documentation drift.
 
 Before editing implementation docs, write the Batch 1 contract in the execution log. Build on the
