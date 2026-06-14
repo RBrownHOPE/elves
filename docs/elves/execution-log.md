@@ -9,10 +9,10 @@
 
 - **Last updated:** 2026-06-14 12:50 EDT
 - **Current phase:** Launch active
-- **Active batch:** Batch 4 closeout
-- **Last completed batch:** Batch 4 pending commit/push
-- **Next exact batch:** Final readiness review, Elves Report, cleanup, PR landing, GitHub release,
-  and X statement
+- **Active batch:** Final readiness pending start
+- **Last completed batch:** Batch 4
+- **Next exact batch:** Push Batch 4 completion state, poll PR feedback/checks, then run final
+  readiness review, Elves Report, cleanup, PR landing, GitHub release, and X statement
 - **Active PR:** #27
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -141,7 +141,7 @@ clean, with a regular merge commit via `gh pr merge --merge`; squash/rebase rema
 
 **Docs impacted:** live execution log and `.elves-session.json`.
 **Docs promoted:** none; Council guardrails are now durable in `scripts/check_repo_consistency.py`.
-**Commit SHA:** pending.
+**Commit SHA:** `f9f7fdcb31cf`
 
 ---
 
