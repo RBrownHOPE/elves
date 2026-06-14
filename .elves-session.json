@@ -1,86 +1,78 @@
 {
-  "session_id": "math-module-workflow-kit-2026-06-01",
-  "plan_path": "docs/plans/v1.12.0-math-module.md",
+  "session_id": "elves-2026-06-14-v1.14.0-elves-council",
+  "version": "1.13.0",
+  "status": "staged",
+  "branch": "codex/v1.14.0-elves-council",
+  "plan_path": "docs/plans/v1.14.0-elves-council.md",
   "survival_guide_path": "docs/elves/survival-guide.md",
   "learnings_path": "docs/elves/learnings.md",
   "execution_log_path": "docs/elves/execution-log.md",
-  "branch": "codex/math-module-workflow-kit",
-  "started_at": "2026-06-01T15:12:00-04:00",
+  "pr_number": null,
   "run_mode": "finite",
-  "merge_policy": "user-merges",
+  "started_at": "2026-06-14T08:52:00-04:00",
+  "collision_tripwire": "26bb766ea8512d252dc93997a83b2d498d0f219c",
+  "continuation_guard": {
+    "remaining_batches": 4,
+    "stop_allowed": true,
+    "checkpoint_is_stop": true,
+    "next_required_action": "Hand the user the launch prompt; after launch, start Batch 1: Release Skeleton And Council Concept."
+  },
+  "test_baseline": {
+    "passed": null,
+    "total": null,
+    "skipped": null,
+    "status": "not_captured",
+    "reason": "Staging only; capture after launch during Verify Green."
+  },
+  "current_batch": {
+    "id": 0,
+    "name": "Staging",
+    "status": "in_progress"
+  },
   "batches": [
     {
       "id": 1,
-      "name": "Plan And Runtime Surfaces",
-      "status": "completed",
-      "commit": "e971891",
+      "name": "Release Skeleton And Council Concept",
+      "status": "pending",
+      "commit": null,
       "rollback_tag": null,
-      "started_at": "2026-06-01T15:12:00-04:00",
-      "completed_at": "2026-06-01T15:19:00-04:00"
+      "started_at": null,
+      "completed_at": null
     },
     {
       "id": 2,
-      "name": "Math Discovery Workflow",
-      "status": "completed",
-      "commit": "fbbfc3d",
+      "name": "Council Workflow And Role Prompts",
+      "status": "pending",
+      "commit": null,
       "rollback_tag": null,
-      "started_at": "2026-06-01T15:20:00-04:00",
-      "completed_at": "2026-06-01T15:25:00-04:00"
+      "started_at": null,
+      "completed_at": null
     },
     {
       "id": 3,
-      "name": "Model And Tool Configuration",
-      "status": "completed",
-      "commit": "58090cb",
+      "name": "Config, Ledgers, And Tool Examples",
+      "status": "pending",
+      "commit": null,
       "rollback_tag": null,
-      "started_at": "2026-06-01T15:25:00-04:00",
-      "completed_at": "2026-06-01T15:31:00-04:00"
+      "started_at": null,
+      "completed_at": null
     },
     {
       "id": 4,
-      "name": "Review Prompts And Ledgers",
-      "status": "completed",
-      "commit": "4f4b78c",
+      "name": "Consistency Checks And Release Hardening",
+      "status": "pending",
+      "commit": null,
       "rollback_tag": null,
-      "started_at": "2026-06-01T15:30:00-04:00",
-      "completed_at": "2026-06-01T15:31:00-04:00"
-    },
-    {
-      "id": 5,
-      "name": "Consistency And Final Review",
-      "status": "completed",
-      "commit": "6238d4f",
-      "rollback_tag": null,
-      "started_at": "2026-06-01T15:31:00-04:00",
-      "completed_at": "2026-06-01T15:33:00-04:00"
+      "started_at": null,
+      "completed_at": null
     }
   ],
-  "continuation_guard": {
-    "remaining_batches": 0,
-    "stop_allowed": true,
-    "checkpoint_is_stop": false,
-    "next_required_action": "User reviews PR #24; do not merge."
-  },
-  "review_comments": [
-    {
-      "id": 3336597030,
-      "type": "review_thread",
-      "source": "gemini-code-assist",
-      "batch": 5,
-      "cycle": 1,
-      "summary": "Use American English spelling for the algebraic/combinatorial analogs lane.",
-      "disposition": "fixed",
-      "fix_commit": "closeout"
-    },
-    {
-      "id": 3336597045,
-      "type": "review_thread",
-      "source": "gemini-code-assist",
-      "batch": 5,
-      "cycle": 1,
-      "summary": "Rephrase awkward changelog sentence about uncertain mathematical goals.",
-      "disposition": "fixed",
-      "fix_commit": "closeout"
-    }
-  ]
+  "review_comments": [],
+  "council": {
+    "default_mode": "quick",
+    "default_backend": "native-subagents",
+    "aliases": ["/council", "/ec", "/elves-council"],
+    "quick_read_only": true,
+    "deep_provider_policy": "optional"
+  }
 }
