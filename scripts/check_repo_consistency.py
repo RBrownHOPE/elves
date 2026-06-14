@@ -377,55 +377,70 @@ MATH_MODULE_PHRASES = {
 
 COUNCIL_MODULE_PHRASES = {
     "SKILL.md": [
-        "Elves Council",
+        "## Cobbler",
+        "Cobbler",
+        "/cobbler",
+        "$elves cobbler: <task>",
         "/council",
         "/ec",
         "/elves-council",
-        "Quick Council is the default",
+        "$elves council: <task>",
+        "Quick Cobbler is the default",
         "read-only",
         "stateless",
         "Codex subagents",
         "Claude Code subagents",
         "read-only analysis directly",
-        "dissent",
+        "why it fits",
+        "strongest dissent",
         "risks",
         "next actions",
         "mutate run state",
-        "Deep Council is optional",
+        "Provider-backed council is optional",
         "must not require OpenRouter",
         "vendor identity",
     ],
     "AGENTS.md": [
-        "Elves Council",
+        "## Cobbler",
+        "Cobbler",
+        "/cobbler",
+        "$elves cobbler: <task>",
         "/council",
         "/ec",
         "/elves-council",
-        "Quick Council is the default",
+        "$elves council: <task>",
+        "Quick Cobbler is the default",
         "read-only",
         "stateless",
         "Codex subagents",
         "Claude Code subagents",
         "read-only analysis directly",
-        "dissent",
+        "why it fits",
+        "strongest dissent",
         "risks",
         "next actions",
         "mutate run state",
-        "Deep Council is optional",
+        "Provider-backed council is optional",
         "must not require OpenRouter",
         "vendor identity",
     ],
     "README.md": [
-        "Elves Council",
+        "### Cobbler",
+        "Cobbler",
+        "/cobbler",
+        "$elves cobbler: <task>",
         "/council",
         "/ec",
         "/elves-council",
-        "Quick Council is the default",
+        "$elves council: <task>",
+        "Quick Cobbler is the default",
         "read-only",
         "stateless",
         "Codex subagents",
         "Claude Code subagents",
         "read-only analysis directly",
-        "dissent",
+        "why it fits",
+        "strongest dissent",
         "risks",
         "next actions",
         "requires no OpenRouter",
@@ -483,16 +498,22 @@ COUNCIL_MODULE_PHRASES = {
 }
 
 COUNCIL_SECTION_HEADINGS = {
-    "SKILL.md": "## Elves Council",
-    "AGENTS.md": "## Elves Council",
-    "README.md": "### Elves Council",
+    "SKILL.md": "## Cobbler",
+    "AGENTS.md": "## Cobbler",
+    "README.md": "### Cobbler",
 }
 
 COUNCIL_FORBIDDEN_PHRASES = {
     "SKILL.md": [
         "ordinary `/council` requires OpenRouter",
         "normal `/council` requires OpenRouter",
+        "ordinary Cobbler requires OpenRouter",
+        "normal Cobbler requires OpenRouter",
+        "Cobbler requires `OPENROUTER_API_KEY`",
         "Council requires `OPENROUTER_API_KEY`",
+        "Cobbler can edit files",
+        "Cobbler can create branches",
+        "Cobbler can open PRs",
         "Council can edit files",
         "Council can create branches",
         "Council can open PRs",
@@ -500,7 +521,13 @@ COUNCIL_FORBIDDEN_PHRASES = {
     "AGENTS.md": [
         "ordinary `/council` requires OpenRouter",
         "normal `/council` requires OpenRouter",
+        "ordinary Cobbler requires OpenRouter",
+        "normal Cobbler requires OpenRouter",
+        "Cobbler requires `OPENROUTER_API_KEY`",
         "Council requires `OPENROUTER_API_KEY`",
+        "Cobbler can edit files",
+        "Cobbler can create branches",
+        "Cobbler can open PRs",
         "Council can edit files",
         "Council can create branches",
         "Council can open PRs",
@@ -508,7 +535,13 @@ COUNCIL_FORBIDDEN_PHRASES = {
     "README.md": [
         "ordinary `/council` requires OpenRouter",
         "normal `/council` requires OpenRouter",
+        "ordinary Cobbler requires OpenRouter",
+        "normal Cobbler requires OpenRouter",
+        "Cobbler requires `OPENROUTER_API_KEY`",
         "Council requires `OPENROUTER_API_KEY`",
+        "Cobbler can edit files",
+        "Cobbler can create branches",
+        "Cobbler can open PRs",
         "Council can edit files",
         "Council can create branches",
         "Council can open PRs",
@@ -750,21 +783,21 @@ def main() -> int:
             council_texts,
             council_section_phrases,
             COUNCIL_SECTION_HEADINGS,
-            "Elves Council",
+            "Cobbler",
         )
     )
     errors.extend(
         find_missing_phrases(
             council_texts,
             council_file_phrases,
-            "Elves Council",
+            "Cobbler",
         )
     )
     errors.extend(
         find_forbidden_phrases(
             council_texts,
             COUNCIL_FORBIDDEN_PHRASES,
-            "Elves Council",
+            "Cobbler",
         )
     )
 
@@ -787,7 +820,7 @@ def main() -> int:
     print("- Elves Report guardrails are aligned")
     print("- Math research workflow guardrails are aligned")
     print("- Reviewed PR landing command guardrails are aligned")
-    print("- Elves Council guardrails are aligned")
+    print("- Cobbler guardrails are aligned")
     return 0
 
 

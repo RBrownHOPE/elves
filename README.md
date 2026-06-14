@@ -156,29 +156,37 @@ Start with [`references/math-workflow.md`](references/math-workflow.md) for the 
 roles, and [`references/math-artifact-ledgers.md`](references/math-artifact-ledgers.md) for claim
 and source traceability.
 
-### Elves Council
+### Cobbler
 
-Elves Council is a lightweight, chat-native way to ask for a few independent expert lenses before
-the agent gives you one synthesized answer. Use `/council`, `/ec`, or `/elves-council` for design,
-planning, debugging, and review questions where a single straight-line answer feels too brittle.
+Cobbler is the coordinator inside Elves. Ask Cobbler a hard question, and it decides how much help
+to bring in: a direct answer, a few specialist elves, or a read-only council of independent lenses.
 
-Quick Council is the default. It is read-only, stateless, and native-subagent-first: Codex uses
+The user gets the fit, not the chatter: one recommendation, the reason it fits, the strongest
+dissent, the risks, and the next move.
+
+Use `/cobbler <task>` in Claude Code when the alias skill is installed. In Codex, use
+`$elves cobbler: <task>` or natural language such as "Ask the Cobbler..." Compatibility aliases
+remain supported: `/council`, `/ec`, `/elves-council`, and `$elves council: <task>` all invoke the
+same Cobbler behavior.
+
+Quick Cobbler is the default. It is read-only, stateless, and native-subagent-first: Codex uses
 Codex subagents, Claude Code uses Claude Code subagents, and environments without subagents perform
-the same read-only analysis directly. The coordinator picks a small role set, usually two or three
-lenses, gathers bounded independent reports, and answers with one recommendation plus the strongest
-dissent, risks, and next actions. It does not edit files, create branches, open PRs, install
-packages, or mutate run state.
+the same read-only analysis directly. Cobbler chooses a small role set, usually two or three
+lenses, gathers bounded independent reports, and answers with one recommendation plus why it fits,
+the strongest dissent, risks, and next actions. It does not edit files, create branches, open PRs,
+install packages, or mutate run state.
 
-Deep Council is optional. It can be configured later for external provider diversity, but ordinary
-`/council` use requires no OpenRouter or other provider key. The pattern borrows the useful harness
-idea of independent role reports followed by synthesis without importing vendor identity, policy,
-persona, or safety text.
+Provider-backed council is optional. It can be configured later for external provider diversity,
+but ordinary Cobbler use and compatibility-alias use require no OpenRouter or other provider key.
+Normal Cobbler use requires no OpenRouter or external provider key. The pattern borrows the useful
+harness idea of independent role reports followed by synthesis without importing vendor identity,
+policy, persona, or safety text.
 
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
 model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
 synthesis prompt templates, and
-[`references/council-provider-config.md`](references/council-provider-config.md) for optional Deep
-Council provider setup.
+[`references/council-provider-config.md`](references/council-provider-config.md) for optional
+provider-backed council setup.
 
 ### Stage, then launch
 
@@ -327,8 +335,9 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Elves Reports**: substantial finite runs end with a temporary static HTML worker-to-manager
   report that highlights status, problems found, lessons learned, collapsible batch timeline,
   validation, residual risks, and human next steps; the agent hands it to you to review at closeout
-- **Elves Council**: `/council`, `/ec`, and `/elves-council` give you a read-only,
-  native-subagent-first synthesis for planning, design, debugging, and review questions
+- **Cobbler**: `/cobbler` in Claude Code and `$elves cobbler: ...` in Codex give you a read-only,
+  native-subagent-first synthesis for planning, design, debugging, and review questions; `/council`,
+  `/ec`, `/elves-council`, and `$elves council: ...` remain compatibility aliases
 - **Math research workflow kit**: optional templates for preliminary discovery, subfield scouting,
   cross-field synthesis, proof review, source audit, manuscript drafting, and human verification
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`

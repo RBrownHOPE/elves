@@ -96,13 +96,22 @@ class ConsistencyPhraseTests(unittest.TestCase):
                 self.assertIn("\\land-pr", self.consistency.REVIEWED_PR_LANDING_PHRASES[label])
                 self.assertIn("/land-pr", self.consistency.REVIEWED_PR_LANDING_PHRASES[label])
 
-    def test_council_aliases_are_required_on_user_facing_surfaces(self) -> None:
+    def test_cobbler_and_council_aliases_are_required_on_user_facing_surfaces(self) -> None:
         for label in ("SKILL.md", "AGENTS.md", "README.md"):
             with self.subTest(label=label):
                 self.assertIn(label, self.consistency.COUNCIL_MODULE_PHRASES)
+                self.assertIn("/cobbler", self.consistency.COUNCIL_MODULE_PHRASES[label])
+                self.assertIn(
+                    "$elves cobbler: <task>",
+                    self.consistency.COUNCIL_MODULE_PHRASES[label],
+                )
                 self.assertIn("/council", self.consistency.COUNCIL_MODULE_PHRASES[label])
                 self.assertIn("/ec", self.consistency.COUNCIL_MODULE_PHRASES[label])
                 self.assertIn("/elves-council", self.consistency.COUNCIL_MODULE_PHRASES[label])
+                self.assertIn(
+                    "$elves council: <task>",
+                    self.consistency.COUNCIL_MODULE_PHRASES[label],
+                )
 
     def test_extract_markdown_section_limits_to_requested_heading_level(self) -> None:
         text = """# Title
@@ -110,53 +119,53 @@ class ConsistencyPhraseTests(unittest.TestCase):
 ## Math Research Workflows
 OpenRouter
 
-## Elves Council
-Quick Council is the default
+## Cobbler
+Quick Cobbler is the default
 read-only
 
 ### Nested Detail
 dissent
 
 ## Strategic Forgetting
-Quick Council is the default outside the section
+Quick Cobbler is the default outside the section
 """
 
-        section = self.consistency.extract_markdown_section(text, "## Elves Council")
+        section = self.consistency.extract_markdown_section(text, "## Cobbler")
 
-        self.assertIn("Quick Council is the default", section)
+        self.assertIn("Quick Cobbler is the default", section)
         self.assertIn("### Nested Detail", section)
         self.assertIn("dissent", section)
         self.assertNotIn("## Strategic Forgetting", section)
         self.assertNotIn("outside the section", section)
 
-    def test_council_section_phrases_do_not_pass_from_other_sections(self) -> None:
+    def test_cobbler_section_phrases_do_not_pass_from_other_sections(self) -> None:
         label = "SKILL.md"
         texts = {
             label: """# Elves
 
 ## Math Research Workflows
-Quick Council is the default
+Quick Cobbler is the default
 
-## Elves Council
-Elves Council
+## Cobbler
+Cobbler
 """,
         }
-        phrases = {label: ["Quick Council is the default"]}
-        headings = {label: "## Elves Council"}
+        phrases = {label: ["Quick Cobbler is the default"]}
+        headings = {label: "## Cobbler"}
 
         errors = self.consistency.find_missing_section_phrases(
             texts,
             phrases,
             headings,
-            "Elves Council",
+            "Cobbler",
         )
 
         self.assertEqual(
             errors,
-            ["SKILL.md: missing Elves Council phrase `Quick Council is the default`"],
+            ["SKILL.md: missing Cobbler phrase `Quick Cobbler is the default`"],
         )
 
-    def test_council_forbidden_phrases_catch_provider_requirement(self) -> None:
+    def test_cobbler_forbidden_phrases_catch_provider_requirement(self) -> None:
         label = "references/council-provider-config.md"
         stale = "normal `/council` requires OpenRouter"
 
@@ -166,12 +175,12 @@ Elves Council
         errors = self.consistency.find_forbidden_phrases(
             {label: stale},
             self.consistency.COUNCIL_FORBIDDEN_PHRASES,
-            "Elves Council",
+            "Cobbler",
         )
 
         self.assertEqual(
             errors,
-            [f"{label}: stale Elves Council phrase `{stale}`"],
+            [f"{label}: stale Cobbler phrase `{stale}`"],
         )
 
 
