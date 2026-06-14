@@ -68,10 +68,9 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
 
 - **Planned batches remaining:** 0
 - **Stop allowed right now:** no
-- **Why:** planned batches are complete pending commit/push, but final readiness, report/cleanup,
-  PR landing, GitHub version update, and X statement remain.
-- **Next required action:** commit and push Batch 4, poll PR feedback/checks, then run final
-  readiness review.
+- **Why:** planned batches are pushed, but final readiness, report/cleanup, PR landing, GitHub
+  version update, and X statement remain.
+- **Next required action:** run final readiness review while waiting for PR checks to finish.
 
 ---
 
@@ -99,12 +98,11 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
 
 ## Current Phase
 
-- **Status:** Batch 4 complete pending commit/push
-- **Active batch:** Batch 4 closeout
+- **Status:** Final readiness in progress
+- **Active batch:** Final Readiness, Cleanup, Landing, And Release
 - **What was just finished:** Council guardrails were added to the consistency checker with
   section-scoped phrase checks and unit tests; full validation passed.
-- **Single next action:** commit and push Batch 4, poll PR feedback/checks, then run final
-  readiness review.
+- **Single next action:** run final readiness review while waiting for PR checks to finish.
 
 ---
 
