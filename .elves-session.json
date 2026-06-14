@@ -1,0 +1,92 @@
+{
+  "session_name": "v1.15.0-cobbler",
+  "status": "staging",
+  "created_at": "2026-06-14T16:07:00-04:00",
+  "updated_at": "2026-06-14T16:07:00-04:00",
+  "run_mode": "finite",
+  "branch": "codex/v1.15.0-cobbler",
+  "base_branch": "main",
+  "collision_tripwire": "6fe775e334d3af446de75587957ac11b029258a3",
+  "pr": {
+    "number": null,
+    "url": null,
+    "state": "not_created"
+  },
+  "paths": {
+    "plan": "docs/plans/v1.15.0-cobbler.md",
+    "survival_guide": "docs/elves/survival-guide.md",
+    "learnings": "docs/elves/learnings.md",
+    "execution_log": "docs/elves/execution-log.md",
+    "durable_docs_manifest": ".ai-docs/manifest.md"
+  },
+  "continuation_guard": {
+    "stop_allowed": true,
+    "reason": "Staging call only; user will launch from the next prompt.",
+    "remaining_batches": 5,
+    "checkpoint_is_stop": true,
+    "next_required_action": "Wait for the user's launch prompt, then start Batch 1 after reading the durable memory stack."
+  },
+  "run_control": {
+    "user_intent": "sounds great, adjust the [$elves] run so it's staged. i'll kick it off with the next prompt",
+    "default_return_time": "8 hours after launch unless the launch prompt overrides",
+    "merge_policy": "user-merges",
+    "active_compute": []
+  },
+  "cobbler": {
+    "release_version": "1.15.0",
+    "tagline": "Meet the Cobbler: ask once, get a fitted answer from the elves.",
+    "default_mode": "quick",
+    "default_backend": "native-subagents",
+    "normal_use_requires_external_provider": false,
+    "primary_invocation": {
+      "claude_code": "/cobbler <task>",
+      "codex": "$elves cobbler: <task>"
+    },
+    "compatibility_aliases": [
+      "/council",
+      "/ec",
+      "/elves-council",
+      "$elves council: <task>"
+    ],
+    "default_output_sections": [
+      "Recommendation",
+      "Why this fits",
+      "Strongest dissent",
+      "Risks",
+      "Next move",
+      "Confidence"
+    ]
+  },
+  "batches": [
+    {
+      "id": 1,
+      "name": "Cobbler Product Hierarchy",
+      "status": "pending"
+    },
+    {
+      "id": 2,
+      "name": "Claude Code Cobbler Alias",
+      "status": "pending"
+    },
+    {
+      "id": 3,
+      "name": "Codex Cobbler Invocation",
+      "status": "pending"
+    },
+    {
+      "id": 4,
+      "name": "Fitted Answer Synthesis",
+      "status": "pending"
+    },
+    {
+      "id": 5,
+      "name": "Consistency Checks and Release Hardening",
+      "status": "pending"
+    }
+  ],
+  "test_baseline": null,
+  "preflight": {
+    "status": "pending",
+    "notes": []
+  }
+}
