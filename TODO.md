@@ -51,8 +51,11 @@ For projects with APIs (REST, GraphQL, exported library interfaces), capture the
   run control, including the kickoff prompt template, overnight run report template, and durable
   `.ai-docs/*` surfaces.
 
-- [ ] Add a lightweight release checklist or helper that sweeps embedded version examples,
+- [x] Add a lightweight release checklist or helper that sweeps embedded version examples,
   changelog heading promotion, and newly added human-facing doc surfaces during a minor release.
+  `scripts/release_checklist.py` now checks release version alignment, warns or fails on
+  unpromoted changelog content depending on mode, verifies current-version examples, and reports
+  changed or newly added human-facing surfaces from a base ref.
 
 ## Follow-ups from v1.11.0
 

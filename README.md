@@ -592,6 +592,7 @@ elves/
 │   ├── verification-patterns.md          # Headless browser, video recording, state assertions
 │   └── open-ended-guide.md              # Open-ended mode patterns, QA/audit expansion rules
 ├── scripts/
+│   ├── release_checklist.py              # Release-readiness helper for version/changelog/doc sweeps
 │   ├── install_doctor.py                 # Update + installation-precedence advisory
 │   ├── preflight.sh                      # Pre-run checklist
 │   ├── notify.sh                         # Notification helper
@@ -832,7 +833,8 @@ slash-skill entry points.
 The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
 `references/`, and the runtime scripts `scripts/preflight.sh`, `scripts/notify.sh`,
 `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`. Repo-only maintenance
-helpers such as `scripts/check_repo_consistency.py` stay in the checkout.
+helpers such as `scripts/check_repo_consistency.py` and `scripts/release_checklist.py` stay in the
+checkout.
 
 Claude Code aliases are marker-gated. Elves creates or updates an alias skill only when it is
 missing or already contains the `elves-managed-alias` marker. If you already have your own
@@ -849,6 +851,21 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --doctor
 The install doctor reports the active version, published release, and any project-local installs
 that differ from the global copies. `scripts/preflight.sh` now runs it in startup mode
 automatically when the helper is present in the bundle.
+
+For maintainers preparing an Elves release, run the release checklist from a repo checkout:
+```bash
+python3 scripts/release_checklist.py
+```
+
+It checks that `SKILL.md`, `AGENTS.md`, and the latest changelog release heading agree, that the
+`Unreleased` changelog section has been promoted, and that current-version examples were bumped.
+The default changed-doc sweep compares committed changes against `origin/main`; commit your
+release-prep changes before relying on that part of the report. During a normal development PR, use
+`--allow-unreleased` to keep changelog entries as warnings while still getting the version and
+changed-doc surface sweep:
+```bash
+python3 scripts/release_checklist.py --allow-unreleased
+```
 
 ---
 
