@@ -7,8 +7,8 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-14 08:52 EDT
-- **Current phase:** Staging
+- **Last updated:** 2026-06-14 08:58 EDT
+- **Current phase:** Staging complete / launch-ready
 - **Active batch:** Batch 0: Staging
 - **Last completed batch:** none yet
 - **Next exact batch:** Batch 1: Release Skeleton And Council Concept

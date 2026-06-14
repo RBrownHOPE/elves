@@ -94,12 +94,11 @@ The run must update both canonical skill surfaces: `SKILL.md` for Claude-compati
 
 ## Current Phase
 
-- **Status:** staging, preflight in progress
+- **Status:** staging complete / launch-ready
 - **Active batch:** Batch 0: Staging
 - **What was just finished:** plan, survival guide, execution log, and `.elves-session.json` were
   initialized for v1.14.0 Elves Council.
-- **Single next action:** complete preflight, commit/push staging docs, open the PR, then hand the
-  user the launch prompt.
+- **Single next action:** hand the user the launch prompt; on launch, start Batch 1.
 
 ---
 
