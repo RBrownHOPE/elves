@@ -51,6 +51,7 @@
   the first OpenRouter Opus call returned empty content.
 
 **Acceptance evidence:**
+- Batch commit: `c43dc70668ff5e58a284546045ce55b2947810f7`
 - Full local validation passes on the current working tree.
 - Installed Claude and Codex copies were synced after runtime-skill edits and rechecked clean.
 - PR checks on the latest pushed Batch 4 head were green before this local Batch 5 commit; checks

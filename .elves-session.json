@@ -157,6 +157,7 @@
       "started_at": "2026-06-14T18:53:00-04:00",
       "completed_at": "2026-06-14T19:00:00-04:00",
       "rollback_tag": "elves/pre-batch-5-cobbler",
+      "commit": "c43dc70668ff5e58a284546045ce55b2947810f7",
       "validation": {
         "local": "pass",
         "unit_tests": {
