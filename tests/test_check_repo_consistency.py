@@ -315,6 +315,13 @@ Cobbler
         self.assertIn('"aliases/**"', phrases)
         self.assertIn("scripts/validate_survival_guide.py", phrases)
 
+    def test_workspace_isolation_guards_preflight_runtime_check(self) -> None:
+        phrases = self.consistency.WORKSPACE_ISOLATION_PHRASES["scripts/preflight.sh"]
+
+        self.assertIn("Workspace Ownership", phrases)
+        self.assertIn("git worktree list --porcelain", phrases)
+        self.assertIn("Current branch is checked out in one worktree", phrases)
+
     def test_public_wording_guardrails_catch_fable_framing(self) -> None:
         label = "README.md"
         stale = "Fable"

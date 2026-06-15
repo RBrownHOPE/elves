@@ -388,7 +388,7 @@ Before the user walks away, verify everything will work. This is part of staging
     ```bash
     git worktree add -b <branch> ../<repo>-<branch>   # then work inside that directory
     ```
-    Then record the branch tip as your collision tripwire: `git rev-parse HEAD`. If HEAD or the remote branch tip later moves to a commit you did not create, another writer is in your checkout — stop, treat it as a collision (see **Merge Conflicts**), and surface it to the user instead of committing on top.
+    The bundled `scripts/preflight.sh` inspects `git worktree list --porcelain` and fails if the current branch is checked out in more than one worktree. Then record the branch tip as your collision tripwire: `git rev-parse HEAD`. If HEAD or the remote branch tip later moves to a commit you did not create, another writer is in your checkout — stop, treat it as a collision (see **Merge Conflicts**), and surface it to the user instead of committing on top.
 
 If the survival guide already exists during staging, set `ELVES_SURVIVAL_GUIDE_PATH` to that file
 before running `./scripts/preflight.sh`. Preflight will run

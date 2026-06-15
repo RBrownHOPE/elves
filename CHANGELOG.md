@@ -4,6 +4,10 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+- `scripts/preflight.sh` now includes a Workspace Ownership check that inspects
+  `git worktree list --porcelain`, hard-fails when the current branch is checked out in more than
+  one worktree, and prints the branch-tip collision tripwire when the checkout is uniquely owned.
+
 ## [1.15.0] - 2026-06-14
 
 ### Cobbler

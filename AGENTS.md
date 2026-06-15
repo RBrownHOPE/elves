@@ -270,7 +270,7 @@ git worktree list
 START_TIP=$(git rev-parse HEAD); echo "Collision tripwire (branch tip at staging): $START_TIP"
 ```
 
-**Own your branch and checkout.** One run owns one branch and one checkout — never share a working tree or branch with another active agent (a teammate, another Elves run, or Claude running alongside Codex). When other agents may touch the same repo, stage in a dedicated git worktree (`git worktree add -b <branch> ../<repo>-<branch>`). `START_TIP` is your collision tripwire: if HEAD or the remote branch tip later moves to a commit you didn't create, another writer is in your checkout — stop and surface it (see **Merge Conflicts**).
+**Own your branch and checkout.** One run owns one branch and one checkout — never share a working tree or branch with another active agent (a teammate, another Elves run, or Claude running alongside Codex). When other agents may touch the same repo, stage in a dedicated git worktree (`git worktree add -b <branch> ../<repo>-<branch>`). The bundled `scripts/preflight.sh` inspects `git worktree list --porcelain` and fails if the current branch is checked out in more than one worktree. `START_TIP` is your collision tripwire: if HEAD or the remote branch tip later moves to a commit you didn't create, another writer is in your checkout — stop and surface it (see **Merge Conflicts**).
 
 If `scripts/install_doctor.py` exists beside the active skill bundle, run
 `python3 scripts/install_doctor.py --startup` once at the start of staging. If it reports a newer
