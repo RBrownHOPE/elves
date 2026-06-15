@@ -48,13 +48,15 @@ Aim to protect against accidental disclosure of:
   credentials;
 - `.env`, `.npmrc`, `.pypirc`, cloud credential files, and copied terminal output containing
   credentials;
-- secrets embedded in generated logs, screenshots OCR text, PR comments, or issue bodies.
+- secrets embedded in generated logs, extracted screenshot text, PR comments, or issue bodies.
 
 Do not try to solve:
 
 - malicious users intentionally asking the agent to reveal a secret;
 - secrets that a provider has already received before the layer runs;
 - perfect classification of every high-entropy string;
+- image pixels, screenshots, videos, and binary artifacts unless a tested OCR or text-extraction
+  step feeds text into the redactor;
 - organization-wide secret rotation or incident response.
 
 ## UX Goal
@@ -70,11 +72,13 @@ The layer should be boring and local:
 Example redaction:
 
 ```text
-OPENROUTER_API_KEY=[REDACTED:openrouter-api-key:sha256:8f14e45f]
+OPENROUTER_API_KEY=[REDACTED:openrouter-api-key:hmac-sha256:8f14e45f]
 ```
 
-The fingerprint is computed locally from the secret and truncated. It lets the agent recognize the
-same secret appearing twice without exposing the value.
+Fingerprints must use HMAC-SHA256 with a per-run random key generated at startup, kept in memory
+only, and never printed, persisted, or included in reports. The truncated fingerprint lets the agent
+recognize the same secret appearing twice within one redaction run without exposing a raw hash that
+can be used for offline guessing. Durable artifacts must not promise cross-run secret identity.
 
 ## Policy Levels
 
@@ -85,6 +89,11 @@ Use explicit policy levels instead of one vague "redact secrets" switch:
 - `redact`: replace detected secrets and continue. This should be the default.
 - `block`: fail when high-confidence secrets are detected in a destination that should never contain
   credentials, such as PR comments or committed run docs.
+
+`warn` and `off` are local scanner-diagnostics modes only. Reject them for provider-bound or
+persistent destinations such as `prompt_context`, `subagent_prompt`, `execution_log`, `pr_comment`,
+and `committed_docs`. Unknown destinations or scanner failures should fail closed without echoing the
+raw input.
 
 Policies can vary by destination:
 
@@ -137,13 +146,16 @@ values.
 Redaction should preserve enough shape for debugging without exposing the value:
 
 - keep the variable or header name;
-- replace the value with `[REDACTED:<kind>:sha256:<fingerprint>]`;
+- replace the value with `[REDACTED:<kind>:hmac-sha256:<fingerprint>]`;
 - preserve line counts so logs still map to source output;
 - never write raw secret values to scanner logs, JSON reports, PR comments, or exceptions;
-- store only counts, kinds, paths, line numbers, and fingerprints.
+- store only counts, kinds, paths, line numbers, and keyed fingerprints.
 
-When the same secret appears in multiple places, use the same fingerprint. When two different
-secrets have the same kind, fingerprints keep them distinguishable without revealing content.
+When the same secret appears in multiple places during one scan or session, use the same keyed
+fingerprint. When two different secrets have the same kind, fingerprints keep them distinguishable
+without revealing content. Do not use unsalted or unkeyed hashes for secret fingerprints. Cross-run
+secret identity is out of scope for the first implementation and would need a separate reviewed
+design because it requires persistent local key material.
 
 ## Proposed Interfaces
 
@@ -185,7 +197,11 @@ Future Elves docs can instruct agents:
 - before posting generated logs or summaries to a PR, scan in `block` mode;
 - before committing generated docs, scan changed files in `committed_docs` mode.
 
-This is weaker than true host-level interception, but it is still useful and honest.
+This repo-side helper mode only protects secondary disclosure into subagent prompts, PR comments,
+and committed docs when the agent explicitly routes context through it. It does not protect raw file
+reads, command output, screenshots, or host transcripts that have already reached the model. True
+pre-prompt protection requires a wrapper, MCP/tool proxy, or host hook before content reaches the
+model.
 
 ## Test Plan
 
@@ -199,12 +215,19 @@ Required cases:
 - URLs with embedded passwords are redacted without corrupting the rest of the URL;
 - repeated secrets get the same fingerprint;
 - different secrets get different fingerprints;
+- fingerprints use a session-unique HMAC key rather than an unsalted hash;
+- the HMAC key is not written to reports, logs, exceptions, or durable docs;
+- fingerprints differ across runs when the per-run HMAC key changes;
 - entropy-only strings produce warnings, not high-confidence blocks, unless paired with credential
   context;
 - allowlisted test fixtures pass without printing raw values;
+- allowlists reject raw secret-like values;
 - JSON reports contain no raw secrets;
 - `block` mode exits non-zero for PR/comment/committed-doc destinations with high-confidence
   secrets;
+- `warn` and `off` are rejected for provider-bound or persistent destinations;
+- scanner failures fail closed without echoing input;
+- stdout and stderr diagnostics never include raw secrets;
 - scanner exceptions do not include raw input text.
 
 ## Rollout
