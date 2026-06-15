@@ -2,90 +2,101 @@
 
 ![How Cobbler works](../assets/cobbler-infographic.png)
 
-Cobbler is the coordinator inside Elves. It is not a separate model. It is the part of the harness
-that decides how a request should be handled, which agents should help, what evidence matters, and
-what answer the user gets.
+Cobbler is the coordinator inside Elves. It is not a separate model, daemon, or runtime. It is how
+Elves decides what to do before it acts.
 
-Cobbler has two jobs. First, it keeps the user from managing agents by hand. Second, it keeps the
-answer from turning into a pile of role reports.
-
-## Inspiration and credit
-
-Cobbler was inspired by the harness engineering ideas in
-[Claude Fable 5](https://github.com/elder-plinius/CL4R1T4S/blob/main/ANTHROPIC/CLAUDE-FABLE-5.md),
-a system prompt extracted by Pliny the Prompter in the CL4R1T4S archive.
-
-The part Cobbler borrows is the coordination pattern: route a request through independent lenses,
-preserve dissent, and fit one answer back to the user. Cobbler does not copy Fable's model
-identity, persona, policy text, or safety guardrails.
+For simple requests, Cobbler answers directly. For uncertain work, it asks a few independent
+reviewers or workers for bounded input, weighs the evidence, keeps the strongest objection visible,
+and gives the user one recommendation. During full Elves runs, this happens inside the normal batch
+loop.
 
 ## The short version
 
-You ask once. Cobbler classifies the request, chooses a route, sends the right elves to inspect or
-work, weighs the evidence, keeps the strongest dissent visible, and returns one answer.
+You ask once. Cobbler classifies the request, checks what help is available, sends the right elves
+to inspect or work, weighs the evidence, and returns one answer.
 
 For a normal chat question, that answer is the result. For an active Elves run, Cobbler may also
 record the decision in the existing run memory.
 
-## The four routes
+## The handling paths
 
-Most requests fall into one of four routes.
+Cobbler has three handling paths and one sticky setting.
 
 1. Direct answer
 
    Cobbler answers directly when extra agents would add noise.
 
-2. Quick Cobbler
+2. One-off Cobbler
 
-   Quick Cobbler is for one-off advice. It is read-only and stateless. It can inspect files, docs,
-   tests, PR comments, or other evidence, but it does not edit files or update run state.
+   One-off Cobbler is read-only and stateless. It can inspect files, docs, tests, PR comments, or
+   other evidence, but it does not edit files or update run state. Internally, this is the same
+   behavior older docs call Quick Cobbler.
 
-3. Cobbler Mode
+3. Cobbler inside an Elves run
 
-   Cobbler Mode is a current-thread convention. It lets the user keep chatting with Cobbler without
-   typing the invocation each time. It does not create a branch, PR, survival guide, execution log,
-   Codex Goal, provider route, or config entry.
-
-4. Run Cobbler
-
-   Run Cobbler is the default coordination pattern inside an Elves run. The coordinator still owns
+   This is the default coordination pattern for staged and active Elves runs. The coordinator owns
    git, PRs, durable memory, and final synthesis. Worker agents may edit the repo when the active
    batch or user request gives them scoped implementation work.
 
-## The flow
+4. Cobbler Mode
+
+   Cobbler Mode is a current-thread setting. It lets the user keep chatting with Cobbler without
+   typing the invocation each time. It does not create a branch, PR, survival guide, execution log,
+   Codex Goal, provider route, or config entry.
+
+## The harness loop
+
+The Cobbler harness loop is the part borrowed from Fable-style harness engineering, adapted to
+Elves.
 
 1. Intent
 
-   The user asks a question or gives a run request.
+   Read the user's request and decide what kind of work it is: direct answer, one-off advice,
+   implementation, review, release, research, or an active Elves run decision.
 
-2. Classify
+2. Capability scan
 
-   Cobbler decides whether this is direct, Quick, Mode, or Run work.
+   Check what can actually help before answering: repo docs, run memory, available skills, host
+   subagents, tools, tests, PR checks, source material, and optional configured provider routes.
 
-3. Route
+3. Route and medium selection
 
-   Cobbler chooses roles, tools, skills, docs, tests, and sources. It uses host-native subagents
-   first when they are available.
+   Choose the handling path and the output medium. The medium may be an inline answer, a file edit,
+   a PR comment, an execution-log entry, a `.elves-session.json` update, an Elves Report, or another
+   user-visible artifact.
 
-4. Send the elves
+4. Context packet
 
-   Read-only lenses inspect independently. Worker agents edit only when the task is scoped as
-   implementation work.
+   Give every role the task, mode, scope, constraints, relevant files, run-state pointers, source
+   freshness needs, available tools or skills, and forbidden actions. Do not include secrets,
+   credentials, cookies, or tokens.
 
-5. Gather evidence
+5. Execute agents/tools/skills
 
-   The useful inputs are facts, tests, source material, changed files, risks, and dissent. Model
-   prestige does not settle disagreements.
+   Use direct analysis, host-native subagents, scoped worker agents, skills, tools, tests, source
+   checks, or optional configured provider routes. Read-only lenses stay read-only. Workers edit
+   only inside their assigned scope.
 
-6. Fit the answer
+6. Collect evidence
 
-   Cobbler returns one answer with the recommendation first. It includes why the answer fits, the
-   strongest dissent, the risks, the next move, and confidence.
+   Assemble facts, file references, command output, tests, PR comments, source links, changed files,
+   risks, and dissent. Separate retrieved evidence from inference.
 
-7. Answer or record
+7. Fit answer
 
-   Quick Cobbler answers the user and stops. Run Cobbler records material decisions in existing
-   Elves memory, such as the execution log, survival guide, or `.elves-session.json`.
+   Return one recommendation, not a pile of role reports. The default shape is Recommendation, Why
+   this fits, Strongest dissent, Risks, Next move, and Confidence.
+
+8. Present/record
+
+   Present the answer to the user. If the result changes an active Elves run, record only the
+   material decision in the existing run memory.
+
+9. Reclassify
+
+   If the evidence changes the task, route again. A one-off answer can become Run Cobbler. A review
+   can become implementation. A release can become a blocker. Cobbler should not force the first
+   route after new facts arrive.
 
 ## What the elves do
 
@@ -121,8 +132,10 @@ Cobbler Mode: on
 Cobbler Mode: off
 ```
 
-Compatibility aliases still work. Claude Code supports `/council`, `/ec`, and `/elves-council`.
-Codex supports `$elves council: <task>` and natural Council references. They all route to Cobbler.
+Codex does not get the Claude Code slash aliases. Use `$elves cobbler: ...` or ask naturally.
+
+Legacy Council aliases still work and now route to Cobbler. Claude Code supports `/council`, `/ec`,
+and `/elves-council`. Codex supports `$elves council: <task>` and natural Council references.
 
 ## Provider routing
 
@@ -142,5 +155,16 @@ one.
 
 Cobbler is not a separate ledger. Run decisions go into the normal Elves memory files.
 
-Cobbler is not a license for agents to edit everything. Quick Cobbler stays read-only. Run Cobbler
-allows worker edits only when the work is scoped.
+Cobbler is not a license for agents to edit everything. One-off Cobbler stays read-only. Cobbler
+inside an Elves run allows worker edits only when the work is scoped.
+
+## Inspiration and credit
+
+Cobbler was inspired by the harness engineering ideas in
+[Claude Fable 5](https://github.com/elder-plinius/CL4R1T4S/blob/main/ANTHROPIC/CLAUDE-FABLE-5.md),
+a system prompt extracted by Pliny the Prompter in the CL4R1T4S archive.
+
+The part Cobbler borrows is the coordination pattern: route a request through available
+capabilities, preserve dissent, assemble evidence, choose the right medium, and fit one answer back
+to the user. Cobbler does not copy Fable's model identity, persona, policy text, or safety
+guardrails.

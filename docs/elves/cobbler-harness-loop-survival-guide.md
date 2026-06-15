@@ -37,14 +37,14 @@ optional.
 - **Checkpoint expectation:** none
 - **Time budget:** until completion
 - **Average batch time so far:** N/A
-- **Batches remaining:** 3 of 3
+- **Batches remaining:** 2 of 3
 
 ## Stop Gate
 
-- **Planned batches remaining:** 3
+- **Planned batches remaining:** 2
 - **Stop allowed right now:** no
-- **Why:** the PR has not been implemented, merged, version-bumped, or released
-- **Next required action:** finish staging, open the PR, then run Batch 1
+- **Why:** operational prompts, guardrails, PR landing, and release work remain
+- **Next required action:** start Batch 2: Operational Prompts and Guardrails
 
 ## Effort Standard
 
@@ -121,21 +121,21 @@ redo completed work.
 - [x] Learnings file identified
 - [x] Execution log initialized with batch breakdown
 - [x] Branch created or confirmed
-- [ ] PR opened or existing PR recorded
-- [ ] Preflight run and critical failures cleared
+- [x] PR opened or existing PR recorded: #54
+- [x] Preflight run and critical failures cleared
 - [x] Run mode, stop policy, non-negotiables, and merge policy recorded
 - [x] Stop Gate initialized with `Stop allowed right now: no`
 - [x] Launch prompt prepared
 
 ## Current Phase
 
-**Status:** Staging
+**Status:** In progress
 
-**Active batch:** Batch 0: session setup
+**Active batch:** Batch 2: Operational Prompts and Guardrails
 
-**What was just finished:** Created the branch and drafted the run plan, survival guide, and session log.
+**What was just finished:** Batch 1 added the Cobbler harness loop to `docs/cobbler.md`, README, `SKILL.md`, `AGENTS.md`, and CHANGELOG.
 
-**Single next action:** Run preflight, commit staging docs, push, and open the PR.
+**Single next action:** Update workflow prompts, config examples, and consistency checks for the loop.
 
 ## Active Compute
 
@@ -143,16 +143,17 @@ redo completed work.
 
 ## Next Exact Batch
 
-After staging and PR creation, start Batch 1: Product Loop Wording.
+Start Batch 2: Operational Prompts and Guardrails.
 
-**Scope:** Add the named Cobbler harness loop to human-facing and agent-facing docs.
+**Scope:** Make the harness loop operational in reference prompts, config examples, and repo consistency checks.
 
-**Acceptance criteria:** `docs/cobbler.md`, `README.md`, `SKILL.md`, and `AGENTS.md` explain
-capability scan, route and medium selection, context packet, evidence collection, fitted answer,
-present/record behavior, and reclassification.
+**Acceptance criteria:** `references/council-workflow.md`, `references/council-prompts.md`,
+`config.json.example`, `scripts/check_repo_consistency.py`, and
+`tests/test_check_repo_consistency.py` cover capability scan, route and medium selection, context
+packet, execute agents/tools/skills, collect evidence, fit answer, present/record, and reclassify.
 
-**Risk:** The wording can become jargon or make Cobbler sound like a separate runtime. Keep it
-plain and Elves-native.
+**Risk:** Guardrails can become brittle or make Cobbler sound like a separate runtime. Pin the loop
+spine and dangerous invariants, not every explanatory sentence.
 
 ## Launch Prompt
 

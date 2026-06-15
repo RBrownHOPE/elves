@@ -1,18 +1,18 @@
 {
   "session_id": "elves-2026-06-15-cobbler-harness-loop",
   "version": "1.16.0",
-  "status": "staging",
+  "status": "in_progress",
   "branch": "codex/cobbler-harness-loop",
   "plan_path": "docs/plans/v1.17.0-cobbler-harness-loop.md",
   "survival_guide_path": "docs/elves/cobbler-harness-loop-survival-guide.md",
   "learnings_path": "docs/elves/learnings.md",
   "execution_log_path": "docs/elves/cobbler-harness-loop-execution-log.md",
-  "pr_number": null,
+  "pr_number": 54,
   "continuation_guard": {
-    "remaining_batches": 3,
+    "remaining_batches": 2,
     "stop_allowed": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Finish staging, open the PR, then run Batch 1"
+    "next_required_action": "Start Batch 2: Operational Prompts and Guardrails"
   },
   "test_baseline": {
     "passed": null,
@@ -22,9 +22,9 @@
     "reason": "baseline captured after staging preflight"
   },
   "current_batch": {
-    "id": 0,
-    "name": "Session setup",
-    "status": "in_progress"
+    "id": 2,
+    "name": "Operational Prompts and Guardrails",
+    "status": "pending"
   },
   "model_routes": [
     {
@@ -39,11 +39,11 @@
     {
       "id": 1,
       "name": "Product Loop Wording",
-      "status": "pending",
+      "status": "complete",
       "commit": null,
       "rollback_tag": null,
-      "started_at": null,
-      "completed_at": null
+      "started_at": "2026-06-15T22:18:00Z",
+      "completed_at": "2026-06-15T22:24:00Z"
     },
     {
       "id": 2,
