@@ -500,6 +500,13 @@ If neither `ELVES_SLACK_WEBHOOK` nor `ELVES_NOTIFY_CMD` is set, Elves falls back
 
 ## Configuration
 
+### Persistent preferences
+
+Copy [`config.json.example`](config.json.example) to `config.json` in your installed skill or
+project-local skill when you want defaults to persist across sessions. Put new Cobbler preferences
+under the top-level `cobbler` block. The legacy `council` block is compatibility for older projects;
+if both blocks are present, `cobbler` wins.
+
 ### Tool configuration
 
 Tool-specific configuration lives in the survival guide under `## Tool Configuration`. This keeps the agent's instructions with the session rather than scattered across environment variables.
