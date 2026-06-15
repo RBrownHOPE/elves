@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -32,12 +33,17 @@ class WorkspaceGuardTests(unittest.TestCase):
         cases = {
             "git status": ("read_only", False, False),
             "git commit -m test": ("local_mutation", True, False),
+            "git -C . commit -m test": ("local_mutation", True, False),
+            "git -c core.editor=true push": ("remote_mutation", True, True),
+            "git --work-tree=. status": ("read_only", False, False),
             "git push": ("remote_mutation", True, True),
             "git stash pop": ("local_mutation", True, False),
             "git stash show": ("read_only", False, False),
             "git worktree add ../x": ("local_mutation", True, False),
             "gh pr view 12": ("read_only", False, False),
             "gh pr merge 12 --merge": ("remote_mutation", True, True),
+            "gh -R owner/repo pr merge 12 --merge": ("remote_mutation", True, True),
+            "gh --repo=owner/repo pr checkout 12": ("local_mutation", True, False),
             "gh pr checkout 12": ("local_mutation", True, False),
         }
 
@@ -48,6 +54,13 @@ class WorkspaceGuardTests(unittest.TestCase):
                     (profile.category, profile.check_local, profile.check_remote),
                     expected,
                 )
+
+    def test_global_options_without_subcommands_are_read_only(self) -> None:
+        for command in ("git -C .", "gh -R owner/repo"):
+            with self.subTest(command=command):
+                profile = self.guard.classify_command(command)
+
+                self.assertEqual(profile.category, "read_only")
 
     def test_cli_overrides_can_clear_optional_tips(self) -> None:
         state = self.guard.GuardState(expected_remote_tip="remote-owned")
@@ -249,6 +262,23 @@ class WorkspaceGuardTests(unittest.TestCase):
 
             self.assertEqual(result, 2)
             self.assertIn("configuration warning", stderr.getvalue())
+
+    def test_load_session_state_wraps_unreadable_session_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_path = Path(tmpdir) / ".elves-session.json"
+            session_path.mkdir()
+
+            with self.assertRaises(self.guard.GuardConfigError) as context:
+                self.guard.load_session_state(session_path)
+
+            self.assertIn("cannot read session file", str(context.exception))
+
+    def test_run_git_wraps_missing_git_executable(self) -> None:
+        with mock.patch.object(self.guard.subprocess, "run", side_effect=FileNotFoundError):
+            with self.assertRaises(self.guard.GitInspectionError) as context:
+                self.guard.run_git(Path("."), ["status"])
+
+        self.assertIn("git executable not found", str(context.exception))
 
 
 if __name__ == "__main__":

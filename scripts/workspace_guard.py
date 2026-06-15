@@ -45,6 +45,17 @@ READ_ONLY_GIT_BRANCH_FLAGS = {"--show-current", "-a", "-r", "-v", "-vv", "--all"
 READ_ONLY_GIT_STASH_SUBCOMMANDS = {"list", "show"}
 MUTATING_GIT_STASH_SUBCOMMANDS = {"push", "pop", "apply", "clear", "drop", "branch", "store"}
 LOCAL_SHELL_MUTATIONS = {"rm", "mv"}
+GIT_GLOBAL_OPTIONS_WITH_VALUES = {
+    "-C",
+    "-c",
+    "--config-env",
+    "--exec-path",
+    "--git-dir",
+    "--namespace",
+    "--super-prefix",
+    "--work-tree",
+}
+GH_GLOBAL_OPTIONS_WITH_VALUES = {"-R", "--repo", "--hostname"}
 
 
 @dataclass
@@ -121,7 +132,34 @@ def classify_command(command: str) -> CommandProfile:
     return CommandProfile("unknown", reason="command is not in the protected command set")
 
 
+def strip_global_options(
+    args: list[str],
+    options_with_values: set[str],
+    attached_value_prefixes: tuple[str, ...] = (),
+) -> list[str]:
+    subcommand_index = 0
+    while subcommand_index < len(args):
+        arg = args[subcommand_index]
+        if arg == "--":
+            subcommand_index += 1
+            break
+        if not arg.startswith("-"):
+            break
+        if arg in options_with_values:
+            subcommand_index += 2
+            continue
+        if any(arg.startswith(f"{option}=") for option in options_with_values if option.startswith("--")):
+            subcommand_index += 1
+            continue
+        if any(arg.startswith(prefix) and arg != prefix for prefix in attached_value_prefixes):
+            subcommand_index += 1
+            continue
+        subcommand_index += 1
+    return args[subcommand_index:]
+
+
 def classify_git(args: list[str]) -> CommandProfile:
+    args = strip_global_options(args, GIT_GLOBAL_OPTIONS_WITH_VALUES, attached_value_prefixes=("-C", "-c"))
     if not args:
         return CommandProfile("read_only", reason="git with no subcommand")
 
@@ -154,6 +192,7 @@ def classify_git(args: list[str]) -> CommandProfile:
 
 
 def classify_gh(args: list[str]) -> CommandProfile:
+    args = strip_global_options(args, GH_GLOBAL_OPTIONS_WITH_VALUES, attached_value_prefixes=("-R",))
     if not args:
         return CommandProfile("read_only", reason="gh with no subcommand")
     if args[:2] in (["pr", "view"], ["pr", "checks"], ["pr", "status"]):
@@ -184,6 +223,8 @@ def load_session_state(session_path: Path) -> tuple[dict[str, Any], GuardState]:
         document = json.loads(session_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise GuardConfigError(f"invalid JSON in {session_path}: {exc}") from exc
+    except OSError as exc:
+        raise GuardConfigError(f"cannot read session file {session_path}: {exc}") from exc
     if not isinstance(document, dict):
         raise GuardConfigError(f"{session_path} must contain a JSON object")
 
@@ -225,15 +266,18 @@ def apply_overrides(state: GuardState, args: argparse.Namespace) -> GuardState:
 
 
 def run_git(repo_root: Path, args: list[str], allow_missing: bool = False) -> str | None:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=repo_root,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise GitInspectionError("git executable not found in PATH") from exc
     if result.returncode == 0:
         return result.stdout.strip() or None
     if allow_missing and result.returncode == 1:
@@ -360,16 +404,10 @@ def record_local_head(session_path: Path, snapshot: GitSnapshot) -> list[str]:
     updates: dict[str, Any] = {"allowed_head_tip": snapshot.head}
     if snapshot.branch:
         updates["branch"] = snapshot.branch
-    document, state = load_session_state(session_path)
+    _, state = load_session_state(session_path)
     if not state.start_tip:
         updates["start_tip"] = snapshot.head
-    guard = document.setdefault("workspace_guard", {})
-    if not isinstance(guard, dict):
-        raise GuardConfigError("workspace_guard must be a JSON object")
-    guard.update(updates)
-    guard.setdefault("enabled", True)
-    guard.setdefault("mode", "advisory")
-    session_path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    update_workspace_guard(session_path, updates)
     return [f"recorded allowed_head_tip={snapshot.head}"]
 
 
