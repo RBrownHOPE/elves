@@ -134,6 +134,20 @@ class SyncInstalledSkillsTests(unittest.TestCase):
             self.assertEqual(problems, [])
             self.assertFalse((home / ".claude" / "skills" / "cobbler").exists())
 
+    def test_apply_removes_repo_only_release_helper_from_installed_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _, home = self.configure_temp_repo(tmpdir)
+            installed_helper = (
+                home / ".codex" / "skills" / "elves" / "scripts" / "release_checklist.py"
+            )
+            installed_helper.parent.mkdir(parents=True)
+            installed_helper.write_text("stale repo-only helper\n")
+
+            problems = self.sync.apply_target("codex")
+
+            self.assertEqual(problems, [])
+            self.assertFalse(installed_helper.exists())
+
     def test_check_all_without_installed_targets_is_advisory_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             self.configure_temp_repo(tmpdir)

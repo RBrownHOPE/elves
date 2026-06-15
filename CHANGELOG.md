@@ -4,6 +4,11 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+- Added `scripts/release_checklist.py`, a read-only maintainer helper for release sweeps covering
+  version alignment, changelog promotion, current-version examples, and changed human-facing docs.
+- Added tests, README usage notes, TODO closure, and CI compilation coverage for the release
+  checklist helper.
+
 ## [1.15.0] - 2026-06-14
 
 ### Cobbler
