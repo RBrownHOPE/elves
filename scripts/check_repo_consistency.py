@@ -512,7 +512,7 @@ PUBLIC_API_SURFACE_SNAPSHOT_PHRASES = {
         "A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide.",
         "`required: true` is valid only when explicitly set by the user or project survival guide.",
         "Do not infer required mode from project type, provider config, framework choice, or the presence of API files.",
-        "Snapshot artifacts are run artifacts, not product docs.",
+        "Snapshot artifacts are run artifacts, not product docs",
         "Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly",
         "Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data.",
         "A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.",
