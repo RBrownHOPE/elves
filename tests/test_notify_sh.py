@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,14 +34,26 @@ class NotifyScriptTests(unittest.TestCase):
         for key in list(env):
             if key.startswith("ELVES_"):
                 env.pop(key)
+        path_entries = [str(self.bin_dir)]
+        existing_path = env.get("PATH")
+        if existing_path:
+            path_entries.append(existing_path)
         env.update(
             {
-                "PATH": f"{self.bin_dir}:{env.get('PATH', '')}",
+                "PATH": os.pathsep.join(path_entries),
                 "TMPDIR": str(self.root),
             }
         )
         env.update(overrides)
         return env
+
+    def test_env_path_uses_path_separator_without_empty_segments(self) -> None:
+        with mock.patch.dict(os.environ, {"PATH": ""}, clear=False):
+            env = self.env()
+
+        self.assertEqual(env["PATH"], str(self.bin_dir))
+        self.assertNotIn(f"{os.pathsep}{os.pathsep}", env["PATH"])
+        self.assertFalse(env["PATH"].endswith(os.pathsep))
 
     def run_notify(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
