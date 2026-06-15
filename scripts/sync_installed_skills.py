@@ -33,6 +33,7 @@ RUNTIME_SCRIPT_PATHS = [
 REPO_ONLY_SCRIPT_PATHS = [
     "scripts/check_repo_consistency.py",
     "scripts/release_checklist.py",
+    "scripts/pr_portfolio_report.py",
     "scripts/sync_installed_skills.py",
 ]
 CLAUDE_ALIAS_MARKER = "<!-- elves-managed-alias: claude-skill-alias v1 -->"
