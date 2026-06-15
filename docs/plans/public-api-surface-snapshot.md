@@ -53,6 +53,14 @@ Prefer existing structured sources before inventing scanners:
 - CLI `--help` output for command surfaces.
 - Existing docs only as a fallback when they are known to be authoritative.
 
+Snapshot sources should be local/offline or explicitly non-production. Normalize and redact before
+writing artifacts: record shapes, field names, requiredness, command names, and route metadata, not
+example values, bearer tokens, cookies, tenant data, private URLs, or customer payloads.
+
+Auto-detection should have a tight budget. Check configured snapshot commands and obvious
+structured files such as OpenAPI, GraphQL SDL, package exports, and CLI help. If those are not
+found quickly, record `unavailable` and continue instead of crawling the whole repo.
+
 If no reliable source exists, record `api_surface_snapshot.status: unavailable` with the reason
 instead of fabricating an unreliable snapshot.
 
@@ -62,9 +70,9 @@ instead of fabricating an unreliable snapshot.
 api-surface-snapshot:
   enabled: auto
   required: false
-  baseline-path: docs/elves/api-surface-baseline.json
-  current-path: docs/elves/api-surface-current.json
-  diff-path: docs/elves/api-surface-diff.md
+  baseline-path: .elves/api-surface/baseline.json
+  current-path: .elves/api-surface/current.json
+  diff-path: .elves/api-surface/diff.md
   surfaces:
     rest: auto
     graphql: auto
@@ -79,9 +87,30 @@ api-surface-snapshot:
     unavailable-source: warning
 ```
 
-The paths above are run artifacts by default, not product docs. Final Completion should remove or
-archive them with the rest of Elves session infrastructure unless the user explicitly wants a
-durable API report.
+The paths above are run artifacts by default, not product docs. Future implementation should add
+the artifact directory to `.gitignore` during staging or preflight, and Final Completion should
+remove or archive artifacts with the rest of Elves session infrastructure unless the user
+explicitly wants a durable API report.
+
+### State Matrix
+
+| enabled | required | source/result | status | severity |
+|---------|----------|---------------|--------|----------|
+| `false` | `false` | any | `not_applicable` | none |
+| `false` | `true` | any | `invalid_config` | BLOCKING during staging |
+| `auto` | `false` | no credible source | `unavailable` | WARNING, continue |
+| `auto` | `true` | no credible source | `required_failed` | BLOCKING |
+| `true` | `false` | no credible source | `unavailable` | WARNING, continue |
+| `true` | `true` | no credible source | `required_failed` | BLOCKING |
+| `auto` or `true` | `false` | baseline captured, current unavailable | `unavailable` | WARNING, continue with lower confidence |
+| `auto` or `true` | `true` | baseline captured, current unavailable | `required_failed` | BLOCKING |
+| `auto` or `true` | any | additive diff | `changed` | INFO unless plan says otherwise |
+| `auto` or `true` | any | planned breaking diff | `changed` | WARNING or planned work, with plan/execution-log note |
+| `auto` or `true` | any | unexpected breaking diff | `changed` | BLOCKING |
+
+`required: true` is valid only when `enabled` is `auto` or `true`, and only when the user explicitly
+sets it in the survival guide. Do not infer required mode from project type, provider config,
+framework choice, or the presence of API files.
 
 ## Scope
 
@@ -120,7 +149,10 @@ durable API report.
 - [ ] Users can see where to opt in, opt out, or require the API snapshot.
 - [ ] `enabled: auto` does not block repos with no detectable public API.
 - [ ] `required: true` is treated as an explicit per-project opt-in from the survival guide.
+- [ ] `enabled: false` plus `required: true` is documented as invalid staging config.
 - [ ] Snapshot artifacts are described as run artifacts, not default product docs.
+- [ ] The run artifact directory is added to `.gitignore` or otherwise excluded from final product
+      diffs.
 
 **Docs likely touched:**
 - `SKILL.md`
@@ -145,6 +177,8 @@ projects that do not need them. Keep auto-detection advisory unless the user req
 - [ ] The format records source command, timestamp, project root, and tool version when available.
 - [ ] The schema avoids secrets, sample payload values, customer data, and environment-specific
       private URLs.
+- [ ] Source selection uses local/offline or explicitly non-production inputs and redacts before
+      writing artifacts.
 
 **Docs likely touched:**
 - `references/tool-config-examples.md`
@@ -171,6 +205,8 @@ The schema should record shapes and field names, not production data.
 - [ ] API diffs become evidence in the existing regression attestation rather than a separate
       review ceremony.
 - [ ] Intentional public contract changes must be named in the plan or execution log.
+- [ ] There is no separate API snapshot ceremony: the API surface delta belongs inside the existing
+      execution-log `Regression attestation`.
 
 **Docs likely touched:**
 - `references/review-subagent.md`
@@ -186,8 +222,10 @@ it proves surface shape only, not correctness.
 **Tasks:**
 - [ ] Add a boring helper only after the contract is documented, likely
       `scripts/api_surface_snapshot.py`.
-- [ ] Implement source adapters incrementally: start with user-supplied commands and existing
-      OpenAPI/GraphQL/schema files before framework-specific discovery.
+- [ ] Implement the first helper scope with configured command/file inputs plus normalized diff
+      classification.
+- [ ] Defer framework-specific discovery and extra surface adapters until a concrete project needs
+      them.
 - [ ] Add tests for artifact shape, diff classification, secret redaction boundaries, unavailable
       source behavior, and required-mode failures.
 - [ ] Add consistency checks for the new guidance if the public docs mention it.
@@ -207,6 +245,8 @@ it proves surface shape only, not correctness.
 - `tests/test_api_surface_snapshot.py`
 - `scripts/check_repo_consistency.py`
 - `tests/test_check_repo_consistency.py`
+- `SKILL.md`
+- `AGENTS.md`
 
 **Risk:** Framework-specific detection can balloon quickly. Start with explicit commands and
 structured spec files; defer clever discovery until there is a concrete project need.
@@ -215,6 +255,7 @@ structured spec files; defer clever discovery until there is a concrete project 
 
 - Public API snapshots are optional by default and required only by explicit project/run config.
 - A missing snapshot source is a warning in auto mode, not a blocker.
+- `enabled: false` with `required: true` is invalid staging config.
 - Snapshot artifacts must not leak secrets, credentials, cookies, bearer tokens, customer data, or
   production sample payloads.
 - The snapshot is evidence for regression review, not a substitute for tests, E2E checks, or the
@@ -236,9 +277,9 @@ structured spec files; defer clever discovery until there is a concrete project 
 ## Future Implementation Notes
 
 - Store run snapshots under the active Elves session artifact area by default, not in durable
-  product docs.
+  product docs. Ensure that artifact path is ignored or removed before final readiness.
 - Record `api_surface_snapshot` status in `.elves-session.json`: `not_applicable`, `captured`,
-  `changed`, `unavailable`, or `required_failed`.
+  `changed`, `unavailable`, `invalid_config`, or `required_failed`.
 - In auto mode, only run after batches whose blast radius mentions API-adjacent files or when the
   diff touches known route/schema/export/config surfaces.
 - Use explicit user commands when available, for example `npm run openapi:json`, `pnpm graphql:sdl`,
