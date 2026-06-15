@@ -34,8 +34,8 @@ class SyncInstalledSkillsTests(unittest.TestCase):
         home = root / "home"
         repo.mkdir()
 
-        (repo / "SKILL.md").write_text('---\nversion: "1.16.0"\n---\n')
-        (repo / "AGENTS.md").write_text('---\nversion: "1.16.0"\n---\n')
+        (repo / "SKILL.md").write_text('---\nversion: "1.17.0"\n---\n')
+        (repo / "AGENTS.md").write_text('---\nversion: "1.17.0"\n---\n')
         (repo / "config.json.example").write_text('{"cobbler": {"enabled": true}}\n')
         (repo / "references").mkdir()
         (repo / "references" / "guide.md").write_text("guide\n")
