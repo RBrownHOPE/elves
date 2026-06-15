@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 
@@ -314,6 +316,65 @@ Cobbler
         self.assertIn('"config.json.example"', phrases)
         self.assertIn('"aliases/**"', phrases)
         self.assertIn("scripts/validate_survival_guide.py", phrases)
+
+    def test_repo_consistency_workflow_requires_node24_action_majors(self) -> None:
+        label = ".github/workflows/repo-consistency.yml"
+        phrases = self.consistency.REPO_CONSISTENCY_WORKFLOW_PHRASES[label]
+        forbidden = self.consistency.REPO_CONSISTENCY_WORKFLOW_FORBIDDEN_PHRASES[label]
+
+        self.assertIn("actions/checkout@v6", phrases)
+        self.assertIn("actions/setup-python@v6", phrases)
+        self.assertIn("actions/checkout@v4", forbidden)
+        self.assertIn("actions/setup-python@v5", forbidden)
+
+    def test_repo_consistency_workflow_rejects_stale_node20_action_majors(self) -> None:
+        label = ".github/workflows/repo-consistency.yml"
+        stale = "actions/setup-python@v5"
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.REPO_CONSISTENCY_WORKFLOW_FORBIDDEN_PHRASES,
+            "repo-consistency workflow",
+        )
+
+        self.assertEqual(
+            errors,
+            [f"{label}: stale repo-consistency workflow phrase `{stale}`"],
+        )
+
+    def test_main_rejects_stale_repo_consistency_workflow_action_majors(self) -> None:
+        label = ".github/workflows/repo-consistency.yml"
+        workflow_path = self.consistency.REPO_ROOT / label
+        original_read_text = self.consistency.read_text
+
+        def fake_read_text(path: Path) -> str:
+            text = original_read_text(path)
+            if path == workflow_path:
+                return (
+                    text
+                    + "\n# stale examples for regression coverage\n"
+                    + "# actions/checkout@v4\n"
+                    + "# actions/setup-python@v5\n"
+                )
+            return text
+
+        self.consistency.read_text = fake_read_text
+        output = io.StringIO()
+        try:
+            with redirect_stdout(output):
+                exit_code = self.consistency.main()
+        finally:
+            self.consistency.read_text = original_read_text
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(
+            f"{label}: stale repo-consistency workflow phrase `actions/checkout@v4`",
+            output.getvalue(),
+        )
+        self.assertIn(
+            f"{label}: stale repo-consistency workflow phrase `actions/setup-python@v5`",
+            output.getvalue(),
+        )
 
     def test_public_wording_guardrails_catch_fable_framing(self) -> None:
         label = "README.md"
