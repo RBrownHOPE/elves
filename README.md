@@ -614,11 +614,13 @@ elves/
 │   ├── verification-patterns.md          # Headless browser, video recording, state assertions
 │   └── open-ended-guide.md              # Open-ended mode patterns, QA/audit expansion rules
 ├── scripts/
+│   ├── check_repo_consistency.py         # Repo-only cross-file drift checker
 │   ├── release_checklist.py              # Release-readiness helper for version/changelog/doc sweeps
 │   ├── install_doctor.py                 # Update + installation-precedence advisory
 │   ├── preflight.sh                      # Pre-run checklist
 │   ├── notify.sh                         # Notification helper
 │   ├── pr_portfolio_report.py            # Repo-only PR health sweep helper
+│   ├── sync_installed_skills.py          # Local Claude/Codex install sync helper
 │   ├── validate_survival_guide.py        # Advisory survival-guide completeness check
 │   └── workspace_guard.py                # Optional workspace owned-tip guard prototype
 └── .github/
