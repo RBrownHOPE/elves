@@ -61,9 +61,11 @@
     "quick_read_only": true,
     "quick_stateless": true,
     "run_logging": "existing-elves-memory",
+    "model_routing_policy": "native-first",
     "provider_backed_council": {
       "enabled": false,
       "provider_policy": "optional-external-providers",
+      "fallback": "native-subagent-and-note",
       "required_env": [],
       "optional_env": [
         "OPENROUTER_API_KEY",
@@ -73,15 +75,21 @@
         "OPENAI_API_KEY"
       ],
       "role_models": {
+        "default": "native-subagent",
         "architect": "native-subagent",
         "skeptic": "native-subagent",
         "implementation_analyst": "native-subagent",
         "tester": "native-subagent",
-        "maintainer": "native-subagent",
-        "domain_scout": "native-subagent"
+        "synthesis": "native-coordinator"
+      },
+      "external_route_example": "openrouter:<model-id>",
+      "role_effort": {
+        "architect": "high",
+        "skeptic": "high",
+        "tester": "medium"
       }
     },
-    "_comment": "Optional Cobbler configuration. Quick Cobbler uses native subagents and requires no external provider key. Provider-backed council is opt-in; do not hardcode private keys."
+    "_comment": "Optional Cobbler configuration. Quick Cobbler uses native subagents and requires no external provider key. Provider-backed council and role model routing are opt-in; do not hardcode private keys."
   },
 
   "council": {

@@ -67,6 +67,12 @@ say what was unavailable.
 
 See [`council-provider-config.md`](council-provider-config.md) for optional provider setup.
 
+Optional model routing is role-scoped. A configured route such as `openrouter:<model-id>` is a hint
+for one lens, not a new Cobbler mode and not proof that the routed model is right. If a configured
+route cannot run, fall back to native subagents or direct read-only analysis and mention the
+fallback in the fitted answer. During synthesis, resolve disagreement by evidence, repo facts,
+tests, sources, and user constraints rather than model prestige.
+
 ## Coordinator Flow
 
 ```text

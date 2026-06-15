@@ -176,6 +176,9 @@ class ConsistencyPhraseTests(unittest.TestCase):
         self.assertIn('"cobbler"', phrases)
         self.assertIn('"default_answer_shape"', phrases)
         self.assertIn('"provider_backed_council"', phrases)
+        self.assertIn('"model_routing_policy": "native-first"', phrases)
+        self.assertIn('"fallback": "native-subagent-and-note"', phrases)
+        self.assertIn('"external_route_example": "openrouter:<model-id>"', phrases)
         self.assertIn('"compatibility_for": "cobbler"', phrases)
         self.assertIn('"precedence": "cobbler"', phrases)
 

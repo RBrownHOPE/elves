@@ -471,6 +471,8 @@ cobbler-max-role-count: 5
 cobbler-quick-read-only: true
 cobbler-quick-stateless: true
 cobbler-run-logging: existing-elves-memory
+cobbler-model-routing-policy: native-first
+cobbler-provider-backed-fallback: native-subagent-and-note
 
 # Optional provider-backed council diversity. Keep disabled unless the user opts in.
 cobbler-provider-backed-enabled: false
@@ -482,6 +484,24 @@ cobbler-provider-backed-optional-env:
   - ANTHROPIC_API_KEY
   - XAI_API_KEY
   - OPENAI_API_KEY
+cobbler-provider-backed-role-models:
+  default: native-subagent
+  architect: native-subagent
+  skeptic: native-subagent
+  implementation_analyst: native-subagent
+  tester: native-subagent
+  synthesis: native-coordinator
+cobbler-provider-backed-role-effort:
+  architect: high
+  skeptic: high
+  tester: medium
+
+# Optional effort values are hints only: low, medium, high, or xhigh when the backend supports them.
+#
+# Example external route when provider-backed council is explicitly enabled:
+# cobbler-provider-backed-role-models:
+#   skeptic: "openrouter:<model-id>"
+#   fast_sanity: "openrouter:<fast-model-id>"
 ```
 
 Legacy `council-*` config keys remain compatibility aliases for existing `v1.14.0` setups.

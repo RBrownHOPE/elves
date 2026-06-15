@@ -113,6 +113,13 @@ diversity, but normal Cobbler, `/council`, `/ec`, and `/elves-council` use must 
 OpenRouter or any external provider key. Cobbler borrows the useful harness pattern of role-specific
 reports plus synthesis; it does not copy vendor identity, policy, persona, or safety framing.
 
+Optional model routing is role-scoped, not a new user mode. The default route is always the host's
+native subagent or direct read-only analysis. If a survival guide or config maps a Cobbler role to a
+provider model such as `openrouter:<model-id>`, use it only when provider-backed council is enabled
+and the named environment variable is present; otherwise fall back to native and note the fallback in
+the answer. Treat model diversity as another source of evidence, not authority: resolve dissent by
+repo facts, tests, sources, and user constraints rather than by model prestige.
+
 ## Strategic Forgetting
 
 Durable memory must stay curated. Giant chats, append-only scratchpads, and huge logs are drag, not
