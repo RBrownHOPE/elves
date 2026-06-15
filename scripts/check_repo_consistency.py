@@ -823,7 +823,7 @@ FULL_RUN_MODEL_ROUTING_PHRASES = {
     "references/council-provider-config.md": [
         "## Full-Run Phase Routes",
         "Provider-backed council slots may satisfy read-only full-run model-routing phases",
-        "make implementation provider-backed by default",
+        "Do not make implementation provider-backed by default",
         "route, actual route, and fallback reason",
     ],
     "config.json.example": [
@@ -867,6 +867,7 @@ FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS = {
         r"\bfull-run\s+model\s+routing\s+requires\s+(?:an\s+)?external\s+provider\s+key\b",
         r"\bmodel-routing\s+requires\s+openrouter\b",
         r"\brequired:\s*true\s+is\s+(?:the\s+)?default\b",
+        r"(?<!do not )\bmake\s+implementation\s+provider-backed\s+by\s+default\b",
     ]
     for label in FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES
 }

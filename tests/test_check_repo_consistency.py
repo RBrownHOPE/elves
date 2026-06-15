@@ -356,6 +356,38 @@ Cobbler
             ],
         )
 
+    def test_full_run_model_routing_forbidden_patterns_allow_negated_provider_default(self) -> None:
+        label = "references/council-provider-config.md"
+        text = "Do not make implementation provider-backed by default."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS,
+            "full-run model routing",
+        )
+
+        self.assertEqual(errors, [])
+
+    def test_full_run_model_routing_forbidden_patterns_catch_positive_provider_default(self) -> None:
+        label = "references/council-provider-config.md"
+        text = "Users can make implementation provider-backed by default."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS,
+            "full-run model routing",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "references/council-provider-config.md: stale full-run model routing pattern "
+                    "`(?<!do not )\\bmake\\s+implementation\\s+provider-backed\\s+by\\s+default\\b`"
+                )
+            ],
+        )
+
     def test_math_workflow_remains_allowed_to_be_openrouter_first(self) -> None:
         label = "references/math-provider-config.md"
 

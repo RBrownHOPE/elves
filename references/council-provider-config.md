@@ -73,9 +73,9 @@ depend on that setting.
 ## Full-Run Phase Routes
 
 Provider-backed council slots may satisfy read-only full-run model-routing phases such as review,
-scout, or synthesize when the user has enabled providers and the context is safe to share. Do not
-make implementation provider-backed by default. Implementation and validation mutate or inspect the
-local checkout, so they stay host-native unless the survival guide explicitly opts into a
+scout, or synthesize when the user has enabled providers and the context is safe to share.
+Do not make implementation provider-backed by default. Implementation and validation mutate or
+inspect the local checkout, so they stay host-native unless the survival guide explicitly opts into a
 write-capable external workflow with branch/worktree isolation, no secret exposure, patch/report
 handoff, and mandatory native validation plus review.
 
