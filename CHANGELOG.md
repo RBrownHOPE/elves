@@ -4,6 +4,9 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+- Added `scripts/pr_portfolio_report.py`, a read-only repo helper for summarizing PR stack health
+  across merge state, pending/failing checks, and unresolved review threads.
+
 ## [1.15.0] - 2026-06-14
 
 ### Cobbler

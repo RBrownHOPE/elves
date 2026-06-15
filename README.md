@@ -595,6 +595,7 @@ elves/
 │   ├── install_doctor.py                 # Update + installation-precedence advisory
 │   ├── preflight.sh                      # Pre-run checklist
 │   ├── notify.sh                         # Notification helper
+│   ├── pr_portfolio_report.py            # Repo-only PR health sweep helper
 │   └── validate_survival_guide.py        # Advisory survival-guide completeness check
 └── .github/
     └── ISSUE_TEMPLATE/                   # Bug report, feature request, overnight run report
@@ -832,7 +833,15 @@ slash-skill entry points.
 The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
 `references/`, and the runtime scripts `scripts/preflight.sh`, `scripts/notify.sh`,
 `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`. Repo-only maintenance
-helpers such as `scripts/check_repo_consistency.py` stay in the checkout.
+helpers such as `scripts/check_repo_consistency.py` and `scripts/pr_portfolio_report.py` stay in
+the checkout.
+
+For local PR-stack sweeps, use the repo-only helper:
+
+```bash
+python3 scripts/pr_portfolio_report.py
+python3 scripts/pr_portfolio_report.py --prs 29-43 --fail-on-attention
+```
 
 Claude Code aliases are marker-gated. Elves creates or updates an alias skill only when it is
 missing or already contains the `elves-managed-alias` marker. If you already have your own
