@@ -766,6 +766,7 @@ FULL_RUN_MODEL_ROUTING_PHRASES = {
         "`model-routing` phase preferences",
         "native-first by default",
         "requested route, actual route, and material fallback reason",
+        "`requested_route`, `actual_route`, and `fallback_reason`",
         "Missing optional provider access",
         "`required: true`",
     ],
@@ -774,6 +775,8 @@ FULL_RUN_MODEL_ROUTING_PHRASES = {
         "`model-routing` phase preferences",
         "native-first by default",
         "requested route, actual route, and material fallback reason",
+        "`model_routes` array",
+        "`phase`, `requested_route`, `actual_route`, `fallback_reason`",
         "Missing optional provider access",
         "`required: true`",
     ],
@@ -790,7 +793,7 @@ FULL_RUN_MODEL_ROUTING_PHRASES = {
         "policy: native-first",
         "fallback: host-native",
         "implement-model: strongest-host-native",
-        "requested-route: review independent-lens",
+        "JSON keys: requested_route, actual_route, fallback_reason",
     ],
     "references/execution-log-template.md": [
         "**Phase routing (optional):**",
@@ -1172,8 +1175,7 @@ def main() -> int:
 
     full_run_routing_texts = {
         label: read_text(REPO_ROOT / label)
-        for label in set(FULL_RUN_MODEL_ROUTING_PHRASES)
-        | set(FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES)
+        for label in FULL_RUN_MODEL_ROUTING_PHRASES
     }
     errors.extend(
         find_missing_phrases(

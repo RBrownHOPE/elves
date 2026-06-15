@@ -529,9 +529,8 @@ scout-model: broad-fast-lens
 synthesize-model: coordinator
 
 # Record only material route changes in the execution log or `.elves-session.json`:
-# requested-route: review independent-lens
-# actual-route: native-subagent
-# fallback-reason: provider-backed council unavailable; native-first fallback used
+# Execution Log: Requested route / Actual route / Fallback reason
+# JSON keys: requested_route, actual_route, fallback_reason
 ```
 
 ---

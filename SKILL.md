@@ -1275,6 +1275,15 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
     "name": "Auth endpoints",
     "status": "in_progress"
   },
+  "model_routes": [
+    {
+      "batch": 2,
+      "phase": "review",
+      "requested_route": "independent-lens",
+      "actual_route": "native-subagent",
+      "fallback_reason": "Provider-backed council unavailable; native-first fallback used"
+    }
+  ],
   "batches": [
     {
       "id": 1,
@@ -1331,6 +1340,10 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
 ```
 
 The `review_comments` array is the compaction-safe record of every comment handled during the session. After compaction, it tells the next context exactly which comments have been dealt with and how — no need to re-read and re-evaluate hundreds of bot comments.
+
+The optional `model_routes` array records material full-run routing changes only. Use snake_case
+JSON keys: `requested_route`, `actual_route`, and `fallback_reason`. Omit it when routing matches
+the native-first default and does not change risk or confidence.
 
 The `continuation_guard` is the compaction-safe answer to "am I allowed to stop?" While work remains, `stop_allowed` should normally be `false`. Set it to `true` only when the recorded stop conditions are actually met.
 
