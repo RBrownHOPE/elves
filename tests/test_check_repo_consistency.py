@@ -355,7 +355,9 @@ Cobbler
         self.assertIn('"config.json.example"', phrases)
         self.assertIn('".github/ISSUE_TEMPLATE/**"', phrases)
         self.assertIn('"aliases/**"', phrases)
+        self.assertIn("scripts/pr_portfolio_report.py", phrases)
         self.assertIn("scripts/validate_survival_guide.py", phrases)
+        self.assertIn("scripts/workspace_guard.py", phrases)
 
     def test_repo_consistency_workflow_requires_node24_action_majors(self) -> None:
         label = ".github/workflows/repo-consistency.yml"
