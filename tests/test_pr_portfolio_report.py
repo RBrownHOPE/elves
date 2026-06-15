@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -218,6 +219,31 @@ class PrPortfolioReportTests(unittest.TestCase):
 
         self.assertEqual(result, 2)
         self.assertIn("error: repository must be owner/name", stderr.getvalue())
+
+    def test_gh_json_reports_called_process_errors_cleanly(self) -> None:
+        failure = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["gh", "pr", "view"],
+            stderr="authentication required",
+        )
+
+        with mock.patch.object(self.portfolio.subprocess, "check_output", side_effect=failure):
+            with self.assertRaisesRegex(RuntimeError, "authentication required"):
+                self.portfolio.gh_json(["pr", "view"])
+
+    def test_gh_json_reports_missing_gh_cleanly(self) -> None:
+        with mock.patch.object(
+            self.portfolio.subprocess,
+            "check_output",
+            side_effect=FileNotFoundError("gh"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "GitHub CLI `gh` is not installed"):
+                self.portfolio.gh_json(["pr", "view"])
+
+    def test_gh_json_reports_invalid_json_cleanly(self) -> None:
+        with mock.patch.object(self.portfolio.subprocess, "check_output", return_value="not json"):
+            with self.assertRaisesRegex(RuntimeError, "returned invalid JSON"):
+                self.portfolio.gh_json(["pr", "view"])
 
     def test_format_table_includes_branch_and_counts(self) -> None:
         row = self.portfolio.PortfolioRow(
