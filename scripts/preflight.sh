@@ -452,6 +452,7 @@ else
     declare -a MATCHING_WORKTREES=()
     WORKTREE_PATH=""
     while IFS= read -r LINE; do
+      LINE="${LINE%$'\r'}"
       case "${LINE}" in
         worktree\ *)
           WORKTREE_PATH="${LINE#worktree }"
@@ -475,7 +476,11 @@ else
     else
       fail "Current branch ${CURRENT_BRANCH} is checked out in ${MATCHING_COUNT} worktrees"
       for PATH_IN_USE in "${MATCHING_WORKTREES[@]}"; do
-        info "Branch checkout: ${PATH_IN_USE}"
+        if [ "${PATH_IN_USE}" = "${CURRENT_WORKTREE}" ]; then
+          info "Branch checkout: ${PATH_IN_USE} (current checkout)"
+        else
+          info "Branch checkout: ${PATH_IN_USE}"
+        fi
       done
       info "Use one owned branch and checkout per Elves run before launching"
     fi

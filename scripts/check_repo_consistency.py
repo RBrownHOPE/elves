@@ -318,6 +318,7 @@ WORKSPACE_ISOLATION_PHRASES = {
         "Workspace Ownership",
         "git worktree list --porcelain",
         "Current branch is checked out in one worktree",
+        "(current checkout)",
         "Use one owned branch and checkout per Elves run before launching",
     ],
 }
