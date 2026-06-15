@@ -232,6 +232,11 @@ worktree. The agent also records the branch tip at staging as a collision tripwi
 a commit it didn't create, another writer is in the checkout, so it stops instead of committing on
 top.
 
+For source checkouts, `scripts/workspace_guard.py` is an optional prototype helper that can check a
+candidate write command against `.elves-session.json` workspace-guard state. It is advisory by
+default, tracks `allowed_head_tip` and `expected_remote_tip` instead of treating the staging tip as
+permanently valid, and does not install hooks or repair git state.
+
 ### Codex Goals
 
 Codex Goals can be a useful continuation backend for Elves. Goals keeps Codex working across turns;
@@ -614,7 +619,8 @@ elves/
 │   ├── preflight.sh                      # Pre-run checklist
 │   ├── notify.sh                         # Notification helper
 │   ├── pr_portfolio_report.py            # Repo-only PR health sweep helper
-│   └── validate_survival_guide.py        # Advisory survival-guide completeness check
+│   ├── validate_survival_guide.py        # Advisory survival-guide completeness check
+│   └── workspace_guard.py                # Optional workspace owned-tip guard prototype
 └── .github/
     └── ISSUE_TEMPLATE/                   # Bug report, feature request, overnight run report
 ```
@@ -858,8 +864,8 @@ The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AG
 `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
 `scripts/notify.sh`, `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`.
 Repo-only maintenance
-helpers such as `scripts/check_repo_consistency.py`, `scripts/release_checklist.py`, and
-`scripts/pr_portfolio_report.py` stay in the checkout.
+helpers such as `scripts/check_repo_consistency.py`, `scripts/release_checklist.py`,
+`scripts/pr_portfolio_report.py`, and `scripts/workspace_guard.py` stay in the checkout.
 
 For local PR-stack sweeps, use the repo-only helper:
 
