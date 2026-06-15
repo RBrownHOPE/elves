@@ -4,6 +4,58 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+- Made Cobbler-first coordination the default Elves run model: Run Cobbler now frames planning,
+  contract, risk, debugging, review, and synthesis decisions, while Quick Cobbler remains the
+  read-only one-off answer mode.
+- Added Cobbler Mode as a thread-local convention: `/cobbler-mode` in Claude Code and
+  `$elves cobbler-mode` in Codex keep follow-up prompts Cobbler-mediated without creating durable
+  run state or requiring provider-backed council.
+- Added `scripts/release_checklist.py`, a read-only maintainer helper for release sweeps covering
+  version alignment, changelog promotion, current-version examples, and changed human-facing docs.
+- Added tests, README usage notes, TODO closure, and CI compilation coverage for the release
+  checklist helper.
+- Added `scripts/pr_portfolio_report.py`, a read-only repo helper for summarizing PR stack health
+  across merge state, pending/failing checks, and unresolved review threads.
+- Added `--fail-on-draft` to the PR portfolio helper so operators can compose
+  `--fail-on-attention --fail-on-draft` as a landing-readiness gate without treating intentional
+  drafts as attention-worthy.
+- Cleaned up integration-preview status wording across follow-up plan docs, the context index, and
+  preflight branch-ahead messaging so shipped helpers are not described as absent future work.
+- Changed the release checklist summary to say `completed with warnings` when warning-only
+  development checks pass with advisory follow-ups.
+- Made the `tests/` directory importable so plain `python3 -m unittest discover` finds the helper
+  regression suite instead of reporting zero tests.
+- Added a repo-only `scripts/workspace_guard.py` prototype that checks candidate write commands
+  against `.elves-session.json` owned-tip state, with advisory defaults, strict-mode blocking, and
+  explicit local/remote tip update commands.
+- Clarified Codex installation and sync guidance so users see, at the setup point, that Codex
+  installs the main skill bundle and invokes Cobbler with `$elves cobbler: ...` or natural language
+  rather than Claude Code slash aliases.
+- Documented that new persistent Cobbler preferences belong under top-level `cobbler`, while legacy
+  `council` config remains for compatibility and loses precedence when both are present.
+- Included `config.json.example` in the managed Claude/Codex skill bundle so installed copies have
+  the persistent-preferences template the docs reference.
+- Added `.ai-docs/context-index.md`, a durable pre-implementation survey map for repo surfaces,
+  scripts, tests, common edit paths, and validation baselines.
+- Expanded the repo consistency checker to phrase-pin operator-facing docs, including durable
+  `.ai-docs/*` guidance, the overnight run report issue template, and kickoff run-control fields.
+- Updated the repo consistency workflow so issue template changes trigger the checker.
+- `scripts/preflight.sh` now includes a Workspace Ownership check that inspects
+  `git worktree list --porcelain`, hard-fails when the current branch is checked out in more than
+  one worktree, and prints the branch-tip collision tripwire when the checkout is uniquely owned.
+- Added `scripts/preflight_worktree.py` and `./scripts/preflight.sh --create-worktree <branch>` so
+  staging can create or dry-run a dedicated worktree with explicit base-ref, path, branch collision,
+  and tripwire output while the default preflight checklist remains advisory and non-mutating.
+- Cobbler provider-backed council docs now include native-first role model routing: roles default to
+  host subagents, optional `provider:model-id` routes can be configured when keys exist, unavailable
+  routes fall back to native, and dissent is resolved by evidence rather than model prestige.
+- Added optional full-run `model-routing` guardrails for implementation, validation, review,
+  scouting, and synthesis phases. The guidance is native-first, provider-optional, and records
+  requested route, actual route, and fallback reason only when material.
+- Added guardrails for optional public API surface snapshots: survival-guide/config examples,
+  regression-attestation and review guidance, ignored `.elves/api-surface/` artifacts, and repo
+  consistency checks. Snapshots stay advisory by default and are evidence, not authority.
+
 ## [1.15.0] - 2026-06-14
 
 ### Cobbler

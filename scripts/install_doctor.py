@@ -118,8 +118,6 @@ def version_is_newer(candidate: str | None, current: str | None) -> bool:
     current_key = parse_version(current)
     if candidate_key is not None and current_key is not None:
         return candidate_key > current_key
-    if candidate and current:
-        return normalize_version(candidate) > normalize_version(current)
     return False
 
 
@@ -386,7 +384,9 @@ def build_recommendations(
     ):
         notes.append(
             "Repo checkout is active right now. If you want your installed copies to match this "
-            "checkout, run `python3 scripts/sync_installed_skills.py --apply` from the repo."
+            "checkout, run `python3 scripts/sync_installed_skills.py --apply` from the repo. "
+            "For Claude Code, this also syncs the managed /cobbler and Council-compatible alias "
+            "skills."
         )
 
     return dedupe(notes)

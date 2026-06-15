@@ -3,7 +3,9 @@
 # Elves Preflight Checklist
 # Run before starting an autonomous Elves session to verify the environment.
 #
-# Usage: ./scripts/preflight.sh
+# Usage:
+#   ./scripts/preflight.sh
+#   ./scripts/preflight.sh --create-worktree <branch> [--dry-run] [--base <ref>] [--worktree-dir <path>]
 #
 # Exit codes:
 #   0 — no critical failures (warnings may be present)
@@ -26,6 +28,18 @@ PASS="${GREEN}✓${RESET}"
 WARN="${YELLOW}⚠${RESET}"
 FAIL="${RED}✗${RESET}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ "$#" -gt 0 ]; then
+  if ! command -v python3 &>/dev/null; then
+    echo "error: python3 is required for preflight worktree helper mode" >&2
+    exit 1
+  fi
+  if [ ! -f "${SCRIPT_DIR}/preflight_worktree.py" ]; then
+    echo "error: ${SCRIPT_DIR}/preflight_worktree.py is missing" >&2
+    exit 1
+  fi
+  exec python3 "${SCRIPT_DIR}/preflight_worktree.py" "$@"
+fi
 
 # ---------------------------------------------------------------------------
 # Result tracking
@@ -431,11 +445,83 @@ else
     fail "Branch is ${BEHIND} commits behind origin/${DEFAULT_BRANCH} — significant drift"
     info "Fix before starting: git merge origin/${DEFAULT_BRANCH}"
   fi
-  [ "$AHEAD" -gt 0 ] && info "Branch is ${AHEAD} commit(s) ahead of origin/${DEFAULT_BRANCH} (unpushed)"
+  [ "$AHEAD" -gt 0 ] && info "Branch has ${AHEAD} commit(s) not in origin/${DEFAULT_BRANCH} (expected on feature/PR branches)"
 fi
 
 # ---------------------------------------------------------------------------
-# 10. Slack webhook test
+# 10. Workspace ownership
+# ---------------------------------------------------------------------------
+header "Workspace Ownership"
+
+CURRENT_WORKTREE=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+if [ -z "${CURRENT_BRANCH}" ]; then
+  warn "Cannot verify workspace ownership while HEAD is detached"
+  info "Before launch, record the checkout path and collision tripwire manually"
+else
+  WORKTREE_OUTPUT=$(git worktree list --porcelain 2>/dev/null || true)
+  if [ -z "${WORKTREE_OUTPUT}" ]; then
+    warn "Could not inspect git worktrees"
+    info "Run manually: git worktree list"
+  else
+    declare -a MATCHING_WORKTREES=()
+    WORKTREE_PATH=""
+    while IFS= read -r LINE; do
+      LINE="${LINE%$'\r'}"
+      case "${LINE}" in
+        worktree\ *)
+          WORKTREE_PATH="${LINE#worktree }"
+          ;;
+        branch\ refs/heads/*)
+          WORKTREE_BRANCH="${LINE#branch refs/heads/}"
+          if [ "${WORKTREE_BRANCH}" = "${CURRENT_BRANCH}" ]; then
+            MATCHING_WORKTREES+=("${WORKTREE_PATH}")
+          fi
+          ;;
+      esac
+    done <<< "${WORKTREE_OUTPUT}"
+
+    MATCHING_COUNT=${#MATCHING_WORKTREES[@]}
+    if [ "${MATCHING_COUNT}" -eq 0 ]; then
+      warn "Current branch ${CURRENT_BRANCH} was not found in git worktree list"
+      info "Current checkout: ${CURRENT_WORKTREE}"
+    elif [ "${MATCHING_COUNT}" -eq 1 ]; then
+      pass "Current branch is checked out in one worktree: ${MATCHING_WORKTREES[0]}"
+      info "Collision tripwire: $(git rev-parse HEAD 2>/dev/null || echo unknown)"
+    else
+      fail "Current branch ${CURRENT_BRANCH} is checked out in ${MATCHING_COUNT} worktrees"
+      for PATH_IN_USE in "${MATCHING_WORKTREES[@]}"; do
+        if [ "${PATH_IN_USE}" = "${CURRENT_WORKTREE}" ]; then
+          info "Branch checkout: ${PATH_IN_USE} (current checkout)"
+        else
+          info "Branch checkout: ${PATH_IN_USE}"
+        fi
+      done
+      info "Use one owned branch and checkout per Elves run before launching"
+      if command -v python3 &>/dev/null && [ -f "${SCRIPT_DIR}/preflight_worktree.py" ]; then
+        RECOMMEND_ARGS=(--recommend-from-current "${CURRENT_BRANCH}")
+        if [ -n "${DEFAULT_BRANCH}" ]; then
+          RECOMMEND_ARGS+=(--base "origin/${DEFAULT_BRANCH}")
+        fi
+        RECOMMENDED_WORKTREE=$(
+          python3 "${SCRIPT_DIR}/preflight_worktree.py" "${RECOMMEND_ARGS[@]}" 2>/dev/null || true
+        )
+        if [ -n "${RECOMMENDED_WORKTREE}" ]; then
+          info "Recommended dedicated worktree command follows"
+          while IFS= read -r LINE; do
+            [ -n "${LINE}" ] && info "${LINE}"
+          done <<< "${RECOMMENDED_WORKTREE}"
+        else
+          info "Run: ./scripts/preflight.sh --create-worktree <branch> --base origin/${DEFAULT_BRANCH:-main}"
+        fi
+      else
+        info "Run: ./scripts/preflight.sh --create-worktree <branch> --base origin/${DEFAULT_BRANCH:-main}"
+      fi
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 11. Slack webhook test
 # ---------------------------------------------------------------------------
 header "Slack Notification"
 
@@ -455,7 +541,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 11. Plan file check
+# 12. Plan file check
 # ---------------------------------------------------------------------------
 header "Plan File"
 
@@ -472,7 +558,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 12. Survival guide validation (advisory)
+# 13. Survival guide validation (advisory)
 # ---------------------------------------------------------------------------
 header "Survival Guide (advisory)"
 
@@ -498,7 +584,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 13. Summary
+# 14. Summary
 # ---------------------------------------------------------------------------
 echo
 echo -e "${BOLD}══════════════════════════════════════════════════${RESET}"

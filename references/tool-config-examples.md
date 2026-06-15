@@ -307,9 +307,10 @@ math-ledger-dir: docs/math
 
 ## Cobbler
 
-> Use when you want Cobbler to answer directly or convene a temporary read-only council of native
-> subagents and return one fitted answer. Quick Cobbler requires no external provider key.
-> Provider-backed council is optional advanced plumbing.
+> Default Cobbler coordination block for Elves runs. Cobbler-first is the default orchestration
+> model; Quick Cobbler is the one-off read-only answer mode. Customize only if changing routing,
+> role count, answer shape, or provider-backed council. Quick Cobbler requires no external provider
+> key. Provider-backed council is optional advanced plumbing.
 
 ```yaml
 ## Tool Configuration
@@ -318,6 +319,8 @@ review: github-pr-comments
 notification: pr-comment
 
 cobbler-enabled: true
+cobbler-coordination-default: cobbler-first
+cobbler-default-for-elves-runs: true
 cobbler-default-mode: quick
 cobbler-default-backend: native-subagents
 cobbler-primary-invocations:
@@ -340,6 +343,8 @@ cobbler-max-role-count: 5
 cobbler-quick-read-only: true
 cobbler-quick-stateless: true
 cobbler-run-logging: existing-elves-memory
+cobbler-model-routing-policy: native-first
+cobbler-provider-backed-fallback: native-subagent-and-note
 
 # Optional provider-backed council diversity. Leave disabled unless the user opts in.
 cobbler-provider-backed-enabled: false
@@ -352,16 +357,135 @@ cobbler-provider-backed-optional-env:
   - XAI_API_KEY
   - OPENAI_API_KEY
 cobbler-provider-backed-role-models:
+  default: native-subagent
   architect: native-subagent
   skeptic: native-subagent
   implementation_analyst: native-subagent
   tester: native-subagent
-  maintainer: native-subagent
-  domain_scout: native-subagent
+  synthesis: native-coordinator
+cobbler-provider-backed-role-effort:
+  architect: high
+  skeptic: high
+  tester: medium
+
+# Optional effort values are hints only: low, medium, high, or xhigh when the backend supports them.
+#
+# Optional external routes use provider:model-id strings and still fall back to native when
+# provider-backed council is disabled or the configured key is unavailable.
+# cobbler-provider-backed-role-models:
+#   skeptic: "openrouter:<model-id>"
+#   fast_sanity: "openrouter:<fast-model-id>"
 ```
 
 Legacy `council-*` config keys remain compatibility aliases for existing `v1.14.0` setups. Prefer
 new `cobbler-*` keys in fresh configs, but do not rename working project config just for style.
+
+---
+
+## Full-Run Model Routing
+
+> Use when a full Elves run should prefer different elves for implementation, validation, review,
+> scouting, and synthesis. These preferences are advisory unless the host or configured provider can
+> honor them. Native host capability is the default; missing optional provider access falls back to
+> host-native work and does not block ordinary runs.
+
+```yaml
+## Tool Configuration
+
+model-routing:
+  enabled: true
+  policy: native-first
+  fallback: host-native
+  phases:
+    implement:
+      preference: strongest-host-native
+      provider-backed-allowed: false
+      required: false
+    validate:
+      preference: reliable-host-native
+      provider-backed-allowed: false
+      required: false
+    review:
+      preference: independent-lens
+      provider-backed-allowed: true
+      required: false
+    scout:
+      preference: broad-fast-lens
+      provider-backed-allowed: true
+      required: false
+    synthesize:
+      preference: coordinator
+      provider-backed-allowed: true
+      required: false
+
+# Terse aliases are staging sugar and should expand to the structured block above.
+implement-model: strongest-host-native
+validate-model: reliable-host-native
+review-model: independent-lens
+scout-model: broad-fast-lens
+synthesize-model: coordinator
+
+# Provider namespaces are explicit. Do not treat bare aliases as provider model IDs.
+# Examples: native-subagent, host-default, codex:<host-option>, claude-code:<host-option>,
+# openrouter:<model-id>, gemini:<model-id>, anthropic:<model-id>, xai:<model-id>,
+# openai:<model-id>.
+```
+
+Use `required: true` only when the survival guide explicitly opts the project into a hard route
+requirement. Never infer it from provider config, Quick Cobbler, or legacy Council aliases.
+
+---
+
+## Public API Surface Snapshot
+
+> Use this when a run should capture consumer-facing contracts as regression evidence. Keep it
+> optional by default. `enabled: auto` should continue with `unavailable` when no credible source
+> exists; `required: true` is only valid when the survival guide explicitly opts in.
+
+```yaml
+api-surface-snapshot:
+  enabled: auto
+  required: false
+  baseline-path: .elves/api-surface/baseline.json
+  current-path: .elves/api-surface/current.json
+  diff-path: .elves/api-surface/diff.md
+  sources:
+    rest:
+      mode: auto
+      preferred: openapi
+      examples:
+        - npm run openapi:json
+        - python manage.py spectacular --file -
+    graphql:
+      mode: auto
+      preferred: sdl
+      examples:
+        - npm run graphql:schema
+    exports:
+      mode: auto
+      preferred: package-exports-or-declaration-output
+    cli:
+      mode: auto
+      preferred: help-output
+      examples:
+        - my-tool --help
+    events:
+      mode: auto
+      preferred: documented-event-schema
+    config:
+      mode: auto
+      preferred: documented-env-and-config-keys
+  policy:
+    unavailable-source: warning
+    additive-change: info
+    intentional-breaking-change: requires-plan-note
+    unexpected-breaking-change: blocking
+```
+
+Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data.
+Use existing structured sources before inventing scanners.
+If no credible source exists, record `unavailable` with the reason instead of fabricating a snapshot.
+A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.
 
 ---
 

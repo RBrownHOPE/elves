@@ -24,14 +24,27 @@ Project backlog and deferred tasks.
   `scripts/sync_installed_skills.py` now checks and mirrors the managed bundle from this checkout
   into `~/.claude/skills/elves/` and `~/.codex/skills/elves/`.
 
-### Multi-model routing for subagents
-Different phases of the loop have different cost/quality tradeoffs. Implementation needs the strongest model; validation could run on a cheaper one; review benefits from a fresh perspective (different model = different blind spots). The subagent strategy already creates natural seams for this. Add optional model configuration per phase in the survival guide, e.g. `implement-model: opus`, `validate-model: sonnet`, `review-model: opus`. The user already controls which model runs — this would make it explicit and tunable.
+- [x] Add optional Cobbler role model routing for subagents.
+  Cobbler role routes now stay native-first by default while allowing opt-in `provider:model-id`
+  strings such as `openrouter:<model-id>` in the survival guide or config example. Missing provider
+  routes fall back to native and should be treated as evidence sources, not authority.
+- [x] Add optional full-run phase model routing for implementation, validation, review, scouting,
+  and synthesis.
+  `SKILL.md`, `AGENTS.md`, README, `references/survival-guide-template.md`,
+  `references/execution-log-template.md`, `references/review-subagent.md`,
+  `references/tool-config-examples.md`, and `config.json.example` now describe native-first
+  routing preferences, terse `*-model` aliases, material fallback logging, and the rule that
+  `required: true` must be an explicit survival-guide opt-in.
 
 ### Secret redaction layer
 Elves has "don't commit .env files" and "never git add -A" but no automated scanning of what gets sent to LLM prompts. A pre-prompt filter that strips API keys, tokens, and credentials from context before sending to the model would close a real security gap. This is infrastructure, not process — probably belongs as a separate tool or MCP server rather than in the skill itself. Factory AI calls theirs "Droid Shield."
 
 ### Codebase context indexing
 The pre-implementation survey (step 5) relies on the agent searching the codebase in real time. For large repos, a pre-computed index of utilities, patterns, conventions, and module boundaries would make the survey faster and more reliable. Could be generated once during planning and updated incrementally per batch. Similar in spirit to Factory AI's "HyperCode" but implemented as a Markdown file the agent reads rather than proprietary tooling.
+
+- [x] Add an initial durable context index for this repo.
+  `.ai-docs/context-index.md` now maps primary surfaces, reference docs, scripts, tests, common
+  survey paths, and the validation baseline for future agents.
 
 - [x] Add a regression-specific review cycle for high-risk batches.
   `SKILL.md`, `AGENTS.md`, `README.md`, and `references/review-subagent.md` now describe an
@@ -41,26 +54,40 @@ The pre-implementation survey (step 5) relies on the agent searching the codebas
 ### Public API surface snapshot
 For projects with APIs (REST, GraphQL, exported library interfaces), capture the API surface at session start: route list, response shapes, exported types and functions. At the end of each batch, diff the snapshot against the current state. Any unintended change to the public API surface is a finding. This complements the test baseline (which catches removed tests) and the regression attestation (which catches shared-surface changes). It catches changes that pass all tests but alter the contract with consumers.
 
+- [x] Add guardrail docs, config examples, ignored artifact paths, and repo consistency checks for
+  optional public API surface snapshots. The helper/scanner remains deferred until a focused
+  implementation batch.
+
 - [x] Make regression preservation an explicit acceptance-criteria rule.
   `SKILL.md`, `AGENTS.md`, `README.md`, and `references/plan-template.md` now require at least one
   acceptance criterion that proves old behavior still works when a batch changes existing surfaces.
 
 ## Follow-ups from v1.8.0
 
-- [ ] Expand `scripts/check_repo_consistency.py` to cover the operator-facing docs that now mirror
+- [x] Expand `scripts/check_repo_consistency.py` to cover the operator-facing docs that now mirror
   run control, including the kickoff prompt template, overnight run report template, and durable
   `.ai-docs/*` surfaces.
+  The checker now phrase-pins durable `.ai-docs/*` guidance, the overnight run report issue
+  template, and the kickoff prompt's run-control fields.
 
-- [ ] Add a lightweight release checklist or helper that sweeps embedded version examples,
+- [x] Add a lightweight release checklist or helper that sweeps embedded version examples,
   changelog heading promotion, and newly added human-facing doc surfaces during a minor release.
+  `scripts/release_checklist.py` now checks release version alignment, warns or fails on
+  unpromoted changelog content depending on mode, verifies current-version examples, and reports
+  changed or newly added human-facing surfaces from a base ref.
 
 ## Follow-ups from v1.11.0
 
-- [ ] Consider a deterministic guard (PreToolUse hook or preflight check) that detects when a second
-  agent is operating in the same working tree/branch, complementing the prose-level
-  one-run-one-checkout rule with enforcement (similar to the forbidden-commands hook).
-- [ ] Optional preflight helper that offers to create the dedicated `git worktree` automatically when
+- [x] Add a deterministic preflight guard for duplicate current-branch worktrees, complementing the
+  prose-level one-run-one-checkout rule with enforcement. Implemented in `scripts/preflight.sh`: it
+  hard-fails when the current branch is checked out in multiple worktrees.
+- [x] Optional preflight helper that offers to create the dedicated `git worktree` automatically when
   it detects another active checkout of the same branch.
-- [ ] Partial progress on the v1.8.0 checker-expansion follow-up: v1.11.0 added
+  `scripts/preflight_worktree.py` now backs
+  `./scripts/preflight.sh --create-worktree <branch> --base origin/main`, supports `--dry-run`,
+  generated sibling paths, explicit path overrides, branch/base collision checks, and advisory
+  duplicate-checkout recommendations without mutating default preflight.
+- [x] Partial progress on the v1.8.0 checker-expansion follow-up: v1.11.0 added
   `WORKSPACE_ISOLATION_PHRASES` (covers the kickoff template, survival-guide template, and README).
-  The overnight-run-report template and `.ai-docs/*` surfaces are still not phrase-pinned.
+  PR #31 completes the remaining coverage by phrase-pinning the overnight-run-report template and
+  durable `.ai-docs/*` surfaces.

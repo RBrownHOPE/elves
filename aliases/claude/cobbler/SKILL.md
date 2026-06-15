@@ -1,6 +1,6 @@
 ---
 name: cobbler
-description: Invoke Elves Cobbler for one fitted answer from independent lenses. Use when the user types /cobbler or asks for Cobbler coordination in Claude Code.
+description: Invoke Elves Cobbler, the default orchestration model for fitted answers and agent routing. Use when the user types /cobbler or asks for Cobbler coordination in Claude Code.
 disable-model-invocation: true
 ---
 
@@ -10,15 +10,17 @@ disable-model-invocation: true
 
 This is an Elves-managed Claude Code alias for `/cobbler`.
 
-Use the installed `elves` skill's `## Cobbler` instructions as the source of truth. Treat this as
-Quick Cobbler unless the user explicitly attaches the answer to an active Elves run.
+This alias invokes Cobbler, Elves' default orchestration model. Use the installed `elves` skill's
+`## Cobbler` instructions as the source of truth. Classify the request first: one-off advice uses
+Quick Cobbler, while implementation or active-run requests use Cobbler-first Elves coordination.
 
 Default behavior:
 
-1. Stay read-only and stateless.
-2. Use Claude Code subagents first when independent lenses help.
-3. Fall back to direct read-only lens analysis when subagents are unavailable.
-4. Do not edit files, create branches, open PRs, install packages, or mutate run state.
+1. For one-off Quick Cobbler answers, stay read-only and stateless.
+2. For implementation or active-run requests, route work through Cobbler-first Elves coordination;
+   worker agents may edit scoped files under the normal Elves rules.
+3. Use Claude Code subagents first when independent lenses or workers help.
+4. Fall back to direct analysis or direct implementation when subagents are unavailable.
 5. Return one fitted answer with `Recommendation`, `Why this fits`, `Strongest dissent`, `Risks`,
    `Next move`, and `Confidence`.
 

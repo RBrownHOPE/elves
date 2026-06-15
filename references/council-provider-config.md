@@ -1,20 +1,24 @@
 # Cobbler Provider-Backed Council Configuration
 
-Cobbler is native-subagent-first. Configure providers only when the user wants optional
-provider-backed council model diversity. Normal Cobbler, `/cobbler`, `$elves cobbler: <task>`,
-`/council`, `/ec`, `/elves-council`, and `$elves council: <task>` use must work without
-OpenRouter or any external provider key.
+Cobbler-first coordination is the default for Elves runs, and the default route is host-native.
+Configure providers only when the user wants optional provider-backed council model diversity.
+Normal Cobbler use must work without OpenRouter or any external provider key. Host invocation is
+separate: `/cobbler` is the Claude Code alias, while `$elves cobbler: <task>` is the reliable Codex
+form. Council-compatible aliases `/council`, `/ec`, `/elves-council`, and `$elves council: <task>`
+also use the same provider-optional Cobbler behavior.
 
 This file keeps its `council-provider-config.md` name for `v1.14.0` compatibility. In `v1.15.0+`,
 provider-backed council replaces the old product label while preserving legacy `council-*` config
 keys where users already rely on them.
 
-## Default Quick Cobbler
+## Default Cobbler Routing
 
-Quick Cobbler needs no provider configuration:
+Cobbler-first Elves runs and Quick Cobbler one-off answers need no provider configuration:
 
 ```yaml
 cobbler-enabled: true
+cobbler-coordination-default: cobbler-first
+cobbler-default-for-elves-runs: true
 cobbler-default-mode: quick
 cobbler-default-backend: native-subagents
 cobbler-primary-invocations:
@@ -37,6 +41,7 @@ cobbler-max-role-count: 5
 cobbler-quick-read-only: true
 cobbler-quick-stateless: true
 cobbler-run-logging: existing-elves-memory
+cobbler-model-routing-policy: native-first
 ```
 
 In Codex, use Codex subagents when available. In Claude Code, use Claude Code subagents when
@@ -50,6 +55,7 @@ has configured keys and wants broader model diversity:
 ```yaml
 cobbler-provider-backed-enabled: false
 cobbler-provider-backed-policy: optional-external-providers
+cobbler-provider-backed-fallback: native-subagent-and-note
 cobbler-provider-backed-required-env: []
 cobbler-provider-backed-optional-env:
   - OPENROUTER_API_KEY
@@ -58,17 +64,48 @@ cobbler-provider-backed-optional-env:
   - XAI_API_KEY
   - OPENAI_API_KEY
 cobbler-provider-backed-role-models:
+  default: native-subagent
   architect: native-subagent
   skeptic: native-subagent
   implementation_analyst: native-subagent
   tester: native-subagent
-  maintainer: native-subagent
-  domain_scout: native-subagent
+  synthesis: native-coordinator
+cobbler-provider-backed-role-effort:
+  architect: high
+  skeptic: high
+  tester: medium
+
+# Example external routes when provider-backed council is explicitly enabled:
+# cobbler-provider-backed-role-models:
+#   skeptic: "openrouter:<model-id>"
+#   fast_sanity: "openrouter:<fast-model-id>"
 ```
 
 Leave `cobbler-provider-backed-required-env` empty unless a specific project intentionally makes
 provider-backed council a required workflow. Do not make ordinary Cobbler or Council-compatible use
 depend on that setting.
+
+Role routing is a hint for the coordinator, not a new mode the user has to invoke. `native-subagent`
+means "use the current host's subagent feature"; `native-coordinator` means the main coordinator
+synthesizes directly; `provider:model-id` values are optional external routes. If the route cannot
+run, fall back to native and mention the fallback in the fitted answer. Resolve disagreements by
+evidence and task constraints, not by assuming a configured model is more authoritative.
+
+Role effort is optional. Use `low`, `medium`, `high`, or `xhigh` only when the selected host or
+provider supports an effort setting; otherwise omit it and keep the route native-first.
+
+## Full-Run Phase Routes
+
+Provider-backed council slots may satisfy read-only full-run model-routing phases such as review,
+scout, or synthesize when the user has enabled providers and the context is safe to share.
+Do not make implementation provider-backed by default. Implementation and validation mutate or
+inspect the local checkout, so they stay host-native unless the survival guide explicitly opts into a
+write-capable external workflow with branch/worktree isolation, no secret exposure, patch/report
+handoff, and mandatory native validation plus review.
+
+When a requested full-run route cannot run, fall back to host-native work and record the requested
+route, actual route, and fallback reason only if it changes risk or confidence. A route mismatch is
+blocking only when the survival guide explicitly marks that phase `required: true`.
 
 ## Legacy Council Compatibility
 
@@ -94,7 +131,7 @@ council-provider-backed-required-env: []
 If the user requests provider-backed council and external providers are not configured:
 
 1. Say provider-backed council is unavailable.
-2. Fall back to native-subagent Quick Cobbler.
+2. Fall back to native-subagent Cobbler for the same role/lens.
 3. Preserve the user's requested roles where possible.
 4. Do not ask for keys mid-run unless the user explicitly wants provider setup.
 5. Do not search local files for secrets.

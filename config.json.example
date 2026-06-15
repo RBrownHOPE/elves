@@ -35,6 +35,8 @@
 
   "cobbler": {
     "enabled": true,
+    "coordination_default": "cobbler-first",
+    "default_for_elves_runs": true,
     "default_mode": "quick",
     "default_backend": "native-subagents",
     "primary_invocations": {
@@ -61,9 +63,11 @@
     "quick_read_only": true,
     "quick_stateless": true,
     "run_logging": "existing-elves-memory",
+    "model_routing_policy": "native-first",
     "provider_backed_council": {
       "enabled": false,
       "provider_policy": "optional-external-providers",
+      "fallback": "native-subagent-and-note",
       "required_env": [],
       "optional_env": [
         "OPENROUTER_API_KEY",
@@ -73,15 +77,21 @@
         "OPENAI_API_KEY"
       ],
       "role_models": {
+        "default": "native-subagent",
         "architect": "native-subagent",
         "skeptic": "native-subagent",
         "implementation_analyst": "native-subagent",
         "tester": "native-subagent",
-        "maintainer": "native-subagent",
-        "domain_scout": "native-subagent"
+        "synthesis": "native-coordinator"
+      },
+      "external_route_example": "openrouter:<model-id>",
+      "role_effort": {
+        "architect": "high",
+        "skeptic": "high",
+        "tester": "medium"
       }
     },
-    "_comment": "Optional Cobbler configuration. Quick Cobbler uses native subagents and requires no external provider key. Provider-backed council is opt-in; do not hardcode private keys."
+    "_comment": "Cobbler coordination defaults. Cobbler-first is the default for Elves runs; Quick Cobbler is the one-off answer mode. Provider-backed council and role model routing are opt-in; do not hardcode private keys."
   },
 
   "council": {
@@ -100,6 +110,65 @@
       "required_env": []
     },
     "_comment": "Legacy v1.14 Council-compatible config. Prefer the top-level cobbler block in new configs. If both blocks are present, cobbler wins; keep council for older projects that already refer to council keys."
+  },
+
+  "model_routing": {
+    "enabled": false,
+    "policy": "native-first",
+    "fallback": "host-native",
+    "required": false,
+    "phases": {
+      "implement": {
+        "preference": "strongest-host-native",
+        "provider_backed_allowed": false,
+        "notes": "Use the main coding agent or a host-native implementation subagent."
+      },
+      "validate": {
+        "preference": "reliable-host-native",
+        "provider_backed_allowed": false,
+        "notes": "Run commands locally and prioritize reproducible evidence."
+      },
+      "review": {
+        "preference": "independent-lens",
+        "provider_backed_allowed": true,
+        "notes": "Prefer a fresh model or subagent when available."
+      },
+      "scout": {
+        "preference": "broad-fast-lens",
+        "provider_backed_allowed": true,
+        "notes": "Use optional external providers for breadth only when configured."
+      },
+      "synthesize": {
+        "preference": "coordinator",
+        "provider_backed_allowed": true,
+        "notes": "Return one fitted answer with dissent and next action."
+      }
+    },
+    "log_material_fallbacks": true,
+    "_comment": "Optional full-run phase routing preferences. Advisory unless the host or configured provider supports the route. Missing optional provider access falls back to host-native and does not block ordinary Elves or Cobbler use."
+  },
+
+  "api_surface_snapshot": {
+    "enabled": "auto",
+    "required": false,
+    "baseline_path": ".elves/api-surface/baseline.json",
+    "current_path": ".elves/api-surface/current.json",
+    "diff_path": ".elves/api-surface/diff.md",
+    "sources": {
+      "rest": "auto",
+      "graphql": "auto",
+      "exports": "auto",
+      "cli": "auto",
+      "events": "auto",
+      "config": "auto"
+    },
+    "policy": {
+      "unavailable_source": "warning",
+      "additive_change": "info",
+      "intentional_breaking_change": "requires-plan-note",
+      "unexpected_breaking_change": "blocking"
+    },
+    "_comment": "Optional public API surface snapshot preferences. In auto mode, missing sources are advisory. required=true belongs in a project survival guide only when explicitly opted in; snapshots are regression evidence, not authority."
   },
 
   "math": {

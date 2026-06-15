@@ -1,6 +1,6 @@
 ---
 name: elves
-description: Autonomous multi-batch development agent for long unattended runs, reviewed-PR landing, and Cobbler multi-agent synthesis. Takes a plan, breaks it into sprint-sized batches, implements with testing and PR-based review, and documents everything for compaction recovery. Use when user says "run overnight", "I'm going offline", "implement this plan", "keep going without me", "do not stop", "I'll be back in the morning", "run this end-to-end", asks to get a subagent to review the diff from main, read PR comments, test, fix, and merge commit once green, types \land-pr or /land-pr, asks for `/cobbler`, `/council`, `/ec`, or `/elves-council`, or says `$elves cobbler`.
+description: Autonomous multi-batch development agent for long unattended runs, reviewed-PR landing, and Cobbler-first orchestration. Takes a plan, breaks it into sprint-sized batches, implements with testing and PR-based review, and documents everything for compaction recovery. Use when user says "run overnight", "I'm going offline", "implement this plan", "keep going without me", "do not stop", "I'll be back in the morning", "run this end-to-end", asks to get a subagent to review the diff from main, read PR comments, test, fix, and merge commit once green, types \land-pr or /land-pr, asks for `/cobbler`, `/council`, `/ec`, or `/elves-council`, or says `$elves cobbler`.
 license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
@@ -108,10 +108,11 @@ remain unverified until a human records the proof and source checks.
 
 ## Cobbler
 
-Elves can also run Cobbler: a lightweight chat-native coordinator for planning, design, debugging,
-and review questions that benefit from independent lenses before one fitted answer. Ask Cobbler
-once, and it decides how much help to bring in: a direct answer, a few specialist elves, or a
-read-only council of independent lenses.
+Cobbler is Elves' default orchestration model: a lightweight chat-native coordinator for planning,
+design, debugging, implementation, review, and synthesis decisions that benefit from independent
+lenses before one fitted answer. In normal Elves runs, operate Cobbler-first: classify the work,
+route the right agents/tools/skills, preserve dissent, and synthesize the next action before moving
+the loop forward.
 
 Primary invocation depends on the host:
 
@@ -124,13 +125,28 @@ Compatibility aliases remain supported: `/council`, `/ec`, `/elves-council`, and
 Host honesty matters. Claude Code can use the managed slash-skill aliases. Codex should use the
 `$elves cobbler: <task>` skill invocation or natural chat; do not assume Codex has a top-level `/cobbler` command unless the user's Codex install explicitly provides one.
 
-Quick Cobbler is the default. It is read-only and stateless unless the user explicitly asks to
-attach the result to an active Elves run. Use native subagents first: Codex subagents in Codex,
-Claude Code subagents in Claude Code, or the same read-only analysis directly when subagents are
-unavailable. Cobbler chooses two or three useful roles, asks them to inspect independently, then
+Cobbler Mode is the lowest-friction way to keep chatting with the Cobbler in one thread. In Claude
+Code, use `/cobbler-mode` when the managed alias skill is installed. In Codex, use
+`$elves cobbler-mode` or natural chat such as "Cobbler Mode: on" or "From now on, answer as the
+Cobbler until I say Cobbler Mode: off." While Cobbler Mode is active, treat follow-up prompts as
+Cobbler-mediated by default: answer directly when the task is simple, use Quick Cobbler lenses when
+independent advice helps, and escalate to normal Elves run coordination when the user asks for
+repo-changing work. Cobbler Mode is current-thread conversation state, not durable run state, a
+daemon, provider requirement, or Codex slash command. Exit with "Cobbler Mode: off" or "leave
+Cobbler Mode."
+
+Cobbler-first coordination is the default for Elves runs. For non-trivial planning, contract,
+risk, debugging, review, and synthesis decisions, use bounded independent lenses and then fit the
+result back into the normal Elves loop. The main coordinator still owns durable memory, git, PRs,
+and final synthesis; worker agents may edit the repo when the active batch or user request assigns
+them implementation work.
+
+Quick Cobbler is the default one-off answer mode. It is read-only, stateless, and
+native-subagent-first: Codex uses Codex subagents, Claude Code uses Claude Code subagents, and
+environments without subagents perform the same read-only lens analysis directly. Quick Cobbler
 returns one fitted answer with Recommendation, Why this fits, Strongest dissent, Risks, Next move,
-and Confidence. It
-should not edit files, create branches, open PRs, install packages, or mutate run state.
+and Confidence. It should not edit files, create branches, open PRs, install packages, or mutate
+run state.
 
 Codex Goals are optional continuation plumbing for full Elves runs. They are not required for a Quick Cobbler answer.
 
@@ -138,6 +154,25 @@ Provider-backed council is optional. It may use configured external providers fo
 diversity, but normal Cobbler, `/council`, `/ec`, and `/elves-council` use must not require
 OpenRouter or any external provider key. Cobbler borrows the useful harness pattern of role-specific
 reports plus synthesis; it does not copy vendor identity, policy, persona, or safety framing.
+
+Optional model routing is role-scoped, not a new user mode. The default route is always the host's
+native subagent, worker agent, or direct analysis according to the task. If a survival guide or
+config maps a Cobbler role to a provider model such as `openrouter:<model-id>`, use it only when
+provider-backed council is enabled and the named environment variable is present; otherwise fall
+back to native and note the fallback in the answer. Treat model diversity as another source of
+evidence, not authority: resolve dissent by repo facts, tests, sources, and user constraints
+rather than by model prestige.
+
+Full-run model routing is a separate optional staging preference, not a Quick Cobbler mode. A plan
+or survival guide may record `model-routing` phase preferences for implementation, validation,
+review, scouting, and synthesis. The policy is native-first by default: use the host's main agent or
+native subagents when available, fall back to direct analysis when not, and use provider-backed
+routes only for explicitly configured read-only review, scouting, or synthesis roles. Record
+requested route, actual route, and material fallback reason in the execution log or
+`.elves-session.json` when the route changes risk or confidence. Missing optional provider access
+never blocks an ordinary run. Treat `required: true` as valid only when the user explicitly set it in
+the project survival guide; never infer it from provider config, Quick Cobbler, or legacy Council
+aliases.
 
 ## Strategic Forgetting
 
@@ -386,9 +421,16 @@ Before the user walks away, verify everything will work. This is part of staging
 9. **Stale branch detection:** check if the branch is behind main.
 10. **Workspace ownership and collision tripwire:** confirm this run owns its branch and its checkout — no other agent (a teammate, another Elves run, or Codex running alongside Claude) is operating in this working tree or on this branch. When other agents may touch the same repo, stage the run in a dedicated git worktree so concurrent agents can't collide:
     ```bash
-    git worktree add -b <branch> ../<repo>-<branch>   # then work inside that directory
+    ./scripts/preflight.sh --create-worktree <branch> --base origin/main
     ```
-    Then record the branch tip as your collision tripwire: `git rev-parse HEAD`. If HEAD or the remote branch tip later moves to a commit you did not create, another writer is in your checkout — stop, treat it as a collision (see **Merge Conflicts**), and surface it to the user instead of committing on top.
+    Add `--dry-run` to print the exact command before creating anything. The helper prints the
+    branch, worktree path, base ref, and collision tripwire; it does not reuse, delete, or repair existing worktrees.
+    The bundled `scripts/preflight.sh` inspects `git worktree list --porcelain`
+    and fails if the current branch is checked out in more than one worktree. Then record the
+    branch tip as your collision tripwire: `git rev-parse HEAD`. If HEAD or the remote branch tip
+    later moves to a commit you did not create, another writer is in your checkout — stop, treat it
+    as a collision (see **Merge Conflicts**), and surface it to the user instead of committing on
+    top.
 
 If the survival guide already exists during staging, set `ELVES_SURVIVAL_GUIDE_PATH` to that file
 before running `./scripts/preflight.sh`. Preflight will run
@@ -414,9 +456,11 @@ Record the time budget in the execution log.
    ```
    **One run owns one branch and one checkout.** Never share a working tree or branch with another active agent. If other agents may touch this repo during the run (a teammate, another Elves run, or Codex working alongside Claude), create the branch in a dedicated git worktree **instead of** the `git checkout -b` above, so concurrent agents can't overwrite each other's working tree or move your branch out from under you:
    ```bash
-   git worktree add -b <branch> ../<repo>-<branch>   # then work inside that directory
+   ./scripts/preflight.sh --create-worktree <branch> --base origin/main
    ```
-   A solo run in a repo no other agent will touch can use the main checkout. Record the branch tip (`git rev-parse HEAD`) as a collision tripwire; an unexpected move means another writer is in your checkout.
+   Add `--dry-run` if you want to inspect the generated path and command first. A solo run in a
+   repo no other agent will touch can use the main checkout. Record the branch tip (`git rev-parse
+   HEAD`) as a collision tripwire; an unexpected move means another writer is in your checkout.
 
 2. **Write up the plans.** Generate the survival guide, learnings file, and execution log from templates (if they don't already exist). Read the plan and decompose it into batches. Record the batch breakdown with estimates in the execution log. Commit all planning documents:
    ```bash
@@ -665,6 +709,19 @@ human-facing behavior.
 
 **Run a regression-focused review pass for high-risk batches.** If the contract's blast radius is medium or high, or the batch touches auth, billing, data models, shared utilities, public interfaces, or other widely-consumed surfaces, add one more narrow review pass after the standard review is otherwise clean. This pass is intentionally constrained: read the cumulative diff, the plan, the batch contract (especially blast radius), and the consumer evidence. Ignore style, architecture improvements, and new feature ideas. Ask only: "What existing behavior could this break?" For each changed shared surface, trace callers or dependents and name the concrete failure mode. Treat confirmed breakage as BLOCKING. Treat plausible but unproven regression risk as WARNING until you either add verification or justify why the surface is safe in the execution log and commit message.
 
+**Use public API surface snapshots when configured.** Fold them into the existing regression
+attestation, not a separate review ceremony:
+- Public API surface snapshots are optional regression evidence.
+- Use existing structured sources before inventing scanners.
+- If no credible source exists, record `unavailable` with the reason instead of fabricating a snapshot.
+- A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide.
+- `required: true` is valid only when explicitly set by the user or project survival guide.
+- Do not infer required mode from project type, provider config, framework choice, or the presence of API files.
+- Snapshot artifacts are run artifacts, not product docs.
+- Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly asks for a durable API report.
+- Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data.
+- A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.
+
 **Triage every review finding into one of five categories:**
 - **Fix now:** a real bug, security problem, quality violation, or missing contract item. Fix it before continuing.
 - **Defer:** valid finding but out of scope for the current batch. Log it in TODO.md with `[elves-scout]`, reply with the deferral reason, and move on.
@@ -700,8 +757,9 @@ Update the execution log with a timestamped entry covering: batch name, timing b
 
 1. **Cumulative diff review:** run `git diff <default-branch>...HEAD --stat` and review the total delta from the default branch. List any files changed outside the batch scope and explain why they were touched. Flag any unexpected deletions.
 2. **Shared surfaces:** identify any shared code modified in this batch (utilities, types, interfaces, configs, middleware, or anything imported by code outside the batch scope). For each, grep for consumers and verify the change is backward-compatible. Report the consumer count and nature of change (additive / modified / breaking).
-3. **Test baseline comparison:** compare the current test count against the baseline captured during Verify Green (step 2). Report the delta. Total tests should only go up or stay flat, never decrease. If the skipped count increased, explain why.
-4. **Confidence and reasoning:** state HIGH, MEDIUM, or LOW and explain *why*. "All tests pass" is necessary but not sufficient. Explain what you checked beyond tests and why you believe existing functionality is preserved. If you modified shared surfaces, explain why consumers aren't affected. If MEDIUM or LOW, describe the specific risk and what additional verification would raise confidence.
+3. **Public API surface delta:** if `api-surface-snapshot` is configured, record the status (`not_applicable`, `captured`, `changed`, `unavailable`, `invalid_config`, or `required_failed`), artifact paths, and whether any additive, planned breaking, or unexpected breaking contract changes appeared.
+4. **Test baseline comparison:** compare the current test count against the baseline captured during Verify Green (step 2). Report the delta. Total tests should only go up or stay flat, never decrease. If the skipped count increased, explain why.
+5. **Confidence and reasoning:** state HIGH, MEDIUM, or LOW and explain *why*. "All tests pass" is necessary but not sufficient. Explain what you checked beyond tests and why you believe existing functionality is preserved. If you modified shared surfaces, explain why consumers aren't affected. If MEDIUM or LOW, describe the specific risk and what additional verification would raise confidence.
 
 Also update `.elves-session.json` — set the current batch status to `"complete"`, record the commit SHA and completion timestamp, and capture any resolved, deferred, or dismissed review-comment dispositions. This keeps the JSON in sync with the execution log so either can be used for recovery.
 
@@ -958,7 +1016,7 @@ A batch isn't done unless:
 6. Review performed. The review loop ran until no blockers remained. All review threads resolved or replied to.
 7. Legality check passed (if a constitution exists). No unresolved FAIL verdicts.
 8. No accumulated debt: no skipped gates, no "will fix later" items, no known regressions.
-9. **Regression attestation written.** The execution log entry for this batch includes: cumulative diff review (`git diff <default-branch>...HEAD --stat`), shared surfaces identified with consumers verified, test baseline comparison (total tests never decreased), and a confidence level with reasoning. See step 9.
+9. **Regression attestation written.** The execution log entry for this batch includes: cumulative diff review (`git diff <default-branch>...HEAD --stat`), shared surfaces identified with consumers verified, public API surface delta when configured, test baseline comparison (total tests never decreased), and a confidence level with reasoning. See step 9.
 10. **Documentation is up to date.** Any user-facing behavior changed by this batch must be reflected in the relevant docs: README, API docs, inline doc comments, config references, migration guides, changelogs, `learnings.md`, `.ai-docs/*`, or whatever the project uses. Stale docs are debt. A user who reads the docs and gets wrong information is worse off than a user with no docs at all.
 11. `.elves-session.json` updated with batch status, commit SHA, completion timestamp, current batch state, `continuation_guard`, and `review_comments` dispositions.
 12. Memory and resource hygiene checked for long runs or large batches: live docs are concise, old log entries are archived in place when needed, idle resources are reconciled, and a fresh-thread handoff exists if memory pressure is visible.
@@ -1264,6 +1322,15 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
     "name": "Auth endpoints",
     "status": "in_progress"
   },
+  "model_routes": [
+    {
+      "batch": 2,
+      "phase": "review",
+      "requested_route": "independent-lens",
+      "actual_route": "native-subagent",
+      "fallback_reason": "Provider-backed council unavailable; native-first fallback used"
+    }
+  ],
   "batches": [
     {
       "id": 1,
@@ -1321,6 +1388,10 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
 
 The `review_comments` array is the compaction-safe record of every comment handled during the session. After compaction, it tells the next context exactly which comments have been dealt with and how — no need to re-read and re-evaluate hundreds of bot comments.
 
+The optional `model_routes` array records material full-run routing changes only. Use snake_case
+JSON keys: `requested_route`, `actual_route`, and `fallback_reason`. Omit it when routing matches
+the native-first default and does not change risk or confidence.
+
 The `continuation_guard` is the compaction-safe answer to "am I allowed to stop?" While work remains, `stop_allowed` should normally be `false`. Set it to `true` only when the recorded stop conditions are actually met.
 
 **Comment types and how to track them:**
@@ -1348,6 +1419,10 @@ If the skill directory contains a `config.json`, read it at session start. This 
   }
 }
 ```
+
+Cobbler preferences belong under the top-level `cobbler` block in `config.json`. The legacy
+`council` block remains a compatibility surface for older projects; if both blocks are present,
+`cobbler` wins.
 
 If `config.json` doesn't exist and the user provides preferences during the planning conversation, offer to save them for future sessions. See `config.json.example` for the template.
 

@@ -36,10 +36,13 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
 - **Checkpoint semantics:** [delivery target only | hard stop boundary | none]
 - **May continue after checkpoint:** [yes | no]
 - **Actual stop conditions:** [one short sentence]
-- **Workspace ownership:** [owned branch + main checkout | dedicated worktree at `../<repo>-<branch>`] — never shared with another active agent
+- **Workspace ownership:** [owned branch + main checkout | dedicated worktree created with `./scripts/preflight.sh --create-worktree <branch> --base origin/main`] — never shared with another active agent; use `--dry-run` to inspect first
 - **Branch tip at start (collision tripwire):** [`git rev-parse HEAD` recorded at staging; an unexpected move means another writer is in your checkout]
 - **Merge policy:** [user-merges (default — you never merge) | merge-commit-on-green (opt-in: regular merge commit after the final readiness review passes, never squash) | reviewed-pr-landing-command / `\land-pr` / `/land-pr` (one-off explicit merge opt-in for the current PR)]
 - **Final-response policy:** [allowed | disallowed until stop]
+- **Coordination mode:** [Cobbler-first (default) | direct-agent override] — use Cobbler lenses for
+  non-trivial planning, contract, risk, debugging, review, and synthesis decisions; use direct
+  execution only for simple mechanical tasks or when the survival guide explicitly overrides it
 - **Batch completion rule:** Every completed batch ends with `update execution log -> update survival guide -> commit -> push`. A batch is not complete while its finished work exists only in the working tree.
 - **Re-read rule:** Immediately after every commit and push, re-read this survival guide before doing anything else.
 - **Checkpoint rule:** If `Checkpoint semantics` is `delivery target only`, log the checkpoint, push it, and continue immediately. Do not stop at the checkpoint.
@@ -155,6 +158,7 @@ plan, the codebase, or good engineering practice.
 - **You never merge by default. You never approve a merge. The exceptions are an explicit merge-on-green preference recorded in `## Run Control`, or an explicit reviewed-PR landing command from the user. Either way, use a regular merge commit after the final readiness review passes, never a squash.**
 - **Never run destructive git commands:** `git reset --hard`, `git checkout .`, `git clean -fd`, `git push --force`, `git rebase` on shared branches. Never. If you think you need one, stop.
 - **One run owns one branch and one checkout.** Never share a working tree or branch with another active agent. If the branch tip moves to a commit you didn't create, stop — it is a collision, not a diverge.
+- **Dedicated worktree helper:** When another agent may touch the repo, create the isolated checkout with `./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect the generated command first. The helper prints the branch, worktree path, base ref, and collision tripwire, and does not reuse, delete, or repair existing worktrees.
 - **Never modify a test to make it pass.** Fix the code, not the test. If you believe a test is wrong, log it and move on. Don't change it.
 - **Never introduce regressions.** Every change must preserve existing functionality. Before marking a batch complete, verify: all pre-existing tests still pass (total test count never decreases), no shared utilities or interfaces were broken (grep for consumers), and the cumulative diff (`git diff <default-branch>...HEAD --stat`) contains no unexpected changes outside batch scope.
 
@@ -406,6 +410,32 @@ review: github-pr-comments
 # review-api-url: https://review.example.com/api/review
 # review-api-header: x-api-key: ${REVIEW_API_KEY}
 
+# --- Public API surface snapshot (optional) ---
+# Use this when the project has consumer-facing contracts such as REST/GraphQL schemas, package
+# exports, CLI help, webhooks/events, or documented config keys.
+# Public API surface snapshots are optional regression evidence; tests, review, and the human-owned constitution still decide behavior.
+api-surface-snapshot:
+  enabled: auto        # false | auto | true
+  required: false      # true only when explicitly opted in for this run
+  baseline-path: .elves/api-surface/baseline.json
+  current-path: .elves/api-surface/current.json
+  diff-path: .elves/api-surface/diff.md
+  sources:
+    rest: auto
+    graphql: auto
+    exports: auto
+    cli: auto
+    events: auto
+    config: auto
+  policy:
+    unavailable-source: warning
+    additive-change: info
+    intentional-breaking-change: requires-plan-note
+    unexpected-breaking-change: blocking
+# A missing snapshot source is not blocking unless required: true was explicitly set in the survival guide.
+# enabled: false plus required: true is invalid staging config.
+# Snapshot artifacts are run artifacts, not product docs; keep .elves/ ignored and do not commit raw snapshots by default.
+
 # --- Notification method ---
 # Default: PR comment (zero config — always available)
 notification: pr-comment
@@ -441,14 +471,16 @@ math-fallback-policy: record-before-switching-provider
 math-ledger-dir: docs/math
 ```
 
-### Cobbler Configuration (optional)
+### Cobbler Coordination Defaults
 
-> Use this when the run may call Cobbler for a fitted answer. Quick Cobbler is native subagent
-> first, read-only, and stateless by default. Provider-backed council is optional advanced plumbing,
-> not required for normal Cobbler or Council-compatible use.
+> Cobbler-first coordination is the default for Elves runs. Quick Cobbler is the one-off answer
+> mode: native subagent first, read-only, and stateless. Provider-backed council is optional
+> advanced plumbing, not required for normal Cobbler or Council-compatible use.
 
 ```yaml
 cobbler-enabled: true
+cobbler-coordination-default: cobbler-first
+cobbler-default-for-elves-runs: true
 cobbler-default-mode: quick
 cobbler-default-backend: native-subagents
 cobbler-primary-invocations:
@@ -471,6 +503,8 @@ cobbler-max-role-count: 5
 cobbler-quick-read-only: true
 cobbler-quick-stateless: true
 cobbler-run-logging: existing-elves-memory
+cobbler-model-routing-policy: native-first
+cobbler-provider-backed-fallback: native-subagent-and-note
 
 # Optional provider-backed council diversity. Keep disabled unless the user opts in.
 cobbler-provider-backed-enabled: false
@@ -482,9 +516,74 @@ cobbler-provider-backed-optional-env:
   - ANTHROPIC_API_KEY
   - XAI_API_KEY
   - OPENAI_API_KEY
+cobbler-provider-backed-role-models:
+  default: native-subagent
+  architect: native-subagent
+  skeptic: native-subagent
+  implementation_analyst: native-subagent
+  tester: native-subagent
+  synthesis: native-coordinator
+cobbler-provider-backed-role-effort:
+  architect: high
+  skeptic: high
+  tester: medium
+
+# Optional effort values are hints only: low, medium, high, or xhigh when the backend supports them.
+#
+# Example external route when provider-backed council is explicitly enabled:
+# cobbler-provider-backed-role-models:
+#   skeptic: "openrouter:<model-id>"
+#   fast_sanity: "openrouter:<fast-model-id>"
 ```
 
 Legacy `council-*` config keys remain compatibility aliases for existing `v1.14.0` setups.
+
+### Full-Run Model Routing (optional)
+
+> Use this only for full Elves runs that should prefer different elves for implementation,
+> validation, review, scouting, or synthesis. This is routing metadata, not a guaranteed model
+> switch. Native host capability is the default. Missing optional provider access falls back to
+> host-native work and is not blocking unless this survival guide explicitly sets `required: true`
+> for a phase.
+
+```yaml
+model-routing:
+  enabled: true
+  policy: native-first
+  fallback: host-native
+  phases:
+    implement:
+      preference: strongest-host-native
+      provider-backed-allowed: false
+      required: false
+    validate:
+      preference: reliable-host-native
+      provider-backed-allowed: false
+      required: false
+    review:
+      preference: independent-lens
+      provider-backed-allowed: true
+      required: false
+    scout:
+      preference: broad-fast-lens
+      provider-backed-allowed: true
+      required: false
+    synthesize:
+      preference: coordinator
+      provider-backed-allowed: true
+      required: false
+
+# Terse aliases are allowed during staging and should expand to the structured block above.
+implement-model: strongest-host-native
+validate-model: reliable-host-native
+review-model: independent-lens
+scout-model: broad-fast-lens
+synthesize-model: coordinator
+
+# Record only material route changes in the execution log or `.elves-session.json`:
+# Execution Log: Requested route / Actual route / Fallback reason
+# JSON keys: requested_route, actual_route, fallback_reason
+```
 
 ---
 

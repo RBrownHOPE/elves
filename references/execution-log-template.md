@@ -90,6 +90,7 @@
 **PR:** [#N / "not created yet"]
 **Run mode:** [finite / open-ended] | **User returns:** [time / "never"]
 **Checkpoint semantics:** [none / delivery checkpoint / hard stop] | **Actual stop conditions:** [list]
+**Coordination:** [Cobbler-first / direct-agent override] | **Material lens decisions:** [summary / "none yet"]
 **Active compute at launch:** [none / list]
 **Continuation guard:** stop_allowed=[yes / no] | remaining_batches=[N] | checkpoint_is_stop=[yes / no] | next_required_action=[one sentence]
 
@@ -133,6 +134,11 @@
 **Blast radius:**
 - `[shared/file/or/doc]` ([N] consumers), [additive / modified / breaking]
 - Risk: [low / medium / high], [one-line explanation]
+
+**Phase routing (optional):**
+- Requested route: [none / phase preference from `model-routing`]
+- Actual route: [host-native / native-subagent / direct-analysis / provider-backed / N/A]
+- Fallback reason: [none / material reason route changed]
 
 **Pre-implementation survey:**
 - `[command]` -> [what you found]
@@ -183,6 +189,16 @@
   handlers. Reduces future drift, no API surface change."]
 - [Decision + reasoning]
 
+**Cobbler synthesis:**
+- Recommendation: [material fitted answer or "N/A"]
+- Strongest dissent: [objection, uncertainty, or verification gap preserved / "N/A"]
+- Next move: [action taken because of the synthesis / "N/A"]
+
+**Route notes:**
+- Requested route: [none / phase preference]
+- Actual route: [host-native / native-subagent / direct-analysis / provider-backed / N/A]
+- Fallback reason: [none / material reason route changed]
+
 **Process adjustments:**
 - [Any entropy-check or retro adjustment made to the Elves process itself, e.g., "Added a
   regression-preservation acceptance criterion after repeated review findings" / "none"]
@@ -198,6 +214,7 @@
 - Files outside batch scope: [none / list with explanation]
 - Shared surfaces modified: [list shared utilities/types/interfaces/configs touched, with consumer count]
 - Consumers verified: [for each shared surface, how callers were checked, e.g., "grep shows 12 importers of validation.ts, all unchanged"]
+- Public API surface snapshot: [N/A / unavailable reason / no delta / additive / planned breaking / unexpected breaking; include baseline/current/diff artifact paths when configured]
 - Test baseline: [X total (A passed, B skipped) at session start; Y total (C passed, D skipped) now; delta: +Z new, 0 removed, 0 newly skipped]
 - Confidence: [HIGH / MEDIUM / LOW], [1-2 sentence explanation. Not "all tests pass." Explain what you checked and why existing functionality is preserved. E.g., "HIGH, all changes are additive (new functions, new tests). No existing function signatures, types, or interfaces were modified. 12 consumers of validation.ts verified unchanged."]
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 
@@ -115,6 +117,14 @@ class ConsistencyPhraseTests(unittest.TestCase):
 
     def test_codex_cobbler_guardrails_are_required(self) -> None:
         self.assertIn(
+            "Cobbler-first coordination is the default for Elves runs",
+            self.consistency.COUNCIL_MODULE_PHRASES["SKILL.md"],
+        )
+        self.assertIn(
+            "Quick Cobbler is the default one-off answer mode",
+            self.consistency.COUNCIL_MODULE_PHRASES["SKILL.md"],
+        )
+        self.assertIn(
             "do not assume Codex has a top-level `/cobbler` command",
             self.consistency.COUNCIL_MODULE_PHRASES["SKILL.md"],
         )
@@ -131,6 +141,37 @@ class ConsistencyPhraseTests(unittest.TestCase):
             self.consistency.COUNCIL_MODULE_PHRASES["references/council-workflow.md"],
         )
 
+    def test_cobbler_first_run_coordination_is_required(self) -> None:
+        expected = {
+            "SKILL.md": "Cobbler-first coordination is the default for Elves runs",
+            "AGENTS.md": "Cobbler-first coordination is the default for Elves runs",
+            "README.md": "Cobbler-first coordination is the default for Elves runs",
+            "references/council-workflow.md": (
+                "Run Cobbler is the default coordination pattern inside an Elves run"
+            ),
+            "references/survival-guide-template.md": "Coordination mode",
+            "config.json.example": '"coordination_default": "cobbler-first"',
+        }
+
+        for label, phrase in expected.items():
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.COUNCIL_MODULE_PHRASES)
+                self.assertIn(phrase, self.consistency.COUNCIL_MODULE_PHRASES[label])
+
+    def test_cobbler_mode_guardrails_are_required(self) -> None:
+        expected = {
+            "SKILL.md": "$elves cobbler-mode",
+            "AGENTS.md": "not durable run state",
+            "README.md": "Cobbler Mode: off",
+            "references/council-workflow.md": "not a third Cobbler behavior mode",
+            "aliases/claude/cobbler-mode/SKILL.md": "/cobbler-mode",
+        }
+
+        for label, phrase in expected.items():
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.COBBLER_MODE_PHRASES)
+                self.assertIn(phrase, self.consistency.COBBLER_MODE_PHRASES[label])
+
     def test_codex_cobbler_forbidden_phrases_catch_slash_command_drift(self) -> None:
         label = "README.md"
         stale = "Use `/cobbler` in Codex"
@@ -144,6 +185,88 @@ class ConsistencyPhraseTests(unittest.TestCase):
         )
 
         self.assertEqual(errors, [f"{label}: stale Cobbler phrase `{stale}`"])
+
+    def test_cobbler_mode_forbidden_patterns_catch_sticky_state_drift(self) -> None:
+        label = "README.md"
+        text = "Cobbler Mode persists across threads. Cobbler Mode starts an Elves run."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.COBBLER_FORBIDDEN_PATTERNS,
+            "Cobbler",
+        )
+
+        self.assertIn(
+            (
+                "README.md: stale Cobbler pattern "
+                "`\\bcobbler\\s+mode\\s+persists\\s+across\\s+threads\\b`"
+            ),
+            errors,
+        )
+        self.assertIn(
+            (
+                "README.md: stale Cobbler pattern "
+                "`\\bcobbler\\s+mode\\s+starts\\s+an?\\s+elves\\s+run\\b`"
+            ),
+            errors,
+        )
+
+    def test_quick_cobbler_forbidden_patterns_catch_read_only_exceptions(self) -> None:
+        label = "references/council-workflow.md"
+        text = "Quick Cobbler is read-only unless the user wants implementation."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.COBBLER_FORBIDDEN_PATTERNS,
+            "Cobbler",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "references/council-workflow.md: stale Cobbler pattern "
+                    "`\\bquick\\s+cobbler\\b[^.\\n]*(?:unless|except)\\b[^.\\n]*"
+                    "(?:active\\s+elves\\s+run|implementation|edit|mutate)\\b`"
+                )
+            ],
+        )
+
+    def test_codex_cobbler_install_guidance_is_required(self) -> None:
+        label = "README.md"
+        phrase = "Codex installs the main skill bundle only"
+
+        self.assertIn(label, self.consistency.CODEX_INSTALL_COBBLER_PHRASES)
+        self.assertIn(phrase, self.consistency.CODEX_INSTALL_COBBLER_PHRASES[label])
+
+        errors = self.consistency.find_missing_phrases(
+            {label: "Codex install docs without the Cobbler reminder"},
+            {label: [phrase]},
+            "Codex Cobbler install",
+        )
+
+        self.assertIn(
+            f"{label}: missing Codex Cobbler install phrase `{phrase}`",
+            errors,
+        )
+
+    def test_cobbler_config_precedence_guidance_is_required(self) -> None:
+        label = "SKILL.md"
+        phrase = "Cobbler preferences belong under the top-level `cobbler` block"
+
+        self.assertIn(label, self.consistency.COBBLER_CONFIG_PREFERENCE_PHRASES)
+        self.assertIn(phrase, self.consistency.COBBLER_CONFIG_PREFERENCE_PHRASES[label])
+
+        errors = self.consistency.find_missing_phrases(
+            {label: "Persistent Preferences without Cobbler precedence"},
+            {label: [phrase]},
+            "Cobbler config preference",
+        )
+
+        self.assertIn(
+            f"{label}: missing Cobbler config preference phrase `{phrase}`",
+            errors,
+        )
 
     def test_cobbler_reference_docs_require_fitted_answer_shape(self) -> None:
         for label in ("references/council-workflow.md", "references/council-prompts.md"):
@@ -168,18 +291,52 @@ class ConsistencyPhraseTests(unittest.TestCase):
 
         self.assertEqual(errors, [f"{label}: stale Cobbler phrase `{stale}`"])
 
+    def test_cobbler_reference_docs_forbid_provider_backed_council_as_mode(self) -> None:
+        label = "references/council-prompts.md"
+        stale = "Mode: [Quick Cobbler / Run Cobbler / Provider-backed council]"
+
+        self.assertIn(stale, self.consistency.COUNCIL_FORBIDDEN_PHRASES[label])
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.COUNCIL_FORBIDDEN_PHRASES,
+            "Cobbler",
+        )
+
+        self.assertEqual(errors, [f"{label}: stale Cobbler phrase `{stale}`"])
+
+    def test_cobbler_forbidden_phrases_catch_optional_run_framing(self) -> None:
+        label = "SKILL.md"
+        stale = "Cobbler is optional for Elves runs"
+
+        self.assertIn(stale, self.consistency.COUNCIL_FORBIDDEN_PHRASES[label])
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.COUNCIL_FORBIDDEN_PHRASES,
+            "Cobbler",
+        )
+
+        self.assertEqual(errors, [f"{label}: stale Cobbler phrase `{stale}`"])
+
     def test_config_example_requires_cobbler_primary_and_council_compatibility(self) -> None:
         phrases = self.consistency.COUNCIL_MODULE_PHRASES["config.json.example"]
 
         self.assertIn('"cobbler"', phrases)
+        self.assertIn('"coordination_default": "cobbler-first"', phrases)
+        self.assertIn('"default_for_elves_runs": true', phrases)
         self.assertIn('"default_answer_shape"', phrases)
         self.assertIn('"provider_backed_council"', phrases)
+        self.assertIn('"model_routing_policy": "native-first"', phrases)
+        self.assertIn('"fallback": "native-subagent-and-note"', phrases)
+        self.assertIn('"external_route_example": "openrouter:<model-id>"', phrases)
         self.assertIn('"compatibility_for": "cobbler"', phrases)
         self.assertIn('"precedence": "cobbler"', phrases)
 
     def test_claude_cobbler_alias_skill_files_are_required(self) -> None:
         expected_aliases = {
             "aliases/claude/cobbler/SKILL.md": "/cobbler",
+            "aliases/claude/cobbler-mode/SKILL.md": "/cobbler-mode",
             "aliases/claude/council/SKILL.md": "/council",
             "aliases/claude/ec/SKILL.md": "/ec",
             "aliases/claude/elves-council/SKILL.md": "/elves-council",
@@ -193,8 +350,18 @@ class ConsistencyPhraseTests(unittest.TestCase):
                     self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label],
                 )
                 self.assertIn(alias, self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label])
-                self.assertIn("read-only", self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label])
-                self.assertIn("stateless", self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label])
+                self.assertIn(
+                    "default orchestration model",
+                    self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label],
+                )
+                self.assertIn(
+                    "worker agents may edit scoped files",
+                    self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label],
+                )
+                self.assertIn(
+                    "For one-off Quick Cobbler answers, stay read-only and stateless",
+                    self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label],
+                )
 
     def test_extract_markdown_section_limits_to_requested_heading_level(self) -> None:
         text = """# Title
@@ -203,19 +370,19 @@ class ConsistencyPhraseTests(unittest.TestCase):
 OpenRouter
 
 ## Cobbler
-Quick Cobbler is the default
+Cobbler-first coordination is the default for Elves runs
 read-only
 
 ### Nested Detail
 dissent
 
 ## Strategic Forgetting
-Quick Cobbler is the default outside the section
+Cobbler-first coordination is the default for Elves runs outside the section
 """
 
         section = self.consistency.extract_markdown_section(text, "## Cobbler")
 
-        self.assertIn("Quick Cobbler is the default", section)
+        self.assertIn("Cobbler-first coordination is the default for Elves runs", section)
         self.assertIn("### Nested Detail", section)
         self.assertIn("dissent", section)
         self.assertNotIn("## Strategic Forgetting", section)
@@ -227,13 +394,13 @@ Quick Cobbler is the default outside the section
             label: """# Elves
 
 ## Math Research Workflows
-Quick Cobbler is the default
+Cobbler-first coordination is the default for Elves runs
 
 ## Cobbler
 Cobbler
 """,
         }
-        phrases = {label: ["Quick Cobbler is the default"]}
+        phrases = {label: ["Cobbler-first coordination is the default for Elves runs"]}
         headings = {label: "## Cobbler"}
 
         errors = self.consistency.find_missing_section_phrases(
@@ -245,7 +412,12 @@ Cobbler
 
         self.assertEqual(
             errors,
-            ["SKILL.md: missing Cobbler phrase `Quick Cobbler is the default`"],
+            [
+                (
+                    "SKILL.md: missing Cobbler phrase "
+                    "`Cobbler-first coordination is the default for Elves runs`"
+                )
+            ],
         )
 
     def test_cobbler_forbidden_phrases_catch_provider_requirement(self) -> None:
@@ -306,14 +478,266 @@ Cobbler
             ],
         )
 
+    def test_full_run_model_routing_guardrails_are_required(self) -> None:
+        for label in ("SKILL.md", "AGENTS.md", "README.md", "config.json.example"):
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.FULL_RUN_MODEL_ROUTING_PHRASES)
+
+        phrases = self.consistency.FULL_RUN_MODEL_ROUTING_PHRASES
+        self.assertIn(
+            "Full-run model routing is a separate optional staging preference",
+            phrases["SKILL.md"],
+        )
+        self.assertIn(
+            "explicit survival-guide opt-in",
+            phrases["README.md"],
+        )
+        self.assertIn('"policy": "native-first"', phrases["config.json.example"])
+
+    def test_full_run_model_routing_forbidden_phrases_catch_required_provider_drift(self) -> None:
+        label = "references/tool-config-examples.md"
+        stale = "model-routing requires OpenRouter"
+
+        self.assertIn(stale, self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES[label])
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES,
+            "full-run model routing",
+        )
+
+        self.assertEqual(errors, [f"{label}: stale full-run model routing phrase `{stale}`"])
+
+    def test_full_run_model_routing_forbidden_patterns_catch_required_defaults(self) -> None:
+        label = "README.md"
+        text = "For this feature, required: true is the default."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS,
+            "full-run model routing",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "README.md: stale full-run model routing pattern "
+                    "`\\brequired:\\s*true\\s+is\\s+(?:the\\s+)?default\\b`"
+                )
+            ],
+        )
+
+    def test_full_run_model_routing_forbidden_patterns_allow_negated_provider_default(self) -> None:
+        label = "references/council-provider-config.md"
+        text = "Do not make implementation provider-backed by default."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS,
+            "full-run model routing",
+        )
+
+        self.assertEqual(errors, [])
+
+    def test_full_run_model_routing_forbidden_patterns_catch_positive_provider_default(self) -> None:
+        label = "references/council-provider-config.md"
+        text = "Users can make implementation provider-backed by default."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS,
+            "full-run model routing",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "references/council-provider-config.md: stale full-run model routing pattern "
+                    "`(?<!do not )\\bmake\\s+implementation\\s+provider-backed\\s+by\\s+default\\b`"
+                )
+            ],
+        )
+
+    def test_math_workflow_remains_allowed_to_be_openrouter_first(self) -> None:
+        label = "references/math-provider-config.md"
+
+        self.assertNotIn(label, self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES)
+        self.assertIn("OPENROUTER_API_KEY", self.consistency.MATH_MODULE_PHRASES[label])
+
     def test_repo_consistency_workflow_guards_alias_and_config_paths(self) -> None:
         phrases = self.consistency.REPO_CONSISTENCY_WORKFLOW_PHRASES[
             ".github/workflows/repo-consistency.yml"
         ]
 
         self.assertIn('"config.json.example"', phrases)
+        self.assertIn('".github/ISSUE_TEMPLATE/**"', phrases)
         self.assertIn('"aliases/**"', phrases)
+        self.assertIn("scripts/pr_portfolio_report.py", phrases)
         self.assertIn("scripts/validate_survival_guide.py", phrases)
+        self.assertIn("scripts/workspace_guard.py", phrases)
+
+    def test_repo_consistency_workflow_requires_node24_action_majors(self) -> None:
+        label = ".github/workflows/repo-consistency.yml"
+        phrases = self.consistency.REPO_CONSISTENCY_WORKFLOW_PHRASES[label]
+        forbidden = self.consistency.REPO_CONSISTENCY_WORKFLOW_FORBIDDEN_PHRASES[label]
+
+        self.assertIn("actions/checkout@v6", phrases)
+        self.assertIn("actions/setup-python@v6", phrases)
+        self.assertIn("actions/checkout@v4", forbidden)
+        self.assertIn("actions/setup-python@v5", forbidden)
+
+    def test_repo_consistency_workflow_rejects_stale_node20_action_majors(self) -> None:
+        label = ".github/workflows/repo-consistency.yml"
+        stale = "actions/setup-python@v5"
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.REPO_CONSISTENCY_WORKFLOW_FORBIDDEN_PHRASES,
+            "repo-consistency workflow",
+        )
+
+        self.assertEqual(
+            errors,
+            [f"{label}: stale repo-consistency workflow phrase `{stale}`"],
+        )
+
+    def test_main_rejects_stale_repo_consistency_workflow_action_majors(self) -> None:
+        label = ".github/workflows/repo-consistency.yml"
+        workflow_path = self.consistency.REPO_ROOT / label
+        original_read_text = self.consistency.read_text
+
+        def fake_read_text(path: Path) -> str:
+            text = original_read_text(path)
+            if path == workflow_path:
+                return (
+                    text
+                    + "\n# stale examples for regression coverage\n"
+                    + "# actions/checkout@v4\n"
+                    + "# actions/setup-python@v5\n"
+                )
+            return text
+
+        self.consistency.read_text = fake_read_text
+        output = io.StringIO()
+        try:
+            with redirect_stdout(output):
+                exit_code = self.consistency.main()
+        finally:
+            self.consistency.read_text = original_read_text
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(
+            f"{label}: stale repo-consistency workflow phrase `actions/checkout@v4`",
+            output.getvalue(),
+        )
+        self.assertIn(
+            f"{label}: stale repo-consistency workflow phrase `actions/setup-python@v5`",
+            output.getvalue(),
+        )
+
+    def test_operator_doc_guardrails_cover_durable_docs_and_run_report_template(self) -> None:
+        expected = {
+            ".ai-docs/manifest.md",
+            ".ai-docs/architecture.md",
+            ".ai-docs/conventions.md",
+            ".ai-docs/gotchas.md",
+            ".github/ISSUE_TEMPLATE/overnight_run_report.md",
+            "references/kickoff-prompt-template.md",
+        }
+
+        self.assertTrue(expected.issubset(self.consistency.OPERATOR_DOC_PHRASES))
+        self.assertIn(
+            "- **Run mode:**",
+            self.consistency.OPERATOR_DOC_PHRASES[
+                ".github/ISSUE_TEMPLATE/overnight_run_report.md"
+            ],
+        )
+        self.assertIn(
+            "`Active Compute` if relevant",
+            self.consistency.OPERATOR_DOC_PHRASES["references/kickoff-prompt-template.md"],
+        )
+
+    def test_operator_doc_guardrails_report_missing_phrase(self) -> None:
+        label = ".ai-docs/conventions.md"
+
+        errors = self.consistency.find_missing_phrases(
+            {label: "Run control is live metadata"},
+            {label: ["Run control is live metadata", "Stop Gate"]},
+            "operator-doc",
+        )
+
+        self.assertEqual(errors, [f"{label}: missing operator-doc phrase `Stop Gate`"])
+
+    def test_main_reports_missing_operator_doc_phrase(self) -> None:
+        label = "README.md"
+        target_path = self.consistency.REPO_ROOT / label
+        original_phrases = self.consistency.OPERATOR_DOC_PHRASES
+        original_read_text = self.consistency.read_text
+
+        def fake_read_text(path: Path) -> str:
+            if path == target_path:
+                return "present operator phrase"
+            return original_read_text(path)
+
+        self.consistency.OPERATOR_DOC_PHRASES = {
+            label: ["present operator phrase", "missing operator phrase"]
+        }
+        self.consistency.read_text = fake_read_text
+        output = io.StringIO()
+        try:
+            with redirect_stdout(output):
+                exit_code = self.consistency.main()
+        finally:
+            self.consistency.OPERATOR_DOC_PHRASES = original_phrases
+            self.consistency.read_text = original_read_text
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(
+            f"{label}: missing operator-doc phrase `missing operator phrase`",
+            output.getvalue(),
+        )
+
+    def test_workspace_isolation_guards_preflight_runtime_check(self) -> None:
+        phrases = self.consistency.WORKSPACE_ISOLATION_PHRASES["scripts/preflight.sh"]
+
+        self.assertIn("Workspace Ownership", phrases)
+        self.assertIn("preflight_worktree.py", phrases)
+        self.assertIn("--create-worktree", phrases)
+        self.assertIn("git worktree list --porcelain", phrases)
+        self.assertIn("Current branch is checked out in one worktree", phrases)
+        self.assertIn("(current checkout)", phrases)
+        self.assertIn("Recommended dedicated worktree", phrases)
+
+    def test_workspace_isolation_helper_docs_are_phrase_pinned(self) -> None:
+        for label in (
+            "SKILL.md",
+            "AGENTS.md",
+            "README.md",
+            "references/survival-guide-template.md",
+            "references/kickoff-prompt-template.md",
+        ):
+            with self.subTest(label=label):
+                phrases = self.consistency.WORKSPACE_ISOLATION_PHRASES[label]
+                self.assertIn(
+                    "./scripts/preflight.sh --create-worktree <branch> --base origin/main",
+                    phrases,
+                )
+                self.assertIn("--dry-run", phrases)
+                self.assertIn("branch, worktree path, base ref, and collision tripwire", phrases)
+                self.assertIn("does not reuse, delete, or repair existing worktrees", phrases)
+
+    def test_workspace_isolation_helper_runtime_is_phrase_pinned(self) -> None:
+        phrases = self.consistency.WORKSPACE_ISOLATION_PHRASES["scripts/preflight_worktree.py"]
+
+        self.assertIn("DEFAULT_BASE_REF = \"origin/main\"", phrases)
+        self.assertIn("--create-worktree", phrases)
+        self.assertIn("--worktree-dir", phrases)
+        self.assertIn("--base", phrases)
+        self.assertIn("--dry-run", phrases)
+        self.assertIn("git worktree add", phrases)
+        self.assertIn("collision tripwire:", phrases)
 
     def test_public_wording_guardrails_catch_fable_framing(self) -> None:
         label = "README.md"
@@ -342,6 +766,127 @@ Cobbler
         self.assertNotIn("docs/plans/v1.15.0-cobbler.md", surfaces)
         self.assertNotIn("docs/elves/survival-guide.md", surfaces)
         self.assertNotIn("docs/elves/execution-log.md", surfaces)
+
+    def test_context_index_is_a_required_durable_doc(self) -> None:
+        relative_docs = {
+            path.relative_to(self.consistency.REPO_ROOT).as_posix()
+            for path in self.consistency.DURABLE_DOCS
+        }
+
+        self.assertIn(".ai-docs/context-index.md", relative_docs)
+
+    def test_api_surface_snapshot_guardrails_are_required(self) -> None:
+        for label in ("SKILL.md", "AGENTS.md"):
+            with self.subTest(label=label):
+                phrases = self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_PHRASES[label]
+                self.assertIn(
+                    "Public API surface snapshots are optional regression evidence.",
+                    phrases,
+                )
+                self.assertIn(
+                    (
+                        "A missing snapshot source is not blocking unless `required: true` "
+                        "was explicitly set in the survival guide."
+                    ),
+                    phrases,
+                )
+                self.assertIn(
+                    (
+                        "A snapshot proves public surface shape only; it is not a substitute "
+                        "for tests, E2E checks, review, or the human-owned constitution."
+                    ),
+                    phrases,
+                )
+
+    def test_api_surface_snapshot_config_defaults_are_advisory(self) -> None:
+        phrases = self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_PHRASES["config.json.example"]
+
+        self.assertIn('"api_surface_snapshot"', phrases)
+        self.assertIn('"enabled": "auto"', phrases)
+        self.assertIn('"required": false', phrases)
+        self.assertIn("snapshots are regression evidence, not authority", phrases)
+
+    def test_api_surface_snapshot_forbidden_patterns_catch_required_by_default(self) -> None:
+        label = "README.md"
+        text = "API snapshots are required, with required: true by default."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS,
+            "public API surface snapshot",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "README.md: stale public API surface snapshot pattern "
+                    "`\\bapi\\s+snapshots?\\s+(?:are|is)\\s+required\\b`"
+                ),
+                (
+                    "README.md: stale public API surface snapshot pattern "
+                    "`\\brequired:\\s*true\\s+by\\s+default\\b`"
+                ),
+            ],
+        )
+
+    def test_api_surface_snapshot_forbidden_patterns_allow_negated_required_inference(
+        self,
+    ) -> None:
+        label = "SKILL.md"
+        text = "Never infer required mode from project type, provider config, or API files."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS,
+            "public API surface snapshot",
+        )
+
+        self.assertEqual(errors, [])
+
+    def test_api_surface_snapshot_forbidden_patterns_allow_negated_artifact_and_secret_rules(
+        self,
+    ) -> None:
+        label = "SKILL.md"
+        text = (
+            "Do not commit snapshot artifacts. "
+            "Do not record secrets. "
+            "Never capture bearer tokens. "
+            "Must not include customer payloads."
+        )
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS,
+            "public API surface snapshot",
+        )
+
+        self.assertEqual(errors, [])
+
+    def test_api_surface_snapshot_forbidden_patterns_catch_authority_drift(self) -> None:
+        label = "AGENTS.md"
+        text = "Snapshots replace tests and should include bearer tokens for debugging."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS,
+            "public API surface snapshot",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "AGENTS.md: stale public API surface snapshot pattern "
+                    "`\\bsnapshots?\\s+replace\\s+(?:tests|the constitution|review)\\b`"
+                ),
+                (
+                    "AGENTS.md: stale public API surface snapshot pattern "
+                    "`(?<!do not )(?<!never )(?<!don't )(?<!should not )"
+                    "(?<!must not )\\binclude\\s+(?:raw\\s+)?(?:secrets|bearer tokens|cookies|customer payloads|production sample data)\\b`"
+                ),
+            ],
+        )
 
 
 if __name__ == "__main__":

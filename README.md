@@ -4,7 +4,7 @@
 
 **They work while you sleep.**
 
-Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs.
+Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default orchestration model inside Elves: it routes agents, tools, skills, evidence, dissent, and synthesis so the loop does not collapse into one undifferentiated agent stream.
 
 You write the plan and own the merge decision. The agent does everything in between.
 
@@ -37,11 +37,16 @@ Elves is the harness that lets the Ralph Loop run for hours without supervision,
 ## How it works
 
 ```
-Orient → Verify Green → Tag → Contract → Implement → Validate → Review →
+Orient → Cobbler-coordinate → Verify Green → Tag → Contract → Implement → Validate → Review →
 Judge → Document → Update → Push → Re-read → PR Loop → Entropy Check → Continue
 ```
 
-Elves runs a tight loop. For each batch of planned work, the agent implements the changes, runs validation gates, reads PR review comments, fixes any blocking findings, updates the documentation, and pushes a checkpoint, then immediately starts the next batch. No waiting, no prompting, no drift.
+Elves runs a tight loop. Cobbler coordinates non-trivial decisions inside that loop: whether to
+answer directly, route work to implementation agents, ask independent lenses for risk/review, use
+repo tools or skills, or preserve a dissenting view before synthesis. For each batch of planned
+work, the agent implements the changes, runs validation gates, reads PR review comments, fixes any
+blocking findings, updates the documentation, and pushes a checkpoint, then immediately starts the
+next batch. No waiting, no prompting, no drift.
 
 ### Reviewed PR landing command
 
@@ -158,8 +163,14 @@ and source traceability.
 
 ### Cobbler
 
-Cobbler is the coordinator inside Elves. Ask Cobbler a hard question, and it decides how much help
-to bring in: a direct answer, a few specialist elves, or a read-only council of independent lenses.
+Cobbler is the default orchestration model inside Elves. During staged and active Elves runs, it is
+how the coordinator plans, chooses agents/tools/skills, handles uncertainty, preserves dissent,
+reviews risk, and synthesizes the next move. Explicit `/cobbler` or `$elves cobbler: ...`
+invocations are the one-off chat form of the same coordination model.
+
+![How Cobbler works](assets/cobbler-infographic.png)
+
+For the full walkthrough, see [`docs/cobbler.md`](docs/cobbler.md).
 
 The user gets the fit, not the chatter: `Recommendation`, `Why this fits`, `Strongest dissent`,
 `Risks`, `Next move`, and `Confidence`.
@@ -167,23 +178,49 @@ The user gets the fit, not the chatter: `Recommendation`, `Why this fits`, `Stro
 Use `/cobbler <task>` in Claude Code when the alias skill is installed. In Codex, use
 `$elves cobbler: <task>` or natural language such as "Ask the Cobbler..." Compatibility aliases
 remain supported: Claude Code keeps `/council`, `/ec`, and `/elves-council`, while Codex keeps
-`$elves council: <task>` and natural Council references. They all invoke the same Cobbler behavior.
+`$elves council: <task>` and natural Council references. They all invoke the same default Cobbler
+orchestration model.
 
 Host honesty matters. Claude Code gets real slash-skill aliases through the managed alias skills.
 Codex users should not need or expect a top-level `/cobbler` command; `$elves cobbler: <task>` is
 the reliable Codex form.
 Goals are for full Elves runs, not Quick Cobbler.
 
-Quick Cobbler is the default. It is read-only, stateless, and native-subagent-first: Codex uses
-Codex subagents, Claude Code uses Claude Code subagents, and environments without subagents perform
-the same read-only analysis directly. Cobbler chooses a small role set, usually two or three
-lenses, gathers bounded independent reports, and answers with the fitted-answer headings above. It
-does not edit files, create branches, open PRs, install packages, or mutate run state.
+Cobbler Mode is the lowest-friction way to keep talking to the Cobbler across follow-up prompts in
+one thread. In Claude Code, use `/cobbler-mode` when the managed alias skill is installed. In
+Codex, use `$elves cobbler-mode` or say naturally: "Cobbler Mode: on" or "From now on, answer as
+the Cobbler until I say Cobbler Mode: off." While active, the agent treats each follow-up as
+Cobbler-mediated by default: direct answer for simple questions, Quick Cobbler lenses when extra
+perspective helps, and full Elves run coordination when you ask it to change the repo. It is
+current-thread conversation state, not durable run state, a daemon, provider requirement, or Codex
+slash command. Exit with "Cobbler Mode: off" or "leave Cobbler Mode."
+
+Cobbler-first coordination is the default for Elves runs. The main coordinator still owns durable
+memory, git, PRs, and final synthesis; worker agents may edit the repo when the active batch or
+user request assigns them implementation work.
+
+Quick Cobbler is the default one-off answer mode. It is read-only, stateless, and
+native-subagent-first: Codex uses Codex subagents, Claude Code uses Claude Code subagents, and
+environments without subagents perform the same read-only analysis directly. Cobbler chooses a
+small role set, usually two or three lenses, gathers bounded independent reports, and answers with
+the fitted-answer headings above. It does not edit files, create branches, open PRs, install
+packages, or mutate run state.
 
 Provider-backed council is optional. It can be configured later for external provider diversity,
 but ordinary Cobbler use and compatibility-alias use require no OpenRouter or other provider key.
 The pattern borrows the useful harness idea of independent role reports followed by synthesis
 without importing vendor identity, policy, persona, or safety text.
+
+Optional model routing stays behind the same Cobbler interaction. The default route is the host's
+native subagents; configured role routes like `openrouter:<model-id>` are opt-in, fall back to
+native when unavailable, and should be weighed by evidence rather than model prestige.
+
+For full Elves runs, the Cobbler can prefer different elves for different phases. Add optional
+`model-routing` preferences during staging when implementation, validation, review, scouting, or
+synthesis should use different host-native lenses. These preferences are advisory unless the host
+or configured provider can actually honor them; missing optional provider access falls back to
+host-native work and is logged only when it changes risk or confidence. `required: true` is an
+explicit survival-guide opt-in, never a Quick Cobbler default.
 
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
 model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
@@ -219,12 +256,20 @@ When more than one agent may touch the same repo, give each run its own
 [git worktree](https://git-scm.com/docs/git-worktree):
 
 ```bash
-git worktree add -b <branch> ../<repo>-<branch>   # then run the agent inside that directory
+./scripts/preflight.sh --create-worktree <branch> --base origin/main
 ```
 
-A solo run in a repo no other agent will touch can use the main checkout. Either way, the agent
-records the branch tip at staging as a collision tripwire: if HEAD moves to a commit it didn't
-create, another writer is in the checkout, so it stops instead of committing on top.
+Use `--dry-run` first to print the exact `git worktree add -b ...` command without creating
+anything. The helper prints the branch, worktree path, base ref, and collision tripwire; it does not reuse, delete, or repair existing worktrees. A solo run in a repo no other agent will touch can
+use the main checkout. Either way, preflight inspects `git worktree list --porcelain` and fails if
+the current branch appears in more than one worktree. The agent also records the branch tip at
+staging as a collision tripwire: if HEAD moves to a commit it didn't create, another writer is in
+the checkout, so it stops instead of committing on top.
+
+For source checkouts, `scripts/workspace_guard.py` is an optional prototype helper that can check a
+candidate write command against `.elves-session.json` workspace-guard state. It is advisory by
+default, tracks `allowed_head_tip` and `expected_remote_tip` instead of treating the staging tip as
+permanently valid, and does not install hooks or repair git state.
 
 ### Codex Goals
 
@@ -301,11 +346,12 @@ Bad: "Looks good so far." (no tag, no instruction to continue)
 
 See [Installation](#installation) below for full details. The short version:
 
-- **Claude Code:** install the main `elves` skill plus the managed `/cobbler`, `/council`, `/ec`,
-  and `/elves-council` alias skills
+- **Claude Code:** install the main `elves` skill plus the managed `/cobbler`, `/cobbler-mode`,
+  `/council`, `/ec`, and `/elves-council` alias skills
 - **Codex:** copy the skill bundle into `~/.codex/skills/elves/` (at minimum `SKILL.md`,
-  `AGENTS.md`, `references/`, and the runtime scripts `scripts/preflight.sh`,
-  `scripts/notify.sh`, `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`)
+  `AGENTS.md`, `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
+  `scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`, and
+  `scripts/validate_survival_guide.py`)
 - **Claude.ai:** zip the `elves/` directory and upload via Settings > Features > Skills
 
 **2. Write a plan**
@@ -341,10 +387,19 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Elves Reports**: substantial finite runs end with a temporary static HTML worker-to-manager
   report that highlights status, problems found, lessons learned, collapsible batch timeline,
   validation, residual risks, and human next steps; the agent hands it to you to review at closeout
-- **Cobbler**: `/cobbler` in Claude Code and `$elves cobbler: ...` in Codex give you a read-only,
-  native-subagent-first synthesis for planning, design, debugging, and review questions; Claude
-  keeps `/council`, `/ec`, and `/elves-council`, while Codex keeps `$elves council: ...` as the
-  compatibility path
+- **Cobbler-first run coordination**: Cobbler is the default way Elves routes agents, tools,
+  skills, evidence, dissent, and synthesis during staged and active runs
+- **Quick Cobbler**: `/cobbler` in Claude Code and `$elves cobbler: ...` in Codex give you a
+  read-only, native-subagent-first fitted answer for one-off planning, design, debugging, and
+  review questions; Claude keeps `/council`, `/ec`, and `/elves-council`, while Codex keeps
+  `$elves council: ...` as the compatibility path
+- **Cobbler Mode**: `/cobbler-mode` in Claude Code and `$elves cobbler-mode` in Codex keep
+  follow-up prompts Cobbler-mediated in the current thread until you say `Cobbler Mode: off`
+- **Optional model routing**: Cobbler roles can be mapped to native subagents or provider-backed
+  models when keys are configured, but native host subagents remain the zero-config default and
+  fallback
+- **Full-run model routing**: optional `model-routing` preferences let the Cobbler record requested
+  and actual routes per phase while staying native-first and provider-optional
 - **Math research workflow kit**: optional templates for preliminary discovery, subfield scouting,
   cross-field synthesis, proof review, source audit, manuscript drafting, and human verification
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`
@@ -357,6 +412,9 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **High-risk regression pass**: batches with medium/high blast radius can trigger a second,
   regression-only review pass that traces changed shared surfaces to their consumers and asks only
   "what could this break?"
+- **Public API surface snapshots**: optional regression evidence for REST, GraphQL, exported
+  library, CLI, event, and configuration contracts. `enabled: auto` stays advisory when no credible
+  source exists; `required: true` is only an explicit survival-guide opt-in.
 - **Final readiness review**: the final step of every run is a fresh cumulative review of
   `git diff <default-branch>...HEAD`. Read every PR comment, run every test that makes sense, and
   confirm checks, docs, and memory hygiene, so you can be confident the branch is green to merge.
@@ -368,7 +426,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Lightweight process retro**: entropy checks can tune the loop itself when the same friction
   repeats, for example by tightening the survival guide, templates, or tool config after repeated
   review findings
-- **Run isolation**: one run owns one branch and one checkout; when agents may share a repo, each run gets its own `git worktree`, and a collision tripwire stops the agent if another writer moves its branch
+- **Run isolation**: one run owns one branch and one checkout; when agents may share a repo, each run gets its own `git worktree` through `./scripts/preflight.sh --create-worktree <branch> --base origin/main`, preflight fails duplicate current-branch worktrees, and a collision tripwire stops the agent if another writer moves its branch
 - **Merge conflict handling**: when `git push` fails due to a diverged remote, the agent fetches and merges (never rebases), resolves conflicts or triggers a Hard Stop
 - **Two run modes**: finite (deadline-based, default) or open-ended (continue until explicitly stopped). Open-ended mode also covers "checkpointed continuation" runs like "have something by 8am, then keep going." A morning checkpoint, return time, or delivery target is not a stop condition unless the survival guide explicitly marks it as a hard stop.
 - **Live operator brief**: the survival guide is rewritten in place as the run evolves. `Run Control`, `Current Phase`, `Active Compute`, `Stop Gate`, and `Next Exact Batch` stay current; the execution log carries history.
@@ -383,7 +441,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Install doctor and update advisory**: startup can flag newer published releases and explain
   when a project-local install differs from the global one that you thought you were using
 - **Ride-along protocol**: prefix messages with `ra:`, `ride-along:`, or `[ride-along]` to interact during a run without stopping the agent. The agent responds in 1-3 sentences and resumes immediately.
-- **Comprehensive preflight checks**: git remote, push access, GitHub CLI auth, test gates, sleep prevention, Slack webhook, stale branch detection
+- **Comprehensive preflight checks**: git remote, push access, GitHub CLI auth, test gates, sleep prevention, Slack webhook, stale branch detection, workspace ownership, duplicate branch checkout detection
 
 ---
 
@@ -446,6 +504,7 @@ Some coding tools show survey popups, feedback requests, or update prompts durin
 - [ ] Sleep / display sleep is disabled or caffeinate running
 - [ ] Terminal is in tmux/screen (if SSH) or won't be closed
 - [ ] Surveys and popups disabled in your coding tool's settings
+- [ ] Branch ownership is manually confirmed: no other active agent is using this checkout or this branch. Preflight will catch duplicate current-branch worktrees.
 - [ ] Notifications are configured so you know when the run finishes
 - [ ] Preflight passed (Elves will verify the above automatically)
 
@@ -499,6 +558,13 @@ If neither `ELVES_SLACK_WEBHOOK` nor `ELVES_NOTIFY_CMD` is set, Elves falls back
 ---
 
 ## Configuration
+
+### Persistent preferences
+
+Copy [`config.json.example`](config.json.example) to `config.json` in your installed skill or
+project-local skill when you want defaults to persist across sessions. Put new Cobbler preferences
+under the top-level `cobbler` block. The legacy `council` block is for compatibility with older
+projects; if both blocks are present, `cobbler` wins.
 
 ### Tool configuration
 
@@ -574,8 +640,12 @@ elves/
 ├── LICENSE
 ├── config.json.example                   # Persistent preferences template
 ├── assets/
+│   ├── cobbler-infographic.png           # Cobbler flow infographic
 │   ├── elves-banner.jpeg                 # README banner image
 │   └── elves-social-preview.png          # GitHub social preview
+├── docs/
+│   ├── cobbler.md                        # Human-facing Cobbler walkthrough
+│   └── elves-report-proof-of-concept.html
 ├── references/
 │   ├── survival-guide-template.md        # Bootstrap template for new projects
 │   ├── execution-log-template.md         # Log entry template
@@ -592,10 +662,16 @@ elves/
 │   ├── verification-patterns.md          # Headless browser, video recording, state assertions
 │   └── open-ended-guide.md              # Open-ended mode patterns, QA/audit expansion rules
 ├── scripts/
+│   ├── check_repo_consistency.py         # Repo-only cross-file drift checker
+│   ├── release_checklist.py              # Release-readiness helper for version/changelog/doc sweeps
 │   ├── install_doctor.py                 # Update + installation-precedence advisory
 │   ├── preflight.sh                      # Pre-run checklist
+│   ├── preflight_worktree.py             # Explicit dedicated-worktree helper
 │   ├── notify.sh                         # Notification helper
-│   └── validate_survival_guide.py        # Advisory survival-guide completeness check
+│   ├── pr_portfolio_report.py            # Repo-only PR health sweep helper
+│   ├── sync_installed_skills.py          # Local Claude/Codex install sync helper
+│   ├── validate_survival_guide.py        # Advisory survival-guide completeness check
+│   └── workspace_guard.py                # Optional workspace owned-tip guard prototype
 └── .github/
     └── ISSUE_TEMPLATE/                   # Bug report, feature request, overnight run report
 ```
@@ -659,7 +735,7 @@ Overnight agent runs fail in predictable ways. Knowing the failure modes makes t
 | **Terminal closes (SSH disconnect)** | The SSH connection drops and the session dies. | Use `tmux` or `screen`. Elves mentions this in the pre-run checklist. |
 | **Agent drifts from the plan** | After many batches, the agent starts making changes that weren't in the plan. | The agent re-reads the survival guide after every commit/push, checks the plan hash to detect modifications, and keeps durable lessons in `learnings.md` so the same confusion doesn't have to be rediscovered. The layered memory system anchors every decision. The survival guide should be rewritten in place as a live control surface, not treated as an append-only history log. |
 | **Merge conflicts on push** | `git push` fails because the remote has diverged. The agent may rebase and lose work, or stall. | Elves instructs the agent to fetch and merge (never rebase on shared branches). If conflicts can't be resolved cleanly, the agent triggers a Hard Stop rather than risking data loss. |
-| **Two agents share a branch/checkout** | Claude and Codex (or two runs) write to the same branch in the same directory and clobber each other's files or move the branch mid-run. | One run owns one branch and one checkout. Use a `git worktree` per run when agents share a repo. The agent records a collision tripwire and stops if its branch tip moves to a commit it didn't create. |
+| **Two agents share a branch/checkout** | Claude and Codex (or two runs) write to the same branch in the same directory and clobber each other's files or move the branch mid-run. | One run owns one branch and one checkout. Use `./scripts/preflight.sh --create-worktree <branch> --base origin/main` when agents share a repo, or add `--dry-run` first to inspect the generated command. Preflight flags duplicate current-branch worktrees; the agent records a collision tripwire and stops if its branch tip moves to a commit it didn't create. |
 
 Most of these are prevented by the preflight checks. Run preflight, fix the warnings, and most overnight failures never happen.
 
@@ -738,20 +814,25 @@ python3 /tmp/elves/scripts/sync_installed_skills.py --apply --target claude
 rm -rf /tmp/elves
 ```
 
-This installs `~/.claude/skills/elves/` and four small Claude Code alias skills:
-`~/.claude/skills/cobbler/`, `~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
-`~/.claude/skills/elves-council/`. Those directories create `/cobbler`, `/council`, `/ec`, and
-`/elves-council`; every alias delegates to the same Cobbler behavior in the main `elves` skill.
+This installs `~/.claude/skills/elves/` and five small Claude Code alias skills:
+`~/.claude/skills/cobbler/`, `~/.claude/skills/cobbler-mode/`,
+`~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
+`~/.claude/skills/elves-council/`. Those directories create `/cobbler`, `/cobbler-mode`,
+`/council`, `/ec`, and `/elves-council`; every alias delegates to the same default Cobbler
+orchestration model in the main `elves` skill.
 
 **Codex:**
 ```bash
 mkdir -p ~/.codex/skills/elves/scripts
 git clone https://github.com/aigorahub/elves.git /tmp/elves
-cp /tmp/elves/SKILL.md /tmp/elves/AGENTS.md ~/.codex/skills/elves/
+cp /tmp/elves/SKILL.md /tmp/elves/AGENTS.md /tmp/elves/config.json.example ~/.codex/skills/elves/
 cp -r /tmp/elves/references ~/.codex/skills/elves/
-cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py ~/.codex/skills/elves/scripts/
+cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/preflight_worktree.py /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py ~/.codex/skills/elves/scripts/
 rm -rf /tmp/elves
 ```
+
+Codex installs the main skill bundle only. It does not install the Claude Code slash aliases; use
+`$elves cobbler: <task>` or natural language such as "Ask the Cobbler..." to invoke Cobbler.
 
 ### Per-project installation
 
@@ -765,7 +846,7 @@ git clone https://github.com/aigorahub/elves.git .claude/skills/elves
 rm -rf .claude/skills/elves/.git  # remove the nested git repo
 
 # Optional project-local aliases. Skip any alias directory you already own.
-for alias in cobbler council ec elves-council; do
+for alias in cobbler cobbler-mode council ec elves-council; do
   if [ -e ".claude/skills/${alias}" ]; then
     echo "Skipping existing .claude/skills/${alias}"
   else
@@ -825,14 +906,34 @@ explicitly.
 
 This mirrors the managed skill bundle files from the repo into `~/.claude/skills/elves/` and
 `~/.codex/skills/elves/`. For Claude Code, it also manages the small alias skills at
-`~/.claude/skills/cobbler/`, `~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
-`~/.claude/skills/elves-council/` so `/cobbler` and the Council compatibility aliases are real
-slash-skill entry points.
+`~/.claude/skills/cobbler/`, `~/.claude/skills/cobbler-mode/`,
+`~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
+`~/.claude/skills/elves-council/` so `/cobbler`, `/cobbler-mode`, and the Council compatibility
+aliases are real slash-skill entry points.
+
+For Codex, the sync helper updates the main skill bundle only. Invoke Cobbler with
+`$elves cobbler: <task>` or natural language rather than a top-level slash alias.
 
 The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
-`references/`, and the runtime scripts `scripts/preflight.sh`, `scripts/notify.sh`,
-`scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`. Repo-only maintenance
-helpers such as `scripts/check_repo_consistency.py` stay in the checkout.
+`config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
+`scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`, and
+`scripts/validate_survival_guide.py`.
+Repo-only maintenance
+helpers such as `scripts/check_repo_consistency.py`, `scripts/release_checklist.py`,
+`scripts/pr_portfolio_report.py`, and `scripts/workspace_guard.py` stay in the checkout.
+
+For local PR-stack sweeps, use the repo-only helper:
+
+```bash
+python3 scripts/pr_portfolio_report.py
+python3 scripts/pr_portfolio_report.py --prs 29-43 --fail-on-attention
+python3 scripts/pr_portfolio_report.py --prs 29-43 --fail-on-attention --fail-on-draft
+python3 scripts/pr_portfolio_report.py --json
+```
+
+Use `--fail-on-attention` for unresolved threads, pending or failing checks, requested changes, or
+non-clean merge state. Add `--fail-on-draft` when the question is landing readiness rather than
+health: draft PRs can be intentionally clean but still not ready for a human merge.
 
 Claude Code aliases are marker-gated. Elves creates or updates an alias skill only when it is
 missing or already contains the `elves-managed-alias` marker. If you already have your own
@@ -849,6 +950,21 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --doctor
 The install doctor reports the active version, published release, and any project-local installs
 that differ from the global copies. `scripts/preflight.sh` now runs it in startup mode
 automatically when the helper is present in the bundle.
+
+For maintainers preparing an Elves release, run the release checklist from a repo checkout:
+```bash
+python3 scripts/release_checklist.py
+```
+
+It checks that `SKILL.md`, `AGENTS.md`, and the latest changelog release heading agree, that the
+`Unreleased` changelog section has been promoted, and that current-version examples were bumped.
+The default changed-doc sweep compares committed changes against `origin/main`; commit your
+release-prep changes before relying on that part of the report. During a normal development PR, use
+`--allow-unreleased` to keep changelog entries as warnings while still getting the version and
+changed-doc surface sweep:
+```bash
+python3 scripts/release_checklist.py --allow-unreleased
+```
 
 ---
 
