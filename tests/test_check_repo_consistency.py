@@ -572,9 +572,41 @@ Cobbler
         phrases = self.consistency.WORKSPACE_ISOLATION_PHRASES["scripts/preflight.sh"]
 
         self.assertIn("Workspace Ownership", phrases)
+        self.assertIn("preflight_worktree.py", phrases)
+        self.assertIn("--create-worktree", phrases)
         self.assertIn("git worktree list --porcelain", phrases)
         self.assertIn("Current branch is checked out in one worktree", phrases)
         self.assertIn("(current checkout)", phrases)
+        self.assertIn("Recommended dedicated worktree", phrases)
+
+    def test_workspace_isolation_helper_docs_are_phrase_pinned(self) -> None:
+        for label in (
+            "SKILL.md",
+            "AGENTS.md",
+            "README.md",
+            "references/survival-guide-template.md",
+            "references/kickoff-prompt-template.md",
+        ):
+            with self.subTest(label=label):
+                phrases = self.consistency.WORKSPACE_ISOLATION_PHRASES[label]
+                self.assertIn(
+                    "./scripts/preflight.sh --create-worktree <branch> --base origin/main",
+                    phrases,
+                )
+                self.assertIn("--dry-run", phrases)
+                self.assertIn("branch, worktree path, base ref, and collision tripwire", phrases)
+                self.assertIn("does not reuse, delete, or repair existing worktrees", phrases)
+
+    def test_workspace_isolation_helper_runtime_is_phrase_pinned(self) -> None:
+        phrases = self.consistency.WORKSPACE_ISOLATION_PHRASES["scripts/preflight_worktree.py"]
+
+        self.assertIn("DEFAULT_BASE_REF = \"origin/main\"", phrases)
+        self.assertIn("--create-worktree", phrases)
+        self.assertIn("--worktree-dir", phrases)
+        self.assertIn("--base", phrases)
+        self.assertIn("--dry-run", phrases)
+        self.assertIn("git worktree add", phrases)
+        self.assertIn("collision tripwire:", phrases)
 
     def test_public_wording_guardrails_catch_fable_framing(self) -> None:
         label = "README.md"

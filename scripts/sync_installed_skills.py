@@ -26,6 +26,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_SCRIPT_PATHS = [
     "scripts/preflight.sh",
+    "scripts/preflight_worktree.py",
     "scripts/notify.sh",
     "scripts/install_doctor.py",
     "scripts/validate_survival_guide.py",

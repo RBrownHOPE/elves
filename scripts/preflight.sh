@@ -3,7 +3,9 @@
 # Elves Preflight Checklist
 # Run before starting an autonomous Elves session to verify the environment.
 #
-# Usage: ./scripts/preflight.sh
+# Usage:
+#   ./scripts/preflight.sh
+#   ./scripts/preflight.sh --create-worktree <branch> [--dry-run] [--base <ref>] [--worktree-dir <path>]
 #
 # Exit codes:
 #   0 — no critical failures (warnings may be present)
@@ -26,6 +28,18 @@ PASS="${GREEN}✓${RESET}"
 WARN="${YELLOW}⚠${RESET}"
 FAIL="${RED}✗${RESET}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ "$#" -gt 0 ]; then
+  if ! command -v python3 &>/dev/null; then
+    echo "error: python3 is required for preflight worktree helper mode" >&2
+    exit 1
+  fi
+  if [ ! -f "${SCRIPT_DIR}/preflight_worktree.py" ]; then
+    echo "error: ${SCRIPT_DIR}/preflight_worktree.py is missing" >&2
+    exit 1
+  fi
+  exec python3 "${SCRIPT_DIR}/preflight_worktree.py" "$@"
+fi
 
 # ---------------------------------------------------------------------------
 # Result tracking
@@ -483,6 +497,25 @@ else
         fi
       done
       info "Use one owned branch and checkout per Elves run before launching"
+      if command -v python3 &>/dev/null && [ -f "${SCRIPT_DIR}/preflight_worktree.py" ]; then
+        RECOMMEND_ARGS=(--recommend-from-current "${CURRENT_BRANCH}")
+        if [ -n "${DEFAULT_BRANCH}" ]; then
+          RECOMMEND_ARGS+=(--base "origin/${DEFAULT_BRANCH}")
+        fi
+        RECOMMENDED_WORKTREE=$(
+          python3 "${SCRIPT_DIR}/preflight_worktree.py" "${RECOMMEND_ARGS[@]}" 2>/dev/null || true
+        )
+        if [ -n "${RECOMMENDED_WORKTREE}" ]; then
+          info "Recommended dedicated worktree command follows"
+          while IFS= read -r LINE; do
+            [ -n "${LINE}" ] && info "${LINE}"
+          done <<< "${RECOMMENDED_WORKTREE}"
+        else
+          info "Run: ./scripts/preflight.sh --create-worktree <branch> --base origin/${DEFAULT_BRANCH:-main}"
+        fi
+      else
+        info "Run: ./scripts/preflight.sh --create-worktree <branch> --base origin/${DEFAULT_BRANCH:-main}"
+      fi
     fi
   fi
 fi

@@ -36,7 +36,7 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
 - **Checkpoint semantics:** [delivery target only | hard stop boundary | none]
 - **May continue after checkpoint:** [yes | no]
 - **Actual stop conditions:** [one short sentence]
-- **Workspace ownership:** [owned branch + main checkout | dedicated worktree at `../<repo>-<branch>`] — never shared with another active agent
+- **Workspace ownership:** [owned branch + main checkout | dedicated worktree created with `./scripts/preflight.sh --create-worktree <branch> --base origin/main`] — never shared with another active agent; use `--dry-run` to inspect first
 - **Branch tip at start (collision tripwire):** [`git rev-parse HEAD` recorded at staging; an unexpected move means another writer is in your checkout]
 - **Merge policy:** [user-merges (default — you never merge) | merge-commit-on-green (opt-in: regular merge commit after the final readiness review passes, never squash) | reviewed-pr-landing-command / `\land-pr` / `/land-pr` (one-off explicit merge opt-in for the current PR)]
 - **Final-response policy:** [allowed | disallowed until stop]
@@ -155,6 +155,7 @@ plan, the codebase, or good engineering practice.
 - **You never merge by default. You never approve a merge. The exceptions are an explicit merge-on-green preference recorded in `## Run Control`, or an explicit reviewed-PR landing command from the user. Either way, use a regular merge commit after the final readiness review passes, never a squash.**
 - **Never run destructive git commands:** `git reset --hard`, `git checkout .`, `git clean -fd`, `git push --force`, `git rebase` on shared branches. Never. If you think you need one, stop.
 - **One run owns one branch and one checkout.** Never share a working tree or branch with another active agent. If the branch tip moves to a commit you didn't create, stop — it is a collision, not a diverge.
+- **Dedicated worktree helper:** When another agent may touch the repo, create the isolated checkout with `./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect the generated command first. The helper prints the branch, worktree path, base ref, and collision tripwire, and does not reuse, delete, or repair existing worktrees.
 - **Never modify a test to make it pass.** Fix the code, not the test. If you believe a test is wrong, log it and move on. Don't change it.
 - **Never introduce regressions.** Every change must preserve existing functionality. Before marking a batch complete, verify: all pre-existing tests still pass (total test count never decreases), no shared utilities or interfaces were broken (grep for consumers), and the cumulative diff (`git diff <default-branch>...HEAD --stat`) contains no unexpected changes outside batch scope.
 

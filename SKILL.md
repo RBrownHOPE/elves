@@ -404,9 +404,16 @@ Before the user walks away, verify everything will work. This is part of staging
 9. **Stale branch detection:** check if the branch is behind main.
 10. **Workspace ownership and collision tripwire:** confirm this run owns its branch and its checkout — no other agent (a teammate, another Elves run, or Codex running alongside Claude) is operating in this working tree or on this branch. When other agents may touch the same repo, stage the run in a dedicated git worktree so concurrent agents can't collide:
     ```bash
-    git worktree add -b <branch> ../<repo>-<branch>   # then work inside that directory
+    ./scripts/preflight.sh --create-worktree <branch> --base origin/main
     ```
-    The bundled `scripts/preflight.sh` inspects `git worktree list --porcelain` and fails if the current branch is checked out in more than one worktree. Then record the branch tip as your collision tripwire: `git rev-parse HEAD`. If HEAD or the remote branch tip later moves to a commit you did not create, another writer is in your checkout — stop, treat it as a collision (see **Merge Conflicts**), and surface it to the user instead of committing on top.
+    Add `--dry-run` to print the exact command before creating anything. The helper prints the
+    branch, worktree path, base ref, and collision tripwire; it does not reuse, delete, or repair existing worktrees.
+    The bundled `scripts/preflight.sh` inspects `git worktree list --porcelain`
+    and fails if the current branch is checked out in more than one worktree. Then record the
+    branch tip as your collision tripwire: `git rev-parse HEAD`. If HEAD or the remote branch tip
+    later moves to a commit you did not create, another writer is in your checkout — stop, treat it
+    as a collision (see **Merge Conflicts**), and surface it to the user instead of committing on
+    top.
 
 If the survival guide already exists during staging, set `ELVES_SURVIVAL_GUIDE_PATH` to that file
 before running `./scripts/preflight.sh`. Preflight will run
@@ -432,9 +439,11 @@ Record the time budget in the execution log.
    ```
    **One run owns one branch and one checkout.** Never share a working tree or branch with another active agent. If other agents may touch this repo during the run (a teammate, another Elves run, or Codex working alongside Claude), create the branch in a dedicated git worktree **instead of** the `git checkout -b` above, so concurrent agents can't overwrite each other's working tree or move your branch out from under you:
    ```bash
-   git worktree add -b <branch> ../<repo>-<branch>   # then work inside that directory
+   ./scripts/preflight.sh --create-worktree <branch> --base origin/main
    ```
-   A solo run in a repo no other agent will touch can use the main checkout. Record the branch tip (`git rev-parse HEAD`) as a collision tripwire; an unexpected move means another writer is in your checkout.
+   Add `--dry-run` if you want to inspect the generated path and command first. A solo run in a
+   repo no other agent will touch can use the main checkout. Record the branch tip (`git rev-parse
+   HEAD`) as a collision tripwire; an unexpected move means another writer is in your checkout.
 
 2. **Write up the plans.** Generate the survival guide, learnings file, and execution log from templates (if they don't already exist). Read the plan and decompose it into batches. Record the batch breakdown with estimates in the execution log. Commit all planning documents:
    ```bash
