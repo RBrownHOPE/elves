@@ -352,27 +352,31 @@ Cobbler
         self.assertEqual(errors, [f"{label}: missing operator-doc phrase `Stop Gate`"])
 
     def test_main_reports_missing_operator_doc_phrase(self) -> None:
-        label = ".github/ISSUE_TEMPLATE/overnight_run_report.md"
+        label = "README.md"
         target_path = self.consistency.REPO_ROOT / label
+        original_phrases = self.consistency.OPERATOR_DOC_PHRASES
         original_read_text = self.consistency.read_text
 
         def fake_read_text(path: Path) -> str:
-            text = original_read_text(path)
             if path == target_path:
-                return text.replace("Run-control behavior", "Behavior during the run")
-            return text
+                return "present operator phrase"
+            return original_read_text(path)
 
+        self.consistency.OPERATOR_DOC_PHRASES = {
+            label: ["present operator phrase", "missing operator phrase"]
+        }
         self.consistency.read_text = fake_read_text
         output = io.StringIO()
         try:
             with redirect_stdout(output):
                 exit_code = self.consistency.main()
         finally:
+            self.consistency.OPERATOR_DOC_PHRASES = original_phrases
             self.consistency.read_text = original_read_text
 
         self.assertEqual(exit_code, 1)
         self.assertIn(
-            f"{label}: missing operator-doc phrase `Run-control behavior`",
+            f"{label}: missing operator-doc phrase `missing operator phrase`",
             output.getvalue(),
         )
 
