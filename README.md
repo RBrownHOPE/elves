@@ -230,14 +230,15 @@ When more than one agent may touch the same repo, give each run its own
 [git worktree](https://git-scm.com/docs/git-worktree):
 
 ```bash
-git worktree add -b <branch> ../<repo>-<branch>   # then run the agent inside that directory
+./scripts/preflight.sh --create-worktree <branch> --base origin/main
 ```
 
-A solo run in a repo no other agent will touch can use the main checkout. Either way, preflight
-inspects `git worktree list --porcelain` and fails if the current branch appears in more than one
-worktree. The agent also records the branch tip at staging as a collision tripwire: if HEAD moves to
-a commit it didn't create, another writer is in the checkout, so it stops instead of committing on
-top.
+Use `--dry-run` first to print the exact `git worktree add -b ...` command without creating
+anything. The helper prints the branch, worktree path, base ref, and collision tripwire; it does not reuse, delete, or repair existing worktrees. A solo run in a repo no other agent will touch can
+use the main checkout. Either way, preflight inspects `git worktree list --porcelain` and fails if
+the current branch appears in more than one worktree. The agent also records the branch tip at
+staging as a collision tripwire: if HEAD moves to a commit it didn't create, another writer is in
+the checkout, so it stops instead of committing on top.
 
 For source checkouts, `scripts/workspace_guard.py` is an optional prototype helper that can check a
 candidate write command against `.elves-session.json` workspace-guard state. It is advisory by
@@ -323,7 +324,8 @@ See [Installation](#installation) below for full details. The short version:
   and `/elves-council` alias skills
 - **Codex:** copy the skill bundle into `~/.codex/skills/elves/` (at minimum `SKILL.md`,
   `AGENTS.md`, `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
-  `scripts/notify.sh`, `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`)
+  `scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`, and
+  `scripts/validate_survival_guide.py`)
 - **Claude.ai:** zip the `elves/` directory and upload via Settings > Features > Skills
 
 **2. Write a plan**
@@ -394,7 +396,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Lightweight process retro**: entropy checks can tune the loop itself when the same friction
   repeats, for example by tightening the survival guide, templates, or tool config after repeated
   review findings
-- **Run isolation**: one run owns one branch and one checkout; when agents may share a repo, each run gets its own `git worktree`, preflight fails duplicate current-branch worktrees, and a collision tripwire stops the agent if another writer moves its branch
+- **Run isolation**: one run owns one branch and one checkout; when agents may share a repo, each run gets its own `git worktree` through `./scripts/preflight.sh --create-worktree <branch> --base origin/main`, preflight fails duplicate current-branch worktrees, and a collision tripwire stops the agent if another writer moves its branch
 - **Merge conflict handling**: when `git push` fails due to a diverged remote, the agent fetches and merges (never rebases), resolves conflicts or triggers a Hard Stop
 - **Two run modes**: finite (deadline-based, default) or open-ended (continue until explicitly stopped). Open-ended mode also covers "checkpointed continuation" runs like "have something by 8am, then keep going." A morning checkpoint, return time, or delivery target is not a stop condition unless the survival guide explicitly marks it as a hard stop.
 - **Live operator brief**: the survival guide is rewritten in place as the run evolves. `Run Control`, `Current Phase`, `Active Compute`, `Stop Gate`, and `Next Exact Batch` stay current; the execution log carries history.
@@ -630,6 +632,7 @@ elves/
 │   ├── release_checklist.py              # Release-readiness helper for version/changelog/doc sweeps
 │   ├── install_doctor.py                 # Update + installation-precedence advisory
 │   ├── preflight.sh                      # Pre-run checklist
+│   ├── preflight_worktree.py             # Explicit dedicated-worktree helper
 │   ├── notify.sh                         # Notification helper
 │   ├── pr_portfolio_report.py            # Repo-only PR health sweep helper
 │   ├── sync_installed_skills.py          # Local Claude/Codex install sync helper
@@ -698,7 +701,7 @@ Overnight agent runs fail in predictable ways. Knowing the failure modes makes t
 | **Terminal closes (SSH disconnect)** | The SSH connection drops and the session dies. | Use `tmux` or `screen`. Elves mentions this in the pre-run checklist. |
 | **Agent drifts from the plan** | After many batches, the agent starts making changes that weren't in the plan. | The agent re-reads the survival guide after every commit/push, checks the plan hash to detect modifications, and keeps durable lessons in `learnings.md` so the same confusion doesn't have to be rediscovered. The layered memory system anchors every decision. The survival guide should be rewritten in place as a live control surface, not treated as an append-only history log. |
 | **Merge conflicts on push** | `git push` fails because the remote has diverged. The agent may rebase and lose work, or stall. | Elves instructs the agent to fetch and merge (never rebase on shared branches). If conflicts can't be resolved cleanly, the agent triggers a Hard Stop rather than risking data loss. |
-| **Two agents share a branch/checkout** | Claude and Codex (or two runs) write to the same branch in the same directory and clobber each other's files or move the branch mid-run. | One run owns one branch and one checkout. Use a `git worktree` per run when agents share a repo. Preflight flags duplicate current-branch worktrees; the agent records a collision tripwire and stops if its branch tip moves to a commit it didn't create. |
+| **Two agents share a branch/checkout** | Claude and Codex (or two runs) write to the same branch in the same directory and clobber each other's files or move the branch mid-run. | One run owns one branch and one checkout. Use `./scripts/preflight.sh --create-worktree <branch> --base origin/main` when agents share a repo, or add `--dry-run` first to inspect the generated command. Preflight flags duplicate current-branch worktrees; the agent records a collision tripwire and stops if its branch tip moves to a commit it didn't create. |
 
 Most of these are prevented by the preflight checks. Run preflight, fix the warnings, and most overnight failures never happen.
 
@@ -788,7 +791,7 @@ mkdir -p ~/.codex/skills/elves/scripts
 git clone https://github.com/aigorahub/elves.git /tmp/elves
 cp /tmp/elves/SKILL.md /tmp/elves/AGENTS.md /tmp/elves/config.json.example ~/.codex/skills/elves/
 cp -r /tmp/elves/references ~/.codex/skills/elves/
-cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py ~/.codex/skills/elves/scripts/
+cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/preflight_worktree.py /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py ~/.codex/skills/elves/scripts/
 rm -rf /tmp/elves
 ```
 
@@ -876,7 +879,8 @@ For Codex, the sync helper updates the main skill bundle only. Invoke Cobbler wi
 
 The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
 `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
-`scripts/notify.sh`, `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`.
+`scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`, and
+`scripts/validate_survival_guide.py`.
 Repo-only maintenance
 helpers such as `scripts/check_repo_consistency.py`, `scripts/release_checklist.py`,
 `scripts/pr_portfolio_report.py`, and `scripts/workspace_guard.py` stay in the checkout.

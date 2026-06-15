@@ -94,7 +94,7 @@ exit 1
         repo = self.root / "repo"
         repo.mkdir()
         self.run_git(repo, "init", "-b", "main")
-        (repo / ".gitignore").write_text(".playwright-mcp/\ndocs/audit/\n")
+        (repo / ".gitignore").write_text(".playwright-mcp/\ndocs/audit/\n.elves/\n")
         (repo / "README.md").write_text("test repo\n")
         self.run_git(repo, "add", ".")
         self.run_git(
@@ -125,6 +125,17 @@ exit 1
             check=False,
         )
 
+    def run_preflight_args(self, repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", str(PREFLIGHT_SCRIPT), *args],
+            cwd=repo,
+            env=self.env(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
     def test_preflight_passes_in_minimal_launch_ready_repo(self) -> None:
         self.write_fake_gh()
         repo = self.create_repo(with_remote=True)
@@ -138,6 +149,7 @@ exit 1
         self.assertIn("All known ephemeral directories are gitignored", result.stdout)
         self.assertIn("Sleep Prevention", result.stdout)
         self.assertIn("Project Type Detection", result.stdout)
+        self.assertNotIn("Recommended dedicated worktree", result.stdout)
 
     def test_preflight_fails_when_origin_remote_is_missing(self) -> None:
         self.write_fake_gh()
@@ -148,6 +160,52 @@ exit 1
         self.assertEqual(result.returncode, 1)
         self.assertIn("No git remote 'origin' found", result.stdout)
         self.assertIn("Elves Preflight Summary", result.stdout)
+
+    def test_preflight_worktree_helper_dispatches_before_full_checklist(self) -> None:
+        repo = self.create_repo(with_remote=True)
+
+        result = self.run_preflight_args(
+            repo,
+            "--dry-run",
+            "--create-worktree",
+            "codex/wrapper-example",
+            "--base",
+            "origin/main",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Dry run: would create dedicated worktree", result.stdout)
+        self.assertIn("branch: codex/wrapper-example", result.stdout)
+        self.assertNotIn("GitHub CLI (gh)", result.stdout)
+        self.assertFalse((self.root / "repo-wrapper-example").exists())
+
+    def test_preflight_worktree_helper_can_create_via_wrapper(self) -> None:
+        repo = self.create_repo(with_remote=True)
+
+        result = self.run_preflight_args(
+            repo,
+            "--create-worktree",
+            "codex/wrapper-create",
+            "--base",
+            "origin/main",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        created = self.root / "repo-wrapper-create"
+        self.assertTrue(created.exists())
+        self.assertIn("Created dedicated worktree", result.stdout)
+        self.assertIn("branch: codex/wrapper-create", result.stdout)
+        self.assertNotIn("GitHub CLI (gh)", result.stdout)
+        branch = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=created,
+            env=self.base_env(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        ).stdout.strip()
+        self.assertEqual(branch, "codex/wrapper-create")
 
 
 if __name__ == "__main__":

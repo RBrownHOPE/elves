@@ -81,8 +81,12 @@ For projects with APIs (REST, GraphQL, exported library interfaces), capture the
 - [x] Add a deterministic preflight guard for duplicate current-branch worktrees, complementing the
   prose-level one-run-one-checkout rule with enforcement. Implemented in `scripts/preflight.sh`: it
   hard-fails when the current branch is checked out in multiple worktrees.
-- [ ] Optional preflight helper that offers to create the dedicated `git worktree` automatically when
+- [x] Optional preflight helper that offers to create the dedicated `git worktree` automatically when
   it detects another active checkout of the same branch.
+  `scripts/preflight_worktree.py` now backs
+  `./scripts/preflight.sh --create-worktree <branch> --base origin/main`, supports `--dry-run`,
+  generated sibling paths, explicit path overrides, branch/base collision checks, and advisory
+  duplicate-checkout recommendations without mutating default preflight.
 - [x] Partial progress on the v1.8.0 checker-expansion follow-up: v1.11.0 added
   `WORKSPACE_ISOLATION_PHRASES` (covers the kickoff template, survival-guide template, and README).
   PR #31 completes the remaining coverage by phrase-pinning the overnight-run-report template and

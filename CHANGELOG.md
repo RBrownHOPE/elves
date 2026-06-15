@@ -33,6 +33,9 @@ All notable changes to the Elves skill are documented here.
 - `scripts/preflight.sh` now includes a Workspace Ownership check that inspects
   `git worktree list --porcelain`, hard-fails when the current branch is checked out in more than
   one worktree, and prints the branch-tip collision tripwire when the checkout is uniquely owned.
+- Added `scripts/preflight_worktree.py` and `./scripts/preflight.sh --create-worktree <branch>` so
+  staging can create or dry-run a dedicated worktree with explicit base-ref, path, branch collision,
+  and tripwire output while the default preflight checklist remains advisory and non-mutating.
 - Cobbler provider-backed council docs now include native-first role model routing: roles default to
   host subagents, optional `provider:model-id` routes can be configured when keys exist, unavailable
   routes fall back to native, and dissent is resolved by evidence rather than model prestige.

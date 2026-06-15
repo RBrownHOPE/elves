@@ -38,7 +38,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - Generate or refresh the survival guide, learnings file, and execution log
 - Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-ins: merge-commit-on-green or reviewed-pr-landing-command), and `Active Compute` if relevant
 - Create or switch to the branch, open or update the PR, and record the PR number
-- Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated worktree instead of in the main checkout (`git worktree add -b <branch> ../<repo>-<branch>`), and record the branch tip as a collision tripwire
+- Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated git worktree instead of in the main checkout (`./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect first), and record the branch tip as a collision tripwire. The helper prints the branch, worktree path, base ref, and collision tripwire and does not reuse, delete, or repair existing worktrees.
 - Configure optional public API surface snapshot behavior if this project has public contract
   surfaces. Default to `api-surface-snapshot.enabled: auto`, keep `required: false` unless I
   explicitly opt in, and keep snapshot artifacts under ignored `.elves/api-surface/`.
@@ -71,7 +71,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - Generate or refresh the survival guide, learnings file, and execution log
 - Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-ins: merge-commit-on-green or reviewed-pr-landing-command), and `Active Compute` if relevant
 - Create or switch to the branch, open or update the PR, and record the PR number
-- Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated worktree instead of in the main checkout (`git worktree add -b <branch> ../<repo>-<branch>`), and record the branch tip as a collision tripwire
+- Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated git worktree instead of in the main checkout (`./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect first), and record the branch tip as a collision tripwire. The helper prints the branch, worktree path, base ref, and collision tripwire and does not reuse, delete, or repair existing worktrees.
 - Configure optional public API surface snapshot behavior if this project has public contract
   surfaces. Default to `api-surface-snapshot.enabled: auto`, keep `required: false` unless I
   explicitly opt in, and keep snapshot artifacts under ignored `.elves/api-surface/`.
