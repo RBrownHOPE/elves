@@ -15,7 +15,7 @@ Cobbler was inspired by the harness engineering ideas in
 [Claude Fable 5](https://github.com/elder-plinius/CL4R1T4S/blob/main/ANTHROPIC/CLAUDE-FABLE-5.md),
 a system prompt extracted by Pliny the Prompter in the CL4R1T4S archive.
 
-The part Elves borrows is the coordination pattern: route a request through independent lenses,
+The part Cobbler borrows is the coordination pattern: route a request through independent lenses,
 preserve dissent, and fit one answer back to the user. Cobbler does not copy Fable's model
 identity, persona, policy text, or safety guardrails.
 
