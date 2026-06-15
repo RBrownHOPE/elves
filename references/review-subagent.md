@@ -379,6 +379,8 @@ Read only:
    **Blast radius**
 4. Any consumer evidence the implementer gathered (`rg` output, importer counts, route lists,
    interface snapshots, or targeted regression tests)
+5. API surface snapshot artifacts when configured (`.elves/api-surface/baseline.json`,
+   `.elves/api-surface/current.json`, and `.elves/api-surface/diff.md` by default)
 
 Ignore:
 
@@ -403,6 +405,13 @@ Return a tight report:
 
 ### Missing Proof
 - [Any consumer or behavior that still needs direct verification]
+
+If an API surface snapshot exists, treat it as shape evidence only. Public API surface snapshots
+are optional regression evidence. Additive public contract changes are usually INFO, intentional
+breaking changes require a plan or execution-log note, and unexpected breaking changes are
+BLOCKING. A missing snapshot source is not blocking unless `required: true` was explicitly set in
+the survival guide. A snapshot proves public surface shape only; it is not a substitute for tests,
+E2E checks, review, or the human-owned constitution.
 
 If nothing is risky, say so in one line and stop.
 

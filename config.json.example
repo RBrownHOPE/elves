@@ -146,6 +146,29 @@
     "_comment": "Optional full-run phase routing preferences. Advisory unless the host or configured provider supports the route. Missing optional provider access falls back to host-native and does not block ordinary Elves or Cobbler use."
   },
 
+  "api_surface_snapshot": {
+    "enabled": "auto",
+    "required": false,
+    "baseline_path": ".elves/api-surface/baseline.json",
+    "current_path": ".elves/api-surface/current.json",
+    "diff_path": ".elves/api-surface/diff.md",
+    "sources": {
+      "rest": "auto",
+      "graphql": "auto",
+      "exports": "auto",
+      "cli": "auto",
+      "events": "auto",
+      "config": "auto"
+    },
+    "policy": {
+      "unavailable_source": "warning",
+      "additive_change": "info",
+      "intentional_breaking_change": "requires-plan-note",
+      "unexpected_breaking_change": "blocking"
+    },
+    "_comment": "Optional public API surface snapshot preferences. In auto mode, missing sources are advisory. required=true belongs in a project survival guide only when explicitly opted in; snapshots are regression evidence, not authority."
+  },
+
   "math": {
     "enabled": false,
     "provider_policy": "openrouter-first",

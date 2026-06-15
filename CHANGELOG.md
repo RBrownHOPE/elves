@@ -39,6 +39,9 @@ All notable changes to the Elves skill are documented here.
 - Added optional full-run `model-routing` guardrails for implementation, validation, review,
   scouting, and synthesis phases. The guidance is native-first, provider-optional, and records
   requested route, actual route, and fallback reason only when material.
+- Added guardrails for optional public API surface snapshots: survival-guide/config examples,
+  regression-attestation and review guidance, ignored `.elves/api-surface/` artifacts, and repo
+  consistency checks. Snapshots stay advisory by default and are evidence, not authority.
 
 ## [1.15.0] - 2026-06-14
 

@@ -453,6 +453,19 @@ Also review the diff for code quality, **using the contract's Build on section a
 
 **For medium/high blast radius batches, run one more regression-focused pass.** If the contract marks the blast radius as medium or high, or the batch touches auth, billing, data models, shared utilities, public interfaces, or other widely-consumed surfaces, do a narrow second pass after the standard review is otherwise clean. Read the cumulative diff, the plan, the batch contract (especially blast radius), and the consumer evidence. Ignore style, architecture improvements, and new feature ideas. Ask only: "What existing behavior could this break?" Trace each changed shared surface to its callers or dependents and name the concrete failure mode. Treat confirmed breakage as BLOCKING. Treat plausible but unproven regression risk as WARNING until you either add verification or justify why the surface is safe in the execution log and commit message. Use a read-only review subagent when the platform supports it; otherwise do this pass directly.
 
+**Use public API surface snapshots when configured.** Fold them into the existing regression
+attestation, not a separate review ceremony:
+- Public API surface snapshots are optional regression evidence.
+- Use existing structured sources before inventing scanners.
+- If no credible source exists, record `unavailable` with the reason instead of fabricating a snapshot.
+- A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide.
+- `required: true` is valid only when explicitly set by the user or project survival guide.
+- Do not infer required mode from project type, provider config, framework choice, or the presence of API files.
+- Snapshot artifacts are run artifacts, not product docs.
+- Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly asks for a durable API report.
+- Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data.
+- A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.
+
 **Fix all blocking issues using the bug-fix protocol.** When a bug is found:
 1. **Diagnose the category** — what kind of bug is this? Missing null check? Unvalidated input? Off-by-one? The specific bug is a symptom; the category is the disease.
 2. **Write a test that catches the category, not just the instance** — if the bug is a missing null check on one field, test null/undefined/empty across the relevant interface. The test should catch this bug and every sibling.
@@ -504,13 +517,13 @@ Append to execution log:
 **Review findings:** [Severity] [Title] → [Resolved/Dismissed + reason]
 **Decisions made:** [every judgment call made without user input]
 **Docs:** Impacted [list]. Updated [list]. Promoted [list or "none"]. Deferred [list or "none"]
-**Regression attestation:** Cumulative diff: [N files, +X/-Y lines]. Shared surfaces: [list or "none"]. Test baseline: [start to now, delta]. Confidence: [HIGH/MEDIUM/LOW], [why]
+**Regression attestation:** Cumulative diff: [N files, +X/-Y lines]. Shared surfaces: [list or "none"]. Public API surface delta: [not configured / unavailable / captured / changed / required_failed]. Test baseline: [start to now, delta]. Confidence: [HIGH/MEDIUM/LOW], [why]
 **Commit:** [SHA] | **Rollback tag:** elves/pre-batch-N
 
 **Next:** 1. [next task]  2. [task after]
 ```
 
-**Write the regression attestation.** Review `git diff <default-branch>...HEAD --stat` for the cumulative delta. Identify shared surfaces modified, verify consumers, compare test count against the baseline from step 2, and state a confidence level with reasoning.
+**Write the regression attestation.** Review `git diff <default-branch>...HEAD --stat` for the cumulative delta. Identify shared surfaces modified, verify consumers, record the public API surface delta when configured, compare test count against the baseline from step 2, and state a confidence level with reasoning.
 
 Also update `.elves-session.json`. Set the batch status to `"complete"`, record commit SHA and timestamp.
 
@@ -667,7 +680,7 @@ Don't report "done" unless all are true for the current batch. This is a condens
 
 1. Touched-surface validation gates passed (lint, typecheck, build, test, preview if configured). Broad regression runs at entropy checks and before the Readiness Gate.
 2. No accumulated debt: no skipped gates, no "will fix later" items, no known regressions.
-3. **Regression attestation written.** Execution log entry includes: cumulative diff review, shared surfaces with consumers verified, test baseline comparison, and confidence level with reasoning. See step 9.
+3. **Regression attestation written.** Execution log entry includes: cumulative diff review, shared surfaces with consumers verified, public API surface delta when configured, test baseline comparison, and confidence level with reasoning. See step 9.
 4. Contract acceptance criteria marked as met (or exceptions documented).
 5. PR comments read; findings triaged. Review loop ran until no blockers remained. All review threads resolved or replied to.
 6. Legality check passed (if a constitution exists). No unresolved FAIL verdicts.
