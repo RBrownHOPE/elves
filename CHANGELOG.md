@@ -4,6 +4,11 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Testing
+
+- Made the `tests/` directory importable so plain `python3 -m unittest discover` finds the helper
+  regression suite instead of reporting zero tests.
+
 ## [1.15.0] - 2026-06-14
 
 ### Cobbler
