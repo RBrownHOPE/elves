@@ -63,6 +63,7 @@ For projects with APIs (REST, GraphQL, exported library interfaces), capture the
   one-run-one-checkout rule with enforcement (similar to the forbidden-commands hook).
 - [ ] Optional preflight helper that offers to create the dedicated `git worktree` automatically when
   it detects another active checkout of the same branch.
-- [ ] Partial progress on the v1.8.0 checker-expansion follow-up: v1.11.0 added
+- [x] Partial progress on the v1.8.0 checker-expansion follow-up: v1.11.0 added
   `WORKSPACE_ISOLATION_PHRASES` (covers the kickoff template, survival-guide template, and README).
-  The overnight-run-report template and `.ai-docs/*` surfaces are still not phrase-pinned.
+  PR #31 completes the remaining coverage by phrase-pinning the overnight-run-report template and
+  durable `.ai-docs/*` surfaces.
