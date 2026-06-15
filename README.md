@@ -189,6 +189,13 @@ Optional model routing stays behind the same Cobbler interaction. The default ro
 native subagents; configured role routes like `openrouter:<model-id>` are opt-in, fall back to
 native when unavailable, and should be weighed by evidence rather than model prestige.
 
+For full Elves runs, the Cobbler can prefer different elves for different phases. Add optional
+`model-routing` preferences during staging when implementation, validation, review, scouting, or
+synthesis should use different host-native lenses. These preferences are advisory unless the host
+or configured provider can actually honor them; missing optional provider access falls back to
+host-native work and is logged only when it changes risk or confidence. `required: true` is an
+explicit survival-guide opt-in, never a Quick Cobbler default.
+
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
 model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
 synthesis prompt templates, and
@@ -359,6 +366,8 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Optional model routing**: Cobbler roles can be mapped to native subagents or provider-backed
   models when keys are configured, but native host subagents remain the zero-config default and
   fallback
+- **Full-run model routing**: optional `model-routing` preferences let the Cobbler record requested
+  and actual routes per phase while staying native-first and provider-optional
 - **Math research workflow kit**: optional templates for preliminary discovery, subfield scouting,
   cross-field synthesis, proof review, source audit, manuscript drafting, and human verification
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`

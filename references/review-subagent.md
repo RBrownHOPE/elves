@@ -34,7 +34,9 @@ Review the current state of PR #[NUMBER] for repo [OWNER/REPO].
 4. CI check status: gh api "repos/OWNER/REPO/commits/HEAD/check-runs"
 5. The plan at [PLAN_PATH]
 6. The batch contract in the execution log at [EXECUTION_LOG_PATH] under the current batch heading
-7. The `review_comments` array in [SESSION_JSON_PATH] to see what was already handled in previous cycles
+7. Any full-run `model-routing` preferences in the survival guide, execution-log contract, or
+   `.elves-session.json`: requested route, actual route, and fallback reason
+8. The `review_comments` array in [SESSION_JSON_PATH] to see what was already handled in previous cycles
 
 ```bash
 # Commit history for the batch
@@ -51,6 +53,15 @@ gh api "repos/OWNER/REPO/commits/HEAD/check-runs"
 ```
 
 **Skip comments already recorded as handled in `.elves-session.json`.** Only evaluate new and unresolved findings. This prevents re-litigating settled issues across review cycles.
+
+## Phase Route Context
+
+If the run uses full-run model routing, treat it as advisory routing metadata unless the survival
+guide explicitly marks the phase `required: true`. Verify that the reviewer received the requested
+route, actual route, and material fallback reason. Missing optional provider access is not a
+blocker for a native-first run; it is a warning only when the fallback changes risk or confidence.
+It is blocking only when the survival guide explicitly made that phase route required and the
+coordinator could not satisfy it. Do not infer route authority from model prestige.
 
 ## For each NEW or UNRESOLVED comment or finding:
 - Categorize as: BLOCKING (must fix), WARNING (should fix), INFO (note only), or PENDING-DOCS (implementation is acceptable but supporting docs are stale)

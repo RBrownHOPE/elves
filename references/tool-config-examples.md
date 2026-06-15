@@ -379,6 +379,60 @@ new `cobbler-*` keys in fresh configs, but do not rename working project config 
 
 ---
 
+## Full-Run Model Routing
+
+> Use when a full Elves run should prefer different elves for implementation, validation, review,
+> scouting, and synthesis. These preferences are advisory unless the host or configured provider can
+> honor them. Native host capability is the default; missing optional provider access falls back to
+> host-native work and does not block ordinary runs.
+
+```yaml
+## Tool Configuration
+
+model-routing:
+  enabled: true
+  policy: native-first
+  fallback: host-native
+  phases:
+    implement:
+      preference: strongest-host-native
+      provider-backed-allowed: false
+      required: false
+    validate:
+      preference: reliable-host-native
+      provider-backed-allowed: false
+      required: false
+    review:
+      preference: independent-lens
+      provider-backed-allowed: true
+      required: false
+    scout:
+      preference: broad-fast-lens
+      provider-backed-allowed: true
+      required: false
+    synthesize:
+      preference: coordinator
+      provider-backed-allowed: true
+      required: false
+
+# Terse aliases are staging sugar and should expand to the structured block above.
+implement-model: strongest-host-native
+validate-model: reliable-host-native
+review-model: independent-lens
+scout-model: broad-fast-lens
+synthesize-model: coordinator
+
+# Provider namespaces are explicit. Do not treat bare aliases as provider model IDs.
+# Examples: native-subagent, host-default, codex:<host-option>, claude-code:<host-option>,
+# openrouter:<model-id>, gemini:<model-id>, anthropic:<model-id>, xai:<model-id>,
+# openai:<model-id>.
+```
+
+Use `required: true` only when the survival guide explicitly opts the project into a hard route
+requirement. Never infer it from provider config, Quick Cobbler, or legacy Council aliases.
+
+---
+
 ## Notification Options Reference
 
 > Choose one notification method. Only one is active at a time.

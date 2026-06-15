@@ -146,6 +146,17 @@ and the named environment variable is present; otherwise fall back to native and
 the answer. Treat model diversity as another source of evidence, not authority: resolve dissent by
 repo facts, tests, sources, and user constraints rather than by model prestige.
 
+Full-run model routing is a separate optional staging preference, not a Quick Cobbler mode. A plan
+or survival guide may record `model-routing` phase preferences for implementation, validation,
+review, scouting, and synthesis. The policy is native-first by default: use the host's main agent or
+native subagents when available, fall back to direct analysis when not, and use provider-backed
+routes only for explicitly configured read-only review, scouting, or synthesis roles. Record
+requested route, actual route, and material fallback reason in the execution log or
+`.elves-session.json` when the route changes risk or confidence. Missing optional provider access
+never blocks an ordinary run. Treat `required: true` as valid only when the user explicitly set it in
+the project survival guide; never infer it from provider config, Quick Cobbler, or legacy Council
+aliases.
+
 ## Strategic Forgetting
 
 Durable memory is useful only when it stays curated. Giant chats, append-only scratchpads, and
@@ -1271,6 +1282,15 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
     "name": "Auth endpoints",
     "status": "in_progress"
   },
+  "model_routes": [
+    {
+      "batch": 2,
+      "phase": "review",
+      "requested_route": "independent-lens",
+      "actual_route": "native-subagent",
+      "fallback_reason": "Provider-backed council unavailable; native-first fallback used"
+    }
+  ],
   "batches": [
     {
       "id": 1,
@@ -1327,6 +1347,10 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
 ```
 
 The `review_comments` array is the compaction-safe record of every comment handled during the session. After compaction, it tells the next context exactly which comments have been dealt with and how — no need to re-read and re-evaluate hundreds of bot comments.
+
+The optional `model_routes` array records material full-run routing changes only. Use snake_case
+JSON keys: `requested_route`, `actual_route`, and `fallback_reason`. Omit it when routing matches
+the native-first default and does not change risk or confidence.
 
 The `continuation_guard` is the compaction-safe answer to "am I allowed to stop?" While work remains, `stop_allowed` should normally be `false`. Set it to `true` only when the recorded stop conditions are actually met.
 

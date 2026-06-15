@@ -36,6 +36,9 @@ All notable changes to the Elves skill are documented here.
 - Cobbler provider-backed council docs now include native-first role model routing: roles default to
   host subagents, optional `provider:model-id` routes can be configured when keys exist, unavailable
   routes fall back to native, and dissent is resolved by evidence rather than model prestige.
+- Added optional full-run `model-routing` guardrails for implementation, validation, review,
+  scouting, and synthesis phases. The guidance is native-first, provider-optional, and records
+  requested route, actual route, and fallback reason only when material.
 
 ## [1.15.0] - 2026-06-14
 

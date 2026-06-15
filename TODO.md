@@ -28,9 +28,13 @@ Project backlog and deferred tasks.
   Cobbler role routes now stay native-first by default while allowing opt-in `provider:model-id`
   strings such as `openrouter:<model-id>` in the survival guide or config example. Missing provider
   routes fall back to native and should be treated as evidence sources, not authority.
-- [ ] Optional full-run phase model routing for implementation, validation, review, and synthesis
-  remains open. The Cobbler role-routing docs cover the chat-native harness path; a later update
-  could add phase-level hints if a host exposes reliable model selection for those phases.
+- [x] Add optional full-run phase model routing for implementation, validation, review, scouting,
+  and synthesis.
+  `SKILL.md`, `AGENTS.md`, README, `references/survival-guide-template.md`,
+  `references/execution-log-template.md`, `references/review-subagent.md`,
+  `references/tool-config-examples.md`, and `config.json.example` now describe native-first
+  routing preferences, terse `*-model` aliases, material fallback logging, and the rule that
+  `required: true` must be an explicit survival-guide opt-in.
 
 ### Secret redaction layer
 Elves has "don't commit .env files" and "never git add -A" but no automated scanning of what gets sent to LLM prompts. A pre-prompt filter that strips API keys, tokens, and credentials from context before sending to the model would close a real security gap. This is infrastructure, not process — probably belongs as a separate tool or MCP server rather than in the skill itself. Factory AI calls theirs "Droid Shield."

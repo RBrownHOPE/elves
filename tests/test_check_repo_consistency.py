@@ -347,6 +347,94 @@ Cobbler
             ],
         )
 
+    def test_full_run_model_routing_guardrails_are_required(self) -> None:
+        for label in ("SKILL.md", "AGENTS.md", "README.md", "config.json.example"):
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.FULL_RUN_MODEL_ROUTING_PHRASES)
+
+        phrases = self.consistency.FULL_RUN_MODEL_ROUTING_PHRASES
+        self.assertIn(
+            "Full-run model routing is a separate optional staging preference",
+            phrases["SKILL.md"],
+        )
+        self.assertIn(
+            "explicit survival-guide opt-in",
+            phrases["README.md"],
+        )
+        self.assertIn('"policy": "native-first"', phrases["config.json.example"])
+
+    def test_full_run_model_routing_forbidden_phrases_catch_required_provider_drift(self) -> None:
+        label = "references/tool-config-examples.md"
+        stale = "model-routing requires OpenRouter"
+
+        self.assertIn(stale, self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES[label])
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES,
+            "full-run model routing",
+        )
+
+        self.assertEqual(errors, [f"{label}: stale full-run model routing phrase `{stale}`"])
+
+    def test_full_run_model_routing_forbidden_patterns_catch_required_defaults(self) -> None:
+        label = "README.md"
+        text = "For this feature, required: true is the default."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS,
+            "full-run model routing",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "README.md: stale full-run model routing pattern "
+                    "`\\brequired:\\s*true\\s+is\\s+(?:the\\s+)?default\\b`"
+                )
+            ],
+        )
+
+    def test_full_run_model_routing_forbidden_patterns_allow_negated_provider_default(self) -> None:
+        label = "references/council-provider-config.md"
+        text = "Do not make implementation provider-backed by default."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS,
+            "full-run model routing",
+        )
+
+        self.assertEqual(errors, [])
+
+    def test_full_run_model_routing_forbidden_patterns_catch_positive_provider_default(self) -> None:
+        label = "references/council-provider-config.md"
+        text = "Users can make implementation provider-backed by default."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS,
+            "full-run model routing",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "references/council-provider-config.md: stale full-run model routing pattern "
+                    "`(?<!do not )\\bmake\\s+implementation\\s+provider-backed\\s+by\\s+default\\b`"
+                )
+            ],
+        )
+
+    def test_math_workflow_remains_allowed_to_be_openrouter_first(self) -> None:
+        label = "references/math-provider-config.md"
+
+        self.assertNotIn(label, self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES)
+        self.assertIn("OPENROUTER_API_KEY", self.consistency.MATH_MODULE_PHRASES[label])
+
     def test_repo_consistency_workflow_guards_alias_and_config_paths(self) -> None:
         phrases = self.consistency.REPO_CONSISTENCY_WORKFLOW_PHRASES[
             ".github/workflows/repo-consistency.yml"

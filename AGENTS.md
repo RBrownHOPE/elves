@@ -120,6 +120,17 @@ and the named environment variable is present; otherwise fall back to native and
 the answer. Treat model diversity as another source of evidence, not authority: resolve dissent by
 repo facts, tests, sources, and user constraints rather than by model prestige.
 
+Full-run model routing is a separate optional staging preference, not a Quick Cobbler mode. A plan
+or survival guide may record `model-routing` phase preferences for implementation, validation,
+review, scouting, and synthesis. The policy is native-first by default: use the host's main agent or
+native subagents when available, fall back to direct analysis when not, and use provider-backed
+routes only for explicitly configured read-only review, scouting, or synthesis roles. Record
+requested route, actual route, and material fallback reason in the execution log or
+`.elves-session.json` when the route changes risk or confidence. Missing optional provider access
+never blocks an ordinary run. Treat `required: true` as valid only when the user explicitly set it in
+the project survival guide; never infer it from provider config, Quick Cobbler, or legacy Council
+aliases.
+
 ## Strategic Forgetting
 
 Durable memory must stay curated. Giant chats, append-only scratchpads, and huge logs are drag, not
@@ -661,7 +672,7 @@ Don't report "done" unless all are true for the current batch. This is a condens
 5. PR comments read; findings triaged. Review loop ran until no blockers remained. All review threads resolved or replied to.
 6. Legality check passed (if a constitution exists). No unresolved FAIL verdicts.
 7. **Documentation is up to date.** Any user-facing behavior changed by this batch is reflected in the relevant docs (README, API docs, inline doc comments, config references, changelogs, `learnings.md`, `.ai-docs/*`). Stale docs are debt.
-8. `.elves-session.json` updated with `session_id`, current batch state, batch status, commit SHA, completion timestamp, `continuation_guard`, and `review_comments` dispositions. The schema includes path fields for the plan/survival guide/learnings/execution log, a `batches` array (id, name, status, commit, rollback_tag, started_at, completed_at), a `continuation_guard` object (`remaining_batches`, `stop_allowed`, `checkpoint_is_stop`, `next_required_action`), and a `review_comments` array (id, type, source, batch, cycle, summary, disposition, fix_commit/reason). See `SKILL.md` **Structured Session Data** for the full schema.
+8. `.elves-session.json` updated with `session_id`, current batch state, batch status, commit SHA, completion timestamp, `continuation_guard`, and `review_comments` dispositions. The schema includes path fields for the plan/survival guide/learnings/execution log, a `batches` array (id, name, status, commit, rollback_tag, started_at, completed_at), a `continuation_guard` object (`remaining_batches`, `stop_allowed`, `checkpoint_is_stop`, `next_required_action`), an optional `model_routes` array (`phase`, `requested_route`, `actual_route`, `fallback_reason`) for material full-run route changes, and a `review_comments` array (id, type, source, batch, cycle, summary, disposition, fix_commit/reason). See `SKILL.md` **Structured Session Data** for the full schema.
 9. Memory and resource hygiene checked for long runs or large batches: live docs concise, old log entries archived in place if needed, idle resources reconciled, and fresh-thread handoff written if memory pressure is visible.
 10. Execution log updated with timestamps, evidence, and commit SHA.
 11. Survival guide updated with next batch and Stop Gate.

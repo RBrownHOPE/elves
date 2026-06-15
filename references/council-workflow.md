@@ -57,6 +57,12 @@ Record only material outcomes:
 
 If the Cobbler answer does not change the run, do not log it just to create ceremony.
 
+Run Cobbler is not the same thing as full-run model routing. Run Cobbler answers a question inside
+an existing run. Full-run model routing records phase preferences in the survival guide and
+execution log: requested route, actual route, and material fallback reason for implementation,
+validation, review, scouting, or synthesis. Keep those route notes in the existing Elves memory
+surfaces, not in a separate council ledger.
+
 ### Provider-Backed Council
 
 Provider-backed council is optional. It may use configured external providers for broader model

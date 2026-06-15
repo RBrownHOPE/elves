@@ -90,6 +90,19 @@ evidence and task constraints, not by assuming a configured model is more author
 Role effort is optional. Use `low`, `medium`, `high`, or `xhigh` only when the selected host or
 provider supports an effort setting; otherwise omit it and keep the route native-first.
 
+## Full-Run Phase Routes
+
+Provider-backed council slots may satisfy read-only full-run model-routing phases such as review,
+scout, or synthesize when the user has enabled providers and the context is safe to share.
+Do not make implementation provider-backed by default. Implementation and validation mutate or
+inspect the local checkout, so they stay host-native unless the survival guide explicitly opts into a
+write-capable external workflow with branch/worktree isolation, no secret exposure, patch/report
+handoff, and mandatory native validation plus review.
+
+When a requested full-run route cannot run, fall back to host-native work and record the requested
+route, actual route, and fallback reason only if it changes risk or confidence. A route mismatch is
+blocking only when the survival guide explicitly marks that phase `required: true`.
+
 ## Legacy Council Compatibility
 
 Existing `council-*` config keys are still recognized as compatibility aliases for the same
