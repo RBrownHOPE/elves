@@ -4,6 +4,8 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-06-15
+
 - Made Cobbler-first coordination the default Elves run model: Run Cobbler now frames planning,
   contract, risk, debugging, review, and synthesis decisions, while Quick Cobbler remains the
   read-only one-off answer mode.
