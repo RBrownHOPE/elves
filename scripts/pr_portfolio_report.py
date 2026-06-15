@@ -5,6 +5,7 @@ Usage:
   python3 scripts/pr_portfolio_report.py
   python3 scripts/pr_portfolio_report.py --prs 29-43
   python3 scripts/pr_portfolio_report.py --prs 29-43 --fail-on-attention
+  python3 scripts/pr_portfolio_report.py --prs 29-43 --fail-on-attention --fail-on-draft
   python3 scripts/pr_portfolio_report.py --json
 
 The helper is read-only. It uses `gh pr view`, `gh pr list`, and the GitHub GraphQL API to report
@@ -61,6 +62,14 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Exit 1 if any PR has unresolved threads, pending checks, failing checks, "
             "requested changes, or a non-clean merge state."
+        ),
+    )
+    parser.add_argument(
+        "--fail-on-draft",
+        action="store_true",
+        help=(
+            "Exit 1 if any selected PR is a draft. Compose with --fail-on-attention "
+            "for a landing-readiness gate."
         ),
     )
     return parser.parse_args()
@@ -283,6 +292,8 @@ def main() -> int:
         print("No open pull requests found.")
 
     if args.fail_on_attention and any(row_needs_attention(row) for row in rows):
+        return 1
+    if args.fail_on_draft and any(row.draft for row in rows):
         return 1
     return 0
 

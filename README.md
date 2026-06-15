@@ -841,8 +841,13 @@ For local PR-stack sweeps, use the repo-only helper:
 ```bash
 python3 scripts/pr_portfolio_report.py
 python3 scripts/pr_portfolio_report.py --prs 29-43 --fail-on-attention
+python3 scripts/pr_portfolio_report.py --prs 29-43 --fail-on-attention --fail-on-draft
 python3 scripts/pr_portfolio_report.py --json
 ```
+
+Use `--fail-on-attention` for unresolved threads, pending or failing checks, requested changes, or
+non-clean merge state. Add `--fail-on-draft` when the question is landing readiness rather than
+health: draft PRs can be intentionally clean but still not ready for a human merge.
 
 Claude Code aliases are marker-gated. Elves creates or updates an alias skill only when it is
 missing or already contains the `elves-managed-alias` marker. If you already have your own

@@ -6,6 +6,9 @@ All notable changes to the Elves skill are documented here.
 
 - Added `scripts/pr_portfolio_report.py`, a read-only repo helper for summarizing PR stack health
   across merge state, pending/failing checks, and unresolved review threads.
+- Added `--fail-on-draft` to the PR portfolio helper so operators can compose
+  `--fail-on-attention --fail-on-draft` as a landing-readiness gate without treating intentional
+  drafts as attention-worthy.
 
 ## [1.15.0] - 2026-06-14
 
