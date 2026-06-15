@@ -9,7 +9,7 @@ one-run-one-branch-one-checkout rule.
 This is a design note only. It intentionally does not change `scripts/preflight.sh`, README,
 `SKILL.md`, `AGENTS.md`, TODO, or release docs. Implementation should wait until the current
 preflight worktree-ownership guard lands, because that guard is the foundation this helper builds
-on.
+on. Keep any PR carrying this note draft until that dependency is on `main`.
 
 ## Current State
 
@@ -51,13 +51,13 @@ If the current checkout appears unsafe for a new run, preflight prints:
 
 ```text
 Recommended dedicated worktree:
-git worktree add -b <branch> ../<repo>-<branch>
+git worktree add -b <branch> ../<repo>-<branch> <base-ref>
 cd ../<repo>-<branch>
 ```
 
-That short command intentionally matches the existing docs and creates the branch from the current
-`HEAD`. If the helper is executing an opt-in create mode, it should resolve and print the full base
-ref form so the run record is unambiguous:
+The existing docs often show the shorter current-`HEAD` form, but this helper should print the full
+base-ref form. A run should not accidentally branch from a feature branch or stale local checkout
+just because that was the process current directory.
 
 ```bash
 git worktree add -b <branch> <worktree-dir> <base-ref>
@@ -72,21 +72,36 @@ Add an opt-in helper mode later:
 Optional flags:
 
 - `--worktree-dir <path>`: override the generated sibling directory.
-- `--base <ref>`: default to the current `HEAD`; commonly `origin/main`.
+- `--base <ref>`: default to `origin/main` when it resolves, otherwise fail with a clear message
+  asking the operator to pass `--base`.
 - `--dry-run`: print the command and checks without creating anything.
 
 The helper should not prompt. If required inputs are missing, it should print a clear error and exit
 non-zero.
 
+## Exit Semantics
+
+Keep two behaviors separate:
+
+- **Advisory recommendation:** preflight can print a recommended worktree command and still exit
+  zero when the current checkout is safe enough to proceed.
+- **Hard guard:** preflight exits non-zero when it detects duplicate ownership of the current branch
+  or another concrete collision risk that would make continuing unsafe.
+
+The future helper should not turn every worktree recommendation into a launch blocker. It should
+block only when the ownership guard already says the checkout is unsafe.
+
 ## Detection Rules
 
 Recommend a dedicated worktree when any of these are true:
 
-- the survival guide or kickoff prompt says another agent may touch the repo;
+- `ELVES_SURVIVAL_GUIDE_PATH` points at a survival guide whose Run Control says another agent may
+  touch the repo or that this run should use a dedicated worktree;
 - the current branch is already checked out in more than one worktree;
 - the operator requested a branch name that already exists in the current checkout;
 - `git worktree list --porcelain` shows another active checkout for the same branch;
-- the staging instruction explicitly asks for isolated or concurrent agent work.
+- an explicit command-line flag such as `--recommend-worktree` or a future `ELVES_REQUIRE_WORKTREE`
+  environment variable requests isolated checkout guidance.
 
 Do not infer too much. If the signal is weak, print an advisory note instead of creating anything.
 
@@ -110,7 +125,9 @@ Rules:
 - replace non-alphanumeric runs with one hyphen;
 - trim leading and trailing hyphens;
 - cap the slug length to keep paths readable;
-- if the path exists, append `-2`, `-3`, and so on;
+- when generating the default path, choose the first non-existing sibling path by appending `-2`,
+  `-3`, and so on;
+- when the operator supplies `--worktree-dir`, fail if that exact path already exists;
 - if the branch exists, fail with a clear message unless the user supplied an explicit reuse mode in
   a future design.
 
@@ -131,7 +148,8 @@ Before creating anything, validate:
 After creation:
 
 - print the new path;
-- print `git rev-parse HEAD` as the collision tripwire;
+- run `git -C <worktree-dir> rev-parse HEAD` and print that target-checkout commit as the collision
+  tripwire;
 - remind the agent to run preflight again from inside the new checkout;
 - do not open a PR or edit run docs from the original checkout.
 
@@ -161,10 +179,13 @@ Add tests before enabling automatic creation:
 - clean repo prints no create-worktree requirement by default;
 - duplicate current-branch checkout produces an advisory and non-zero guard result;
 - `--dry-run --create-worktree <branch>` prints the exact command and creates nothing;
+- unresolved default base ref fails with an instruction to pass `--base`;
+- an explicit `--base <ref>` is reflected in the printed and executed command;
 - existing branch fails before creating a worktree;
-- existing target directory fails before creating a worktree;
+- auto-generated target path skips existing sibling paths with numeric suffixes;
+- explicit existing `--worktree-dir` fails before creating a worktree;
 - valid create mode calls `git worktree add -b <branch> <dir> <base>`;
-- after creation, output includes the branch tip collision tripwire;
+- after creation, output includes the target worktree's branch tip collision tripwire;
 - no mode prompts for user input.
 
 If implementation remains in shell, use temporary git repositories in a Python unittest file so the
@@ -193,6 +214,7 @@ test can inspect filesystem effects without depending on this repo's live worktr
 - A staging agent can get from "this repo may have another writer" to an isolated checkout with one
   explicit non-interactive command.
 - The default `./scripts/preflight.sh` remains advisory and does not mutate the repo.
+- Hard failures remain reserved for concrete unsafe ownership or invalid requested create inputs.
 - The helper never overwrites, reuses, deletes, or repairs an existing worktree automatically.
 - The generated output records the branch, worktree path, base ref, and collision tripwire.
 - Tests cover both advisory output and successful opt-in creation in temporary repositories.
