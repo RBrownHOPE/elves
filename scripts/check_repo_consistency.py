@@ -634,6 +634,15 @@ CLAUDE_ALIAS_SKILL_PHRASES = {
     ],
 }
 
+CODEX_INSTALL_COBBLER_PHRASES = {
+    "README.md": [
+        "Codex installs the main skill bundle only",
+        "It does not install the Claude Code slash aliases",
+        "For Codex, the sync helper updates the main skill bundle only",
+        "rather than a top-level slash alias",
+    ],
+}
+
 COUNCIL_FORBIDDEN_PHRASES = {
     "SKILL.md": [
         "ordinary `/council` requires OpenRouter",
@@ -1041,6 +1050,16 @@ def main() -> int:
             council_texts,
             council_file_phrases,
             "Cobbler",
+        )
+    )
+    codex_install_texts = {
+        label: read_text(REPO_ROOT / label) for label in CODEX_INSTALL_COBBLER_PHRASES
+    }
+    errors.extend(
+        find_missing_phrases(
+            codex_install_texts,
+            CODEX_INSTALL_COBBLER_PHRASES,
+            "Codex Cobbler install",
         )
     )
     errors.extend(

@@ -753,6 +753,9 @@ cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/notify.sh /tmp/elves/scrip
 rm -rf /tmp/elves
 ```
 
+Codex installs the main skill bundle only. It does not install the Claude Code slash aliases; use
+`$elves cobbler: <task>` or natural language such as "Ask the Cobbler..." to invoke Cobbler.
+
 ### Per-project installation
 
 Per-project installation puts the skill in your repo so it's versioned with your code and visible to collaborators.
@@ -828,6 +831,9 @@ This mirrors the managed skill bundle files from the repo into `~/.claude/skills
 `~/.claude/skills/cobbler/`, `~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
 `~/.claude/skills/elves-council/` so `/cobbler` and the Council compatibility aliases are real
 slash-skill entry points.
+
+For Codex, the sync helper updates the main skill bundle only. Invoke Cobbler with
+`$elves cobbler: <task>` or natural language rather than a top-level slash alias.
 
 The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
 `references/`, and the runtime scripts `scripts/preflight.sh`, `scripts/notify.sh`,

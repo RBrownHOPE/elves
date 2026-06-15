@@ -4,6 +4,12 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Documentation
+
+- Clarified Codex installation and sync guidance so users see, at the setup point, that Codex
+  installs the main skill bundle and invokes Cobbler with `$elves cobbler: ...` or natural language
+  rather than Claude Code slash aliases.
+
 ## [1.15.0] - 2026-06-14
 
 ### Cobbler
