@@ -841,6 +841,7 @@ For local PR-stack sweeps, use the repo-only helper:
 ```bash
 python3 scripts/pr_portfolio_report.py
 python3 scripts/pr_portfolio_report.py --prs 29-43 --fail-on-attention
+python3 scripts/pr_portfolio_report.py --json
 ```
 
 Claude Code aliases are marker-gated. Elves creates or updates an alias skill only when it is

@@ -21,6 +21,8 @@ from dataclasses import asdict, dataclass
 
 
 OK_CHECK_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+OK_STATUS_STATES = {"SUCCESS"}
+OK_MERGE_STATES = {"CLEAN", "HAS_HOOKS"}
 
 
 @dataclass
@@ -56,7 +58,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fail-on-attention",
         action="store_true",
-        help="Exit 1 if any PR has unresolved threads, pending checks, failing checks, or requested changes.",
+        help=(
+            "Exit 1 if any PR has unresolved threads, pending checks, failing checks, "
+            "requested changes, or a non-clean merge state."
+        ),
     )
     return parser.parse_args()
 
@@ -85,10 +90,22 @@ def parse_pr_selection(value: str) -> list[int]:
 
 
 def gh_json(args: list[str]) -> object:
-    raw = subprocess.check_output(["gh", *args], text=True)
+    try:
+        raw = subprocess.check_output(["gh", *args], text=True, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        message = f"`gh {' '.join(args)}` failed"
+        if detail:
+            message = f"{message}: {detail}"
+        raise RuntimeError(message) from exc
+    except FileNotFoundError as exc:
+        raise RuntimeError("GitHub CLI `gh` is not installed or is not on PATH") from exc
     if not raw.strip():
         return None
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"`gh {' '.join(args)}` returned invalid JSON") from exc
 
 
 def current_repo() -> str:
@@ -98,8 +115,10 @@ def current_repo() -> str:
     return str(data["nameWithOwner"])
 
 
-def open_pr_numbers() -> list[int]:
-    data = gh_json(["pr", "list", "--state", "open", "--json", "number"])
+def open_pr_numbers(repo: str) -> list[int]:
+    data = gh_json(
+        ["pr", "list", "--repo", repo, "--state", "open", "--limit", "1000", "--json", "number"]
+    )
     if not isinstance(data, list):
         raise RuntimeError("Unexpected `gh pr list` response")
     return sorted(int(item["number"]) for item in data)
@@ -118,9 +137,19 @@ def classify_checks(checks: list[dict]) -> tuple[list[str], list[str]]:
     pending: list[str] = []
     bad: list[str] = []
     for check in checks:
-        name = str(check.get("name") or "<unnamed>")
-        status = check.get("status")
-        conclusion = check.get("conclusion") or ""
+        typename = check.get("__typename")
+        if typename == "StatusContext" or "state" in check:
+            name = str(check.get("context") or check.get("name") or "<unnamed>")
+            state = str(check.get("state") or "")
+            if state == "PENDING":
+                pending.append(name)
+            elif state not in OK_STATUS_STATES:
+                bad.append(f"{name}:{state or 'UNKNOWN'}")
+            continue
+
+        name = str(check.get("name") or check.get("context") or "<unnamed>")
+        status = str(check.get("status") or "")
+        conclusion = str(check.get("conclusion") or "")
         if status != "COMPLETED":
             pending.append(name)
         elif conclusion not in OK_CHECK_CONCLUSIONS:
@@ -131,18 +160,21 @@ def classify_checks(checks: list[dict]) -> tuple[list[str], list[str]]:
 def unresolved_thread_count(repo: str, pr_number: int) -> int:
     owner, name = split_repo(repo)
     query = """
-query($owner:String!, $repo:String!, $number:Int!) {
+query($owner:String!, $repo:String!, $number:Int!, $after:String) {
   repository(owner:$owner, name:$repo) {
     pullRequest(number:$number) {
-      reviewThreads(first:100) {
+      reviewThreads(first:100, after:$after) {
+        pageInfo { hasNextPage endCursor }
         nodes { isResolved }
       }
     }
   }
 }
 """
-    data = gh_json(
-        [
+    unresolved = 0
+    cursor: str | None = None
+    while True:
+        gh_args = [
             "api",
             "graphql",
             "-f",
@@ -154,11 +186,23 @@ query($owner:String!, $repo:String!, $number:Int!) {
             "-F",
             f"number={pr_number}",
         ]
-    )
-    if not isinstance(data, dict):
-        raise RuntimeError("Unexpected GraphQL response")
-    nodes = data["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
-    return sum(1 for node in nodes if not node.get("isResolved"))
+        if cursor:
+            gh_args.extend(["-F", f"after={cursor}"])
+        data = gh_json(gh_args)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Unexpected GraphQL response for #{pr_number}")
+        try:
+            review_threads = data["data"]["repository"]["pullRequest"]["reviewThreads"]
+            nodes = review_threads["nodes"]
+            page_info = review_threads["pageInfo"]
+        except (KeyError, TypeError) as exc:
+            raise RuntimeError(f"Unexpected GraphQL response shape for #{pr_number}") from exc
+        unresolved += sum(1 for node in nodes if not node.get("isResolved"))
+        if not page_info.get("hasNextPage"):
+            return unresolved
+        cursor = page_info.get("endCursor")
+        if not cursor:
+            raise RuntimeError(f"Missing GraphQL pagination cursor for #{pr_number}")
 
 
 def summarize_pr(repo: str, pr_number: int) -> PortfolioRow:
@@ -167,6 +211,8 @@ def summarize_pr(repo: str, pr_number: int) -> PortfolioRow:
             "pr",
             "view",
             str(pr_number),
+            "--repo",
+            repo,
             "--json",
             "number,url,isDraft,mergeStateStatus,reviewDecision,statusCheckRollup,headRefName",
         ]
@@ -193,6 +239,7 @@ def row_needs_attention(row: PortfolioRow) -> bool:
         or row.pending_checks
         or row.bad_checks
         or row.review_decision == "CHANGES_REQUESTED"
+        or (row.merge_state and row.merge_state not in OK_MERGE_STATES)
     )
 
 
@@ -219,14 +266,15 @@ def format_table(rows: list[PortfolioRow]) -> str:
 
 def main() -> int:
     args = parse_args()
-    repo = args.repo or current_repo()
     try:
-        numbers = parse_pr_selection(args.prs) if args.prs else open_pr_numbers()
-    except ValueError as exc:
+        repo = args.repo or current_repo()
+        split_repo(repo)
+        numbers = parse_pr_selection(args.prs) if args.prs else open_pr_numbers(repo)
+        rows = [summarize_pr(repo, number) for number in numbers]
+    except (RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    rows = [summarize_pr(repo, number) for number in numbers]
     if args.json:
         print(json.dumps([asdict(row) for row in rows], indent=2, sort_keys=True))
     elif rows:
