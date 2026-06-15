@@ -503,6 +503,32 @@ cobbler-max-role-count: 5
 cobbler-quick-read-only: true
 cobbler-quick-stateless: true
 cobbler-run-logging: existing-elves-memory
+cobbler-harness-loop:
+  - capability-scan
+  - route-and-medium-selection
+  - context-packet
+  - execute-agents-tools-skills
+  - collect-evidence
+  - fit-answer
+  - present-record
+  - reclassify
+cobbler-output-mediums:
+  - chat-answer
+  - file-edit
+  - pr-comment
+  - execution-log
+  - .elves-session.json
+  - elves-report
+cobbler-context-packet:
+  - user-intent
+  - mode
+  - work-scope
+  - relevant-files
+  - run-state-pointers
+  - available-tools-skills
+  - source-freshness
+  - constraints
+  - forbidden-actions
 cobbler-model-routing-policy: native-first
 cobbler-provider-backed-fallback: native-subagent-and-note
 

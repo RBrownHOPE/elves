@@ -333,6 +333,76 @@ class ConsistencyPhraseTests(unittest.TestCase):
         self.assertIn('"compatibility_for": "cobbler"', phrases)
         self.assertIn('"precedence": "cobbler"', phrases)
 
+    def test_cobbler_harness_loop_spine_is_required(self) -> None:
+        required_labels = (
+            "SKILL.md",
+            "AGENTS.md",
+            "README.md",
+            "docs/cobbler.md",
+            "references/council-workflow.md",
+            "references/council-prompts.md",
+            "references/tool-config-examples.md",
+            "references/survival-guide-template.md",
+            "config.json.example",
+            "aliases/claude/cobbler/SKILL.md",
+            "aliases/claude/cobbler-mode/SKILL.md",
+            "aliases/claude/council/SKILL.md",
+            "aliases/claude/ec/SKILL.md",
+            "aliases/claude/elves-council/SKILL.md",
+        )
+
+        for label in required_labels:
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.COBBLER_HARNESS_LOOP_PHRASES)
+
+        for phrase in (
+            "capability scan",
+            "route and medium selection",
+            "context packet",
+            "execute agents/tools/skills",
+            "collect evidence",
+            "fit answer",
+            "present/record",
+            "reclassify",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.consistency.COBBLER_HARNESS_LOOP_PHRASES["SKILL.md"])
+
+    def test_cobbler_harness_loop_reports_missing_step(self) -> None:
+        label = "docs/cobbler.md"
+
+        errors = self.consistency.find_missing_phrases(
+            {label: "capability scan\nfit answer"},
+            {label: ["capability scan", "context packet", "fit answer"]},
+            "Cobbler harness loop",
+        )
+
+        self.assertEqual(
+            errors,
+            [f"{label}: missing Cobbler harness loop phrase `context packet`"],
+        )
+
+    def test_cobbler_harness_loop_forbids_secret_context_packets(self) -> None:
+        label = "references/council-prompts.md"
+        text = "The context packet includes secrets for provider-backed review."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.COBBLER_HARNESS_FORBIDDEN_PATTERNS,
+            "Cobbler harness loop",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "references/council-prompts.md: stale Cobbler harness loop pattern "
+                    "`\\bcontext\\s+packet\\b[^.\\n]*(?:includes|contains)\\s+"
+                    "(?:secrets|tokens|credentials|cookies)\\b`"
+                )
+            ],
+        )
+
     def test_claude_cobbler_alias_skill_files_are_required(self) -> None:
         expected_aliases = {
             "aliases/claude/cobbler/SKILL.md": "/cobbler",

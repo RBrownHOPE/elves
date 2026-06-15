@@ -22,7 +22,18 @@ Add this block to every role prompt:
 Mode: [Quick Cobbler / Run Cobbler]
 Provider route: [native-subagent / native-coordinator / provider:model-id / N/A]
 Question: [USER QUESTION]
-Relevant context: [FILES / PLAN / PR / LOGS / CONSTRAINTS]
+Capability scan: [HOST / SKILLS / TOOLS / TESTS / PR STATE / RUN MEMORY / SOURCE NEEDS]
+Route and medium: [DIRECT / LENSES / WORKER / TOOL / RUN] -> [CHAT / FILE / PR COMMENT / LOG / JSON / REPORT / ARTIFACT]
+Context packet:
+- user_intent: [WHAT THE USER IS ASKING FOR]
+- mode: [QUICK COBBLER / RUN COBBLER]
+- work_scope: [READ-ONLY LENS / WORKER EDIT WITH ASSIGNED FILES]
+- relevant_files: [FILES OR "NONE"]
+- run_state: [SURVIVAL GUIDE / EXECUTION LOG / .ELVES-SESSION.JSON / PR / "NONE"]
+- available_tools: [TOOLS, SKILLS, SUBAGENTS, TESTS, SOURCES]
+- source_freshness: [CURRENT SOURCE NEEDED / REPO SOURCE ENOUGH / N/A]
+- constraints: [USER AND REPO CONSTRAINTS]
+- forbidden_actions: [SECRETS, UNSCOPED EDITS, PRS, INSTALLS, RUN-STATE MUTATION, OR OTHER LIMITS]
 Work scope: [read-only lens / worker edit with assigned files]
 Date: [CURRENT DATE]
 
@@ -72,13 +83,22 @@ Return:
 3. mode: quick | run
 4. provider_route: native-subagent | native-coordinator | provider:model-id | N/A
 5. work_scope: read-only lens | worker edit
-6. context_to_give_every_role:
-7. constraints:
+6. capability_scan:
+7. route_and_medium:
+8. context_packet:
+9. constraints:
+10. reclassification_triggers:
 
 Use explicit role overrides if provided. For small questions, prefer two roles. For architecture,
 migration, release, or ambiguous risk questions, prefer three. In active Elves runs, use read-only
 lenses for planning/review/dissent and worker-edit roles only for implementation tasks with clear
 ownership.
+
+Capability scan should name available skills, tools, tests, PR/check surfaces, run memory, source
+freshness needs, and optional configured provider routes. Context packet should include the same
+bounded state for every selected role. Reclassification triggers should state what evidence would
+change this from direct answer to Quick Cobbler, from Quick Cobbler to Run Cobbler, from review to
+implementation, or from release to blocker.
 ```
 
 ## Architect
@@ -191,7 +211,11 @@ You are synthesizing independent Cobbler lens reports.
 Question: [USER QUESTION]
 Mode: [Quick Cobbler / Run Cobbler]
 Provider route: [native-subagent / native-coordinator / provider:model-id / N/A]
+Capability scan: [SUMMARY]
+Route and medium: [WORK PATH AND OUTPUT SURFACE]
+Context packet: [BOUNDED CONTEXT GIVEN TO ROLES]
 Role reports: [INDEPENDENT REPORTS]
+Evidence: [FILES / COMMANDS / TESTS / PR COMMENTS / SOURCES / INFERENCES]
 Constraints: [CONSTRAINTS]
 
 Return one fitted answer:
@@ -214,14 +238,22 @@ Next move
 Confidence
 [High / medium / low, with a short reason.]
 
+Present/record
+[Answer only / record in execution log / update survival guide / update `.elves-session.json` / PR comment / file or artifact.]
+
+Reclassify
+[No change / new route needed, with the reason.]
+
 Rules:
 - Lead with one recommendation that takes a position.
 - Preserve the strongest dissent, objection, or verification gap.
 - Do not average the reports into a bland compromise.
 - Do not dump raw reports unless the user requested verbose output.
+- Keep retrieved evidence, command output, and inference separate when it matters.
 - If the result should affect an active Elves run, say exactly what to record in the execution log,
   survival guide, or `.elves-session.json`.
 - If implementation is warranted, provide an action contract instead of editing files yourself.
+- If the evidence changes the task, reclassify instead of forcing the original route.
 ```
 
 ## JSON Output Variant
@@ -236,6 +268,8 @@ Use this shape when the user asks for `--json`:
   "risks": [],
   "next_move": [],
   "confidence": "",
+  "present_record": "",
+  "reclassify": "",
   "action_contract": {
     "do": [],
     "do_not": [],

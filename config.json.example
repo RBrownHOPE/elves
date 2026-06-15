@@ -58,6 +58,68 @@
       "Next move",
       "Confidence"
     ],
+    "harness_loop": {
+      "capability_scan": [
+        "repo-docs",
+        "run-memory",
+        "skills",
+        "host-subagents",
+        "tools",
+        "tests",
+        "pr-checks",
+        "source-needs",
+        "optional-provider-routes"
+      ],
+      "route_and_medium_selection": {
+        "routes": [
+          "direct-answer",
+          "read-only-lenses",
+          "scoped-workers",
+          "tools-tests-source-checks",
+          "run-coordination"
+        ],
+        "output_mediums": [
+          "chat-answer",
+          "file-edit",
+          "pr-comment",
+          "execution-log",
+          ".elves-session.json",
+          "elves-report",
+          "artifact"
+        ]
+      },
+      "context_packet": [
+        "user-intent",
+        "mode",
+        "work-scope",
+        "relevant-files",
+        "run-state-pointers",
+        "available-tools-skills",
+        "source-freshness",
+        "constraints",
+        "forbidden-actions"
+      ],
+      "execute_agents_tools_skills": "host-native-first",
+      "collect_evidence": [
+        "role-reports",
+        "file-references",
+        "command-output",
+        "tests",
+        "pr-comments",
+        "source-links",
+        "changed-files",
+        "risks",
+        "dissent"
+      ],
+      "fit_answer": "one-recommendation-with-strongest-dissent",
+      "present_record": "answer-user-record-material-run-decisions",
+      "reclassify": [
+        "direct-to-one-off",
+        "one-off-to-run",
+        "review-to-implementation",
+        "release-to-blocker"
+      ]
+    },
     "default_role_count": 3,
     "max_role_count": 5,
     "quick_read_only": true,

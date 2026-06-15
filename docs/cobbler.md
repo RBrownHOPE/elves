@@ -56,8 +56,9 @@ Elves.
 
 2. Capability scan
 
-   Check what can actually help before answering: repo docs, run memory, available skills, host
-   subagents, tools, tests, PR checks, source material, and optional configured provider routes.
+   This capability scan checks what can actually help before answering: repo docs, run memory,
+   available skills, host subagents, tools, tests, PR checks, source material, and optional
+   configured provider routes.
 
 3. Route and medium selection
 

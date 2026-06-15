@@ -37,14 +37,14 @@ optional.
 - **Checkpoint expectation:** none
 - **Time budget:** until completion
 - **Average batch time so far:** N/A
-- **Batches remaining:** 2 of 3
+- **Batches remaining:** 1 of 3
 
 ## Stop Gate
 
-- **Planned batches remaining:** 2
+- **Planned batches remaining:** 1
 - **Stop allowed right now:** no
-- **Why:** operational prompts, guardrails, PR landing, and release work remain
-- **Next required action:** start Batch 2: Operational Prompts and Guardrails
+- **Why:** final validation, PR landing, version bump, and GitHub release work remain
+- **Next required action:** start Batch 3: Validation, Review, Landing, Release
 
 ## Effort Standard
 
@@ -131,11 +131,11 @@ redo completed work.
 
 **Status:** In progress
 
-**Active batch:** Batch 2: Operational Prompts and Guardrails
+**Active batch:** Batch 3: Validation, Review, Landing, Release
 
-**What was just finished:** Batch 1 added the Cobbler harness loop to `docs/cobbler.md`, README, `SKILL.md`, `AGENTS.md`, and CHANGELOG.
+**What was just finished:** Batch 2 added the harness loop to reference prompts, config examples, alias skills, and repo consistency checks.
 
-**Single next action:** Update workflow prompts, config examples, and consistency checks for the loop.
+**Single next action:** Run full local validation, perform final Cobbler review, resolve PR feedback, merge, then release.
 
 ## Active Compute
 
@@ -143,17 +143,16 @@ redo completed work.
 
 ## Next Exact Batch
 
-Start Batch 2: Operational Prompts and Guardrails.
+Start Batch 3: Validation, Review, Landing, Release.
 
-**Scope:** Make the harness loop operational in reference prompts, config examples, and repo consistency checks.
+**Scope:** Validate the branch, poll and resolve PR feedback, merge with a regular merge commit, then bump and publish the next GitHub release.
 
-**Acceptance criteria:** `references/council-workflow.md`, `references/council-prompts.md`,
-`config.json.example`, `scripts/check_repo_consistency.py`, and
-`tests/test_check_repo_consistency.py` cover capability scan, route and medium selection, context
-packet, execute agents/tools/skills, collect evidence, fit answer, present/record, and reclassify.
+**Acceptance criteria:** local validation passes, final Cobbler review finds no blockers, PR #54
+checks and review threads are clean, `gh pr merge --merge` lands the branch, `main` is bumped to
+the next version, and the matching GitHub release tag is published.
 
-**Risk:** Guardrails can become brittle or make Cobbler sound like a separate runtime. Pin the loop
-spine and dangerous invariants, not every explanatory sentence.
+**Risk:** asynchronous review comments or required checks may lag after pushes. Wait and re-poll
+before merging or releasing.
 
 ## Launch Prompt
 

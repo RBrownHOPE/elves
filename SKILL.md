@@ -114,14 +114,14 @@ lenses before one fitted answer. In normal Elves runs, operate Cobbler-first: cl
 route the right agents/tools/skills, preserve dissent, and synthesize the next action before moving
 the loop forward.
 
-For non-trivial Cobbler-mediated work, use the full harness loop: intent, capability scan, route
-and medium selection, context packet, execute agents/tools/skills, collect evidence, fit answer,
+For non-trivial Cobbler-mediated work, use the full harness loop: intent, capability scan, route and
+medium selection, context packet, execute agents/tools/skills, collect evidence, fit answer,
 present/record, and reclassify when new facts change the task. The capability scan checks the
 current host, available skills, tools, docs, tests, PR state, run memory, source needs, and optional
 configured provider routes before choosing a path. The context packet gives every role the same
 task, mode, scope, constraints, relevant files, run-state pointers, output medium, and forbidden
 actions. Present one answer to the user, and record only material Run Cobbler decisions in existing
-Elves memory.
+Elves memory. The route and medium selection step chooses both the work path and the output surface.
 
 Primary invocation depends on the host:
 

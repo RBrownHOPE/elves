@@ -2,11 +2,11 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-15 18:24 EDT
+- **Last updated:** 2026-06-15 18:35 EDT
 - **Current phase:** In progress
-- **Active batch:** Batch 2: Operational Prompts and Guardrails
-- **Last completed batch:** Batch 1: Product Loop Wording
-- **Next exact batch:** Batch 2: Operational Prompts and Guardrails
+- **Active batch:** Batch 3: Validation, Review, Landing, Release
+- **Last completed batch:** Batch 2: Operational Prompts and Guardrails
+- **Next exact batch:** Batch 3: Validation, Review, Landing, Release
 - **Active PR:** #54
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
@@ -52,6 +52,86 @@
 > validate locally, read PR checks and comments after each push, merge with a regular merge commit
 > when the final readiness review is clean, then bump and publish the next GitHub release tag from
 > `main`.
+
+## 2026-06-15 18:35 EDT
+
+**Batch:** 2: Operational Prompts and Guardrails
+**Contract status:** all criteria met
+
+**Timing:**
+- Implement: 8m | Validate: 2m | Review: 1m | Total: 11m
+- Session elapsed: 20m | Budget remaining: until completion
+
+**What changed:**
+- `references/council-workflow.md`: added the full coordinator flow, capability scan ladder,
+  context packet rules, evidence assembly, present/record behavior, and reclassification.
+- `references/council-prompts.md`: expanded role and synthesis prompts with capability scan,
+  route and medium, context packet, evidence, present/record, and reclassify fields.
+- `config.json.example`, `references/tool-config-examples.md`, and
+  `references/survival-guide-template.md`: added optional harness-loop preferences and output
+  medium/context packet examples.
+- Claude Code alias skills: added the same short harness-loop reminder.
+- `scripts/check_repo_consistency.py` and `tests/test_check_repo_consistency.py`: added phrase and
+  forbidden-pattern guardrails for the Cobbler harness loop.
+
+**Commands run:**
+- `python3 scripts/check_repo_consistency.py` -> PASS
+- `python3 -m unittest tests.test_check_repo_consistency -v` -> PASS, 54 tests
+- `python3 -m json.tool config.json.example >/dev/null` -> PASS
+- `python3 -m py_compile scripts/check_repo_consistency.py tests/test_check_repo_consistency.py` -> PASS
+- `git diff --check` -> PASS
+
+**Test results:**
+- Lint: N/A
+- Typecheck: N/A
+- Build: N/A
+- Tests: PASS, focused consistency suite 54 tests
+- E2E: N/A
+- Smoke: N/A
+
+**Review findings:**
+- [INFO] Consistency lens recommended a phrase corpus plus focused forbidden regexes. Implemented
+  as `COBBLER_HARNESS_LOOP_PHRASES` and `COBBLER_HARNESS_FORBIDDEN_PATTERNS`.
+- [INFO] Harness-mapping lens recommended capability discovery, context packets, evidence
+  assembly, output medium selection, and reclassification. Implemented across workflow and prompt
+  references.
+
+**Decisions made:**
+- Guardrails pin loop terms and dangerous invariants, not every paragraph, so docs can still be
+  edited naturally.
+- Provider-backed council remains optional and disabled by default; the harness loop uses host
+  capabilities first.
+
+**Cobbler synthesis:**
+- Recommendation: make the harness loop operational through prompts/config/checks.
+- Strongest dissent: too much config could imply a runtime. The examples are therefore documented
+  preferences only.
+- Next move: run full validation and final review before PR landing.
+
+**Route notes:**
+- Requested route: native subagent lenses and direct implementation
+- Actual route: native subagent lenses plus coordinator edits
+- Fallback reason: none
+
+**Process adjustments:**
+- Added consistency checks to prevent Cobbler from drifting back into simple council synthesis.
+
+**Docs:**
+- Impacted: reference workflow, prompt, config, survival-guide, and alias docs
+- Updated: same
+- Promoted: none yet
+- Deferred: none
+
+**Regression attestation:**
+- Cumulative diff: `git diff main...HEAD --stat` shows docs, config examples, checker, tests, and
+  run-state files only.
+- Files outside batch scope: none
+- Shared surfaces modified: `scripts/check_repo_consistency.py`, additive phrase/regex corpus only
+- Consumers verified: focused unit tests cover missing phrase and forbidden-pattern behavior
+- Public API surface snapshot: N/A
+- Test baseline: focused suite remains passing with 54 tests
+- Confidence: HIGH, because the checker and focused tests prove the new guardrail behavior and all
+  changes are documentation or additive consistency checks.
 
 ## 2026-06-15 18:24 EDT
 

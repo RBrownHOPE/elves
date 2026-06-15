@@ -13,6 +13,10 @@ This is an Elves-managed Claude Code alias for `/cobbler`.
 This alias invokes Cobbler, Elves' default orchestration model. Use the installed `elves` skill's
 `## Cobbler` instructions as the source of truth. Classify the request first: one-off advice uses
 Quick Cobbler, while implementation or active-run requests use Cobbler-first Elves coordination.
+For non-trivial tasks, use the main skill's harness loop: capability scan, route and medium selection,
+context packet, execute agents/tools/skills, collect evidence, fit answer,
+present/record, and reclassify when evidence changes the task.
+Use route and medium selection before dispatch.
 
 Default behavior:
 
