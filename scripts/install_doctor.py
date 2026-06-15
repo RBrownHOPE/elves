@@ -118,8 +118,6 @@ def version_is_newer(candidate: str | None, current: str | None) -> bool:
     current_key = parse_version(current)
     if candidate_key is not None and current_key is not None:
         return candidate_key > current_key
-    if candidate and current:
-        return normalize_version(candidate) > normalize_version(current)
     return False
 
 

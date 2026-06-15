@@ -69,6 +69,9 @@ class InstallDoctorCacheTests(unittest.TestCase):
         self.assertTrue(self.install_doctor.version_is_newer("v1.10.0", "1.9.9"))
         self.assertFalse(self.install_doctor.version_is_newer("v1.9.9", "1.10.0"))
         self.assertFalse(self.install_doctor.version_is_newer("1.10.0", "v1.10.0"))
+        self.assertFalse(self.install_doctor.version_is_newer("invalid", "1.0.0"))
+        self.assertFalse(self.install_doctor.version_is_newer("v1.2.beta", "1.2.0"))
+        self.assertFalse(self.install_doctor.version_is_newer("1.2.1", "invalid"))
 
     def test_read_version_returns_frontmatter_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
