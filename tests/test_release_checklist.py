@@ -154,6 +154,17 @@ class ReleaseChecklistTests(unittest.TestCase):
             result.failures,
         )
 
+    def test_release_checklist_accepts_current_version_source_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self.configure_temp_repo(tmpdir, version="1.16.0")
+            (repo / "tests" / "test_sync_installed_skills.py").write_text(
+                'version = self.sync.read_version(REPO_ROOT / "SKILL.md")\n'
+            )
+
+            result = self.release_checklist.build_release_checklist(repo, base_ref=None)
+
+        self.assertTrue(result.ok)
+
     def test_parse_name_status_uses_new_path_for_renames(self) -> None:
         changes = self.release_checklist.parse_name_status(
             "M\tREADME.md\n"

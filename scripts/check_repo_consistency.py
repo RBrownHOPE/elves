@@ -1289,7 +1289,7 @@ COBBLER_HARNESS_LOOP_PHRASES = {
     ],
 }
 
-COBBLER_HARNESS_FORBIDDEN_PATTERNS = {
+COBBLER_HARNESS_DRIFT_PATTERNS = {
     label: [
         r"\bquick\s+cobbler\b[^.\n]*(?:edits|mutates|commits|pushes|opens\s+prs)\b",
         r"\bcontext\s+packet\b[^.\n]*(?:includes|contains)\s+(?:secrets|tokens|credentials|cookies)\b",
@@ -1783,7 +1783,7 @@ def main() -> int:
     )
     cobbler_harness_texts = {
         label: read_text(REPO_ROOT / label)
-        for label in set(COBBLER_HARNESS_LOOP_PHRASES) | set(COBBLER_HARNESS_FORBIDDEN_PATTERNS)
+        for label in set(COBBLER_HARNESS_LOOP_PHRASES) | set(COBBLER_HARNESS_DRIFT_PATTERNS)
     }
     errors.extend(
         find_missing_phrases(
@@ -1795,7 +1795,7 @@ def main() -> int:
     errors.extend(
         find_forbidden_patterns(
             cobbler_harness_texts,
-            COBBLER_HARNESS_FORBIDDEN_PATTERNS,
+            COBBLER_HARNESS_DRIFT_PATTERNS,
             "Cobbler harness loop",
         )
     )
@@ -1867,7 +1867,7 @@ def main() -> int:
     print("- Public API surface snapshot guardrails are aligned")
     print("- Reviewed PR landing command guardrails are aligned")
     print("- Cobbler guardrails are aligned")
-    print("- Cobbler harness loop guardrails are aligned")
+    print("- Cobbler harness loop drift checks are aligned")
     print("- Full-run model routing guardrails are aligned")
     print("- Public wording guardrails are aligned")
     print("- Claude Cobbler alias guardrails are aligned")

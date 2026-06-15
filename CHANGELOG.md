@@ -4,11 +4,15 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-06-15
+
 - Expanded Cobbler from council-style synthesis into an explicit harness loop: capability scan,
   route and medium selection, context packet, agents/tools/skills, evidence assembly, fitted answer,
   present/record, and reclassification when new facts change the route.
 - Updated Cobbler docs to describe one-off Cobbler, Cobbler inside an Elves run, and Cobbler Mode
   in plainer user-facing terms while keeping provider-backed model routing optional.
+- Added Cobbler harness drift checks so the docs keep the source-inspired orchestration loop intact
+  without importing model persona, provider dependency, policy text, or safety framing.
 
 ## [1.16.0] - 2026-06-15
 
@@ -80,7 +84,7 @@ All notable changes to the Elves skill are documented here.
 - Reframed external model diversity as optional provider-backed council configuration. Ordinary
   Cobbler and Council-compatible use requires no OpenRouter or other provider key.
 - Synchronized the Cobbler hierarchy across `SKILL.md`, `AGENTS.md`, README, changelog, reference
-  templates, config examples, managed Claude Code alias skills, and repo consistency guardrails.
+  templates, config examples, managed Claude Code alias skills, and repo consistency checks.
 
 ## [1.14.0] - 2026-06-14
 

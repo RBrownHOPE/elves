@@ -30,6 +30,10 @@ CURRENT_VERSION_EXAMPLE_FILES = [
     Path("tests/test_sync_installed_skills.py"),
 ]
 
+CURRENT_VERSION_SOURCE_MARKERS = [
+    'read_version(REPO_ROOT / "SKILL.md")',
+]
+
 HUMAN_FACING_EXACT_PATHS = {
     "SKILL.md",
     "AGENTS.md",
@@ -150,7 +154,8 @@ def current_version_examples(repo_root: Path, expected_version: str) -> tuple[li
             continue
         text = read_text(path)
         versions = sorted(set(SEMVER_RE.findall(text)))
-        if expected_version not in versions:
+        reads_current_source = any(marker in text for marker in CURRENT_VERSION_SOURCE_MARKERS)
+        if expected_version not in versions and not reads_current_source:
             failures.append(
                 f"{relative_path}: missing current version example `{expected_version}`"
             )
