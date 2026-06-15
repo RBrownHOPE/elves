@@ -37,6 +37,7 @@ cobbler-max-role-count: 5
 cobbler-quick-read-only: true
 cobbler-quick-stateless: true
 cobbler-run-logging: existing-elves-memory
+cobbler-model-routing-policy: native-first
 ```
 
 In Codex, use Codex subagents when available. In Claude Code, use Claude Code subagents when
@@ -50,6 +51,7 @@ has configured keys and wants broader model diversity:
 ```yaml
 cobbler-provider-backed-enabled: false
 cobbler-provider-backed-policy: optional-external-providers
+cobbler-provider-backed-fallback: native-subagent-and-note
 cobbler-provider-backed-required-env: []
 cobbler-provider-backed-optional-env:
   - OPENROUTER_API_KEY
@@ -58,17 +60,35 @@ cobbler-provider-backed-optional-env:
   - XAI_API_KEY
   - OPENAI_API_KEY
 cobbler-provider-backed-role-models:
+  default: native-subagent
   architect: native-subagent
   skeptic: native-subagent
   implementation_analyst: native-subagent
   tester: native-subagent
-  maintainer: native-subagent
-  domain_scout: native-subagent
+  synthesis: native-coordinator
+cobbler-provider-backed-role-effort:
+  architect: high
+  skeptic: high
+  tester: medium
+
+# Example external routes when provider-backed council is explicitly enabled:
+# cobbler-provider-backed-role-models:
+#   skeptic: "openrouter:<model-id>"
+#   fast_sanity: "openrouter:<fast-model-id>"
 ```
 
 Leave `cobbler-provider-backed-required-env` empty unless a specific project intentionally makes
 provider-backed council a required workflow. Do not make ordinary Cobbler or Council-compatible use
 depend on that setting.
+
+Role routing is a hint for the coordinator, not a new mode the user has to invoke. `native-subagent`
+means "use the current host's subagent feature"; `native-coordinator` means the main coordinator
+synthesizes directly; `provider:model-id` values are optional external routes. If the route cannot
+run, fall back to native and mention the fallback in the fitted answer. Resolve disagreements by
+evidence and task constraints, not by assuming a configured model is more authoritative.
+
+Role effort is optional. Use `low`, `medium`, `high`, or `xhigh` only when the selected host or
+provider supports an effort setting; otherwise omit it and keep the route native-first.
 
 ## Legacy Council Compatibility
 

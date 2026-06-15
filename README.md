@@ -185,6 +185,10 @@ but ordinary Cobbler use and compatibility-alias use require no OpenRouter or ot
 The pattern borrows the useful harness idea of independent role reports followed by synthesis
 without importing vendor identity, policy, persona, or safety text.
 
+Optional model routing stays behind the same Cobbler interaction. The default route is the host's
+native subagents; configured role routes like `openrouter:<model-id>` are opt-in, fall back to
+native when unavailable, and should be weighed by evidence rather than model prestige.
+
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
 model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
 synthesis prompt templates, and
@@ -345,6 +349,9 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
   native-subagent-first synthesis for planning, design, debugging, and review questions; Claude
   keeps `/council`, `/ec`, and `/elves-council`, while Codex keeps `$elves council: ...` as the
   compatibility path
+- **Optional model routing**: Cobbler roles can be mapped to native subagents or provider-backed
+  models when keys are configured, but native host subagents remain the zero-config default and
+  fallback
 - **Math research workflow kit**: optional templates for preliminary discovery, subfield scouting,
   cross-field synthesis, proof review, source audit, manuscript drafting, and human verification
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`

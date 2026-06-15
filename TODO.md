@@ -24,8 +24,13 @@ Project backlog and deferred tasks.
   `scripts/sync_installed_skills.py` now checks and mirrors the managed bundle from this checkout
   into `~/.claude/skills/elves/` and `~/.codex/skills/elves/`.
 
-### Multi-model routing for subagents
-Different phases of the loop have different cost/quality tradeoffs. Implementation needs the strongest model; validation could run on a cheaper one; review benefits from a fresh perspective (different model = different blind spots). The subagent strategy already creates natural seams for this. Add optional model configuration per phase in the survival guide, e.g. `implement-model: opus`, `validate-model: sonnet`, `review-model: opus`. The user already controls which model runs — this would make it explicit and tunable.
+- [x] Add optional Cobbler role model routing for subagents.
+  Cobbler role routes now stay native-first by default while allowing opt-in `provider:model-id`
+  strings such as `openrouter:<model-id>` in the survival guide or config example. Missing provider
+  routes fall back to native and should be treated as evidence sources, not authority.
+- [ ] Optional full-run phase model routing for implementation, validation, review, and synthesis
+  remains open. The Cobbler role-routing docs cover the chat-native harness path; a later update
+  could add phase-level hints if a host exposes reliable model selection for those phases.
 
 ### Secret redaction layer
 Elves has "don't commit .env files" and "never git add -A" but no automated scanning of what gets sent to LLM prompts. A pre-prompt filter that strips API keys, tokens, and credentials from context before sending to the model would close a real security gap. This is infrastructure, not process — probably belongs as a separate tool or MCP server rather than in the skill itself. Factory AI calls theirs "Droid Shield."
