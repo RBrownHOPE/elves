@@ -14,6 +14,10 @@ Use the installed `elves` skill's `## Cobbler` instructions as the source of tru
 Elves' default orchestration model. Cobbler Mode is the lowest-friction current-thread way to keep
 follow-up prompts Cobbler-mediated after the user says "Cobbler Mode: on" and until the user says
 "Cobbler Mode: off" or "leave Cobbler Mode."
+For non-trivial tasks, use the main skill's harness loop: capability scan, route and medium selection,
+context packet, execute agents/tools/skills, collect evidence, fit answer,
+present/record, and reclassify when evidence changes the task.
+Use route and medium selection before dispatch.
 
 Default behavior while Cobbler Mode is active:
 

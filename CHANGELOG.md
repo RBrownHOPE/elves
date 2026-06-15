@@ -4,6 +4,12 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+- Expanded Cobbler from council-style synthesis into an explicit harness loop: capability scan,
+  route and medium selection, context packet, agents/tools/skills, evidence assembly, fitted answer,
+  present/record, and reclassification when new facts change the route.
+- Updated Cobbler docs to describe one-off Cobbler, Cobbler inside an Elves run, and Cobbler Mode
+  in plainer user-facing terms while keeping provider-backed model routing optional.
+
 ## [1.16.0] - 2026-06-15
 
 - Made Cobbler-first coordination the default Elves run model: Run Cobbler now frames planning,

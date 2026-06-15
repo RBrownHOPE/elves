@@ -4,7 +4,7 @@
 
 **They work while you sleep.**
 
-Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default orchestration model inside Elves: it routes agents, tools, skills, evidence, dissent, and synthesis so the loop does not collapse into one undifferentiated agent stream.
+Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default coordinator inside Elves: it decides whether to answer directly, ask independent reviewers, assign scoped worker agents, or record a run decision, then returns one clear recommendation.
 
 You write the plan and own the merge decision. The agent does everything in between.
 
@@ -164,9 +164,10 @@ and source traceability.
 ### Cobbler
 
 Cobbler is the default orchestration model inside Elves. During staged and active Elves runs, it is
-how the coordinator plans, chooses agents/tools/skills, handles uncertainty, preserves dissent,
-reviews risk, and synthesizes the next move. Explicit `/cobbler` or `$elves cobbler: ...`
-invocations are the one-off chat form of the same coordination model.
+how the coordinator decides what to do before it acts. It answers directly when the request is
+simple, asks independent lenses when uncertainty matters, assigns scoped workers when repo changes
+are needed, and records material run decisions in existing Elves memory. Explicit `/cobbler` or
+`$elves cobbler: ...` invocations are the one-off chat form of the same coordination model.
 
 ![How Cobbler works](assets/cobbler-infographic.png)
 
@@ -174,6 +175,12 @@ For the full walkthrough, see [`docs/cobbler.md`](docs/cobbler.md).
 
 The user gets the fit, not the chatter: `Recommendation`, `Why this fits`, `Strongest dissent`,
 `Risks`, `Next move`, and `Confidence`.
+
+The Cobbler harness loop is: intent, capability scan, route and medium selection, context packet,
+execute agents/tools/skills, collect evidence, fit answer, present/record, and reclassify when new
+facts change the task. In plain terms, Cobbler checks what help is available, chooses the right
+agents, tools, skills, docs, tests, and output medium, gives each role the same bounded context,
+assembles the evidence, preserves the strongest objection, and returns one recommendation.
 
 Use `/cobbler <task>` in Claude Code when the alias skill is installed. In Codex, use
 `$elves cobbler: <task>` or natural language such as "Ask the Cobbler..." Compatibility aliases

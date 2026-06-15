@@ -107,14 +107,53 @@ tests, sources, and user constraints rather than model prestige.
 
 ```text
 User question
-  -> classify task
-  -> choose direct action, worker delegation, independent lenses, or a small council
-  -> route relevant agents, tools, skills, source checks, and memory surfaces
-  -> keep implementation workers scoped and review/scout lenses independent
-  -> collect bounded evidence, changed files, validation results, and dissent
-  -> synthesize one fitted answer or next run action
-  -> record material Run Cobbler outcomes in existing Elves memory
+  -> intent
+  -> capability scan
+  -> route and medium selection
+  -> context packet
+  -> execute agents/tools/skills
+  -> collect evidence
+  -> fit answer
+  -> present/record
+  -> reclassify if the evidence changes the task
 ```
+
+Intent classifies the request before Cobbler commits to a path: direct answer, one-off advice,
+implementation, review, release, research, or active-run coordination.
+
+The capability scan is ordered and practical:
+
+1. Read active run memory, repo docs, and relevant files.
+2. Check available host skills, subagents, tools, apps, tests, and PR/check surfaces.
+3. Check whether source freshness requires web or external source lookup.
+4. Check optional configured provider routes only when provider-backed council is enabled.
+5. Fall back to direct analysis when a capability is unavailable or would add noise.
+
+Route and medium selection chooses both the work path and the output surface. The path can be
+direct answer, read-only lenses, scoped worker agents, tools/tests/source checks, provider-backed
+read-only roles, or normal Elves run coordination. The medium can be a chat answer, file edit, PR
+comment, execution-log entry, `.elves-session.json` update, Elves Report, or another artifact the
+host can actually produce.
+
+The context packet is the bounded state each role receives: user intent, mode, work scope, relevant
+files, run-state pointers, source freshness needs, available tools/skills, output medium,
+constraints, and forbidden actions. Never include secrets, tokens, credentials, cookies, or private
+payloads in a context packet.
+
+When Cobbler executes agents/tools/skills, read-only lenses stay read-only and worker agents edit
+only the assigned files or modules. The coordinator owns git, PRs, durable memory, and synthesis
+unless it explicitly delegates a narrower action.
+
+Collect evidence means assembling role reports, file references, commands, test results, PR
+comments, source links, changed files, risks, and dissent. Keep retrieved evidence separate from
+inference.
+
+Fit answer means returning one recommendation with the strongest dissent preserved. Present/record
+means answer the user, and record only material Run Cobbler outcomes in existing Elves memory.
+
+Reclassify when new facts change the request. A one-off Cobbler answer can become Run Cobbler. A
+review can become scoped implementation. A release can become a blocker. Do not force the first
+route after evidence says it is wrong.
 
 For small questions, use two roles. For design, migration, release, or ambiguous risk questions,
 use three. Use more only when the user asks or the problem genuinely needs domain breadth.
@@ -208,9 +247,13 @@ A Cobbler response is useful when it:
 
 - answers the user's actual question;
 - names the aliases or mode only when relevant;
+- runs a capability scan before routing non-trivial work;
+- sends a context packet with scope, constraints, evidence needs, and forbidden actions;
+- chooses the output medium before synthesis;
 - shows one recommendation before caveats;
 - preserves the strongest dissent or verification gap;
 - gives a concrete next move;
+- can reclassify when evidence changes the task;
 - keeps one-off Quick Cobbler answers read-only; if the user asks for implementation, reclassifies
   the task as direct implementation or Run Cobbler before any edits;
 - scopes any Run Cobbler worker edits to assigned files and keeps git/memory ownership with the

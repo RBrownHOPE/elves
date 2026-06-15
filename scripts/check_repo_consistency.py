@@ -1144,6 +1144,161 @@ COBBLER_MODE_PHRASES = {
     ],
 }
 
+COBBLER_HARNESS_LOOP_PHRASES = {
+    "SKILL.md": [
+        "capability scan",
+        "route and medium selection",
+        "context packet",
+        "execute agents/tools/skills",
+        "collect evidence",
+        "fit answer",
+        "present/record",
+        "reclassify",
+    ],
+    "AGENTS.md": [
+        "capability scan",
+        "route and medium selection",
+        "context packet",
+        "execute agents/tools/skills",
+        "collect evidence",
+        "fit answer",
+        "present/record",
+        "reclassify",
+    ],
+    "README.md": [
+        "capability scan",
+        "route and medium selection",
+        "context packet",
+        "execute agents/tools/skills",
+        "collect evidence",
+        "fit answer",
+        "present/record",
+        "reclassify",
+    ],
+    "docs/cobbler.md": [
+        "capability scan",
+        "Route and medium selection",
+        "Context packet",
+        "Execute agents/tools/skills",
+        "Collect evidence",
+        "Fit answer",
+        "Present/record",
+        "Reclassify",
+        "does not copy Fable's model identity",
+    ],
+    "references/council-workflow.md": [
+        "capability scan",
+        "route and medium selection",
+        "context packet",
+        "execute agents/tools/skills",
+        "collect evidence",
+        "fit answer",
+        "Present/record",
+        "Reclassify",
+    ],
+    "references/council-prompts.md": [
+        "Capability scan",
+        "Route and medium",
+        "Context packet",
+        "Evidence",
+        "Present/record",
+        "Reclassify",
+    ],
+    "references/tool-config-examples.md": [
+        "cobbler-harness-loop",
+        "capability-scan",
+        "route-and-medium-selection",
+        "context-packet",
+        "execute-agents-tools-skills",
+        "collect-evidence",
+        "fit-answer",
+        "present-record",
+        "reclassify",
+    ],
+    "references/survival-guide-template.md": [
+        "cobbler-harness-loop",
+        "capability-scan",
+        "route-and-medium-selection",
+        "context-packet",
+        "execute-agents-tools-skills",
+        "collect-evidence",
+        "fit-answer",
+        "present-record",
+        "reclassify",
+    ],
+    "config.json.example": [
+        '"harness_loop"',
+        '"capability_scan"',
+        '"route_and_medium_selection"',
+        '"context_packet"',
+        '"execute_agents_tools_skills"',
+        '"collect_evidence"',
+        '"fit_answer"',
+        '"present_record"',
+        '"reclassify"',
+    ],
+    "aliases/claude/cobbler/SKILL.md": [
+        "capability scan",
+        "route and medium selection",
+        "context packet",
+        "execute agents/tools/skills",
+        "collect evidence",
+        "fit answer",
+        "present/record",
+        "reclassify",
+    ],
+    "aliases/claude/cobbler-mode/SKILL.md": [
+        "capability scan",
+        "route and medium selection",
+        "context packet",
+        "execute agents/tools/skills",
+        "collect evidence",
+        "fit answer",
+        "present/record",
+        "reclassify",
+    ],
+    "aliases/claude/council/SKILL.md": [
+        "capability scan",
+        "route and medium selection",
+        "context packet",
+        "execute agents/tools/skills",
+        "collect evidence",
+        "fit answer",
+        "present/record",
+        "reclassify",
+    ],
+    "aliases/claude/ec/SKILL.md": [
+        "capability scan",
+        "route and medium selection",
+        "context packet",
+        "execute agents/tools/skills",
+        "collect evidence",
+        "fit answer",
+        "present/record",
+        "reclassify",
+    ],
+    "aliases/claude/elves-council/SKILL.md": [
+        "capability scan",
+        "route and medium selection",
+        "context packet",
+        "execute agents/tools/skills",
+        "collect evidence",
+        "fit answer",
+        "present/record",
+        "reclassify",
+    ],
+}
+
+COBBLER_HARNESS_FORBIDDEN_PATTERNS = {
+    label: [
+        r"\bquick\s+cobbler\b[^.\n]*(?:edits|mutates|commits|pushes|opens\s+prs)\b",
+        r"\bcontext\s+packet\b[^.\n]*(?:includes|contains)\s+(?:secrets|tokens|credentials|cookies)\b",
+        r"\bprovider-backed\s+council\b[^.\n]*(?:required|default)\b",
+        r"\breclassify\b[^.\n]*(?:by\s+changing\s+run\s+state|by\s+creating\s+a\s+new\s+run)\b",
+    ]
+    for label in COBBLER_HARNESS_LOOP_PHRASES
+}
+
 FULL_RUN_MODEL_ROUTING_PHRASES = {
     "SKILL.md": [
         "Full-run model routing is a separate optional staging preference",
@@ -1626,6 +1781,24 @@ def main() -> int:
             "Cobbler",
         )
     )
+    cobbler_harness_texts = {
+        label: read_text(REPO_ROOT / label)
+        for label in set(COBBLER_HARNESS_LOOP_PHRASES) | set(COBBLER_HARNESS_FORBIDDEN_PATTERNS)
+    }
+    errors.extend(
+        find_missing_phrases(
+            cobbler_harness_texts,
+            COBBLER_HARNESS_LOOP_PHRASES,
+            "Cobbler harness loop",
+        )
+    )
+    errors.extend(
+        find_forbidden_patterns(
+            cobbler_harness_texts,
+            COBBLER_HARNESS_FORBIDDEN_PATTERNS,
+            "Cobbler harness loop",
+        )
+    )
 
     full_run_routing_texts = {
         label: read_text(REPO_ROOT / label)
@@ -1694,6 +1867,7 @@ def main() -> int:
     print("- Public API surface snapshot guardrails are aligned")
     print("- Reviewed PR landing command guardrails are aligned")
     print("- Cobbler guardrails are aligned")
+    print("- Cobbler harness loop guardrails are aligned")
     print("- Full-run model routing guardrails are aligned")
     print("- Public wording guardrails are aligned")
     print("- Claude Cobbler alias guardrails are aligned")
