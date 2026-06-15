@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -51,6 +52,20 @@ class ReleaseChecklistTests(unittest.TestCase):
 
         self.assertTrue(result.ok)
         self.assertEqual(result.failures, [])
+
+    def test_read_text_uses_utf8_encoding(self) -> None:
+        path = mock.Mock()
+        path.read_text.return_value = "ok"
+
+        self.assertEqual(self.release_checklist.read_text(path), "ok")
+
+        path.read_text.assert_called_once_with(encoding="utf-8")
+
+    def test_frontmatter_version_missing_file_returns_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing = Path(tmpdir) / "missing.md"
+
+            self.assertIsNone(self.release_checklist.read_frontmatter_version(missing))
 
     def test_release_checklist_fails_when_changelog_latest_release_is_stale(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -129,7 +144,10 @@ class ReleaseChecklistTests(unittest.TestCase):
 
     def test_parse_name_status_uses_new_path_for_renames(self) -> None:
         changes = self.release_checklist.parse_name_status(
-            "M\tREADME.md\nA\treferences/new-guide.md\nR100\told.md\treferences/new-name.md\n"
+            "M\tREADME.md\n"
+            "A\treferences/new-guide.md\n"
+            "R100\told.md\treferences/new-name.md\n"
+            "C100\told.md\treferences/copied-name.md\n"
         )
 
         self.assertEqual(
@@ -138,7 +156,46 @@ class ReleaseChecklistTests(unittest.TestCase):
                 ("M", "README.md"),
                 ("A", "references/new-guide.md"),
                 ("R100", "references/new-name.md"),
+                ("C100", "references/copied-name.md"),
             ],
+        )
+
+    def test_changed_files_since_reports_missing_git_without_crashing(self) -> None:
+        with mock.patch.object(
+            self.release_checklist.subprocess,
+            "run",
+            side_effect=FileNotFoundError,
+        ):
+            changes, warning = self.release_checklist.changed_files_since(
+                Path("/repo"),
+                "origin/main",
+            )
+
+        self.assertEqual(changes, [])
+        self.assertEqual(warning, "git command not found in PATH")
+
+    def test_changed_files_since_decodes_git_output_as_utf8(self) -> None:
+        completed = SimpleNamespace(returncode=0, stdout="M\tREADME.md\n", stderr="")
+        with mock.patch.object(
+            self.release_checklist.subprocess,
+            "run",
+            return_value=completed,
+        ) as run:
+            changes, warning = self.release_checklist.changed_files_since(
+                Path("/repo"),
+                "origin/main",
+            )
+
+        self.assertIsNone(warning)
+        self.assertEqual([(change.status, change.path) for change in changes], [("M", "README.md")])
+        run.assert_called_once_with(
+            ["git", "diff", "--name-status", "origin/main...HEAD"],
+            cwd=Path("/repo"),
+            check=False,
+            stdout=self.release_checklist.subprocess.PIPE,
+            stderr=self.release_checklist.subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
         )
 
     def test_release_checklist_warns_for_added_human_facing_surfaces(self) -> None:
@@ -170,6 +227,26 @@ class ReleaseChecklistTests(unittest.TestCase):
         self.assertIn(
             "Human-facing surfaces changed since `origin/main`: A references/new-guide.md",
             result.notes,
+        )
+
+    def test_main_preserves_empty_programmatic_argv(self) -> None:
+        expected = self.release_checklist.ChecklistResult(version="1.15.0")
+
+        with mock.patch.object(sys, "argv", ["release_checklist.py", "--version", "9.9.9"]):
+            with mock.patch.object(
+                self.release_checklist,
+                "build_release_checklist",
+                return_value=expected,
+            ) as build:
+                with mock.patch("builtins.print"):
+                    exit_code = self.release_checklist.main([])
+
+        self.assertEqual(exit_code, 0)
+        build.assert_called_once_with(
+            self.release_checklist.REPO_ROOT,
+            expected_version=None,
+            base_ref="origin/main",
+            allow_unreleased=False,
         )
 
 

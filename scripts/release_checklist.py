@@ -69,11 +69,15 @@ class ChecklistResult:
 
 
 def read_text(path: Path) -> str:
-    return path.read_text()
+    return path.read_text(encoding="utf-8")
 
 
 def read_frontmatter_version(path: Path) -> str | None:
-    match = VERSION_RE.search(read_text(path))
+    try:
+        content = read_text(path)
+    except FileNotFoundError:
+        return None
+    match = VERSION_RE.search(content)
     return match.group(1) if match else None
 
 
@@ -103,7 +107,7 @@ def parse_name_status(output: str) -> list[NameStatusChange]:
             continue
         parts = line.split("\t")
         status = parts[0]
-        if status.startswith("R") and len(parts) >= 3:
+        if (status.startswith("R") or status.startswith("C")) and len(parts) >= 3:
             changes.append(NameStatusChange(status=status, path=parts[2]))
         elif len(parts) >= 2:
             changes.append(NameStatusChange(status=status, path=parts[1]))
@@ -112,14 +116,18 @@ def parse_name_status(output: str) -> list[NameStatusChange]:
 
 def changed_files_since(repo_root: Path, base_ref: str) -> tuple[list[NameStatusChange], str | None]:
     command = ["git", "diff", "--name-status", f"{base_ref}...HEAD"]
-    result = subprocess.run(
-        command,
-        cwd=repo_root,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            cwd=repo_root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
+    except FileNotFoundError:
+        return [], "git command not found in PATH"
     if result.returncode != 0:
         stderr = result.stderr.strip() or "unknown git error"
         return [], f"Could not diff against `{base_ref}`: {stderr}"
@@ -271,7 +279,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv or sys.argv[1:])
+    args = parse_args(sys.argv[1:] if argv is None else argv)
     result = build_release_checklist(
         REPO_ROOT,
         expected_version=args.version,
