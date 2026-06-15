@@ -2,7 +2,7 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-06-15 18:35 EDT
+- **Last updated:** 2026-06-15 18:45 EDT
 - **Current phase:** In progress
 - **Active batch:** Batch 3: Validation, Review, Landing, Release
 - **Last completed batch:** Batch 2: Operational Prompts and Guardrails
@@ -52,6 +52,84 @@
 > validate locally, read PR checks and comments after each push, merge with a regular merge commit
 > when the final readiness review is clean, then bump and publish the next GitHub release tag from
 > `main`.
+
+## 2026-06-15 18:45 EDT
+
+**Batch:** 3: Validation, Review, Landing, Release
+**Contract status:** validation and direct review passed; cleanup, PR merge, and release still remain
+
+**Timing:**
+- Implement: N/A | Validate: 8m | Review: 8m | Total so far: 16m
+- Session elapsed: 30m | Budget remaining: until completion
+
+**What changed:**
+- No product files changed after Batch 2.
+- Final review switched from subagent to direct coordinator review because the fresh review subagent
+  hit a usage limit.
+
+**Commands run:**
+- `python3 scripts/check_repo_consistency.py` -> PASS
+- `python3 -m unittest tests.test_check_repo_consistency -v` -> PASS, 54 tests
+- `python3 -m unittest discover` -> PASS, 151 tests
+- `python3 scripts/release_checklist.py --allow-unreleased` -> PASS with expected Unreleased
+  warnings before the release bump
+- `python3 -m py_compile scripts/*.py tests/*.py` -> PASS
+- `bash -n scripts/preflight.sh scripts/notify.sh` -> PASS
+- `python3 -m json.tool config.json.example >/dev/null` -> PASS
+- `git diff --check` -> PASS
+- `gh pr view 54 ...` -> checks green on commit `140a82d12bf2dddb36b93cc82bb592d98cde45ea`
+
+**Test results:**
+- Lint: N/A
+- Typecheck: N/A
+- Build: N/A
+- Tests: PASS, 151 tests in full unittest discovery
+- E2E: N/A
+- Smoke: N/A
+
+**Review findings:**
+- [INFO] Gemini setup comments about PR-number placeholders were already fixed by the current branch
+  state and resolved via GitHub review threads.
+- [INFO] Fresh review subagent could not complete due to usage limit. Fallback direct review found
+  no blocking issue in the cumulative diff.
+
+**Decisions made:**
+- Cleanup will remove `.elves-session.json`, `docs/elves/cobbler-harness-loop-survival-guide.md`,
+  and `docs/elves/cobbler-harness-loop-execution-log.md` from the final PR diff. The plan file
+  remains as durable product planning documentation.
+- Release bump will happen on `main` only after PR #54 lands.
+
+**Cobbler synthesis:**
+- Recommendation: proceed to cleanup and PR landing.
+- Strongest dissent: the final review subagent failed, so direct review must be explicit and
+  evidence-based. Local full validation and PR checks are green.
+- Next move: generate a short run report, remove temporary run state, push cleanup, wait for checks,
+  merge, then bump the version on `main`.
+
+**Route notes:**
+- Requested route: final independent review lens
+- Actual route: direct coordinator review
+- Fallback reason: review subagent usage limit
+
+**Process adjustments:**
+- None.
+
+**Docs:**
+- Impacted: temporary run docs only
+- Updated: execution log and session JSON
+- Promoted: none
+- Deferred: none
+
+**Regression attestation:**
+- Cumulative diff: `git diff main...HEAD --stat` shows docs, config examples, checker, tests, and
+  temporary run-state files only.
+- Files outside batch scope: none
+- Shared surfaces modified: `scripts/check_repo_consistency.py`, additive phrase/regex corpus only
+- Consumers verified: full unittest discovery and focused consistency suite passed
+- Public API surface snapshot: N/A
+- Test baseline: 151 tests passing at final local validation
+- Confidence: HIGH, because all local gates and PR checks are green, review threads are resolved,
+  and the cumulative diff is scoped to docs/config/checker/test updates.
 
 ## 2026-06-15 18:35 EDT
 
