@@ -10,6 +10,9 @@ All notable changes to the Elves skill are documented here.
   checklist helper.
 - Added `scripts/pr_portfolio_report.py`, a read-only repo helper for summarizing PR stack health
   across merge state, pending/failing checks, and unresolved review threads.
+- Added `--fail-on-draft` to the PR portfolio helper so operators can compose
+  `--fail-on-attention --fail-on-draft` as a landing-readiness gate without treating intentional
+  drafts as attention-worthy.
 - Made the `tests/` directory importable so plain `python3 -m unittest discover` finds the helper
   regression suite instead of reporting zero tests.
 - Added a repo-only `scripts/workspace_guard.py` prototype that checks candidate write commands

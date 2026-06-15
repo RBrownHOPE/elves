@@ -186,6 +186,21 @@ class PrPortfolioReportTests(unittest.TestCase):
         self.assertTrue(self.portfolio.row_needs_attention(requested_changes))
         self.assertTrue(self.portfolio.row_needs_attention(dirty_merge_state))
 
+    def test_row_needs_attention_does_not_treat_draft_as_attention(self) -> None:
+        draft = self.portfolio.PortfolioRow(
+            number=39,
+            draft=True,
+            branch="codex/integration-stack-preview",
+            merge_state="CLEAN",
+            review_decision="",
+            unresolved_threads=0,
+            pending_checks=[],
+            bad_checks=[],
+            url="https://example.com/39",
+        )
+
+        self.assertFalse(self.portfolio.row_needs_attention(draft))
+
     def test_main_fail_on_attention_returns_one_for_attention(self) -> None:
         row = self.portfolio.PortfolioRow(
             number=44,
@@ -209,6 +224,52 @@ class PrPortfolioReportTests(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertIn("#44", stdout.getvalue())
+
+    def test_main_fail_on_draft_returns_one_for_draft(self) -> None:
+        row = self.portfolio.PortfolioRow(
+            number=39,
+            draft=True,
+            branch="codex/integration-stack-preview",
+            merge_state="CLEAN",
+            review_decision="",
+            unresolved_threads=0,
+            pending_checks=[],
+            bad_checks=[],
+            url="https://example.com/39",
+        )
+        stdout = io.StringIO()
+
+        with mock.patch.object(sys, "argv", ["pr_portfolio_report.py", "--fail-on-draft"]):
+            with mock.patch.object(self.portfolio, "current_repo", return_value="aigorahub/elves"):
+                with mock.patch.object(self.portfolio, "open_pr_numbers", return_value=[39]):
+                    with mock.patch.object(self.portfolio, "summarize_pr", return_value=row):
+                        with contextlib.redirect_stdout(stdout):
+                            result = self.portfolio.main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("#39", stdout.getvalue())
+
+    def test_main_fail_on_attention_ignores_clean_draft_prs(self) -> None:
+        row = self.portfolio.PortfolioRow(
+            number=39,
+            draft=True,
+            branch="codex/integration-stack-preview",
+            merge_state="CLEAN",
+            review_decision="",
+            unresolved_threads=0,
+            pending_checks=[],
+            bad_checks=[],
+            url="https://example.com/39",
+        )
+
+        with mock.patch.object(sys, "argv", ["pr_portfolio_report.py", "--fail-on-attention"]):
+            with mock.patch.object(self.portfolio, "current_repo", return_value="aigorahub/elves"):
+                with mock.patch.object(self.portfolio, "open_pr_numbers", return_value=[39]):
+                    with mock.patch.object(self.portfolio, "summarize_pr", return_value=row):
+                        with contextlib.redirect_stdout(io.StringIO()):
+                            result = self.portfolio.main()
+
+        self.assertEqual(result, 0)
 
     def test_main_reports_runtime_errors_without_traceback(self) -> None:
         stderr = io.StringIO()
