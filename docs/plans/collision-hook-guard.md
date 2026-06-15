@@ -61,7 +61,7 @@ prevention mechanism.
 Start narrow. Block only commands that mutate the checkout, branch, or remote state:
 
 - `git commit`, `git merge`, `git pull`, `git rebase`, `git cherry-pick`, `git revert`
-- `git push`, `git stash`
+- `git push`, `git stash` including `push`, `pop`, `apply`, and `clear`
 - `git checkout`, `git switch`, `git reset`, `git clean`
 - `git worktree add`, `git worktree remove`, `git worktree move`
 - `git branch -D`, branch creation that changes the active branch
@@ -198,13 +198,16 @@ host. Keep claims tied to the host surface.
 - [ ] Support `--check-command "<command>"`, `--branch`, `--start-tip`, `--allowed-head-tip`,
       `--remote-ref`, `--expected-remote-tip`, `--last-pushed-tip`, and `--mode advisory|strict`.
 - [ ] Read `.elves-session.json` and survival-guide fields when explicit CLI flags are absent.
-- [ ] Return exit `0` for allowed commands and for advisory-mode warnings, `1` for blocked
-      write-ish commands in strict mode after mismatch, and `2` for configuration or
-      git-inspection errors.
+- [ ] Return exit `0` in advisory mode for allowed commands, mismatches, missing guard data, and
+      configuration/git-inspection warnings unless `--fail-on-error` is explicit.
+- [ ] In strict mode, return exit `0` for allowed commands, `1` for blocked write-ish commands after
+      a mismatch, and `2` for configuration or git-inspection errors.
 
 **Acceptance criteria:**
 - [ ] The helper never mutates git state except optional `git fetch` only when explicitly requested.
 - [ ] Missing guard data is advisory by default and strict-failing only when configured.
+- [ ] Advisory mode exits `0` for mismatch, missing-data, and configuration/git-inspection warnings
+      unless an explicit fail-on-error option is set.
 - [ ] Current `HEAD` mismatch and remote-ref mismatch are reported separately.
 - [ ] The first self-commit path is safe: commit allowed when `HEAD == allowed_head_tip`, then
       `allowed_head_tip` updates to the new owned commit.
@@ -254,8 +257,9 @@ use the helper for logic, and avoid large inline shell programs.
 - The guard must allow read-only diagnostics after blocking a write.
 - Missing guard data is advisory by default, not a surprise hard stop.
 - Strict mode must be explicit.
-- Advisory mode must exit `0` after warning so it cannot surprise-block ordinary diagnostics or
-  staging checks.
+- Advisory mode must exit `0` after mismatch, missing-data, and configuration/git-inspection
+  warnings unless an explicit fail-on-error option is set, so it cannot surprise-block ordinary
+  diagnostics or staging checks.
 - Host-specific docs must be honest: Claude Code hook examples do not imply Codex has the same
   hook surface.
 - Dedicated worktrees and preflight ownership checks remain the primary prevention path.
