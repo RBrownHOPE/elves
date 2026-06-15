@@ -16,8 +16,8 @@ falls back gracefully instead of stalling the run.
 
 ### Core Idea
 
-Cobbler is the coordinator. The elves are the workers. A full Elves run should let the Cobbler
-state what kind of elf is best for each phase:
+Cobbler is the coordinator. The elves are the workers. A full Elves run can record phase
+preferences in Cobbler language:
 
 - implementation wants the strongest host-native coding model available;
 - validation wants a reliable, lower-cost checker that can run commands and inspect results;
@@ -39,7 +39,9 @@ review, scouting, or synthesis roles. Ordinary Elves runs must keep working with
   the user's Codex install exposes it.
 - **Provider-backed roles:** optional, read-only by default, and useful mainly for model diversity
   in review, scouting, and synthesis. Do not route implementation to an external provider unless
-  the user explicitly configured a safe workflow for it.
+  the user explicitly opted into a write-capable workflow with minimum constraints: a dedicated
+  branch or worktree, no direct secret access, provider output limited to patches or reports unless
+  a trusted local host applies changes, and mandatory native validation plus review before any push.
 - **No provider access:** fall back to host-native subagents or direct read-only analysis, and log
   the degraded route only when it changes risk or confidence.
 
@@ -55,23 +57,23 @@ model-routing:
   phases:
     implement:
       preference: strongest-host-native
-      provider_backed_allowed: false
+      provider-backed-allowed: false
       notes: "Use the main coding agent or a host-native implementation subagent."
     validate:
       preference: reliable-host-native
-      provider_backed_allowed: false
+      provider-backed-allowed: false
       notes: "Run commands locally; prioritize reproducible evidence over model diversity."
     review:
       preference: independent-lens
-      provider_backed_allowed: true
+      provider-backed-allowed: true
       notes: "Prefer a fresh model or subagent when available."
     scout:
       preference: broad-fast-lens
-      provider_backed_allowed: true
+      provider-backed-allowed: true
       notes: "Use optional external providers for breadth only when configured."
     synthesize:
       preference: coordinator
-      provider_backed_allowed: true
+      provider-backed-allowed: true
       notes: "Return one fitted answer with dissent and next action."
 ```
 
@@ -82,12 +84,15 @@ implement-model: strongest-host-native
 validate-model: reliable-host-native
 review-model: independent-lens
 scout-model: broad-fast-lens
-synthesis-model: coordinator
+synthesize-model: coordinator
 ```
 
 These aliases should expand to the structured block during staging or be interpreted as
 compatibility sugar by the agent. They should not be treated as literal provider model IDs unless
 the project also declares a provider namespace such as `openrouter:<model-id>`.
+
+Use hyphenated keys in survival-guide YAML examples and underscored keys in JSON examples such as
+`config.json.example`.
 
 ## Scope
 
@@ -148,19 +153,24 @@ tied to an available host capability or clearly mark it as a preference.
       `native-subagent`, `host-default`, and `openrouter:<model-id>`.
 - [ ] Extend `references/review-subagent.md` so review prompts include the current phase route,
       fallback route, and evidence requirements.
+- [ ] Keep `references/council-prompts.md` Quick-Cobbler-only or add an explicit guardrail that
+      phase routing belongs to full Elves runs, not the one-off Cobbler role selector.
 - [ ] Extend `references/council-provider-config.md` to explain how provider-backed council slots
       can satisfy read-only full-run routing roles.
 
 **Acceptance criteria:**
-- [ ] Config examples keep `provider_backed_required_env` empty by default.
+- [ ] Config examples keep provider-backed required env lists empty by default.
 - [ ] Provider-backed roles are explicitly optional and mostly read-only.
 - [ ] Prompts instruct agents to report when they could not satisfy a requested route.
 - [ ] No secret, token, or private model key appears in docs or examples.
+- [ ] External provider routes receive only minimum necessary context and are disabled for
+      private or sensitive projects unless the user explicitly opts in.
 
 **Docs likely touched:**
 - `config.json.example`
 - `references/tool-config-examples.md`
 - `references/review-subagent.md`
+- `references/council-prompts.md`
 - `references/council-provider-config.md`
 
 **Risk:** Config can become too verbose for the happy path. Keep examples progressive: default
@@ -180,6 +190,9 @@ native-first first, provider-backed examples later.
 - [ ] A resumed agent can recover the requested and actual route without reading the full chat.
 - [ ] Missing optional provider access never blocks a native-first run.
 - [ ] A route mismatch becomes blocking only when the user marked that phase/provider as required.
+- [ ] `required: true` is accepted only as an explicit per-project survival-guide opt-in. It is
+      never a Quick Cobbler default, never inferred from provider config, and downgraded or rejected
+      for ordinary native-first runs when the user did not explicitly set it.
 - [ ] Logs record material routing degradation without creating noisy ceremony for every subagent.
 
 **Docs likely touched:**
@@ -223,7 +236,8 @@ provider. Tests must pin the distinction.
 - Native host capability is the default for Codex and Claude Code.
 - Normal Elves, Quick Cobbler, and compatibility aliases must not require external provider keys.
 - Provider-backed routing is optional and read-only by default unless the user explicitly configures
-  a write-capable workflow.
+  a write-capable workflow with dedicated branch/worktree isolation, no direct secret access,
+  patch/report handoff, and mandatory native validation plus review.
 - Routing preferences must degrade gracefully and be logged honestly.
 - `SKILL.md` and `AGENTS.md` must move together for behavior changes.
 
@@ -245,8 +259,12 @@ provider. Tests must pin the distinction.
 - Allow provider namespaces only when explicitly configured: `native-subagent`, `host-default`,
   `codex:<host-option>`, `claude-code:<host-option>`, `openrouter:<model-id>`,
   `gemini:<model-id>`, `anthropic:<model-id>`, `xai:<model-id>`, or `openai:<model-id>`.
+- Send external provider-backed roles only the minimum necessary context. Never include secrets,
+  tokens, credentials, customer data, or private repository context unless the user explicitly
+  opted that project into external-provider sharing.
 - When a requested route cannot be satisfied, use the fallback route, record the reason if
-  material, and continue unless the user marked the route `required: true`.
+  material, and continue unless the user explicitly marked the route `required: true` in the
+  survival guide.
 - Keep implementation work host-native by default because it mutates the checkout. External
   provider-backed roles should normally inspect, critique, or synthesize rather than edit.
 
