@@ -144,6 +144,7 @@ REPO_CONSISTENCY_WORKFLOW_PHRASES = {
         '".github/ISSUE_TEMPLATE/**"',
         '".github/workflows/repo-consistency.yml"',
         '"aliases/**"',
+        '"docs/cobbler.md"',
         "scripts/pr_portfolio_report.py",
         "scripts/preflight_worktree.py",
         "scripts/validate_survival_guide.py",

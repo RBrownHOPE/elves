@@ -574,6 +574,7 @@ Cobbler
         self.assertIn('"config.json.example"', phrases)
         self.assertIn('".github/ISSUE_TEMPLATE/**"', phrases)
         self.assertIn('"aliases/**"', phrases)
+        self.assertIn('"docs/cobbler.md"', phrases)
         self.assertIn("scripts/pr_portfolio_report.py", phrases)
         self.assertIn("scripts/validate_survival_guide.py", phrases)
         self.assertIn("scripts/workspace_guard.py", phrases)
