@@ -146,19 +146,20 @@ class SyncInstalledSkillsTests(unittest.TestCase):
             self.assertEqual(problems, [])
             self.assertFalse((home / ".claude" / "skills" / "cobbler").exists())
 
-    def test_apply_removes_repo_only_release_helper_from_installed_copy(self) -> None:
+    def test_apply_removes_repo_only_helpers_from_installed_copy(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             _, home = self.configure_temp_repo(tmpdir)
-            installed_helper = (
-                home / ".codex" / "skills" / "elves" / "scripts" / "release_checklist.py"
-            )
-            installed_helper.parent.mkdir(parents=True)
-            installed_helper.write_text("stale repo-only helper\n")
+            installed_root = home / ".codex" / "skills" / "elves"
+            installed_helpers = [installed_root / path for path in self.sync.REPO_ONLY_SCRIPT_PATHS]
+            for installed_helper in installed_helpers:
+                installed_helper.parent.mkdir(parents=True, exist_ok=True)
+                installed_helper.write_text("stale repo-only helper\n")
 
             problems = self.sync.apply_target("codex")
 
             self.assertEqual(problems, [])
-            self.assertFalse(installed_helper.exists())
+            for installed_helper in installed_helpers:
+                self.assertFalse(installed_helper.exists(), str(installed_helper))
 
     def test_apply_installs_config_template_for_all_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -42,17 +42,31 @@ the runtime surfaces, and the checks that usually matter before editing.
 - `scripts/sync_installed_skills.py`: syncs the installable runtime surface into Claude/Codex skill
   directories.
 - `scripts/install_doctor.py`: advisory install/update diagnostics for startup and doctor mode.
+- `scripts/release_checklist.py`: read-only release sweep for version alignment, changelog
+  promotion, current-version examples, and changed human-facing docs.
+- `scripts/pr_portfolio_report.py`: read-only PR stack health summary for merge state, checks, and
+  unresolved review threads.
 - `scripts/preflight.sh`: staging preflight for git, gh, environment, validation gates,
   notifications, and worktree ownership.
 - `scripts/validate_survival_guide.py`: advisory validator for required survival-guide sections.
+- `scripts/workspace_guard.py`: optional repo-only owned-tip guard prototype for candidate write
+  commands.
 - `scripts/notify.sh`: Slack/custom-command/GitHub fallback notification helper.
 
 ## Tests
 
 - `tests/test_check_repo_consistency.py`: unit tests for cross-file phrase and guardrail checks.
 - `tests/test_install_doctor.py`: tests for release-cache and install-diagnostic helpers.
-- Other script tests may be present on feature branches; check open PRs before assuming they are on
-  `main`.
+- `tests/test_notify_sh.py`: tests for notification helper channels and environment handling.
+- `tests/test_preflight_sh.py`: smoke tests for preflight launch-readiness behavior.
+- `tests/test_release_checklist.py`: tests for release-sweep parsing and failure modes.
+- `tests/test_pr_portfolio_report.py`: tests for PR selection, check classification, and report
+  formatting.
+- `tests/test_sync_installed_skills.py`: tests for managed install sync, alias safety, config
+  template install, and repo-only cleanup.
+- `tests/test_validate_survival_guide.py`: tests for advisory survival-guide validation.
+- `tests/test_workspace_guard.py`: tests for command classification, advisory/strict modes, and
+  owned-tip recording.
 
 ## Common Survey Paths
 
@@ -74,8 +88,10 @@ For this repo, the usual local proof set is:
 
 ```bash
 python3 scripts/check_repo_consistency.py
+python3 -m unittest discover -v
 python3 -m unittest discover -s tests -p 'test_*.py'
-python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py
+python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/pr_portfolio_report.py scripts/release_checklist.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py scripts/workspace_guard.py
+bash -n scripts/preflight.sh scripts/notify.sh
 python3 -m json.tool config.json.example >/dev/null
 git diff --check
 ```
