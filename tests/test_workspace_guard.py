@@ -40,6 +40,17 @@ class WorkspaceGuardTests(unittest.TestCase):
             "git stash pop": ("local_mutation", True, False),
             "git stash show": ("read_only", False, False),
             "git worktree add ../x": ("local_mutation", True, False),
+            "git remote -v": ("read_only", False, False),
+            "git remote get-url origin": ("read_only", False, False),
+            "git remote set-url origin https://example.invalid/repo.git": ("local_mutation", True, False),
+            "git symbolic-ref --short HEAD": ("read_only", False, False),
+            "git symbolic-ref HEAD refs/heads/main": ("local_mutation", True, False),
+            "git symbolic-ref --delete HEAD": ("local_mutation", True, False),
+            "git update-ref refs/heads/feature abc123": ("local_mutation", True, False),
+            "git tag": ("read_only", False, False),
+            "git tag v1": ("local_mutation", True, False),
+            "git notes show": ("read_only", False, False),
+            "git notes add -m note": ("local_mutation", True, False),
             "gh pr view 12": ("read_only", False, False),
             "gh pr merge 12 --merge": ("remote_mutation", True, True),
             "gh -R owner/repo pr merge 12 --merge": ("remote_mutation", True, True),
@@ -88,6 +99,17 @@ class WorkspaceGuardTests(unittest.TestCase):
         self.assertTrue(decision.allowed)
         self.assertIn("missing guard data", "\n".join(decision.messages))
 
+    def test_advisory_mode_allows_unknown_commands(self) -> None:
+        decision = self.guard.decision_for(
+            "command git commit -m test",
+            self.guard.GuardState(mode="advisory"),
+            None,
+        )
+
+        self.assertEqual(decision.exit_code, 0)
+        self.assertTrue(decision.allowed)
+        self.assertIn("not in the protected command set", "\n".join(decision.messages))
+
     def test_strict_mode_fails_missing_guard_data_as_configuration_error(self) -> None:
         decision = self.guard.decision_for(
             "git commit -m test",
@@ -98,6 +120,38 @@ class WorkspaceGuardTests(unittest.TestCase):
         self.assertEqual(decision.exit_code, 2)
         self.assertFalse(decision.allowed)
         self.assertIn("allowed_head_tip", "\n".join(decision.messages))
+
+    def test_strict_mode_fails_closed_for_unknown_commands(self) -> None:
+        decision = self.guard.decision_for(
+            "gh api -X PATCH repos/owner/repo",
+            self.guard.GuardState(
+                mode="strict",
+                branch="feature",
+                allowed_head_tip="owned",
+            ),
+            self.guard.GitSnapshot(branch="feature", head="owned"),
+        )
+
+        self.assertEqual(decision.exit_code, 2)
+        self.assertFalse(decision.allowed)
+        self.assertIn("fails closed", "\n".join(decision.messages))
+
+    def test_strict_unknown_command_reports_existing_collision(self) -> None:
+        decision = self.guard.decision_for(
+            "command git commit -m test",
+            self.guard.GuardState(
+                mode="strict",
+                branch="feature",
+                allowed_head_tip="owned",
+            ),
+            self.guard.GitSnapshot(branch="feature", head="foreign"),
+        )
+
+        self.assertEqual(decision.exit_code, 1)
+        self.assertFalse(decision.allowed)
+        text = "\n".join(decision.messages)
+        self.assertIn("Hard Stop", text)
+        self.assertIn("local HEAD mismatch", text)
 
     def test_strict_mode_blocks_local_head_mismatch_with_hard_stop(self) -> None:
         decision = self.guard.decision_for(

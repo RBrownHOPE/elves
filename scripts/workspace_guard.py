@@ -37,12 +37,13 @@ READ_ONLY_GIT_COMMANDS = {
     "show",
     "fetch",
     "rev-parse",
-    "remote",
     "ls-remote",
-    "symbolic-ref",
 }
+READ_ONLY_GIT_REMOTE_SUBCOMMANDS = {"get-url", "show"}
+READ_ONLY_GIT_REMOTE_FLAGS = {"-v", "--verbose"}
 READ_ONLY_GIT_BRANCH_FLAGS = {"--show-current", "-a", "-r", "-v", "-vv", "--all", "--remotes"}
 READ_ONLY_GIT_STASH_SUBCOMMANDS = {"list", "show"}
+READ_ONLY_GIT_SYMBOLIC_REF_FLAGS = {"-q", "--quiet", "--short", "--no-recurse"}
 MUTATING_GIT_STASH_SUBCOMMANDS = {"push", "pop", "apply", "clear", "drop", "branch", "store"}
 LOCAL_SHELL_MUTATIONS = {"rm", "mv"}
 GIT_GLOBAL_OPTIONS_WITH_VALUES = {
@@ -168,6 +169,16 @@ def classify_git(args: list[str]) -> CommandProfile:
         return CommandProfile("read_only", reason=f"git {subcommand} is diagnostic")
     if subcommand in LOCAL_GIT_MUTATIONS:
         return CommandProfile("local_mutation", check_local=True, reason=f"git {subcommand} mutates state")
+    if subcommand == "update-ref":
+        return CommandProfile("local_mutation", check_local=True, reason="git update-ref mutates refs")
+    if subcommand == "remote":
+        return classify_git_remote(args)
+    if subcommand == "symbolic-ref":
+        return classify_git_symbolic_ref(args)
+    if subcommand == "tag":
+        return classify_git_tag(args)
+    if subcommand == "notes":
+        return classify_git_notes(args)
     if subcommand == "stash":
         if len(args) > 1 and args[1] in READ_ONLY_GIT_STASH_SUBCOMMANDS:
             return CommandProfile("read_only", reason=f"git stash {args[1]} is diagnostic")
@@ -189,6 +200,47 @@ def classify_git(args: list[str]) -> CommandProfile:
         return CommandProfile("local_mutation", check_local=True, reason="git branch mutates refs")
 
     return CommandProfile("unknown", reason=f"git {subcommand} is not classified")
+
+
+def classify_git_remote(args: list[str]) -> CommandProfile:
+    if len(args) == 1 or all(arg in READ_ONLY_GIT_REMOTE_FLAGS for arg in args[1:]):
+        return CommandProfile("read_only", reason="git remote inspection")
+    if args[1] in READ_ONLY_GIT_REMOTE_SUBCOMMANDS:
+        return CommandProfile("read_only", reason=f"git remote {args[1]} is diagnostic")
+    return CommandProfile("local_mutation", check_local=True, reason="git remote mutates repo config or refs")
+
+
+def classify_git_symbolic_ref(args: list[str]) -> CommandProfile:
+    value_count = 0
+    index = 1
+    while index < len(args):
+        arg = args[index]
+        if arg in {"--delete", "-d"}:
+            return CommandProfile("local_mutation", check_local=True, reason="git symbolic-ref deletes refs")
+        if arg == "-m":
+            return CommandProfile("local_mutation", check_local=True, reason="git symbolic-ref mutates refs")
+        if arg in READ_ONLY_GIT_SYMBOLIC_REF_FLAGS:
+            index += 1
+            continue
+        if arg.startswith("-"):
+            return CommandProfile("unknown", reason=f"git symbolic-ref option {arg} is not classified")
+        value_count += 1
+        index += 1
+    if value_count <= 1:
+        return CommandProfile("read_only", reason="git symbolic-ref inspection")
+    return CommandProfile("local_mutation", check_local=True, reason="git symbolic-ref mutates refs")
+
+
+def classify_git_tag(args: list[str]) -> CommandProfile:
+    if len(args) == 1 or args[1] in {"-l", "--list"}:
+        return CommandProfile("read_only", reason="git tag inspection")
+    return CommandProfile("local_mutation", check_local=True, reason="git tag mutates refs")
+
+
+def classify_git_notes(args: list[str]) -> CommandProfile:
+    if len(args) == 1 or args[1] in {"list", "show"}:
+        return CommandProfile("read_only", reason="git notes inspection")
+    return CommandProfile("local_mutation", check_local=True, reason="git notes mutates notes refs")
 
 
 def classify_gh(args: list[str]) -> CommandProfile:
@@ -354,7 +406,23 @@ def decision_for(
 
     if not state.enabled:
         return GuardDecision(0, True, ["workspace guard disabled"])
-    if profile.category in {"read_only", "unknown"}:
+    if profile.category == "read_only":
+        return GuardDecision(0, True, [f"allowed: {profile.reason}"])
+    if profile.category == "unknown":
+        message = f"workspace guard cannot classify command: {profile.reason}"
+        if mode == "strict" or fail_on_error:
+            unknown_profile = CommandProfile("unknown", check_local=True)
+            if inspection_error:
+                return GuardDecision(2, False, [f"workspace guard inspection warning: {inspection_error}"])
+            missing = missing_required(state, unknown_profile)
+            if missing:
+                return GuardDecision(2, False, [f"workspace guard missing guard data: {', '.join(missing)}"])
+            if snapshot is None:
+                return GuardDecision(2, False, ["workspace guard could not inspect git state"])
+            mismatches = mismatch_messages(state, snapshot, unknown_profile)
+            if mismatches:
+                return GuardDecision(1, False, [hard_stop_message(), *mismatches])
+            return GuardDecision(2, False, [message, "Strict mode fails closed for unclassified commands."])
         return GuardDecision(0, True, [f"allowed: {profile.reason}"])
 
     if inspection_error:
@@ -466,7 +534,10 @@ def main(argv: list[str] | None = None) -> int:
         profile = classify_command(args.check_command)
         snapshot = None
         inspection_error = None
-        if profile.check_local or profile.check_remote:
+        strict_unknown = profile.category == "unknown" and (
+            (state.mode if state.mode in {"advisory", "strict"} else "advisory") == "strict" or args.fail_on_error
+        )
+        if profile.check_local or profile.check_remote or strict_unknown:
             try:
                 snapshot = inspect_git(repo_root, state.remote_ref if profile.check_remote else None)
             except GitInspectionError as exc:
