@@ -665,6 +665,19 @@ human-facing behavior.
 
 **Run a regression-focused review pass for high-risk batches.** If the contract's blast radius is medium or high, or the batch touches auth, billing, data models, shared utilities, public interfaces, or other widely-consumed surfaces, add one more narrow review pass after the standard review is otherwise clean. This pass is intentionally constrained: read the cumulative diff, the plan, the batch contract (especially blast radius), and the consumer evidence. Ignore style, architecture improvements, and new feature ideas. Ask only: "What existing behavior could this break?" For each changed shared surface, trace callers or dependents and name the concrete failure mode. Treat confirmed breakage as BLOCKING. Treat plausible but unproven regression risk as WARNING until you either add verification or justify why the surface is safe in the execution log and commit message.
 
+**Use public API surface snapshots when configured.** Fold them into the existing regression
+attestation, not a separate review ceremony:
+- Public API surface snapshots are optional regression evidence.
+- Use existing structured sources before inventing scanners.
+- If no credible source exists, record `unavailable` with the reason instead of fabricating a snapshot.
+- A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide.
+- `required: true` is valid only when explicitly set by the user or project survival guide.
+- Do not infer required mode from project type, provider config, framework choice, or the presence of API files.
+- Snapshot artifacts are run artifacts, not product docs.
+- Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly asks for a durable API report.
+- Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data.
+- A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.
+
 **Triage every review finding into one of five categories:**
 - **Fix now:** a real bug, security problem, quality violation, or missing contract item. Fix it before continuing.
 - **Defer:** valid finding but out of scope for the current batch. Log it in TODO.md with `[elves-scout]`, reply with the deferral reason, and move on.
@@ -700,8 +713,9 @@ Update the execution log with a timestamped entry covering: batch name, timing b
 
 1. **Cumulative diff review:** run `git diff <default-branch>...HEAD --stat` and review the total delta from the default branch. List any files changed outside the batch scope and explain why they were touched. Flag any unexpected deletions.
 2. **Shared surfaces:** identify any shared code modified in this batch (utilities, types, interfaces, configs, middleware, or anything imported by code outside the batch scope). For each, grep for consumers and verify the change is backward-compatible. Report the consumer count and nature of change (additive / modified / breaking).
-3. **Test baseline comparison:** compare the current test count against the baseline captured during Verify Green (step 2). Report the delta. Total tests should only go up or stay flat, never decrease. If the skipped count increased, explain why.
-4. **Confidence and reasoning:** state HIGH, MEDIUM, or LOW and explain *why*. "All tests pass" is necessary but not sufficient. Explain what you checked beyond tests and why you believe existing functionality is preserved. If you modified shared surfaces, explain why consumers aren't affected. If MEDIUM or LOW, describe the specific risk and what additional verification would raise confidence.
+3. **Public API surface delta:** if `api-surface-snapshot` is configured, record the status (`not_applicable`, `captured`, `changed`, `unavailable`, `invalid_config`, or `required_failed`), artifact paths, and whether any additive, planned breaking, or unexpected breaking contract changes appeared.
+4. **Test baseline comparison:** compare the current test count against the baseline captured during Verify Green (step 2). Report the delta. Total tests should only go up or stay flat, never decrease. If the skipped count increased, explain why.
+5. **Confidence and reasoning:** state HIGH, MEDIUM, or LOW and explain *why*. "All tests pass" is necessary but not sufficient. Explain what you checked beyond tests and why you believe existing functionality is preserved. If you modified shared surfaces, explain why consumers aren't affected. If MEDIUM or LOW, describe the specific risk and what additional verification would raise confidence.
 
 Also update `.elves-session.json` — set the current batch status to `"complete"`, record the commit SHA and completion timestamp, and capture any resolved, deferred, or dismissed review-comment dispositions. This keeps the JSON in sync with the execution log so either can be used for recovery.
 
@@ -958,7 +972,7 @@ A batch isn't done unless:
 6. Review performed. The review loop ran until no blockers remained. All review threads resolved or replied to.
 7. Legality check passed (if a constitution exists). No unresolved FAIL verdicts.
 8. No accumulated debt: no skipped gates, no "will fix later" items, no known regressions.
-9. **Regression attestation written.** The execution log entry for this batch includes: cumulative diff review (`git diff <default-branch>...HEAD --stat`), shared surfaces identified with consumers verified, test baseline comparison (total tests never decreased), and a confidence level with reasoning. See step 9.
+9. **Regression attestation written.** The execution log entry for this batch includes: cumulative diff review (`git diff <default-branch>...HEAD --stat`), shared surfaces identified with consumers verified, public API surface delta when configured, test baseline comparison (total tests never decreased), and a confidence level with reasoning. See step 9.
 10. **Documentation is up to date.** Any user-facing behavior changed by this batch must be reflected in the relevant docs: README, API docs, inline doc comments, config references, migration guides, changelogs, `learnings.md`, `.ai-docs/*`, or whatever the project uses. Stale docs are debt. A user who reads the docs and gets wrong information is worse off than a user with no docs at all.
 11. `.elves-session.json` updated with batch status, commit SHA, completion timestamp, current batch state, `continuation_guard`, and `review_comments` dispositions.
 12. Memory and resource hygiene checked for long runs or large batches: live docs are concise, old log entries are archived in place when needed, idle resources are reconciled, and a fresh-thread handoff exists if memory pressure is visible.

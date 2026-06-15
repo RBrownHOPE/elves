@@ -1,5 +1,6 @@
 # Elves runtime artifacts (generated during sessions)
 config.json
+.elves/
 
 # Elves ephemeral artifacts
 .playwright-mcp/

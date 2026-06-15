@@ -365,6 +365,59 @@ new `cobbler-*` keys in fresh configs, but do not rename working project config 
 
 ---
 
+## Public API Surface Snapshot
+
+> Use this when a run should capture consumer-facing contracts as regression evidence. Keep it
+> optional by default. `enabled: auto` should continue with `unavailable` when no credible source
+> exists; `required: true` is only valid when the survival guide explicitly opts in.
+
+```yaml
+api-surface-snapshot:
+  enabled: auto
+  required: false
+  baseline-path: .elves/api-surface/baseline.json
+  current-path: .elves/api-surface/current.json
+  diff-path: .elves/api-surface/diff.md
+  sources:
+    rest:
+      mode: auto
+      preferred: openapi
+      examples:
+        - npm run openapi:json
+        - python manage.py spectacular --file -
+    graphql:
+      mode: auto
+      preferred: sdl
+      examples:
+        - npm run graphql:schema
+    exports:
+      mode: auto
+      preferred: package-exports-or-declaration-output
+    cli:
+      mode: auto
+      preferred: help-output
+      examples:
+        - my-tool --help
+    events:
+      mode: auto
+      preferred: documented-event-schema
+    config:
+      mode: auto
+      preferred: documented-env-and-config-keys
+  policy:
+    unavailable-source: warning
+    additive-change: info
+    intentional-breaking-change: requires-plan-note
+    unexpected-breaking-change: blocking
+```
+
+Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data.
+Use existing structured sources before inventing scanners.
+If no credible source exists, record `unavailable` with the reason instead of fabricating a snapshot.
+A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.
+
+---
+
 ## Notification Options Reference
 
 > Choose one notification method. Only one is active at a time.

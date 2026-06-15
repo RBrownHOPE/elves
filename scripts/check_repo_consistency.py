@@ -384,6 +384,114 @@ MATH_MODULE_PHRASES = {
     ],
 }
 
+PUBLIC_API_SURFACE_SNAPSHOT_PHRASES = {
+    ".gitignore": [
+        ".elves/",
+    ],
+    "SKILL.md": [
+        "Public API surface snapshots are optional regression evidence.",
+        "Use existing structured sources before inventing scanners",
+        "If no credible source exists, record `unavailable` with the reason instead of fabricating",
+        "A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide.",
+        "`required: true` is valid only when explicitly set by the user or project survival guide.",
+        "Do not infer required mode from project type, provider config, framework choice, or the presence of API files.",
+        "Snapshot artifacts are run artifacts, not product docs",
+        "Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly",
+        "Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data.",
+        "A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.",
+        "public API surface delta when configured",
+    ],
+    "AGENTS.md": [
+        "Public API surface snapshots are optional regression evidence.",
+        "Use existing structured sources before inventing scanners",
+        "If no credible source exists, record `unavailable` with the reason instead of fabricating",
+        "A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide.",
+        "`required: true` is valid only when explicitly set by the user or project survival guide.",
+        "Do not infer required mode from project type, provider config, framework choice, or the presence of API files.",
+        "Snapshot artifacts are run artifacts, not product docs.",
+        "Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly",
+        "Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data.",
+        "A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.",
+        "Public API surface delta",
+    ],
+    "README.md": [
+        "Public API surface snapshots",
+        "optional regression evidence",
+        "`enabled: auto` stays advisory",
+        "`required: true` is only an explicit survival-guide opt-in",
+    ],
+    "references/survival-guide-template.md": [
+        "api-surface-snapshot:",
+        "enabled: auto",
+        "required: false",
+        "Public API surface snapshots are optional regression evidence",
+        "A missing snapshot source is not blocking unless required: true was explicitly set",
+        "Snapshot artifacts are run artifacts, not product docs",
+    ],
+    "references/execution-log-template.md": [
+        "Public API surface snapshot:",
+        "N/A / unavailable reason / no delta / additive / planned breaking / unexpected breaking",
+    ],
+    "references/review-subagent.md": [
+        "API surface snapshot artifacts when configured",
+        "Public API surface snapshots",
+        "optional regression evidence",
+        "A missing snapshot source is not blocking unless `required: true` was explicitly set",
+        "A snapshot proves public surface shape only; it is not a substitute",
+    ],
+    "references/kickoff-prompt-template.md": [
+        "Configure optional public API surface snapshot behavior",
+        "api-surface-snapshot.enabled: auto",
+        "required: false",
+        ".elves/api-surface/",
+    ],
+    "references/tool-config-examples.md": [
+        "## Public API Surface Snapshot",
+        "enabled: auto",
+        "required: false",
+        "Use existing structured sources before inventing scanners",
+        "If no credible source exists, record `unavailable` with the reason instead of fabricating a snapshot",
+        "A snapshot proves public surface shape only; it is not a substitute",
+    ],
+    "config.json.example": [
+        '"api_surface_snapshot"',
+        '"enabled": "auto"',
+        '"required": false',
+        '".elves/api-surface/baseline.json"',
+        '"unexpected_breaking_change": "blocking"',
+        "snapshots are regression evidence, not authority",
+    ],
+    "TODO.md": [
+        "optional public API surface snapshots",
+        "The helper/scanner remains deferred",
+    ],
+}
+
+PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS = {
+    label: [
+        r"\bapi\s+snapshots?\s+(?:are|is)\s+required\b",
+        r"\bmust\s+generate\s+an?\s+api\s+snapshot\b",
+        r"\brequired:\s*true\s+by\s+default\b",
+        r"(?<!do not )(?<!never )(?<!don't )(?<!should not )(?<!must not )\binfer\s+required\s+mode\b",
+        r"\bsnapshots?\s+replace\s+(?:tests|the constitution|review)\b",
+        r"(?<!do not )(?<!never )(?<!don't )(?<!should not )(?<!must not )\bcommit\s+snapshot\s+artifacts\b",
+        r"(?<!do not )(?<!never )(?<!don't )(?<!should not )(?<!must not )\brecord\s+(?:raw\s+)?(?:secrets|bearer tokens|cookies|customer payloads|production sample data)\b",
+        r"(?<!do not )(?<!never )(?<!don't )(?<!should not )(?<!must not )\bcapture\s+(?:raw\s+)?(?:secrets|bearer tokens|cookies|customer payloads|production sample data)\b",
+        r"(?<!do not )(?<!never )(?<!don't )(?<!should not )(?<!must not )\binclude\s+(?:raw\s+)?(?:secrets|bearer tokens|cookies|customer payloads|production sample data)\b",
+    ]
+    for label in (
+        "SKILL.md",
+        "AGENTS.md",
+        "README.md",
+        "references/survival-guide-template.md",
+        "references/execution-log-template.md",
+        "references/review-subagent.md",
+        "references/kickoff-prompt-template.md",
+        "references/tool-config-examples.md",
+        "config.json.example",
+    )
+}
+
 COUNCIL_MODULE_PHRASES = {
     "SKILL.md": [
         "## Cobbler",
@@ -995,6 +1103,26 @@ def main() -> int:
             if phrase not in text:
                 errors.append(f"{label}: missing math-module phrase `{phrase}`")
 
+    api_surface_texts = {
+        label: read_text(REPO_ROOT / label)
+        for label in set(PUBLIC_API_SURFACE_SNAPSHOT_PHRASES)
+        | set(PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS)
+    }
+    errors.extend(
+        find_missing_phrases(
+            api_surface_texts,
+            PUBLIC_API_SURFACE_SNAPSHOT_PHRASES,
+            "public API surface snapshot",
+        )
+    )
+    errors.extend(
+        find_forbidden_patterns(
+            api_surface_texts,
+            PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS,
+            "public API surface snapshot",
+        )
+    )
+
     reviewed_pr_texts = {
         label: read_text(REPO_ROOT / label)
         for label in set(REVIEWED_PR_LANDING_PHRASES) | set(REVIEWED_PR_LANDING_FORBIDDEN_PHRASES)
@@ -1095,6 +1223,7 @@ def main() -> int:
     print("- Strategic forgetting and memory hygiene guardrails are aligned")
     print("- Elves Report guardrails are aligned")
     print("- Math research workflow guardrails are aligned")
+    print("- Public API surface snapshot guardrails are aligned")
     print("- Reviewed PR landing command guardrails are aligned")
     print("- Cobbler guardrails are aligned")
     print("- Public wording guardrails are aligned")

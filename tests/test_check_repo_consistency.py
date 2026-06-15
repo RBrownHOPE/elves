@@ -343,6 +343,119 @@ Cobbler
         self.assertNotIn("docs/elves/survival-guide.md", surfaces)
         self.assertNotIn("docs/elves/execution-log.md", surfaces)
 
+    def test_api_surface_snapshot_guardrails_are_required(self) -> None:
+        for label in ("SKILL.md", "AGENTS.md"):
+            with self.subTest(label=label):
+                phrases = self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_PHRASES[label]
+                self.assertIn(
+                    "Public API surface snapshots are optional regression evidence.",
+                    phrases,
+                )
+                self.assertIn(
+                    (
+                        "A missing snapshot source is not blocking unless `required: true` "
+                        "was explicitly set in the survival guide."
+                    ),
+                    phrases,
+                )
+                self.assertIn(
+                    (
+                        "A snapshot proves public surface shape only; it is not a substitute "
+                        "for tests, E2E checks, review, or the human-owned constitution."
+                    ),
+                    phrases,
+                )
+
+    def test_api_surface_snapshot_config_defaults_are_advisory(self) -> None:
+        phrases = self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_PHRASES["config.json.example"]
+
+        self.assertIn('"api_surface_snapshot"', phrases)
+        self.assertIn('"enabled": "auto"', phrases)
+        self.assertIn('"required": false', phrases)
+        self.assertIn("snapshots are regression evidence, not authority", phrases)
+
+    def test_api_surface_snapshot_forbidden_patterns_catch_required_by_default(self) -> None:
+        label = "README.md"
+        text = "API snapshots are required, with required: true by default."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS,
+            "public API surface snapshot",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "README.md: stale public API surface snapshot pattern "
+                    "`\\bapi\\s+snapshots?\\s+(?:are|is)\\s+required\\b`"
+                ),
+                (
+                    "README.md: stale public API surface snapshot pattern "
+                    "`\\brequired:\\s*true\\s+by\\s+default\\b`"
+                ),
+            ],
+        )
+
+    def test_api_surface_snapshot_forbidden_patterns_allow_negated_required_inference(
+        self,
+    ) -> None:
+        label = "SKILL.md"
+        text = "Never infer required mode from project type, provider config, or API files."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS,
+            "public API surface snapshot",
+        )
+
+        self.assertEqual(errors, [])
+
+    def test_api_surface_snapshot_forbidden_patterns_allow_negated_artifact_and_secret_rules(
+        self,
+    ) -> None:
+        label = "SKILL.md"
+        text = (
+            "Do not commit snapshot artifacts. "
+            "Do not record secrets. "
+            "Never capture bearer tokens. "
+            "Must not include customer payloads."
+        )
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS,
+            "public API surface snapshot",
+        )
+
+        self.assertEqual(errors, [])
+
+    def test_api_surface_snapshot_forbidden_patterns_catch_authority_drift(self) -> None:
+        label = "AGENTS.md"
+        text = "Snapshots replace tests and should include bearer tokens for debugging."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS,
+            "public API surface snapshot",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "AGENTS.md: stale public API surface snapshot pattern "
+                    "`\\bsnapshots?\\s+replace\\s+(?:tests|the constitution|review)\\b`"
+                ),
+                (
+                    "AGENTS.md: stale public API surface snapshot pattern "
+                    "`(?<!do not )(?<!never )(?<!don't )(?<!should not )"
+                    "(?<!must not )\\binclude\\s+(?:raw\\s+)?(?:secrets|bearer tokens|cookies|customer payloads|production sample data)\\b`"
+                ),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

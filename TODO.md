@@ -41,6 +41,10 @@ The pre-implementation survey (step 5) relies on the agent searching the codebas
 ### Public API surface snapshot
 For projects with APIs (REST, GraphQL, exported library interfaces), capture the API surface at session start: route list, response shapes, exported types and functions. At the end of each batch, diff the snapshot against the current state. Any unintended change to the public API surface is a finding. This complements the test baseline (which catches removed tests) and the regression attestation (which catches shared-surface changes). It catches changes that pass all tests but alter the contract with consumers.
 
+- [x] Add guardrail docs, config examples, ignored artifact paths, and repo consistency checks for
+  optional public API surface snapshots. The helper/scanner remains deferred until a focused
+  implementation batch.
+
 - [x] Make regression preservation an explicit acceptance-criteria rule.
   `SKILL.md`, `AGENTS.md`, `README.md`, and `references/plan-template.md` now require at least one
   acceptance criterion that proves old behavior still works when a batch changes existing surfaces.

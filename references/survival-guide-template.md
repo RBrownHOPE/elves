@@ -406,6 +406,32 @@ review: github-pr-comments
 # review-api-url: https://review.example.com/api/review
 # review-api-header: x-api-key: ${REVIEW_API_KEY}
 
+# --- Public API surface snapshot (optional) ---
+# Use this when the project has consumer-facing contracts such as REST/GraphQL schemas, package
+# exports, CLI help, webhooks/events, or documented config keys.
+# Public API surface snapshots are optional regression evidence; tests, review, and the human-owned constitution still decide behavior.
+api-surface-snapshot:
+  enabled: auto        # false | auto | true
+  required: false      # true only when explicitly opted in for this run
+  baseline-path: .elves/api-surface/baseline.json
+  current-path: .elves/api-surface/current.json
+  diff-path: .elves/api-surface/diff.md
+  sources:
+    rest: auto
+    graphql: auto
+    exports: auto
+    cli: auto
+    events: auto
+    config: auto
+  policy:
+    unavailable-source: warning
+    additive-change: info
+    intentional-breaking-change: requires-plan-note
+    unexpected-breaking-change: blocking
+# A missing snapshot source is not blocking unless required: true was explicitly set in the survival guide.
+# enabled: false plus required: true is invalid staging config.
+# Snapshot artifacts are run artifacts, not product docs; keep .elves/ ignored and do not commit raw snapshots by default.
+
 # --- Notification method ---
 # Default: PR comment (zero config — always available)
 notification: pr-comment

@@ -357,6 +357,9 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **High-risk regression pass**: batches with medium/high blast radius can trigger a second,
   regression-only review pass that traces changed shared surfaces to their consumers and asks only
   "what could this break?"
+- **Public API surface snapshots**: optional regression evidence for REST, GraphQL, exported
+  library, CLI, event, and configuration contracts. `enabled: auto` stays advisory when no credible
+  source exists; `required: true` is only an explicit survival-guide opt-in.
 - **Final readiness review**: the final step of every run is a fresh cumulative review of
   `git diff <default-branch>...HEAD`. Read every PR comment, run every test that makes sense, and
   confirm checks, docs, and memory hygiene, so you can be confident the branch is green to merge.
