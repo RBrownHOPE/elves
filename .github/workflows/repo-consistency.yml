@@ -64,3 +64,6 @@ jobs:
 
       - name: Run helper script regression tests
         run: python3 -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Run default unittest discovery
+        run: python3 -m unittest discover
