@@ -154,7 +154,7 @@ class ConsistencyPhraseTests(unittest.TestCase):
 
         errors = self.consistency.find_missing_phrases(
             {label: "Codex install docs without the Cobbler reminder"},
-            self.consistency.CODEX_INSTALL_COBBLER_PHRASES,
+            {label: [phrase]},
             "Codex Cobbler install",
         )
 
@@ -172,7 +172,7 @@ class ConsistencyPhraseTests(unittest.TestCase):
 
         errors = self.consistency.find_missing_phrases(
             {label: "Persistent Preferences without Cobbler precedence"},
-            self.consistency.COBBLER_CONFIG_PREFERENCE_PHRASES,
+            {label: [phrase]},
             "Cobbler config preference",
         )
 

@@ -819,4 +819,4 @@ Everything else: resolve with best judgment, document under **Decisions made**.
 
 ## Persistent Preferences
 
-If the skill directory contains a `config.json`, read it at session start. This stores preferences from previous sessions (batch sizing, notification method, review method, default branch, cleanup behavior). Cobbler preferences belong under top-level `cobbler`; legacy `council` config remains compatibility, and `cobbler` wins if both are present. See `config.json.example` for the template and `SKILL.md` **Persistent Preferences** for the full description.
+If the skill directory contains a `config.json`, read it at session start. This stores preferences from previous sessions (batch sizing, notification method, review method, default branch, cleanup behavior). Cobbler preferences belong under top-level `cobbler`; legacy `council` config remains for compatibility, and `cobbler` wins if both are present. See `config.json.example` for the template and `SKILL.md` **Persistent Preferences** for the full description.

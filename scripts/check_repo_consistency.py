@@ -647,6 +647,7 @@ COBBLER_CONFIG_PREFERENCE_PHRASES = {
     "README.md": [
         "Put new Cobbler preferences",
         "under the top-level `cobbler` block",
+        "is for compatibility with older",
         "if both blocks are present, `cobbler` wins",
     ],
     "SKILL.md": [
@@ -656,7 +657,7 @@ COBBLER_CONFIG_PREFERENCE_PHRASES = {
     ],
     "AGENTS.md": [
         "Cobbler preferences belong under top-level `cobbler`",
-        "legacy `council` config remains compatibility",
+        "legacy `council` config remains for compatibility",
         "`cobbler` wins if both are present",
     ],
     "config.json.example": [
@@ -1074,9 +1075,7 @@ def main() -> int:
             "Cobbler",
         )
     )
-    codex_install_texts = {
-        label: read_text(REPO_ROOT / label) for label in CODEX_INSTALL_COBBLER_PHRASES
-    }
+    codex_install_texts = {label: council_texts[label] for label in CODEX_INSTALL_COBBLER_PHRASES}
     errors.extend(
         find_missing_phrases(
             codex_install_texts,
@@ -1085,7 +1084,7 @@ def main() -> int:
         )
     )
     cobbler_config_texts = {
-        label: read_text(REPO_ROOT / label) for label in COBBLER_CONFIG_PREFERENCE_PHRASES
+        label: council_texts[label] for label in COBBLER_CONFIG_PREFERENCE_PHRASES
     }
     errors.extend(
         find_missing_phrases(

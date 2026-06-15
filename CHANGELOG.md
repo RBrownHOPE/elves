@@ -10,7 +10,7 @@ All notable changes to the Elves skill are documented here.
   installs the main skill bundle and invokes Cobbler with `$elves cobbler: ...` or natural language
   rather than Claude Code slash aliases.
 - Documented that new persistent Cobbler preferences belong under top-level `cobbler`, while legacy
-  `council` config remains compatibility and loses precedence when both are present.
+  `council` config remains for compatibility and loses precedence when both are present.
 
 ## [1.15.0] - 2026-06-14
 
