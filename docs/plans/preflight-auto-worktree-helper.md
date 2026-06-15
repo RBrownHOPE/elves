@@ -55,6 +55,14 @@ git worktree add -b <branch> ../<repo>-<branch>
 cd ../<repo>-<branch>
 ```
 
+That short command intentionally matches the existing docs and creates the branch from the current
+`HEAD`. If the helper is executing an opt-in create mode, it should resolve and print the full base
+ref form so the run record is unambiguous:
+
+```bash
+git worktree add -b <branch> <worktree-dir> <base-ref>
+```
+
 Add an opt-in helper mode later:
 
 ```bash
