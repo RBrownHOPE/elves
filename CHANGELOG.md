@@ -4,6 +4,12 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Safety
+
+- Added a repo-only `scripts/workspace_guard.py` prototype that checks candidate write commands
+  against `.elves-session.json` owned-tip state, with advisory defaults, strict-mode blocking, and
+  explicit local/remote tip update commands.
+
 ## [1.15.0] - 2026-06-14
 
 ### Cobbler

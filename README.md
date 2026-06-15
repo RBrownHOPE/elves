@@ -226,6 +226,11 @@ A solo run in a repo no other agent will touch can use the main checkout. Either
 records the branch tip at staging as a collision tripwire: if HEAD moves to a commit it didn't
 create, another writer is in the checkout, so it stops instead of committing on top.
 
+For source checkouts, `scripts/workspace_guard.py` is an optional prototype helper that can check a
+candidate write command against `.elves-session.json` workspace-guard state. It is advisory by
+default, tracks `allowed_head_tip` and `expected_remote_tip` instead of treating the staging tip as
+permanently valid, and does not install hooks or repair git state.
+
 ### Codex Goals
 
 Codex Goals can be a useful continuation backend for Elves. Goals keeps Codex working across turns;
@@ -595,7 +600,8 @@ elves/
 │   ├── install_doctor.py                 # Update + installation-precedence advisory
 │   ├── preflight.sh                      # Pre-run checklist
 │   ├── notify.sh                         # Notification helper
-│   └── validate_survival_guide.py        # Advisory survival-guide completeness check
+│   ├── validate_survival_guide.py        # Advisory survival-guide completeness check
+│   └── workspace_guard.py                # Optional workspace owned-tip guard prototype
 └── .github/
     └── ISSUE_TEMPLATE/                   # Bug report, feature request, overnight run report
 ```
