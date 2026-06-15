@@ -11,6 +11,8 @@ All notable changes to the Elves skill are documented here.
   rather than Claude Code slash aliases.
 - Documented that new persistent Cobbler preferences belong under top-level `cobbler`, while legacy
   `council` config remains for compatibility and loses precedence when both are present.
+- Included `config.json.example` in the managed Claude/Codex skill bundle so installed copies have
+  the persistent-preferences template the docs reference.
 
 ## [1.15.0] - 2026-06-14
 

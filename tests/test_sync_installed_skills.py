@@ -36,6 +36,7 @@ class SyncInstalledSkillsTests(unittest.TestCase):
 
         (repo / "SKILL.md").write_text('---\nversion: "1.15.0"\n---\n')
         (repo / "AGENTS.md").write_text('---\nversion: "1.15.0"\n---\n')
+        (repo / "config.json.example").write_text('{"cobbler": {"enabled": true}}\n')
         (repo / "references").mkdir()
         (repo / "references" / "guide.md").write_text("guide\n")
         (repo / "scripts").mkdir()
@@ -55,14 +56,25 @@ class SyncInstalledSkillsTests(unittest.TestCase):
         self.sync.TARGETS = {
             "claude": {
                 "root": home / ".claude" / "skills" / "elves",
-                "managed_paths": ["SKILL.md", "references", *self.sync.RUNTIME_SCRIPT_PATHS],
+                "managed_paths": [
+                    "SKILL.md",
+                    "config.json.example",
+                    "references",
+                    *self.sync.RUNTIME_SCRIPT_PATHS,
+                ],
                 "cleanup_paths": self.sync.REPO_ONLY_SCRIPT_PATHS,
                 "alias_root": home / ".claude" / "skills",
                 "managed_aliases": self.sync.CLAUDE_ALIAS_NAMES,
             },
             "codex": {
                 "root": home / ".codex" / "skills" / "elves",
-                "managed_paths": ["SKILL.md", "AGENTS.md", "references", *self.sync.RUNTIME_SCRIPT_PATHS],
+                "managed_paths": [
+                    "SKILL.md",
+                    "AGENTS.md",
+                    "config.json.example",
+                    "references",
+                    *self.sync.RUNTIME_SCRIPT_PATHS,
+                ],
                 "cleanup_paths": self.sync.REPO_ONLY_SCRIPT_PATHS,
             },
         }
@@ -133,6 +145,20 @@ class SyncInstalledSkillsTests(unittest.TestCase):
 
             self.assertEqual(problems, [])
             self.assertFalse((home / ".claude" / "skills" / "cobbler").exists())
+
+    def test_apply_installs_config_template_for_all_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _, home = self.configure_temp_repo(tmpdir)
+
+            self.assertEqual(self.sync.apply_target("claude"), [])
+            self.assertEqual(self.sync.apply_target("codex"), [])
+
+            self.assertTrue(
+                (home / ".claude" / "skills" / "elves" / "config.json.example").exists()
+            )
+            self.assertTrue(
+                (home / ".codex" / "skills" / "elves" / "config.json.example").exists()
+            )
 
     def test_check_all_without_installed_targets_is_advisory_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

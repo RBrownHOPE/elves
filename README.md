@@ -304,7 +304,7 @@ See [Installation](#installation) below for full details. The short version:
 - **Claude Code:** install the main `elves` skill plus the managed `/cobbler`, `/council`, `/ec`,
   and `/elves-council` alias skills
 - **Codex:** copy the skill bundle into `~/.codex/skills/elves/` (at minimum `SKILL.md`,
-  `AGENTS.md`, `references/`, and the runtime scripts `scripts/preflight.sh`,
+  `AGENTS.md`, `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
   `scripts/notify.sh`, `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`)
 - **Claude.ai:** zip the `elves/` directory and upload via Settings > Features > Skills
 
@@ -754,7 +754,7 @@ This installs `~/.claude/skills/elves/` and four small Claude Code alias skills:
 ```bash
 mkdir -p ~/.codex/skills/elves/scripts
 git clone https://github.com/aigorahub/elves.git /tmp/elves
-cp /tmp/elves/SKILL.md /tmp/elves/AGENTS.md ~/.codex/skills/elves/
+cp /tmp/elves/SKILL.md /tmp/elves/AGENTS.md /tmp/elves/config.json.example ~/.codex/skills/elves/
 cp -r /tmp/elves/references ~/.codex/skills/elves/
 cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py ~/.codex/skills/elves/scripts/
 rm -rf /tmp/elves
@@ -843,9 +843,9 @@ For Codex, the sync helper updates the main skill bundle only. Invoke Cobbler wi
 `$elves cobbler: <task>` or natural language rather than a top-level slash alias.
 
 The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
-`references/`, and the runtime scripts `scripts/preflight.sh`, `scripts/notify.sh`,
-`scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`. Repo-only maintenance
-helpers such as `scripts/check_repo_consistency.py` stay in the checkout.
+`config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
+`scripts/notify.sh`, `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`.
+Repo-only maintenance helpers such as `scripts/check_repo_consistency.py` stay in the checkout.
 
 Claude Code aliases are marker-gated. Elves creates or updates an alias skill only when it is
 missing or already contains the `elves-managed-alias` marker. If you already have your own

@@ -37,14 +37,20 @@ CLAUDE_ALIAS_NAMES = ["cobbler", "council", "ec", "elves-council"]
 TARGETS = {
     "claude": {
         "root": Path.home() / ".claude" / "skills" / "elves",
-        "managed_paths": ["SKILL.md", "references", *RUNTIME_SCRIPT_PATHS],
+        "managed_paths": ["SKILL.md", "config.json.example", "references", *RUNTIME_SCRIPT_PATHS],
         "cleanup_paths": REPO_ONLY_SCRIPT_PATHS,
         "alias_root": Path.home() / ".claude" / "skills",
         "managed_aliases": CLAUDE_ALIAS_NAMES,
     },
     "codex": {
         "root": Path.home() / ".codex" / "skills" / "elves",
-        "managed_paths": ["SKILL.md", "AGENTS.md", "references", *RUNTIME_SCRIPT_PATHS],
+        "managed_paths": [
+            "SKILL.md",
+            "AGENTS.md",
+            "config.json.example",
+            "references",
+            *RUNTIME_SCRIPT_PATHS,
+        ],
         "cleanup_paths": REPO_ONLY_SCRIPT_PATHS,
     },
 }
