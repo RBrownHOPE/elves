@@ -262,10 +262,12 @@ exec {real_git} "$@"
         self.write_executable(
             "git",
             f"""#!/usr/bin/env bash
-if [ "$1 $2" = "ls-remote --exit-code" ]; then
-  printf 'simulated remote check failure\\n' >&2
-  exit 128
-fi
+case "$*" in
+  *ls-remote*)
+    printf 'simulated remote check failure\\n' >&2
+    exit 128
+    ;;
+esac
 exec {real_git} "$@"
 """,
         )
@@ -273,8 +275,18 @@ exec {real_git} "$@"
         result = self.run_helper(repo, "--recommend-from-current", "main")
 
         self.assertEqual(result.returncode, 1)
-        self.assertIn("Could not check origin/", result.stderr)
+        self.assertIn("Could not check remote branches", result.stderr)
         self.assertNotIn("command: git worktree add", result.stdout)
+
+    def test_recommendation_skips_remote_branch_matches_with_one_lookup(self) -> None:
+        repo = self.create_repo()
+        self.run_git(repo, "push", "origin", "HEAD:codex/main-isolated")
+
+        result = self.run_helper(repo, "--recommend-from-current", "main")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("branch: codex/main-isolated-2", result.stdout)
+        self.assertIn("command: git worktree add -b codex/main-isolated-2", result.stdout)
 
 
 if __name__ == "__main__":

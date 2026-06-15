@@ -95,15 +95,33 @@ def remote_branch_exists(root: Path, branch: str) -> bool:
     raise WorktreeError(f"Could not check origin/{branch}: {detail or 'git ls-remote failed'}")
 
 
+def remote_branches_matching(root: Path, pattern: str) -> set[str]:
+    result = run_git(["ls-remote", "--heads", "origin", f"refs/heads/{pattern}"], cwd=root)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        raise WorktreeError(f"Could not check remote branches: {detail or 'git ls-remote failed'}")
+
+    branches: set[str] = set()
+    prefix = "refs/heads/"
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        ref = parts[1]
+        if ref.startswith(prefix):
+            branches.add(ref[len(prefix) :])
+    return branches
+
+
 def parse_worktrees(root: Path) -> tuple[set[Path], set[str]]:
     result = run_git(["worktree", "list", "--porcelain"], cwd=root, check=True)
     paths: set[Path] = set()
     branches: set[str] = set()
     for line in result.stdout.splitlines():
         if line.startswith("worktree "):
-            paths.add(Path(line.removeprefix("worktree ")).resolve())
+            paths.add(Path(line[len("worktree ") :]).resolve())
         elif line.startswith("branch refs/heads/"):
-            branches.add(line.removeprefix("branch refs/heads/"))
+            branches.add(line[len("branch refs/heads/") :])
     return paths, branches
 
 
@@ -164,11 +182,12 @@ def validate_branch_name(branch: str) -> None:
 def unique_recommendation_branch(root: Path, current_branch: str) -> str:
     base_slug = slug_for_branch(f"{current_branch}-isolated")
     candidate = f"codex/{base_slug}"
+    remote_matches = remote_branches_matching(root, f"{candidate}*")
     for index in range(1, MAX_PATH_CANDIDATES + 1):
         branch = candidate if index == 1 else f"{candidate}-{index}"
         if local_branch_exists(root, branch):
             continue
-        if remote_branch_exists(root, branch):
+        if branch in remote_matches:
             continue
         return branch
     raise WorktreeError("Could not find an unused recommended branch name.")
