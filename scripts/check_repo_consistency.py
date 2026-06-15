@@ -324,6 +324,13 @@ WORKSPACE_ISOLATION_PHRASES = {
     "references/kickoff-prompt-template.md": [
         "git worktree",
     ],
+    "scripts/preflight.sh": [
+        "Workspace Ownership",
+        "git worktree list --porcelain",
+        "Current branch is checked out in one worktree",
+        "(current checkout)",
+        "Use one owned branch and checkout per Elves run before launching",
+    ],
 }
 
 OPERATOR_DOC_PHRASES = {

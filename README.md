@@ -222,9 +222,11 @@ When more than one agent may touch the same repo, give each run its own
 git worktree add -b <branch> ../<repo>-<branch>   # then run the agent inside that directory
 ```
 
-A solo run in a repo no other agent will touch can use the main checkout. Either way, the agent
-records the branch tip at staging as a collision tripwire: if HEAD moves to a commit it didn't
-create, another writer is in the checkout, so it stops instead of committing on top.
+A solo run in a repo no other agent will touch can use the main checkout. Either way, preflight
+inspects `git worktree list --porcelain` and fails if the current branch appears in more than one
+worktree. The agent also records the branch tip at staging as a collision tripwire: if HEAD moves to
+a commit it didn't create, another writer is in the checkout, so it stops instead of committing on
+top.
 
 ### Codex Goals
 
@@ -368,7 +370,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Lightweight process retro**: entropy checks can tune the loop itself when the same friction
   repeats, for example by tightening the survival guide, templates, or tool config after repeated
   review findings
-- **Run isolation**: one run owns one branch and one checkout; when agents may share a repo, each run gets its own `git worktree`, and a collision tripwire stops the agent if another writer moves its branch
+- **Run isolation**: one run owns one branch and one checkout; when agents may share a repo, each run gets its own `git worktree`, preflight fails duplicate current-branch worktrees, and a collision tripwire stops the agent if another writer moves its branch
 - **Merge conflict handling**: when `git push` fails due to a diverged remote, the agent fetches and merges (never rebases), resolves conflicts or triggers a Hard Stop
 - **Two run modes**: finite (deadline-based, default) or open-ended (continue until explicitly stopped). Open-ended mode also covers "checkpointed continuation" runs like "have something by 8am, then keep going." A morning checkpoint, return time, or delivery target is not a stop condition unless the survival guide explicitly marks it as a hard stop.
 - **Live operator brief**: the survival guide is rewritten in place as the run evolves. `Run Control`, `Current Phase`, `Active Compute`, `Stop Gate`, and `Next Exact Batch` stay current; the execution log carries history.
@@ -383,7 +385,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Install doctor and update advisory**: startup can flag newer published releases and explain
   when a project-local install differs from the global one that you thought you were using
 - **Ride-along protocol**: prefix messages with `ra:`, `ride-along:`, or `[ride-along]` to interact during a run without stopping the agent. The agent responds in 1-3 sentences and resumes immediately.
-- **Comprehensive preflight checks**: git remote, push access, GitHub CLI auth, test gates, sleep prevention, Slack webhook, stale branch detection
+- **Comprehensive preflight checks**: git remote, push access, GitHub CLI auth, test gates, sleep prevention, Slack webhook, stale branch detection, workspace ownership, duplicate branch checkout detection
 
 ---
 
@@ -446,6 +448,7 @@ Some coding tools show survey popups, feedback requests, or update prompts durin
 - [ ] Sleep / display sleep is disabled or caffeinate running
 - [ ] Terminal is in tmux/screen (if SSH) or won't be closed
 - [ ] Surveys and popups disabled in your coding tool's settings
+- [ ] Branch ownership is manually confirmed: no other active agent is using this checkout or this branch. Preflight will catch duplicate current-branch worktrees.
 - [ ] Notifications are configured so you know when the run finishes
 - [ ] Preflight passed (Elves will verify the above automatically)
 
@@ -660,7 +663,7 @@ Overnight agent runs fail in predictable ways. Knowing the failure modes makes t
 | **Terminal closes (SSH disconnect)** | The SSH connection drops and the session dies. | Use `tmux` or `screen`. Elves mentions this in the pre-run checklist. |
 | **Agent drifts from the plan** | After many batches, the agent starts making changes that weren't in the plan. | The agent re-reads the survival guide after every commit/push, checks the plan hash to detect modifications, and keeps durable lessons in `learnings.md` so the same confusion doesn't have to be rediscovered. The layered memory system anchors every decision. The survival guide should be rewritten in place as a live control surface, not treated as an append-only history log. |
 | **Merge conflicts on push** | `git push` fails because the remote has diverged. The agent may rebase and lose work, or stall. | Elves instructs the agent to fetch and merge (never rebase on shared branches). If conflicts can't be resolved cleanly, the agent triggers a Hard Stop rather than risking data loss. |
-| **Two agents share a branch/checkout** | Claude and Codex (or two runs) write to the same branch in the same directory and clobber each other's files or move the branch mid-run. | One run owns one branch and one checkout. Use a `git worktree` per run when agents share a repo. The agent records a collision tripwire and stops if its branch tip moves to a commit it didn't create. |
+| **Two agents share a branch/checkout** | Claude and Codex (or two runs) write to the same branch in the same directory and clobber each other's files or move the branch mid-run. | One run owns one branch and one checkout. Use a `git worktree` per run when agents share a repo. Preflight flags duplicate current-branch worktrees; the agent records a collision tripwire and stops if its branch tip moves to a commit it didn't create. |
 
 Most of these are prevented by the preflight checks. Run preflight, fix the warnings, and most overnight failures never happen.
 

@@ -61,9 +61,9 @@ For projects with APIs (REST, GraphQL, exported library interfaces), capture the
 
 ## Follow-ups from v1.11.0
 
-- [ ] Consider a deterministic guard (PreToolUse hook or preflight check) that detects when a second
-  agent is operating in the same working tree/branch, complementing the prose-level
-  one-run-one-checkout rule with enforcement (similar to the forbidden-commands hook).
+- [x] Add a deterministic preflight guard for duplicate current-branch worktrees, complementing the
+  prose-level one-run-one-checkout rule with enforcement. Implemented in `scripts/preflight.sh`: it
+  hard-fails when the current branch is checked out in multiple worktrees.
 - [ ] Optional preflight helper that offers to create the dedicated `git worktree` automatically when
   it detects another active checkout of the same branch.
 - [ ] Partial progress on the v1.8.0 checker-expansion follow-up: v1.11.0 added
