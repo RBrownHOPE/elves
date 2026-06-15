@@ -10,6 +10,8 @@ All notable changes to the Elves skill are documented here.
   checklist helper.
 - Added `scripts/pr_portfolio_report.py`, a read-only repo helper for summarizing PR stack health
   across merge state, pending/failing checks, and unresolved review threads.
+- Made the `tests/` directory importable so plain `python3 -m unittest discover` finds the helper
+  regression suite instead of reporting zero tests.
 - Clarified Codex installation and sync guidance so users see, at the setup point, that Codex
   installs the main skill bundle and invokes Cobbler with `$elves cobbler: ...` or natural language
   rather than Claude Code slash aliases.
