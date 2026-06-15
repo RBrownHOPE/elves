@@ -382,13 +382,13 @@ class ConsistencyPhraseTests(unittest.TestCase):
             [f"{label}: missing Cobbler harness loop phrase `context packet`"],
         )
 
-    def test_cobbler_harness_loop_forbids_secret_context_packets(self) -> None:
+    def test_cobbler_harness_loop_detects_secret_context_packets(self) -> None:
         label = "references/council-prompts.md"
         text = "The context packet includes secrets for provider-backed review."
 
         errors = self.consistency.find_forbidden_patterns(
             {label: text},
-            self.consistency.COBBLER_HARNESS_FORBIDDEN_PATTERNS,
+            self.consistency.COBBLER_HARNESS_DRIFT_PATTERNS,
             "Cobbler harness loop",
         )
 
