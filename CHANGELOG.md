@@ -8,6 +8,8 @@ All notable changes to the Elves skill are documented here.
   version alignment, changelog promotion, current-version examples, and changed human-facing docs.
 - Added tests, README usage notes, TODO closure, and CI compilation coverage for the release
   checklist helper.
+- Added `.ai-docs/context-index.md`, a durable pre-implementation survey map for repo surfaces,
+  scripts, tests, common edit paths, and validation baselines.
 - Expanded the repo consistency checker to phrase-pin operator-facing docs, including durable
   `.ai-docs/*` guidance, the overnight run report issue template, and kickoff run-control fields.
 - Updated the repo consistency workflow so issue template changes trigger the checker.
