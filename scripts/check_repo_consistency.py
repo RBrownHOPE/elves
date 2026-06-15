@@ -140,6 +140,7 @@ FINAL_READINESS_REVIEW_PHRASES = {
 REPO_CONSISTENCY_WORKFLOW_PHRASES = {
     ".github/workflows/repo-consistency.yml": [
         '"config.json.example"',
+        '".github/ISSUE_TEMPLATE/**"',
         '".github/workflows/repo-consistency.yml"',
         '"aliases/**"',
         "scripts/validate_survival_guide.py",
@@ -322,6 +323,53 @@ WORKSPACE_ISOLATION_PHRASES = {
     ],
     "references/kickoff-prompt-template.md": [
         "git worktree",
+    ],
+}
+
+OPERATOR_DOC_PHRASES = {
+    ".ai-docs/manifest.md": [
+        "curated layer above the run-specific `docs/elves/*` memory surfaces",
+        "survival-guide.md`: active run brief",
+        "execution-log.md`: chronological run record",
+        "Promotion flow: `execution log -> learnings -> .ai-docs`",
+    ],
+    ".ai-docs/architecture.md": [
+        "## Memory layers",
+        "live run control, checkpoint semantics, active compute, next exact batch",
+        "Live operator state belongs in the survival guide and should be rewritten in place.",
+        "changes almost always cross multiple surfaces",
+    ],
+    ".ai-docs/conventions.md": [
+        "Run control is live metadata",
+        "survival guide's `Run Control` block",
+        "survival guide's `Stop Gate`",
+        "Active Compute",
+        "Every completed batch must end with `update docs -> commit -> push -> re-read survival guide`",
+        "Repo-only maintenance helpers stay in the checkout.",
+        "pin it with a `*_PHRASES` map",
+    ],
+    ".ai-docs/gotchas.md": [
+        "Stop Gate",
+        "continuation_guard",
+        "same working tree on the same branch",
+        "dedicated `git worktree` per run",
+        "Paid pods, remote jobs, and long-lived local services",
+        "Local project installs can quietly shadow global installs.",
+    ],
+    ".github/ISSUE_TEMPLATE/overnight_run_report.md": [
+        "- **Run mode:**",
+        "- **Checkpoint semantics:**",
+        "- **Active compute:**",
+        "Run-control behavior",
+        "What you changed in your setup afterward",
+    ],
+    "references/kickoff-prompt-template.md": [
+        "Set `## Run Control` explicitly",
+        "checkpoint semantics",
+        "may-continue-after-checkpoint",
+        "actual stop conditions",
+        "`Active Compute` if relevant",
+        "collision tripwire",
     ],
 }
 
@@ -1004,6 +1052,16 @@ def main() -> int:
             if phrase not in text:
                 errors.append(f"{label}: missing workspace-isolation phrase `{phrase}`")
 
+    for label, phrases in OPERATOR_DOC_PHRASES.items():
+        path = REPO_ROOT / label
+        if not path.exists():
+            errors.append(f"{label}: missing operator-doc file")
+            continue
+        text = read_text(path)
+        for phrase in phrases:
+            if phrase not in text:
+                errors.append(f"{label}: missing operator-doc phrase `{phrase}`")
+
     for label, phrases in MATH_MODULE_PHRASES.items():
         path = REPO_ROOT / label
         if not path.exists():
@@ -1107,6 +1165,7 @@ def main() -> int:
     print("- `PENDING-DOCS` guidance is present where expected")
     print("- Durable docs and learnings surfaces exist")
     print("- Workspace-isolation guidance is present across docs")
+    print("- Operator-facing docs are aligned")
     print("- Non-stop guardrails are aligned across runtime and template docs")
     print("- Effort guardrails are aligned across runtime and template docs")
     print("- Final readiness review guardrails are aligned")

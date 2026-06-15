@@ -47,9 +47,11 @@ For projects with APIs (REST, GraphQL, exported library interfaces), capture the
 
 ## Follow-ups from v1.8.0
 
-- [ ] Expand `scripts/check_repo_consistency.py` to cover the operator-facing docs that now mirror
+- [x] Expand `scripts/check_repo_consistency.py` to cover the operator-facing docs that now mirror
   run control, including the kickoff prompt template, overnight run report template, and durable
   `.ai-docs/*` surfaces.
+  The checker now phrase-pins durable `.ai-docs/*` guidance, the overnight run report issue
+  template, and the kickoff prompt's run-control fields.
 
 - [x] Add a lightweight release checklist or helper that sweeps embedded version examples,
   changelog heading promotion, and newly added human-facing doc surfaces during a minor release.
