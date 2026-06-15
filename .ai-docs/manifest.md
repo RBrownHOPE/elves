@@ -10,6 +10,8 @@ curated layer above the run-specific `docs/elves/*` memory surfaces.
 - Read `conventions.md` before making changes that affect skill behavior, versioning, staging, or
   cross-file wording.
 - Read `gotchas.md` when a change looks simple but keeps touching multiple docs or workflows.
+- Read `context-index.md` when you need a quick map of the repo surfaces, scripts, tests, and
+  common survey paths before editing.
 
 ## Relationship to other docs
 
@@ -26,3 +28,4 @@ Promotion flow: `execution log -> learnings -> .ai-docs`
 - `architecture.md`: what this repo is made of and how the doc layers fit together
 - `conventions.md`: stable rules for changing the repo without creating drift
 - `gotchas.md`: recurring traps and misleading simplifications
+- `context-index.md`: quick map for pre-implementation surveys and validation baselines
