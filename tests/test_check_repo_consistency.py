@@ -343,6 +343,14 @@ Cobbler
         self.assertNotIn("docs/elves/survival-guide.md", surfaces)
         self.assertNotIn("docs/elves/execution-log.md", surfaces)
 
+    def test_context_index_is_a_required_durable_doc(self) -> None:
+        relative_docs = {
+            path.relative_to(self.consistency.REPO_ROOT).as_posix()
+            for path in self.consistency.DURABLE_DOCS
+        }
+
+        self.assertIn(".ai-docs/context-index.md", relative_docs)
+
 
 if __name__ == "__main__":
     unittest.main()

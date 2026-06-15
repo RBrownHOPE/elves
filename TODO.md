@@ -33,6 +33,10 @@ Elves has "don't commit .env files" and "never git add -A" but no automated scan
 ### Codebase context indexing
 The pre-implementation survey (step 5) relies on the agent searching the codebase in real time. For large repos, a pre-computed index of utilities, patterns, conventions, and module boundaries would make the survey faster and more reliable. Could be generated once during planning and updated incrementally per batch. Similar in spirit to Factory AI's "HyperCode" but implemented as a Markdown file the agent reads rather than proprietary tooling.
 
+- [x] Add an initial durable context index for this repo.
+  `.ai-docs/context-index.md` now maps primary surfaces, reference docs, scripts, tests, common
+  survey paths, and the validation baseline for future agents.
+
 - [x] Add a regression-specific review cycle for high-risk batches.
   `SKILL.md`, `AGENTS.md`, `README.md`, and `references/review-subagent.md` now describe an
   optional regression-only pass for medium/high blast-radius batches that traces changed shared

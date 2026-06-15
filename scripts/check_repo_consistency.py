@@ -50,6 +50,7 @@ DURABLE_DOCS = [
     REPO_ROOT / ".ai-docs" / "architecture.md",
     REPO_ROOT / ".ai-docs" / "conventions.md",
     REPO_ROOT / ".ai-docs" / "gotchas.md",
+    REPO_ROOT / ".ai-docs" / "context-index.md",
     REPO_ROOT / "references" / "learnings-template.md",
 ]
 

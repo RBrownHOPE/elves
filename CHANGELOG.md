@@ -4,6 +4,9 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+- Added `.ai-docs/context-index.md`, a durable pre-implementation survey map for repo surfaces,
+  scripts, tests, common edit paths, and validation baselines.
+
 ## [1.15.0] - 2026-06-14
 
 ### Cobbler
