@@ -147,6 +147,42 @@ class ConsistencyPhraseTests(unittest.TestCase):
 
         self.assertEqual(errors, [f"{label}: stale Cobbler phrase `{stale}`"])
 
+    def test_codex_cobbler_install_guidance_is_required(self) -> None:
+        label = "README.md"
+        phrase = "Codex installs the main skill bundle only"
+
+        self.assertIn(label, self.consistency.CODEX_INSTALL_COBBLER_PHRASES)
+        self.assertIn(phrase, self.consistency.CODEX_INSTALL_COBBLER_PHRASES[label])
+
+        errors = self.consistency.find_missing_phrases(
+            {label: "Codex install docs without the Cobbler reminder"},
+            {label: [phrase]},
+            "Codex Cobbler install",
+        )
+
+        self.assertIn(
+            f"{label}: missing Codex Cobbler install phrase `{phrase}`",
+            errors,
+        )
+
+    def test_cobbler_config_precedence_guidance_is_required(self) -> None:
+        label = "SKILL.md"
+        phrase = "Cobbler preferences belong under the top-level `cobbler` block"
+
+        self.assertIn(label, self.consistency.COBBLER_CONFIG_PREFERENCE_PHRASES)
+        self.assertIn(phrase, self.consistency.COBBLER_CONFIG_PREFERENCE_PHRASES[label])
+
+        errors = self.consistency.find_missing_phrases(
+            {label: "Persistent Preferences without Cobbler precedence"},
+            {label: [phrase]},
+            "Cobbler config preference",
+        )
+
+        self.assertIn(
+            f"{label}: missing Cobbler config preference phrase `{phrase}`",
+            errors,
+        )
+
     def test_cobbler_reference_docs_require_fitted_answer_shape(self) -> None:
         for label in ("references/council-workflow.md", "references/council-prompts.md"):
             with self.subTest(label=label):

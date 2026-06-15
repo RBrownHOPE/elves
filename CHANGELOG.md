@@ -10,6 +10,13 @@ All notable changes to the Elves skill are documented here.
   checklist helper.
 - Added `scripts/pr_portfolio_report.py`, a read-only repo helper for summarizing PR stack health
   across merge state, pending/failing checks, and unresolved review threads.
+- Clarified Codex installation and sync guidance so users see, at the setup point, that Codex
+  installs the main skill bundle and invokes Cobbler with `$elves cobbler: ...` or natural language
+  rather than Claude Code slash aliases.
+- Documented that new persistent Cobbler preferences belong under top-level `cobbler`, while legacy
+  `council` config remains for compatibility and loses precedence when both are present.
+- Included `config.json.example` in the managed Claude/Codex skill bundle so installed copies have
+  the persistent-preferences template the docs reference.
 - Added `.ai-docs/context-index.md`, a durable pre-implementation survey map for repo surfaces,
   scripts, tests, common edit paths, and validation baselines.
 - Expanded the repo consistency checker to phrase-pin operator-facing docs, including durable

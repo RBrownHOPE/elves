@@ -310,7 +310,7 @@ See [Installation](#installation) below for full details. The short version:
 - **Claude Code:** install the main `elves` skill plus the managed `/cobbler`, `/council`, `/ec`,
   and `/elves-council` alias skills
 - **Codex:** copy the skill bundle into `~/.codex/skills/elves/` (at minimum `SKILL.md`,
-  `AGENTS.md`, `references/`, and the runtime scripts `scripts/preflight.sh`,
+  `AGENTS.md`, `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
   `scripts/notify.sh`, `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`)
 - **Claude.ai:** zip the `elves/` directory and upload via Settings > Features > Skills
 
@@ -509,6 +509,13 @@ If neither `ELVES_SLACK_WEBHOOK` nor `ELVES_NOTIFY_CMD` is set, Elves falls back
 ---
 
 ## Configuration
+
+### Persistent preferences
+
+Copy [`config.json.example`](config.json.example) to `config.json` in your installed skill or
+project-local skill when you want defaults to persist across sessions. Put new Cobbler preferences
+under the top-level `cobbler` block. The legacy `council` block is for compatibility with older
+projects; if both blocks are present, `cobbler` wins.
 
 ### Tool configuration
 
@@ -759,11 +766,14 @@ This installs `~/.claude/skills/elves/` and four small Claude Code alias skills:
 ```bash
 mkdir -p ~/.codex/skills/elves/scripts
 git clone https://github.com/aigorahub/elves.git /tmp/elves
-cp /tmp/elves/SKILL.md /tmp/elves/AGENTS.md ~/.codex/skills/elves/
+cp /tmp/elves/SKILL.md /tmp/elves/AGENTS.md /tmp/elves/config.json.example ~/.codex/skills/elves/
 cp -r /tmp/elves/references ~/.codex/skills/elves/
 cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py ~/.codex/skills/elves/scripts/
 rm -rf /tmp/elves
 ```
+
+Codex installs the main skill bundle only. It does not install the Claude Code slash aliases; use
+`$elves cobbler: <task>` or natural language such as "Ask the Cobbler..." to invoke Cobbler.
 
 ### Per-project installation
 
@@ -841,9 +851,13 @@ This mirrors the managed skill bundle files from the repo into `~/.claude/skills
 `~/.claude/skills/elves-council/` so `/cobbler` and the Council compatibility aliases are real
 slash-skill entry points.
 
+For Codex, the sync helper updates the main skill bundle only. Invoke Cobbler with
+`$elves cobbler: <task>` or natural language rather than a top-level slash alias.
+
 The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
-`references/`, and the runtime scripts `scripts/preflight.sh`, `scripts/notify.sh`,
-`scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`. Repo-only maintenance
+`config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
+`scripts/notify.sh`, `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`.
+Repo-only maintenance
 helpers such as `scripts/check_repo_consistency.py`, `scripts/release_checklist.py`, and
 `scripts/pr_portfolio_report.py` stay in the checkout.
 

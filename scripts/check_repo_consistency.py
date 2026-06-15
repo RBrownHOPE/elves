@@ -725,6 +725,38 @@ CLAUDE_ALIAS_SKILL_PHRASES = {
     ],
 }
 
+CODEX_INSTALL_COBBLER_PHRASES = {
+    "README.md": [
+        "Codex installs the main skill bundle only",
+        "It does not install the Claude Code slash aliases",
+        "For Codex, the sync helper updates the main skill bundle only",
+        "rather than a top-level slash alias",
+    ],
+}
+
+COBBLER_CONFIG_PREFERENCE_PHRASES = {
+    "README.md": [
+        "Put new Cobbler preferences",
+        "under the top-level `cobbler` block",
+        "is for compatibility with older",
+        "if both blocks are present, `cobbler` wins",
+    ],
+    "SKILL.md": [
+        "Cobbler preferences belong under the top-level `cobbler` block",
+        "if both blocks are present",
+        "`cobbler` wins",
+    ],
+    "AGENTS.md": [
+        "Cobbler preferences belong under top-level `cobbler`",
+        "legacy `council` config remains for compatibility",
+        "`cobbler` wins if both are present",
+    ],
+    "config.json.example": [
+        '"precedence": "cobbler"',
+        "If both blocks are present, cobbler wins",
+    ],
+}
+
 COUNCIL_FORBIDDEN_PHRASES = {
     "SKILL.md": [
         "ordinary `/council` requires OpenRouter",
@@ -1152,6 +1184,24 @@ def main() -> int:
             council_texts,
             council_file_phrases,
             "Cobbler",
+        )
+    )
+    codex_install_texts = {label: council_texts[label] for label in CODEX_INSTALL_COBBLER_PHRASES}
+    errors.extend(
+        find_missing_phrases(
+            codex_install_texts,
+            CODEX_INSTALL_COBBLER_PHRASES,
+            "Codex Cobbler install",
+        )
+    )
+    cobbler_config_texts = {
+        label: council_texts[label] for label in COBBLER_CONFIG_PREFERENCE_PHRASES
+    }
+    errors.extend(
+        find_missing_phrases(
+            cobbler_config_texts,
+            COBBLER_CONFIG_PREFERENCE_PHRASES,
+            "Cobbler config preference",
         )
     )
     errors.extend(

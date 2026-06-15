@@ -1356,6 +1356,10 @@ If the skill directory contains a `config.json`, read it at session start. This 
 }
 ```
 
+Cobbler preferences belong under the top-level `cobbler` block in `config.json`. The legacy
+`council` block remains a compatibility surface for older projects; if both blocks are present,
+`cobbler` wins.
+
 If `config.json` doesn't exist and the user provides preferences during the planning conversation, offer to save them for future sessions. See `config.json.example` for the template.
 
 ## Skill Memory
