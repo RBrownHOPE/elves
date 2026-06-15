@@ -7,10 +7,11 @@ users a natural chat-native coordinator for one-off questions; this follow-up ma
 able to record which kind of model or agent should handle implementation, validation, review,
 scouting, and synthesis without making OpenRouter or any external provider required.
 
-Done means a future implementation can add explicit routing preferences to the survival guide,
-config examples, and review prompts while preserving host honesty: Codex and Claude Code use their
-native subagents first, provider-backed model diversity is optional, and missing provider access
-falls back gracefully instead of stalling the run.
+Status as of the integration preview: the core user-facing routing guidance has been added to the
+skill, agent instructions, README, config examples, survival-guide template, and consistency
+checks. This plan remains as design context for the native-first policy and for future runtime
+automation. Unchecked batch items below are the original planning checklist, not evidence that the
+documented guidance is absent.
 
 ## Product Shape
 
@@ -103,7 +104,7 @@ Use hyphenated keys in survival-guide YAML examples and underscored keys in JSON
 - Specify host-native defaults for Codex and Claude Code.
 - Specify optional provider-backed routing for read-only review, scouting, and synthesis.
 - Define fallback and logging behavior when the requested route is unavailable.
-- Plan the future docs, config, prompts, and consistency checks needed to implement this safely.
+- Document the docs, config, prompts, and consistency checks needed to keep this safe.
 
 ### Out of Scope
 
@@ -272,8 +273,10 @@ provider. Tests must pin the distinction.
 
 - This plan depends conceptually on the Cobbler release because it uses Cobbler as the coordinator
   language. It should land after the Cobbler docs are on `main`.
-- This plan is intentionally a design note only. It is useful as a draft PR for review before
-  touching the canonical skill, config, and consistency-check surfaces.
+- The integration preview has already touched the canonical skill, config, template, and
+  consistency-check surfaces for advisory full-run routing. Remaining runtime automation should
+  continue to treat phase preferences as a staging-time contract rather than a hidden model-switch
+  guarantee.
 - The math workflow remains different: it can be OpenRouter-first because mathematical research
   workflows explicitly configure provider roles. Full-run software-development routing is
   native-first and provider-optional.

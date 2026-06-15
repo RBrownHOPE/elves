@@ -445,7 +445,7 @@ else
     fail "Branch is ${BEHIND} commits behind origin/${DEFAULT_BRANCH} — significant drift"
     info "Fix before starting: git merge origin/${DEFAULT_BRANCH}"
   fi
-  [ "$AHEAD" -gt 0 ] && info "Branch is ${AHEAD} commit(s) ahead of origin/${DEFAULT_BRANCH} (unpushed)"
+  [ "$AHEAD" -gt 0 ] && info "Branch has ${AHEAD} commit(s) not in origin/${DEFAULT_BRANCH} (expected on feature/PR branches)"
 fi
 
 # ---------------------------------------------------------------------------

@@ -161,6 +161,32 @@ exit 1
         self.assertIn("No git remote 'origin' found", result.stdout)
         self.assertIn("Elves Preflight Summary", result.stdout)
 
+    def test_preflight_reports_feature_branch_ahead_of_base_without_unpushed_label(self) -> None:
+        self.write_fake_gh()
+        repo = self.create_repo(with_remote=True)
+        self.run_git(repo, "checkout", "-b", "feature/ahead")
+        (repo / "feature.txt").write_text("feature branch work\n")
+        self.run_git(repo, "add", "feature.txt")
+        self.run_git(
+            repo,
+            "-c",
+            "user.name=Elves Test",
+            "-c",
+            "user.email=elves@example.com",
+            "commit",
+            "-m",
+            "feature work",
+        )
+
+        result = self.run_preflight(repo)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "Branch has 1 commit(s) not in origin/main (expected on feature/PR branches)",
+            result.stdout,
+        )
+        self.assertNotIn("(unpushed)", result.stdout)
+
     def test_preflight_worktree_helper_dispatches_before_full_checklist(self) -> None:
         repo = self.create_repo(with_remote=True)
 

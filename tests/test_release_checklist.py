@@ -127,6 +127,18 @@ class ReleaseChecklistTests(unittest.TestCase):
             result.warnings,
         )
 
+    def test_render_result_labels_warning_only_runs_without_plain_ok(self) -> None:
+        result = self.release_checklist.ChecklistResult(
+            version="1.15.0",
+            warnings=["Review newly added human-facing surfaces"],
+        )
+
+        rendered = self.release_checklist.render_result(result)
+
+        self.assertIn("WARNINGS", rendered)
+        self.assertIn("Release checklist completed with warnings", rendered)
+        self.assertNotIn("Release checklist OK", rendered)
+
     def test_release_checklist_fails_when_current_version_example_is_stale(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = self.configure_temp_repo(tmpdir, version="1.16.0")

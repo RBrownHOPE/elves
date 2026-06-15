@@ -18,9 +18,10 @@
 - Stopping should be explicit state, not interpretation. Use the survival guide's `Stop Gate` and
   `.elves-session.json` `continuation_guard` to record whether stopping is currently allowed.
 - Installed Claude/Codex skill bundles should ship only the installable runtime surface:
-  `SKILL.md`, `AGENTS.md` (Codex), `references/`, `scripts/preflight.sh`,
-  `scripts/notify.sh`, `scripts/install_doctor.py`, and
-  `scripts/validate_survival_guide.py`. Repo-only maintenance helpers stay in the checkout.
+  `SKILL.md`, `AGENTS.md` (Codex), `config.json.example`, `references/`,
+  `scripts/preflight.sh`, `scripts/preflight_worktree.py`, `scripts/notify.sh`,
+  `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`.
+  Repo-only maintenance helpers stay in the checkout.
 - Startup installation/update checks must stay advisory-only. They may alert the user, but they
   must never block a run or auto-update the installed skill.
 - When you add a cross-file behavioral concept, pin it with a `*_PHRASES` map in

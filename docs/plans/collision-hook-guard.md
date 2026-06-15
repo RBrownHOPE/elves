@@ -3,14 +3,16 @@
 ## Mission
 
 Design an optional deterministic guard that helps enforce the one-run-one-branch-one-checkout rule
-after staging. The planned PR #32 preflight ownership guard catches duplicate current-branch
-worktrees before a run starts, and the auto-worktree helper design makes isolated checkout setup
-easier. This follow-up focuses on a later failure mode: an agent is already running, context drifts,
-and a branch tip moves unexpectedly before a write, commit, push, or merge command.
+after staging. The preflight ownership guard catches duplicate current-branch worktrees before a run
+starts, and the auto-worktree helper makes isolated checkout setup easier. This follow-up focuses
+on a later failure mode: an agent is already running, context drifts, and a branch tip moves
+unexpectedly before a write, commit, push, or merge command.
 
-Done means a future implementation can provide a small hook or wrapper pattern that blocks risky
-operations when the current or remote branch tip no longer matches the recorded owned-tip state,
-while remaining host-honest for Claude Code, Codex, and plain shell environments.
+Status as of the integration preview: the repo includes a prototype helper,
+`scripts/workspace_guard.py`, with advisory defaults, strict-mode blocking, and owned-tip recording
+commands. Host hook integration remains optional and host-specific. This plan remains as design
+context for the guard model and for future hook templates; unchecked historical items below are not
+proof that the prototype script is missing.
 
 ## Product Shape
 
@@ -153,12 +155,12 @@ Update rules:
 - Define hook/wrapper behavior and host-specific documentation.
 - Define what commands are blocked versus allowed.
 - Define owned-tip source precedence and strict/advisory modes.
-- Plan future script, tests, README, and template updates.
+- Document script, test, README, and template work needed for the guard surface.
 - Keep this dependent on the preflight ownership guard stack so setup enforcement lands first.
 
 ### Out of Scope
 
-- Implementing a hook or script in this branch.
+- Implementing host hooks or installing the helper into a live agent environment in this branch.
 - Claiming hooks are available in hosts that do not expose them.
 - Blocking read-only diagnostics after a collision.
 - Trying to detect every possible process writing to the repo.
@@ -194,13 +196,13 @@ host. Keep claims tied to the host surface.
 ### Batch 2: Helper Script Design
 
 **Tasks:**
-- [ ] Add a small repo/runtime helper, likely `scripts/workspace_guard.py`.
-- [ ] Support `--check-command "<command>"`, `--branch`, `--start-tip`, `--allowed-head-tip`,
+- [x] Add a small repo/runtime helper, likely `scripts/workspace_guard.py`.
+- [x] Support `--check-command "<command>"`, `--branch`, `--start-tip`, `--allowed-head-tip`,
       `--remote-ref`, `--expected-remote-tip`, `--last-pushed-tip`, and `--mode advisory|strict`.
-- [ ] Read `.elves-session.json` and survival-guide fields when explicit CLI flags are absent.
-- [ ] Return exit `0` in advisory mode for allowed commands, mismatches, missing guard data, and
+- [x] Read `.elves-session.json` and survival-guide fields when explicit CLI flags are absent.
+- [x] Return exit `0` in advisory mode for allowed commands, mismatches, missing guard data, and
       configuration/git-inspection warnings unless `--fail-on-error` is explicit.
-- [ ] In strict mode, return exit `0` for allowed commands, `1` for blocked write-ish commands after
+- [x] In strict mode, return exit `0` for allowed commands, `1` for blocked write-ish commands after
       a mismatch, and `2` for configuration or git-inspection errors.
 
 **Acceptance criteria:**
@@ -292,9 +294,10 @@ use the helper for logic, and avoid large inline shell programs.
 
 ## Notes
 
-- This plan should stay draft until the preflight duplicate-worktree guard lands, because that
-  branch defines the first enforcement layer.
+- This plan originally depended on the preflight duplicate-worktree guard, which defines the first
+  enforcement layer.
 - The auto-worktree helper remains the user-experience layer for creating isolated checkouts. This
   hook guard is the last-resort "do not write if the invariant broke" layer.
-- This is intentionally a design-only scout note. It should be reviewed before any canonical skill,
-  hook, or script implementation lands.
+- The repo-only helper prototype has landed in the integration preview. Future work should focus on
+  host-specific hook examples and adoption guidance without implying Codex has the same universal
+  hook surface as Claude Code.

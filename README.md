@@ -4,7 +4,7 @@
 
 **They work while you sleep.**
 
-Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs.
+Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default orchestration model inside Elves: it routes agents, tools, skills, evidence, dissent, and synthesis so the loop does not collapse into one undifferentiated agent stream.
 
 You write the plan and own the merge decision. The agent does everything in between.
 
@@ -37,11 +37,16 @@ Elves is the harness that lets the Ralph Loop run for hours without supervision,
 ## How it works
 
 ```
-Orient → Verify Green → Tag → Contract → Implement → Validate → Review →
+Orient → Cobbler-coordinate → Verify Green → Tag → Contract → Implement → Validate → Review →
 Judge → Document → Update → Push → Re-read → PR Loop → Entropy Check → Continue
 ```
 
-Elves runs a tight loop. For each batch of planned work, the agent implements the changes, runs validation gates, reads PR review comments, fixes any blocking findings, updates the documentation, and pushes a checkpoint, then immediately starts the next batch. No waiting, no prompting, no drift.
+Elves runs a tight loop. Cobbler coordinates non-trivial decisions inside that loop: whether to
+answer directly, route work to implementation agents, ask independent lenses for risk/review, use
+repo tools or skills, or preserve a dissenting view before synthesis. For each batch of planned
+work, the agent implements the changes, runs validation gates, reads PR review comments, fixes any
+blocking findings, updates the documentation, and pushes a checkpoint, then immediately starts the
+next batch. No waiting, no prompting, no drift.
 
 ### Reviewed PR landing command
 
@@ -158,8 +163,14 @@ and source traceability.
 
 ### Cobbler
 
-Cobbler is the coordinator inside Elves. Ask Cobbler a hard question, and it decides how much help
-to bring in: a direct answer, a few specialist elves, or a read-only council of independent lenses.
+Cobbler is the default orchestration model inside Elves. During staged and active Elves runs, it is
+how the coordinator plans, chooses agents/tools/skills, handles uncertainty, preserves dissent,
+reviews risk, and synthesizes the next move. Explicit `/cobbler` or `$elves cobbler: ...`
+invocations are the one-off chat form of the same coordination model.
+
+![How Cobbler works](assets/cobbler-infographic.png)
+
+For the full walkthrough, see [`docs/cobbler.md`](docs/cobbler.md).
 
 The user gets the fit, not the chatter: `Recommendation`, `Why this fits`, `Strongest dissent`,
 `Risks`, `Next move`, and `Confidence`.
@@ -167,18 +178,33 @@ The user gets the fit, not the chatter: `Recommendation`, `Why this fits`, `Stro
 Use `/cobbler <task>` in Claude Code when the alias skill is installed. In Codex, use
 `$elves cobbler: <task>` or natural language such as "Ask the Cobbler..." Compatibility aliases
 remain supported: Claude Code keeps `/council`, `/ec`, and `/elves-council`, while Codex keeps
-`$elves council: <task>` and natural Council references. They all invoke the same Cobbler behavior.
+`$elves council: <task>` and natural Council references. They all invoke the same default Cobbler
+orchestration model.
 
 Host honesty matters. Claude Code gets real slash-skill aliases through the managed alias skills.
 Codex users should not need or expect a top-level `/cobbler` command; `$elves cobbler: <task>` is
 the reliable Codex form.
 Goals are for full Elves runs, not Quick Cobbler.
 
-Quick Cobbler is the default. It is read-only, stateless, and native-subagent-first: Codex uses
-Codex subagents, Claude Code uses Claude Code subagents, and environments without subagents perform
-the same read-only analysis directly. Cobbler chooses a small role set, usually two or three
-lenses, gathers bounded independent reports, and answers with the fitted-answer headings above. It
-does not edit files, create branches, open PRs, install packages, or mutate run state.
+Cobbler Mode is the lowest-friction way to keep talking to the Cobbler across follow-up prompts in
+one thread. In Claude Code, use `/cobbler-mode` when the managed alias skill is installed. In
+Codex, use `$elves cobbler-mode` or say naturally: "Cobbler Mode: on" or "From now on, answer as
+the Cobbler until I say Cobbler Mode: off." While active, the agent treats each follow-up as
+Cobbler-mediated by default: direct answer for simple questions, Quick Cobbler lenses when extra
+perspective helps, and full Elves run coordination when you ask it to change the repo. It is
+current-thread conversation state, not durable run state, a daemon, provider requirement, or Codex
+slash command. Exit with "Cobbler Mode: off" or "leave Cobbler Mode."
+
+Cobbler-first coordination is the default for Elves runs. The main coordinator still owns durable
+memory, git, PRs, and final synthesis; worker agents may edit the repo when the active batch or
+user request assigns them implementation work.
+
+Quick Cobbler is the default one-off answer mode. It is read-only, stateless, and
+native-subagent-first: Codex uses Codex subagents, Claude Code uses Claude Code subagents, and
+environments without subagents perform the same read-only analysis directly. Cobbler chooses a
+small role set, usually two or three lenses, gathers bounded independent reports, and answers with
+the fitted-answer headings above. It does not edit files, create branches, open PRs, install
+packages, or mutate run state.
 
 Provider-backed council is optional. It can be configured later for external provider diversity,
 but ordinary Cobbler use and compatibility-alias use require no OpenRouter or other provider key.
@@ -320,8 +346,8 @@ Bad: "Looks good so far." (no tag, no instruction to continue)
 
 See [Installation](#installation) below for full details. The short version:
 
-- **Claude Code:** install the main `elves` skill plus the managed `/cobbler`, `/council`, `/ec`,
-  and `/elves-council` alias skills
+- **Claude Code:** install the main `elves` skill plus the managed `/cobbler`, `/cobbler-mode`,
+  `/council`, `/ec`, and `/elves-council` alias skills
 - **Codex:** copy the skill bundle into `~/.codex/skills/elves/` (at minimum `SKILL.md`,
   `AGENTS.md`, `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
   `scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`, and
@@ -361,10 +387,14 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Elves Reports**: substantial finite runs end with a temporary static HTML worker-to-manager
   report that highlights status, problems found, lessons learned, collapsible batch timeline,
   validation, residual risks, and human next steps; the agent hands it to you to review at closeout
-- **Cobbler**: `/cobbler` in Claude Code and `$elves cobbler: ...` in Codex give you a read-only,
-  native-subagent-first synthesis for planning, design, debugging, and review questions; Claude
-  keeps `/council`, `/ec`, and `/elves-council`, while Codex keeps `$elves council: ...` as the
-  compatibility path
+- **Cobbler-first run coordination**: Cobbler is the default way Elves routes agents, tools,
+  skills, evidence, dissent, and synthesis during staged and active runs
+- **Quick Cobbler**: `/cobbler` in Claude Code and `$elves cobbler: ...` in Codex give you a
+  read-only, native-subagent-first fitted answer for one-off planning, design, debugging, and
+  review questions; Claude keeps `/council`, `/ec`, and `/elves-council`, while Codex keeps
+  `$elves council: ...` as the compatibility path
+- **Cobbler Mode**: `/cobbler-mode` in Claude Code and `$elves cobbler-mode` in Codex keep
+  follow-up prompts Cobbler-mediated in the current thread until you say `Cobbler Mode: off`
 - **Optional model routing**: Cobbler roles can be mapped to native subagents or provider-backed
   models when keys are configured, but native host subagents remain the zero-config default and
   fallback
@@ -610,8 +640,12 @@ elves/
 ├── LICENSE
 ├── config.json.example                   # Persistent preferences template
 ├── assets/
+│   ├── cobbler-infographic.png           # Cobbler flow infographic
 │   ├── elves-banner.jpeg                 # README banner image
 │   └── elves-social-preview.png          # GitHub social preview
+├── docs/
+│   ├── cobbler.md                        # Human-facing Cobbler walkthrough
+│   └── elves-report-proof-of-concept.html
 ├── references/
 │   ├── survival-guide-template.md        # Bootstrap template for new projects
 │   ├── execution-log-template.md         # Log entry template
@@ -780,10 +814,12 @@ python3 /tmp/elves/scripts/sync_installed_skills.py --apply --target claude
 rm -rf /tmp/elves
 ```
 
-This installs `~/.claude/skills/elves/` and four small Claude Code alias skills:
-`~/.claude/skills/cobbler/`, `~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
-`~/.claude/skills/elves-council/`. Those directories create `/cobbler`, `/council`, `/ec`, and
-`/elves-council`; every alias delegates to the same Cobbler behavior in the main `elves` skill.
+This installs `~/.claude/skills/elves/` and five small Claude Code alias skills:
+`~/.claude/skills/cobbler/`, `~/.claude/skills/cobbler-mode/`,
+`~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
+`~/.claude/skills/elves-council/`. Those directories create `/cobbler`, `/cobbler-mode`,
+`/council`, `/ec`, and `/elves-council`; every alias delegates to the same default Cobbler
+orchestration model in the main `elves` skill.
 
 **Codex:**
 ```bash
@@ -810,7 +846,7 @@ git clone https://github.com/aigorahub/elves.git .claude/skills/elves
 rm -rf .claude/skills/elves/.git  # remove the nested git repo
 
 # Optional project-local aliases. Skip any alias directory you already own.
-for alias in cobbler council ec elves-council; do
+for alias in cobbler cobbler-mode council ec elves-council; do
   if [ -e ".claude/skills/${alias}" ]; then
     echo "Skipping existing .claude/skills/${alias}"
   else
@@ -870,9 +906,10 @@ explicitly.
 
 This mirrors the managed skill bundle files from the repo into `~/.claude/skills/elves/` and
 `~/.codex/skills/elves/`. For Claude Code, it also manages the small alias skills at
-`~/.claude/skills/cobbler/`, `~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
-`~/.claude/skills/elves-council/` so `/cobbler` and the Council compatibility aliases are real
-slash-skill entry points.
+`~/.claude/skills/cobbler/`, `~/.claude/skills/cobbler-mode/`,
+`~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
+`~/.claude/skills/elves-council/` so `/cobbler`, `/cobbler-mode`, and the Council compatibility
+aliases are real slash-skill entry points.
 
 For Codex, the sync helper updates the main skill bundle only. Invoke Cobbler with
 `$elves cobbler: <task>` or natural language rather than a top-level slash alias.

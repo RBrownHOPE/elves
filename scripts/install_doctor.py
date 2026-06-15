@@ -384,7 +384,9 @@ def build_recommendations(
     ):
         notes.append(
             "Repo checkout is active right now. If you want your installed copies to match this "
-            "checkout, run `python3 scripts/sync_installed_skills.py --apply` from the repo."
+            "checkout, run `python3 scripts/sync_installed_skills.py --apply` from the repo. "
+            "For Claude Code, this also syncs the managed /cobbler and Council-compatible alias "
+            "skills."
         )
 
     return dedupe(notes)

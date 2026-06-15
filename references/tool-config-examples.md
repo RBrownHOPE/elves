@@ -307,9 +307,10 @@ math-ledger-dir: docs/math
 
 ## Cobbler
 
-> Use when you want Cobbler to answer directly or convene a temporary read-only council of native
-> subagents and return one fitted answer. Quick Cobbler requires no external provider key.
-> Provider-backed council is optional advanced plumbing.
+> Default Cobbler coordination block for Elves runs. Cobbler-first is the default orchestration
+> model; Quick Cobbler is the one-off read-only answer mode. Customize only if changing routing,
+> role count, answer shape, or provider-backed council. Quick Cobbler requires no external provider
+> key. Provider-backed council is optional advanced plumbing.
 
 ```yaml
 ## Tool Configuration
@@ -318,6 +319,8 @@ review: github-pr-comments
 notification: pr-comment
 
 cobbler-enabled: true
+cobbler-coordination-default: cobbler-first
+cobbler-default-for-elves-runs: true
 cobbler-default-mode: quick
 cobbler-default-backend: native-subagents
 cobbler-primary-invocations:

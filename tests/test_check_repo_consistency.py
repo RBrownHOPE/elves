@@ -117,6 +117,14 @@ class ConsistencyPhraseTests(unittest.TestCase):
 
     def test_codex_cobbler_guardrails_are_required(self) -> None:
         self.assertIn(
+            "Cobbler-first coordination is the default for Elves runs",
+            self.consistency.COUNCIL_MODULE_PHRASES["SKILL.md"],
+        )
+        self.assertIn(
+            "Quick Cobbler is the default one-off answer mode",
+            self.consistency.COUNCIL_MODULE_PHRASES["SKILL.md"],
+        )
+        self.assertIn(
             "do not assume Codex has a top-level `/cobbler` command",
             self.consistency.COUNCIL_MODULE_PHRASES["SKILL.md"],
         )
@@ -133,6 +141,37 @@ class ConsistencyPhraseTests(unittest.TestCase):
             self.consistency.COUNCIL_MODULE_PHRASES["references/council-workflow.md"],
         )
 
+    def test_cobbler_first_run_coordination_is_required(self) -> None:
+        expected = {
+            "SKILL.md": "Cobbler-first coordination is the default for Elves runs",
+            "AGENTS.md": "Cobbler-first coordination is the default for Elves runs",
+            "README.md": "Cobbler-first coordination is the default for Elves runs",
+            "references/council-workflow.md": (
+                "Run Cobbler is the default coordination pattern inside an Elves run"
+            ),
+            "references/survival-guide-template.md": "Coordination mode",
+            "config.json.example": '"coordination_default": "cobbler-first"',
+        }
+
+        for label, phrase in expected.items():
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.COUNCIL_MODULE_PHRASES)
+                self.assertIn(phrase, self.consistency.COUNCIL_MODULE_PHRASES[label])
+
+    def test_cobbler_mode_guardrails_are_required(self) -> None:
+        expected = {
+            "SKILL.md": "$elves cobbler-mode",
+            "AGENTS.md": "not durable run state",
+            "README.md": "Cobbler Mode: off",
+            "references/council-workflow.md": "not a third Cobbler behavior mode",
+            "aliases/claude/cobbler-mode/SKILL.md": "/cobbler-mode",
+        }
+
+        for label, phrase in expected.items():
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.COBBLER_MODE_PHRASES)
+                self.assertIn(phrase, self.consistency.COBBLER_MODE_PHRASES[label])
+
     def test_codex_cobbler_forbidden_phrases_catch_slash_command_drift(self) -> None:
         label = "README.md"
         stale = "Use `/cobbler` in Codex"
@@ -146,6 +185,52 @@ class ConsistencyPhraseTests(unittest.TestCase):
         )
 
         self.assertEqual(errors, [f"{label}: stale Cobbler phrase `{stale}`"])
+
+    def test_cobbler_mode_forbidden_patterns_catch_sticky_state_drift(self) -> None:
+        label = "README.md"
+        text = "Cobbler Mode persists across threads. Cobbler Mode starts an Elves run."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.COBBLER_FORBIDDEN_PATTERNS,
+            "Cobbler",
+        )
+
+        self.assertIn(
+            (
+                "README.md: stale Cobbler pattern "
+                "`\\bcobbler\\s+mode\\s+persists\\s+across\\s+threads\\b`"
+            ),
+            errors,
+        )
+        self.assertIn(
+            (
+                "README.md: stale Cobbler pattern "
+                "`\\bcobbler\\s+mode\\s+starts\\s+an?\\s+elves\\s+run\\b`"
+            ),
+            errors,
+        )
+
+    def test_quick_cobbler_forbidden_patterns_catch_read_only_exceptions(self) -> None:
+        label = "references/council-workflow.md"
+        text = "Quick Cobbler is read-only unless the user wants implementation."
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.COBBLER_FORBIDDEN_PATTERNS,
+            "Cobbler",
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                (
+                    "references/council-workflow.md: stale Cobbler pattern "
+                    "`\\bquick\\s+cobbler\\b[^.\\n]*(?:unless|except)\\b[^.\\n]*"
+                    "(?:active\\s+elves\\s+run|implementation|edit|mutate)\\b`"
+                )
+            ],
+        )
 
     def test_codex_cobbler_install_guidance_is_required(self) -> None:
         label = "README.md"
@@ -206,10 +291,40 @@ class ConsistencyPhraseTests(unittest.TestCase):
 
         self.assertEqual(errors, [f"{label}: stale Cobbler phrase `{stale}`"])
 
+    def test_cobbler_reference_docs_forbid_provider_backed_council_as_mode(self) -> None:
+        label = "references/council-prompts.md"
+        stale = "Mode: [Quick Cobbler / Run Cobbler / Provider-backed council]"
+
+        self.assertIn(stale, self.consistency.COUNCIL_FORBIDDEN_PHRASES[label])
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.COUNCIL_FORBIDDEN_PHRASES,
+            "Cobbler",
+        )
+
+        self.assertEqual(errors, [f"{label}: stale Cobbler phrase `{stale}`"])
+
+    def test_cobbler_forbidden_phrases_catch_optional_run_framing(self) -> None:
+        label = "SKILL.md"
+        stale = "Cobbler is optional for Elves runs"
+
+        self.assertIn(stale, self.consistency.COUNCIL_FORBIDDEN_PHRASES[label])
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.COUNCIL_FORBIDDEN_PHRASES,
+            "Cobbler",
+        )
+
+        self.assertEqual(errors, [f"{label}: stale Cobbler phrase `{stale}`"])
+
     def test_config_example_requires_cobbler_primary_and_council_compatibility(self) -> None:
         phrases = self.consistency.COUNCIL_MODULE_PHRASES["config.json.example"]
 
         self.assertIn('"cobbler"', phrases)
+        self.assertIn('"coordination_default": "cobbler-first"', phrases)
+        self.assertIn('"default_for_elves_runs": true', phrases)
         self.assertIn('"default_answer_shape"', phrases)
         self.assertIn('"provider_backed_council"', phrases)
         self.assertIn('"model_routing_policy": "native-first"', phrases)
@@ -221,6 +336,7 @@ class ConsistencyPhraseTests(unittest.TestCase):
     def test_claude_cobbler_alias_skill_files_are_required(self) -> None:
         expected_aliases = {
             "aliases/claude/cobbler/SKILL.md": "/cobbler",
+            "aliases/claude/cobbler-mode/SKILL.md": "/cobbler-mode",
             "aliases/claude/council/SKILL.md": "/council",
             "aliases/claude/ec/SKILL.md": "/ec",
             "aliases/claude/elves-council/SKILL.md": "/elves-council",
@@ -234,8 +350,18 @@ class ConsistencyPhraseTests(unittest.TestCase):
                     self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label],
                 )
                 self.assertIn(alias, self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label])
-                self.assertIn("read-only", self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label])
-                self.assertIn("stateless", self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label])
+                self.assertIn(
+                    "default orchestration model",
+                    self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label],
+                )
+                self.assertIn(
+                    "worker agents may edit scoped files",
+                    self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label],
+                )
+                self.assertIn(
+                    "For one-off Quick Cobbler answers, stay read-only and stateless",
+                    self.consistency.CLAUDE_ALIAS_SKILL_PHRASES[label],
+                )
 
     def test_extract_markdown_section_limits_to_requested_heading_level(self) -> None:
         text = """# Title
@@ -244,19 +370,19 @@ class ConsistencyPhraseTests(unittest.TestCase):
 OpenRouter
 
 ## Cobbler
-Quick Cobbler is the default
+Cobbler-first coordination is the default for Elves runs
 read-only
 
 ### Nested Detail
 dissent
 
 ## Strategic Forgetting
-Quick Cobbler is the default outside the section
+Cobbler-first coordination is the default for Elves runs outside the section
 """
 
         section = self.consistency.extract_markdown_section(text, "## Cobbler")
 
-        self.assertIn("Quick Cobbler is the default", section)
+        self.assertIn("Cobbler-first coordination is the default for Elves runs", section)
         self.assertIn("### Nested Detail", section)
         self.assertIn("dissent", section)
         self.assertNotIn("## Strategic Forgetting", section)
@@ -268,13 +394,13 @@ Quick Cobbler is the default outside the section
             label: """# Elves
 
 ## Math Research Workflows
-Quick Cobbler is the default
+Cobbler-first coordination is the default for Elves runs
 
 ## Cobbler
 Cobbler
 """,
         }
-        phrases = {label: ["Quick Cobbler is the default"]}
+        phrases = {label: ["Cobbler-first coordination is the default for Elves runs"]}
         headings = {label: "## Cobbler"}
 
         errors = self.consistency.find_missing_section_phrases(
@@ -286,7 +412,12 @@ Cobbler
 
         self.assertEqual(
             errors,
-            ["SKILL.md: missing Cobbler phrase `Quick Cobbler is the default`"],
+            [
+                (
+                    "SKILL.md: missing Cobbler phrase "
+                    "`Cobbler-first coordination is the default for Elves runs`"
+                )
+            ],
         )
 
     def test_cobbler_forbidden_phrases_catch_provider_requirement(self) -> None:

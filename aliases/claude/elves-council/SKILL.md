@@ -1,6 +1,6 @@
 ---
 name: elves-council
-description: Explicit compatibility alias for Elves Cobbler. Use when the user types /elves-council for a read-only fitted answer from independent lenses.
+description: Explicit compatibility alias for Elves Cobbler, the default orchestration model. Use when the user types /elves-council for Cobbler coordination in Claude Code.
 disable-model-invocation: true
 ---
 
@@ -10,16 +10,17 @@ disable-model-invocation: true
 
 This is an Elves-managed Claude Code compatibility alias for `/elves-council`.
 
-Route this request to the installed `elves` skill's `## Cobbler` instructions. Council is not a
-separate product: it is a temporary read-only gathering Cobbler may convene when several lenses
-help.
+This alias invokes Cobbler, Elves' default orchestration model; Council names are compatibility
+invocation surfaces, not separate modes or products. Route this request to the installed `elves`
+skill's `## Cobbler` instructions.
 
 Default behavior:
 
-1. Stay read-only and stateless.
-2. Use Claude Code subagents first when independent lenses help.
-3. Fall back to direct read-only lens analysis when subagents are unavailable.
-4. Do not edit files, create branches, open PRs, install packages, or mutate run state.
+1. For one-off Quick Cobbler answers, stay read-only and stateless.
+2. For implementation or active-run requests, route work through Cobbler-first Elves coordination;
+   worker agents may edit scoped files under the normal Elves rules.
+3. Use Claude Code subagents first when independent lenses or workers help.
+4. Fall back to direct analysis or direct implementation when subagents are unavailable.
 5. Return one fitted answer with `Recommendation`, `Why this fits`, `Strongest dissent`, `Risks`,
    `Next move`, and `Confidence`.
 

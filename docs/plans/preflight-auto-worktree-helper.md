@@ -1,4 +1,4 @@
-# Preflight Auto-Worktree Helper Design
+# Preflight Auto-Worktree Helper Plan
 
 ## Purpose
 
@@ -6,10 +6,11 @@ Design a small, boring helper that makes the safe path easy when an Elves run sh
 `git worktree`. The helper should reduce operator friction during staging without weakening the
 one-run-one-branch-one-checkout rule.
 
-This is a design note only. It intentionally does not change `scripts/preflight.sh`, README,
-`SKILL.md`, `AGENTS.md`, TODO, or release docs. Implementation should wait until the current
-preflight worktree-ownership guard lands, because that guard is the foundation this helper builds
-on. Keep any PR carrying this note draft until that dependency is on `main`.
+Status as of the integration preview: the explicit helper path is implemented by
+`scripts/preflight_worktree.py` and dispatched from `scripts/preflight.sh --create-worktree
+<branch>`. The plan remains useful as design context for why the helper exists and what future
+advisory recommendation behavior could add. Treat unchecked historical checklist items below as
+planning context, not as proof that the shipped helper is absent.
 
 ## Current State
 
@@ -20,8 +21,9 @@ repo:
 git worktree add -b <branch> ../<repo>-<branch>
 ```
 
-The staged preflight hardening work adds a deterministic duplicate-current-branch guard. That guard
-detects unsafe shared ownership, but it does not create the safer checkout for the operator.
+The preflight hardening work adds a deterministic duplicate-current-branch guard. That guard detects
+unsafe shared ownership. The current helper covers the explicit setup path for creating the safer
+checkout; broader automatic recommendation behavior can still be layered on later.
 
 The remaining friction is therefore setup ergonomics: the user or staging agent must remember the
 exact worktree command, choose a path, avoid branch collisions, and switch into the new checkout.
@@ -63,7 +65,7 @@ just because that was the process current directory.
 git worktree add -b <branch> <worktree-dir> <base-ref>
 ```
 
-Add an opt-in helper mode later:
+The opt-in helper mode is:
 
 ```bash
 ./scripts/preflight.sh --create-worktree <branch>
@@ -88,7 +90,7 @@ Keep two behaviors separate:
 - **Hard guard:** preflight exits non-zero when it detects duplicate ownership of the current branch
   or another concrete collision risk that would make continuing unsafe.
 
-The future helper should not turn every worktree recommendation into a launch blocker. It should
+The helper should not turn every worktree recommendation into a launch blocker. It should
 block only when the ownership guard already says the checkout is unsafe.
 
 ## Detection Rules
@@ -191,14 +193,15 @@ Add tests before enabling automatic creation:
 If implementation remains in shell, use temporary git repositories in a Python unittest file so the
 test can inspect filesystem effects without depending on this repo's live worktrees.
 
-## Rollout
+## Rollout Status
 
-1. Land the duplicate-current-branch guard first.
-2. Add advisory-only command printing to preflight.
-3. Add `--dry-run --create-worktree` tests.
-4. Add explicit `--create-worktree` execution mode.
-5. Update README, `SKILL.md`, `AGENTS.md`, kickoff template, survival-guide template, changelog,
-   and repo consistency checks in the same implementation PR.
+1. Land the duplicate-current-branch guard first. Done in the integration stack.
+2. Add `--dry-run --create-worktree` tests. Done.
+3. Add explicit `--create-worktree` execution mode. Done.
+4. Update README, `SKILL.md`, `AGENTS.md`, kickoff template, survival-guide template, changelog,
+   and repo consistency checks in the same implementation PR. Done for the current helper surface.
+5. Add advisory-only command printing to default preflight when stronger signals exist. Future
+   optional polish; the default checklist remains non-mutating.
 
 ## Out Of Scope
 
@@ -209,7 +212,7 @@ test can inspect filesystem effects without depending on this repo's live worktr
 - Opening PRs or writing survival guides from the original checkout.
 - Coordinating two active agents on the same branch.
 
-## Acceptance Criteria For A Future Implementation
+## Implemented Behavior And Remaining Acceptance Criteria
 
 - A staging agent can get from "this repo may have another writer" to an isolated checkout with one
   explicit non-interactive command.

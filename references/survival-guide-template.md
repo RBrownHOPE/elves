@@ -40,6 +40,9 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
 - **Branch tip at start (collision tripwire):** [`git rev-parse HEAD` recorded at staging; an unexpected move means another writer is in your checkout]
 - **Merge policy:** [user-merges (default — you never merge) | merge-commit-on-green (opt-in: regular merge commit after the final readiness review passes, never squash) | reviewed-pr-landing-command / `\land-pr` / `/land-pr` (one-off explicit merge opt-in for the current PR)]
 - **Final-response policy:** [allowed | disallowed until stop]
+- **Coordination mode:** [Cobbler-first (default) | direct-agent override] — use Cobbler lenses for
+  non-trivial planning, contract, risk, debugging, review, and synthesis decisions; use direct
+  execution only for simple mechanical tasks or when the survival guide explicitly overrides it
 - **Batch completion rule:** Every completed batch ends with `update execution log -> update survival guide -> commit -> push`. A batch is not complete while its finished work exists only in the working tree.
 - **Re-read rule:** Immediately after every commit and push, re-read this survival guide before doing anything else.
 - **Checkpoint rule:** If `Checkpoint semantics` is `delivery target only`, log the checkpoint, push it, and continue immediately. Do not stop at the checkpoint.
@@ -468,14 +471,16 @@ math-fallback-policy: record-before-switching-provider
 math-ledger-dir: docs/math
 ```
 
-### Cobbler Configuration (optional)
+### Cobbler Coordination Defaults
 
-> Use this when the run may call Cobbler for a fitted answer. Quick Cobbler is native subagent
-> first, read-only, and stateless by default. Provider-backed council is optional advanced plumbing,
-> not required for normal Cobbler or Council-compatible use.
+> Cobbler-first coordination is the default for Elves runs. Quick Cobbler is the one-off answer
+> mode: native subagent first, read-only, and stateless. Provider-backed council is optional
+> advanced plumbing, not required for normal Cobbler or Council-compatible use.
 
 ```yaml
 cobbler-enabled: true
+cobbler-coordination-default: cobbler-first
+cobbler-default-for-elves-runs: true
 cobbler-default-mode: quick
 cobbler-default-backend: native-subagents
 cobbler-primary-invocations:

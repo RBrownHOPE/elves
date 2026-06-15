@@ -90,6 +90,7 @@
 **PR:** [#N / "not created yet"]
 **Run mode:** [finite / open-ended] | **User returns:** [time / "never"]
 **Checkpoint semantics:** [none / delivery checkpoint / hard stop] | **Actual stop conditions:** [list]
+**Coordination:** [Cobbler-first / direct-agent override] | **Material lens decisions:** [summary / "none yet"]
 **Active compute at launch:** [none / list]
 **Continuation guard:** stop_allowed=[yes / no] | remaining_batches=[N] | checkpoint_is_stop=[yes / no] | next_required_action=[one sentence]
 
@@ -187,6 +188,11 @@
   "Chose to extract shared validator into /lib/validators.ts rather than duplicating across
   handlers. Reduces future drift, no API surface change."]
 - [Decision + reasoning]
+
+**Cobbler synthesis:**
+- Recommendation: [material fitted answer or "N/A"]
+- Strongest dissent: [objection, uncertainty, or verification gap preserved / "N/A"]
+- Next move: [action taken because of the synthesis / "N/A"]
 
 **Route notes:**
 - Requested route: [none / phase preference]

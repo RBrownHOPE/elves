@@ -1,20 +1,24 @@
 # Cobbler Provider-Backed Council Configuration
 
-Cobbler is native-subagent-first. Configure providers only when the user wants optional
-provider-backed council model diversity. Normal Cobbler, `/cobbler`, `$elves cobbler: <task>`,
-`/council`, `/ec`, `/elves-council`, and `$elves council: <task>` use must work without
-OpenRouter or any external provider key.
+Cobbler-first coordination is the default for Elves runs, and the default route is host-native.
+Configure providers only when the user wants optional provider-backed council model diversity.
+Normal Cobbler use must work without OpenRouter or any external provider key. Host invocation is
+separate: `/cobbler` is the Claude Code alias, while `$elves cobbler: <task>` is the reliable Codex
+form. Council-compatible aliases `/council`, `/ec`, `/elves-council`, and `$elves council: <task>`
+also use the same provider-optional Cobbler behavior.
 
 This file keeps its `council-provider-config.md` name for `v1.14.0` compatibility. In `v1.15.0+`,
 provider-backed council replaces the old product label while preserving legacy `council-*` config
 keys where users already rely on them.
 
-## Default Quick Cobbler
+## Default Cobbler Routing
 
-Quick Cobbler needs no provider configuration:
+Cobbler-first Elves runs and Quick Cobbler one-off answers need no provider configuration:
 
 ```yaml
 cobbler-enabled: true
+cobbler-coordination-default: cobbler-first
+cobbler-default-for-elves-runs: true
 cobbler-default-mode: quick
 cobbler-default-backend: native-subagents
 cobbler-primary-invocations:
@@ -127,7 +131,7 @@ council-provider-backed-required-env: []
 If the user requests provider-backed council and external providers are not configured:
 
 1. Say provider-backed council is unavailable.
-2. Fall back to native-subagent Quick Cobbler.
+2. Fall back to native-subagent Cobbler for the same role/lens.
 3. Preserve the user's requested roles where possible.
 4. Do not ask for keys mid-run unless the user explicitly wants provider setup.
 5. Do not search local files for secrets.

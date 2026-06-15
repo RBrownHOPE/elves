@@ -7,10 +7,11 @@ diffs it after each batch. The goal is to catch accidental changes to routes, sc
 shapes, exported library interfaces, CLI commands, or event contracts that can pass ordinary tests
 but still break downstream consumers.
 
-Done means a future implementation can add this as a focused extension of the existing regression
-attestation and high-risk review flow. It should be useful for REST, GraphQL, libraries, CLIs, and
-other contract-bearing projects, while staying off by default for repos where there is no public
-API surface to snapshot.
+Status as of the integration preview: the optional snapshot policy is documented in the skill,
+agent instructions, README, templates, config examples, review guidance, and consistency checks.
+The concrete snapshot helper/parser remains future work. This plan remains as design context for
+the shape of that helper and for why snapshot evidence stays advisory unless a project explicitly
+requires it.
 
 ## Product Shape
 
@@ -298,5 +299,6 @@ structured spec files; defer clever discovery until there is a concrete project 
   extend that proof surface rather than creating a separate API-governance subsystem.
 - The constitution remains the place for durable human-owned promises. API snapshots answer "did
   the public surface change?" The constitution answers "does the product still keep its promises?"
-- This is intentionally a design-only scout note. It should be reviewed before any canonical skill,
-  script, or config changes land.
+- The integration preview has already landed the canonical optional snapshot guidance and guardrails.
+  A concrete helper script, parser, or artifact format should still be reviewed separately before it
+  lands.

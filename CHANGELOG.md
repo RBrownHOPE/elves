@@ -4,6 +4,12 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+- Made Cobbler-first coordination the default Elves run model: Run Cobbler now frames planning,
+  contract, risk, debugging, review, and synthesis decisions, while Quick Cobbler remains the
+  read-only one-off answer mode.
+- Added Cobbler Mode as a thread-local convention: `/cobbler-mode` in Claude Code and
+  `$elves cobbler-mode` in Codex keep follow-up prompts Cobbler-mediated without creating durable
+  run state or requiring provider-backed council.
 - Added `scripts/release_checklist.py`, a read-only maintainer helper for release sweeps covering
   version alignment, changelog promotion, current-version examples, and changed human-facing docs.
 - Added tests, README usage notes, TODO closure, and CI compilation coverage for the release
@@ -13,6 +19,10 @@ All notable changes to the Elves skill are documented here.
 - Added `--fail-on-draft` to the PR portfolio helper so operators can compose
   `--fail-on-attention --fail-on-draft` as a landing-readiness gate without treating intentional
   drafts as attention-worthy.
+- Cleaned up integration-preview status wording across follow-up plan docs, the context index, and
+  preflight branch-ahead messaging so shipped helpers are not described as absent future work.
+- Changed the release checklist summary to say `completed with warnings` when warning-only
+  development checks pass with advisory follow-ups.
 - Made the `tests/` directory importable so plain `python3 -m unittest discover` finds the helper
   regression suite instead of reporting zero tests.
 - Added a repo-only `scripts/workspace_guard.py` prototype that checks candidate write commands

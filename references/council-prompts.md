@@ -1,15 +1,15 @@
 # Cobbler Prompt Templates (Council Compatibility)
 
-Use these prompts as templates for read-only Cobbler roles. Fill in the bracketed fields from the
-user request and the available repo, PR, plan, or document context. Do not paste secrets.
+Use these prompts as templates for Cobbler lens and worker roles. Fill in the bracketed fields from
+the user request and the available repo, PR, plan, or document context. Do not paste secrets.
 
 This file keeps its `council-prompts.md` name for `v1.14.0` compatibility. In `v1.15.0+`, Council
-is the compatibility path and temporary read-only gathering; Cobbler is the coordinator.
+is the compatibility path and temporary gathering; Cobbler is the coordinator.
 
 Full-run model routing belongs to Elves run control, not the Quick Cobbler role selector. Quick
-Cobbler chooses useful lenses for one fitted answer. Full Elves runs may separately record
-requested route, actual route, and fallback reason for implementation, validation, review,
-scouting, and synthesis phases.
+Cobbler chooses useful lenses for one fitted answer. Run Cobbler is the default coordination
+pattern inside Elves runs and may separately record requested route, actual route, and fallback
+reason for implementation, validation, review, scouting, and synthesis phases.
 
 Cobbler roles are lenses with obligations, not theatrical personas. They should be direct,
 bounded, and evidence-seeking.
@@ -19,14 +19,22 @@ bounded, and evidence-seeking.
 Add this block to every role prompt:
 
 ```text
-Mode: [Quick Cobbler / Run Cobbler / Provider-backed council]
+Mode: [Quick Cobbler / Run Cobbler]
+Provider route: [native-subagent / native-coordinator / provider:model-id / N/A]
 Question: [USER QUESTION]
 Relevant context: [FILES / PLAN / PR / LOGS / CONSTRAINTS]
+Work scope: [read-only lens / worker edit with assigned files]
 Date: [CURRENT DATE]
 
-You are contributing one independent Cobbler lens. Do not read or rely on other role reports before
-synthesis. Work read-only: inspect and reason, but do not edit files, create branches, open PRs,
-install packages, or mutate run state.
+You are contributing one independent Cobbler role. Do not read or rely on other role reports before
+synthesis.
+
+If Work scope is read-only lens: inspect and reason, but do not edit files, create branches, open
+PRs, install packages, or mutate run state.
+
+If Work scope is worker edit: edit only the assigned files or modules, do not revert unrelated
+changes, and report the files changed. The main coordinator owns git operations, durable memory,
+PRs, and final synthesis unless it explicitly delegates a narrower action.
 
 Return a bounded report:
 role:
@@ -61,12 +69,16 @@ Available roles:
 Return:
 1. selected_roles:
 2. why_each_role:
-3. mode: quick | run | provider-backed
-4. context_to_give_every_role:
-5. constraints:
+3. mode: quick | run
+4. provider_route: native-subagent | native-coordinator | provider:model-id | N/A
+5. work_scope: read-only lens | worker edit
+6. context_to_give_every_role:
+7. constraints:
 
 Use explicit role overrides if provided. For small questions, prefer two roles. For architecture,
-migration, release, or ambiguous risk questions, prefer three.
+migration, release, or ambiguous risk questions, prefer three. In active Elves runs, use read-only
+lenses for planning/review/dissent and worker-edit roles only for implementation tasks with clear
+ownership.
 ```
 
 ## Architect
@@ -177,7 +189,8 @@ Return the role report. Mark each lead as useful, speculative, blocked, or irrel
 You are synthesizing independent Cobbler lens reports.
 
 Question: [USER QUESTION]
-Mode: [Quick Cobbler / Run Cobbler / Provider-backed council]
+Mode: [Quick Cobbler / Run Cobbler]
+Provider route: [native-subagent / native-coordinator / provider:model-id / N/A]
 Role reports: [INDEPENDENT REPORTS]
 Constraints: [CONSTRAINTS]
 

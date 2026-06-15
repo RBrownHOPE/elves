@@ -1,11 +1,13 @@
 # Using Elves With Codex Goals
 
 Codex Goals can make Elves runs more reliable by providing a native continuation backend for
-Codex. Treat Goals as the engine that keeps Codex moving, and Elves as the operating protocol that
-defines what the agent must do before the branch is review-ready.
+Codex. Goals keeps Codex moving; Cobbler coordinates the Elves loop; Elves memory/readiness
+surfaces define completion before the branch is review-ready.
 
 Goals should not replace the Elves loop. The plan, survival guide, execution log,
 `.elves-session.json`, learnings file, PR feedback, and Readiness Gate remain the source of truth.
+Cobbler-first coordination remains the default for non-trivial planning, contract, risk, debugging,
+review, and synthesis decisions inside the goal.
 
 Codex Goals are not required for Quick Cobbler. For a one-off Cobbler answer in Codex, use
 `$elves cobbler: <task>` or natural language such as "Ask the Cobbler to..." Use
@@ -54,8 +56,9 @@ docs/elves/execution-log.md, then `.ai-docs/manifest.md` if it exists.
 
 Use the survival guide Stop Gate and Elves Readiness Gate as the definition of completion.
 Do not stop unless the Stop Gate allows it, I explicitly stop you, or you hit a genuine blocker.
-Run the full Elves loop: verify green, contract, implement, validate, review PR feedback, document,
-update memory, commit, push, reread the survival guide, and continue.
+Run the full Elves loop: Cobbler-coordinate non-trivial decisions, verify green, contract,
+implement, validate, review PR feedback, document, update memory, commit, push, reread the
+survival guide, and continue.
 
 If the goal budget is exhausted before the Readiness Gate is clean, do not claim completion.
 Write a reactivation handoff, update the execution log and survival guide, commit, push, and leave

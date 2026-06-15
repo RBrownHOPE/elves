@@ -37,6 +37,9 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - Tighten the plan if needed so it can survive compaction without the conversation
 - Generate or refresh the survival guide, learnings file, and execution log
 - Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-ins: merge-commit-on-green or reviewed-pr-landing-command), and `Active Compute` if relevant
+- Set `Coordination mode` to Cobbler-first by default: use independent lenses for non-trivial
+  planning, contract, risk, debugging, review, and synthesis decisions, while keeping writes, git,
+  PRs, and durable memory in the coordinator unless explicitly delegated
 - Create or switch to the branch, open or update the PR, and record the PR number
 - Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated git worktree instead of in the main checkout (`./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect first), and record the branch tip as a collision tripwire. The helper prints the branch, worktree path, base ref, and collision tripwire and does not reuse, delete, or repair existing worktrees.
 - Configure optional public API surface snapshot behavior if this project has public contract
@@ -70,6 +73,9 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - Tighten the plan if needed so it can survive compaction without the conversation
 - Generate or refresh the survival guide, learnings file, and execution log
 - Set `## Run Control` explicitly, including run mode, checkpoint semantics, may-continue-after-checkpoint, actual stop conditions, workspace ownership (owned branch, and dedicated worktree if used), merge policy (default: you never merge; opt-ins: merge-commit-on-green or reviewed-pr-landing-command), and `Active Compute` if relevant
+- Set `Coordination mode` to Cobbler-first by default: use independent lenses for non-trivial
+  planning, contract, risk, debugging, review, and synthesis decisions, while keeping writes, git,
+  PRs, and durable memory in the coordinator unless explicitly delegated
 - Create or switch to the branch, open or update the PR, and record the PR number
 - Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated git worktree instead of in the main checkout (`./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect first), and record the branch tip as a collision tripwire. The helper prints the branch, worktree path, base ref, and collision tripwire and does not reuse, delete, or repair existing worktrees.
 - Configure optional public API surface snapshot behavior if this project has public contract
@@ -101,6 +107,7 @@ The run is staged. Start now.
 Read [path/to/survival-guide.md] first, then `.elves-session.json` if it exists, then [path/to/learnings.md] if it exists, then [path/to/plan.md], then the execution log at [path/to/execution-log.md], then `.ai-docs/manifest.md` if it exists.
 I am going offline until [WHEN].
 By [WHEN], I want [CHECKPOINT DELIVERABLE]. This is a [delivery checkpoint / hard stop].
+Operate Cobbler-first: use independent lenses for non-trivial planning, contract, risk, debugging, review, and synthesis decisions; keep writes, git, PRs, and durable memory in the coordinator unless explicitly delegated.
 Do not stop unless you hit a genuine blocker with no reasonable workaround.
 Do not be lazy. Work as hard as you can for the entire run.
 Do not coast after the first success, first green check, or first useful checkpoint. Push each batch to a thoroughly verified state, then continue immediately.

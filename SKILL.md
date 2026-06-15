@@ -1,6 +1,6 @@
 ---
 name: elves
-description: Autonomous multi-batch development agent for long unattended runs, reviewed-PR landing, and Cobbler multi-agent synthesis. Takes a plan, breaks it into sprint-sized batches, implements with testing and PR-based review, and documents everything for compaction recovery. Use when user says "run overnight", "I'm going offline", "implement this plan", "keep going without me", "do not stop", "I'll be back in the morning", "run this end-to-end", asks to get a subagent to review the diff from main, read PR comments, test, fix, and merge commit once green, types \land-pr or /land-pr, asks for `/cobbler`, `/council`, `/ec`, or `/elves-council`, or says `$elves cobbler`.
+description: Autonomous multi-batch development agent for long unattended runs, reviewed-PR landing, and Cobbler-first orchestration. Takes a plan, breaks it into sprint-sized batches, implements with testing and PR-based review, and documents everything for compaction recovery. Use when user says "run overnight", "I'm going offline", "implement this plan", "keep going without me", "do not stop", "I'll be back in the morning", "run this end-to-end", asks to get a subagent to review the diff from main, read PR comments, test, fix, and merge commit once green, types \land-pr or /land-pr, asks for `/cobbler`, `/council`, `/ec`, or `/elves-council`, or says `$elves cobbler`.
 license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
@@ -108,10 +108,11 @@ remain unverified until a human records the proof and source checks.
 
 ## Cobbler
 
-Elves can also run Cobbler: a lightweight chat-native coordinator for planning, design, debugging,
-and review questions that benefit from independent lenses before one fitted answer. Ask Cobbler
-once, and it decides how much help to bring in: a direct answer, a few specialist elves, or a
-read-only council of independent lenses.
+Cobbler is Elves' default orchestration model: a lightweight chat-native coordinator for planning,
+design, debugging, implementation, review, and synthesis decisions that benefit from independent
+lenses before one fitted answer. In normal Elves runs, operate Cobbler-first: classify the work,
+route the right agents/tools/skills, preserve dissent, and synthesize the next action before moving
+the loop forward.
 
 Primary invocation depends on the host:
 
@@ -124,13 +125,28 @@ Compatibility aliases remain supported: `/council`, `/ec`, `/elves-council`, and
 Host honesty matters. Claude Code can use the managed slash-skill aliases. Codex should use the
 `$elves cobbler: <task>` skill invocation or natural chat; do not assume Codex has a top-level `/cobbler` command unless the user's Codex install explicitly provides one.
 
-Quick Cobbler is the default. It is read-only and stateless unless the user explicitly asks to
-attach the result to an active Elves run. Use native subagents first: Codex subagents in Codex,
-Claude Code subagents in Claude Code, or the same read-only analysis directly when subagents are
-unavailable. Cobbler chooses two or three useful roles, asks them to inspect independently, then
+Cobbler Mode is the lowest-friction way to keep chatting with the Cobbler in one thread. In Claude
+Code, use `/cobbler-mode` when the managed alias skill is installed. In Codex, use
+`$elves cobbler-mode` or natural chat such as "Cobbler Mode: on" or "From now on, answer as the
+Cobbler until I say Cobbler Mode: off." While Cobbler Mode is active, treat follow-up prompts as
+Cobbler-mediated by default: answer directly when the task is simple, use Quick Cobbler lenses when
+independent advice helps, and escalate to normal Elves run coordination when the user asks for
+repo-changing work. Cobbler Mode is current-thread conversation state, not durable run state, a
+daemon, provider requirement, or Codex slash command. Exit with "Cobbler Mode: off" or "leave
+Cobbler Mode."
+
+Cobbler-first coordination is the default for Elves runs. For non-trivial planning, contract,
+risk, debugging, review, and synthesis decisions, use bounded independent lenses and then fit the
+result back into the normal Elves loop. The main coordinator still owns durable memory, git, PRs,
+and final synthesis; worker agents may edit the repo when the active batch or user request assigns
+them implementation work.
+
+Quick Cobbler is the default one-off answer mode. It is read-only, stateless, and
+native-subagent-first: Codex uses Codex subagents, Claude Code uses Claude Code subagents, and
+environments without subagents perform the same read-only lens analysis directly. Quick Cobbler
 returns one fitted answer with Recommendation, Why this fits, Strongest dissent, Risks, Next move,
-and Confidence. It
-should not edit files, create branches, open PRs, install packages, or mutate run state.
+and Confidence. It should not edit files, create branches, open PRs, install packages, or mutate
+run state.
 
 Codex Goals are optional continuation plumbing for full Elves runs. They are not required for a Quick Cobbler answer.
 
@@ -140,11 +156,12 @@ OpenRouter or any external provider key. Cobbler borrows the useful harness patt
 reports plus synthesis; it does not copy vendor identity, policy, persona, or safety framing.
 
 Optional model routing is role-scoped, not a new user mode. The default route is always the host's
-native subagent or direct read-only analysis. If a survival guide or config maps a Cobbler role to a
-provider model such as `openrouter:<model-id>`, use it only when provider-backed council is enabled
-and the named environment variable is present; otherwise fall back to native and note the fallback in
-the answer. Treat model diversity as another source of evidence, not authority: resolve dissent by
-repo facts, tests, sources, and user constraints rather than by model prestige.
+native subagent, worker agent, or direct analysis according to the task. If a survival guide or
+config maps a Cobbler role to a provider model such as `openrouter:<model-id>`, use it only when
+provider-backed council is enabled and the named environment variable is present; otherwise fall
+back to native and note the fallback in the answer. Treat model diversity as another source of
+evidence, not authority: resolve dissent by repo facts, tests, sources, and user constraints
+rather than by model prestige.
 
 Full-run model routing is a separate optional staging preference, not a Quick Cobbler mode. A plan
 or survival guide may record `model-routing` phase preferences for implementation, validation,

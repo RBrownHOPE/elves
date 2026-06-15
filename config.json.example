@@ -35,6 +35,8 @@
 
   "cobbler": {
     "enabled": true,
+    "coordination_default": "cobbler-first",
+    "default_for_elves_runs": true,
     "default_mode": "quick",
     "default_backend": "native-subagents",
     "primary_invocations": {
@@ -89,7 +91,7 @@
         "tester": "medium"
       }
     },
-    "_comment": "Optional Cobbler configuration. Quick Cobbler uses native subagents and requires no external provider key. Provider-backed council and role model routing are opt-in; do not hardcode private keys."
+    "_comment": "Cobbler coordination defaults. Cobbler-first is the default for Elves runs; Quick Cobbler is the one-off answer mode. Provider-backed council and role model routing are opt-in; do not hardcode private keys."
   },
 
   "council": {

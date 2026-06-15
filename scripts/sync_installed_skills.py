@@ -8,9 +8,10 @@ Usage:
 
 `--check` reports drift between this repo checkout and the local installed copies.
 `--apply` overwrites the managed files/directories in the installed copies so they match
-this checkout exactly. Claude Code Cobbler alias skills are marker-gated: unmarked user-owned
-alias skill directories are reported as conflicts and are never overwritten. When `--target all` is
-used, the script only operates on installed targets it actually finds.
+this checkout exactly. Claude Code Cobbler, Cobbler Mode, and Council-compatible alias skills are
+marker-gated: unmarked user-owned alias skill directories are reported as conflicts and are never
+overwritten.
+When `--target all` is used, the script only operates on installed targets it actually finds.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ REPO_ONLY_SCRIPT_PATHS = [
     "scripts/sync_installed_skills.py",
 ]
 CLAUDE_ALIAS_MARKER = "<!-- elves-managed-alias: claude-skill-alias v1 -->"
-CLAUDE_ALIAS_NAMES = ["cobbler", "council", "ec", "elves-council"]
+CLAUDE_ALIAS_NAMES = ["cobbler", "cobbler-mode", "council", "ec", "elves-council"]
 
 TARGETS = {
     "claude": {

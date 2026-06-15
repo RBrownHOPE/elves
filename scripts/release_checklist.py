@@ -249,7 +249,10 @@ def render_result(result: ChecklistResult) -> str:
         lines.append("NOTES")
         lines.extend(f"- {note}" for note in result.notes)
 
-    if result.ok:
+    if result.ok and result.warnings:
+        lines.append("")
+        lines.append("Release checklist completed with warnings")
+    elif result.ok:
         lines.append("")
         lines.append("Release checklist OK")
 
