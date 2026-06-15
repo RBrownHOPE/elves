@@ -486,6 +486,54 @@ cobbler-provider-backed-optional-env:
 
 Legacy `council-*` config keys remain compatibility aliases for existing `v1.14.0` setups.
 
+### Full-Run Model Routing (optional)
+
+> Use this only for full Elves runs that should prefer different elves for implementation,
+> validation, review, scouting, or synthesis. This is routing metadata, not a guaranteed model
+> switch. Native host capability is the default. Missing optional provider access falls back to
+> host-native work and is not blocking unless this survival guide explicitly sets `required: true`
+> for a phase.
+
+```yaml
+model-routing:
+  enabled: true
+  policy: native-first
+  fallback: host-native
+  phases:
+    implement:
+      preference: strongest-host-native
+      provider-backed-allowed: false
+      required: false
+    validate:
+      preference: reliable-host-native
+      provider-backed-allowed: false
+      required: false
+    review:
+      preference: independent-lens
+      provider-backed-allowed: true
+      required: false
+    scout:
+      preference: broad-fast-lens
+      provider-backed-allowed: true
+      required: false
+    synthesize:
+      preference: coordinator
+      provider-backed-allowed: true
+      required: false
+
+# Terse aliases are allowed during staging and should expand to the structured block above.
+implement-model: strongest-host-native
+validate-model: reliable-host-native
+review-model: independent-lens
+scout-model: broad-fast-lens
+synthesize-model: coordinator
+
+# Record only material route changes in the execution log or `.elves-session.json`:
+# requested-route: review independent-lens
+# actual-route: native-subagent
+# fallback-reason: provider-backed council unavailable; native-first fallback used
+```
+
 ---
 
 ## Architectural Boundaries (optional)

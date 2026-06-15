@@ -113,6 +113,17 @@ diversity, but normal Cobbler, `/council`, `/ec`, and `/elves-council` use must 
 OpenRouter or any external provider key. Cobbler borrows the useful harness pattern of role-specific
 reports plus synthesis; it does not copy vendor identity, policy, persona, or safety framing.
 
+Full-run model routing is a separate optional staging preference, not a Quick Cobbler mode. A plan
+or survival guide may record `model-routing` phase preferences for implementation, validation,
+review, scouting, and synthesis. The policy is native-first by default: use the host's main agent or
+native subagents when available, fall back to direct analysis when not, and use provider-backed
+routes only for explicitly configured read-only review, scouting, or synthesis roles. Record
+requested route, actual route, and material fallback reason in the execution log or
+`.elves-session.json` when the route changes risk or confidence. Missing optional provider access
+never blocks an ordinary run. Treat `required: true` as valid only when the user explicitly set it in
+the project survival guide; never infer it from provider config, Quick Cobbler, or legacy Council
+aliases.
+
 ## Strategic Forgetting
 
 Durable memory must stay curated. Giant chats, append-only scratchpads, and huge logs are drag, not

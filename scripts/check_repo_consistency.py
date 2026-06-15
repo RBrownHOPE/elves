@@ -760,6 +760,117 @@ COBBLER_FORBIDDEN_PATTERNS = {
     )
 }
 
+FULL_RUN_MODEL_ROUTING_PHRASES = {
+    "SKILL.md": [
+        "Full-run model routing is a separate optional staging preference",
+        "`model-routing` phase preferences",
+        "native-first by default",
+        "requested route, actual route, and material fallback reason",
+        "Missing optional provider access",
+        "`required: true`",
+    ],
+    "AGENTS.md": [
+        "Full-run model routing is a separate optional staging preference",
+        "`model-routing` phase preferences",
+        "native-first by default",
+        "requested route, actual route, and material fallback reason",
+        "Missing optional provider access",
+        "`required: true`",
+    ],
+    "README.md": [
+        "the Cobbler can prefer different elves for different phases",
+        "`model-routing` preferences",
+        "advisory unless the host",
+        "missing optional provider access falls back to",
+        "`required: true`",
+        "explicit survival-guide opt-in",
+    ],
+    "references/survival-guide-template.md": [
+        "### Full-Run Model Routing (optional)",
+        "policy: native-first",
+        "fallback: host-native",
+        "implement-model: strongest-host-native",
+        "requested-route: review independent-lens",
+    ],
+    "references/execution-log-template.md": [
+        "**Phase routing (optional):**",
+        "Requested route",
+        "Actual route",
+        "Fallback reason",
+    ],
+    "references/review-subagent.md": [
+        "## Phase Route Context",
+        "requested route, actual route, and fallback reason",
+        "required: true",
+        "Missing optional provider access is not a",
+    ],
+    "references/tool-config-examples.md": [
+        "## Full-Run Model Routing",
+        "model-routing:",
+        "native-subagent, host-default",
+        "openrouter:<model-id>",
+        "Do not treat bare aliases as provider model IDs",
+    ],
+    "references/council-workflow.md": [
+        "Run Cobbler is not the same thing as full-run model routing",
+        "requested route, actual route, and material fallback reason",
+        "not in a separate council ledger",
+    ],
+    "references/council-prompts.md": [
+        "Full-run model routing belongs to Elves run control",
+        "not the Quick Cobbler role selector",
+    ],
+    "references/council-provider-config.md": [
+        "## Full-Run Phase Routes",
+        "Provider-backed council slots may satisfy read-only full-run model-routing phases",
+        "make implementation provider-backed by default",
+        "route, actual route, and fallback reason",
+    ],
+    "config.json.example": [
+        '"model_routing"',
+        '"policy": "native-first"',
+        '"fallback": "host-native"',
+        '"required": false',
+        '"provider_backed_allowed": false',
+        '"log_material_fallbacks": true',
+    ],
+}
+
+FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES = {
+    label: [
+        "ordinary Elves requires OpenRouter",
+        "normal Elves requires OpenRouter",
+        "model-routing requires OpenRouter",
+        "full-run model routing requires OpenRouter",
+        "required: true is the default",
+        "route mismatch is always blocking",
+        "implementation routes to external providers by default",
+        "Quick Cobbler uses model-routing",
+    ]
+    for label in (
+        "SKILL.md",
+        "AGENTS.md",
+        "README.md",
+        "references/survival-guide-template.md",
+        "references/execution-log-template.md",
+        "references/review-subagent.md",
+        "references/tool-config-examples.md",
+        "references/council-workflow.md",
+        "references/council-prompts.md",
+        "references/council-provider-config.md",
+        "config.json.example",
+    )
+}
+
+FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS = {
+    label: [
+        r"\bfull-run\s+model\s+routing\s+requires\s+(?:an\s+)?external\s+provider\s+key\b",
+        r"\bmodel-routing\s+requires\s+openrouter\b",
+        r"\brequired:\s*true\s+is\s+(?:the\s+)?default\b",
+    ]
+    for label in FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES
+}
+
 PUBLIC_WORDING_FILES = [
     REPO_ROOT / "SKILL.md",
     REPO_ROOT / "AGENTS.md",
@@ -1058,6 +1169,33 @@ def main() -> int:
         )
     )
 
+    full_run_routing_texts = {
+        label: read_text(REPO_ROOT / label)
+        for label in set(FULL_RUN_MODEL_ROUTING_PHRASES)
+        | set(FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES)
+    }
+    errors.extend(
+        find_missing_phrases(
+            full_run_routing_texts,
+            FULL_RUN_MODEL_ROUTING_PHRASES,
+            "full-run model routing",
+        )
+    )
+    errors.extend(
+        find_forbidden_phrases(
+            full_run_routing_texts,
+            FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES,
+            "full-run model routing",
+        )
+    )
+    errors.extend(
+        find_forbidden_patterns(
+            full_run_routing_texts,
+            FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS,
+            "full-run model routing",
+        )
+    )
+
     public_texts = public_wording_texts()
     errors.extend(
         find_forbidden_phrases(
@@ -1097,6 +1235,7 @@ def main() -> int:
     print("- Math research workflow guardrails are aligned")
     print("- Reviewed PR landing command guardrails are aligned")
     print("- Cobbler guardrails are aligned")
+    print("- Full-run model routing guardrails are aligned")
     print("- Public wording guardrails are aligned")
     print("- Claude Cobbler alias guardrails are aligned")
     return 0

@@ -102,6 +102,42 @@
     "_comment": "Legacy v1.14 Council-compatible config. Prefer the top-level cobbler block in new configs. If both blocks are present, cobbler wins; keep council for older projects that already refer to council keys."
   },
 
+  "model_routing": {
+    "enabled": false,
+    "policy": "native-first",
+    "fallback": "host-native",
+    "required": false,
+    "phases": {
+      "implement": {
+        "preference": "strongest-host-native",
+        "provider_backed_allowed": false,
+        "notes": "Use the main coding agent or a host-native implementation subagent."
+      },
+      "validate": {
+        "preference": "reliable-host-native",
+        "provider_backed_allowed": false,
+        "notes": "Run commands locally and prioritize reproducible evidence."
+      },
+      "review": {
+        "preference": "independent-lens",
+        "provider_backed_allowed": true,
+        "notes": "Prefer a fresh model or subagent when available."
+      },
+      "scout": {
+        "preference": "broad-fast-lens",
+        "provider_backed_allowed": true,
+        "notes": "Use optional external providers for breadth only when configured."
+      },
+      "synthesize": {
+        "preference": "coordinator",
+        "provider_backed_allowed": true,
+        "notes": "Return one fitted answer with dissent and next action."
+      }
+    },
+    "log_material_fallbacks": true,
+    "_comment": "Optional full-run phase routing preferences. Advisory unless the host or configured provider supports the route. Missing optional provider access falls back to host-native and does not block ordinary Elves or Cobbler use."
+  },
+
   "math": {
     "enabled": false,
     "provider_policy": "openrouter-first",

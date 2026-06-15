@@ -134,6 +134,11 @@
 - `[shared/file/or/doc]` ([N] consumers), [additive / modified / breaking]
 - Risk: [low / medium / high], [one-line explanation]
 
+**Phase routing (optional):**
+- Requested route: [none / phase preference from `model-routing`]
+- Actual route: [host-native / native-subagent / direct-analysis / provider-backed / N/A]
+- Fallback reason: [none / material reason route changed]
+
 **Pre-implementation survey:**
 - `[command]` -> [what you found]
 - `[command]` -> [what you found]
@@ -182,6 +187,11 @@
   "Chose to extract shared validator into /lib/validators.ts rather than duplicating across
   handlers. Reduces future drift, no API surface change."]
 - [Decision + reasoning]
+
+**Route notes:**
+- Requested route: [none / phase preference]
+- Actual route: [host-native / native-subagent / direct-analysis / provider-backed / N/A]
+- Fallback reason: [none / material reason route changed]
 
 **Process adjustments:**
 - [Any entropy-check or retro adjustment made to the Elves process itself, e.g., "Added a

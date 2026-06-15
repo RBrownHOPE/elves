@@ -6,6 +6,11 @@ user request and the available repo, PR, plan, or document context. Do not paste
 This file keeps its `council-prompts.md` name for `v1.14.0` compatibility. In `v1.15.0+`, Council
 is the compatibility path and temporary read-only gathering; Cobbler is the coordinator.
 
+Full-run model routing belongs to Elves run control, not the Quick Cobbler role selector. Quick
+Cobbler chooses useful lenses for one fitted answer. Full Elves runs may separately record
+requested route, actual route, and fallback reason for implementation, validation, review,
+scouting, and synthesis phases.
+
 Cobbler roles are lenses with obligations, not theatrical personas. They should be direct,
 bounded, and evidence-seeking.
 

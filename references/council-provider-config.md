@@ -70,6 +70,19 @@ Leave `cobbler-provider-backed-required-env` empty unless a specific project int
 provider-backed council a required workflow. Do not make ordinary Cobbler or Council-compatible use
 depend on that setting.
 
+## Full-Run Phase Routes
+
+Provider-backed council slots may satisfy read-only full-run model-routing phases such as review,
+scout, or synthesize when the user has enabled providers and the context is safe to share. Do not
+make implementation provider-backed by default. Implementation and validation mutate or inspect the
+local checkout, so they stay host-native unless the survival guide explicitly opts into a
+write-capable external workflow with branch/worktree isolation, no secret exposure, patch/report
+handoff, and mandatory native validation plus review.
+
+When a requested full-run route cannot run, fall back to host-native work and record the requested
+route, actual route, and fallback reason only if it changes risk or confidence. A route mismatch is
+blocking only when the survival guide explicitly marks that phase `required: true`.
+
 ## Legacy Council Compatibility
 
 Existing `council-*` config keys are still recognized as compatibility aliases for the same
