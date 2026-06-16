@@ -107,7 +107,7 @@ operator scripts and CI. Shared surfaces modified: `scripts/check_repo_consisten
 156-unit test suite, JSON validation, py_compile, shell syntax check, release checklist, and repo
 consistency check. Confidence: HIGH for documentation coherence and helper behavior.
 
-**Commit:** pending
+**Commit:** `605179e`
 **Rollback tag:** `elves/cobbler-domain-workflows-pre-batch-1`
 
 **Next:** commit, push, poll PR comments/checks, then perform final cleanup before landing.
