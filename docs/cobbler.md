@@ -18,6 +18,21 @@ to inspect or work, weighs the evidence, and returns one answer.
 For a normal chat question, that answer is the result. For an active Elves run, Cobbler may also
 record the decision in the existing run memory.
 
+## The coordination hierarchy
+
+Cobbler sits inside Elves, not beside it:
+
+- **Elves** handles execution: plans, branches, PRs, validation, review, memory, and landing.
+- **Cobbler** handles coordination: intent, routing, context, evidence, dissent, medium, and fitted
+  answer.
+- **Domain workflows** handle specialized work under Cobbler.
+- **Providers** are optional role routes.
+
+Math is the first domain workflow. When a task is mathematical, Cobbler routes into the math
+workflow: Discovery Sprint, scout lanes, proof critics, derivation checkers, source auditors,
+artifact ledgers, and human verification. The math ledgers are domain evidence ledgers, not a
+separate Cobbler or Council memory system.
+
 ## The handling paths
 
 Cobbler has three handling paths and one sticky setting.
@@ -37,6 +52,9 @@ Cobbler has three handling paths and one sticky setting.
    This is the default coordination pattern for staged and active Elves runs. The coordinator owns
    git, PRs, durable memory, and final synthesis. Worker agents may edit the repo when the active
    batch or user request gives them scoped implementation work.
+   After Elves is invoked for a real run, record `## Cobbler Session State` in the survival guide
+   and `cobbler.default_for_session` in `.elves-session.json` so compaction preserves the
+   Cobbler-first posture.
 
 4. Cobbler Mode
 

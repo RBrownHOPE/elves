@@ -36,7 +36,11 @@ Review the current state of PR #[NUMBER] for repo [OWNER/REPO].
 6. The batch contract in the execution log at [EXECUTION_LOG_PATH] under the current batch heading
 7. Any full-run `model-routing` preferences in the survival guide, execution-log contract, or
    `.elves-session.json`: requested route, actual route, and fallback reason
-8. The `review_comments` array in [SESSION_JSON_PATH] to see what was already handled in previous cycles
+8. Any `## Cobbler Session State` block or `.elves-session.json` `cobbler.default_for_session`
+   state that explains how the run is being coordinated
+9. For mathematical runs, the relevant `docs/math/*` ledgers: claim, source, model-call,
+   open-question, failed-approach, and human-verification ledgers
+10. The `review_comments` array in [SESSION_JSON_PATH] to see what was already handled in previous cycles
 
 ```bash
 # Commit history for the batch
@@ -62,6 +66,13 @@ route, actual route, and material fallback reason. Missing optional provider acc
 blocker for a native-first run; it is a warning only when the fallback changes risk or confidence.
 It is blocking only when the survival guide explicitly made that phase route required and the
 coordinator could not satisfy it. Do not infer route authority from model prestige.
+
+## Math Domain Workflow Context
+
+If the PR touches a mathematical run or math workflow docs, verify that Cobbler remains the
+coordinator, math ledgers are treated as domain evidence artifacts, and provider routes are optional
+unless the survival guide explicitly marks them required. Model agreement is not proof; retained
+claims need source status, proof status, model-review status, and human-verification status.
 
 ## For each NEW or UNRESOLVED comment or finding:
 - Categorize as: BLOCKING (must fix), WARNING (should fix), INFO (note only), or PENDING-DOCS (implementation is acceptable but supporting docs are stale)
@@ -240,9 +251,10 @@ Read:
 3. The plan at [PLAN_PATH]
 4. The execution log at [EXECUTION_LOG_PATH]
 5. The survival guide at [SURVIVAL_GUIDE_PATH]
-6. .elves-session.json, especially review_comments and continuation_guard
-7. Every PR review comment — resolved and unresolved, from humans, bots, and CI — plus issue comments and current check runs
-8. TODO.md and relevant docs touched by the run
+6. .elves-session.json, especially cobbler, review_comments, and continuation_guard
+7. Math ledgers under docs/math when the run is mathematical
+8. Every PR review comment — resolved and unresolved, from humans, bots, and CI — plus issue comments and current check runs
+9. TODO.md and relevant docs touched by the run
 
 Run (or have the coordinator run and report results if you are read-only):
 - Every test that makes sense to confirm the branch is green: the full test suite plus any E2E or browser checks that apply. Report pass/fail counts and any skips.

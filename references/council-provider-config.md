@@ -11,6 +11,11 @@ This file keeps its `council-provider-config.md` name for `v1.14.0` compatibilit
 provider-backed council replaces the old product label while preserving legacy `council-*` config
 keys where users already rely on them.
 
+Math has its own Cobbler-managed domain workflow provider slots. Those slots follow the same
+principle: host-native or direct analysis is the fallback, configured external providers are
+optional evidence routes, and a provider becomes required only when the project survival guide says
+so explicitly.
+
 ## Default Cobbler Routing
 
 Cobbler-first Elves runs and Quick Cobbler one-off answers need no provider configuration:

@@ -1,12 +1,42 @@
 # Math Research Workflow
 
-This reference configures Elves for mathematical research. It is a beta workflow kit, not a proof
-oracle. Use it when the work may involve preliminary research, proof search, source audit,
-manuscript drafting, or post-draft review.
+This reference configures a Cobbler-managed Elves domain workflow for mathematical research. It is
+a beta workflow kit, not a proof oracle. Use it when the work may involve preliminary research,
+proof search, source audit, manuscript drafting, or post-draft review.
+
+Cobbler is the coordinator. It classifies the mathematical intent, builds the math context packet,
+routes scouts, proof critics, source auditors, derivation checkers, and optional provider-backed
+roles, collects evidence into the math ledgers, preserves the strongest dissent, and fits one
+research agenda or proof-review verdict back into the normal Elves run.
 
 The core rule is simple: models can generate ideas, search literature, criticize derivations, and
 explain drafts. They do not certify mathematics. A claim becomes verified only when a human records
 the proof and source checks in ordinary mathematical form.
+
+## Cobbler Harness Mapping
+
+Map the general Cobbler loop onto math work like this:
+
+- **Intent:** classify the request as discovery, source grounding, theorem drafting, proof attack,
+  derivation check, manuscript work, or final packet review.
+- **Capability scan:** inspect available sources, math ledgers, host subagents, configured role
+  routes, search tools, formalization tools, and user verification requirements.
+- **Route and medium selection:** choose scout lanes, critic roles, source-audit passes, direct
+  derivation checks, or manuscript editing, then decide whether the output belongs in chat, a proof
+  note, a ledger, a PR comment, or a handoff packet.
+- **Context packet:** give each role the same goal, definitions, hypotheses, known sources,
+  current claim/source/model-call ledger state, scope, and forbidden actions. Do not include
+  secrets or provider keys.
+- **Execute agents/tools/skills:** use host-native subagents or direct analysis by default, and
+  use configured external provider routes only when the survival guide or config enables them.
+- **Collect evidence:** record role reports, source locations, counterexamples, proof gaps,
+  derivation checks, disagreements, and confidence changes in the math ledgers.
+- **Fit answer:** return one agenda, theorem route, proof-review verdict, or manuscript action
+  plan with the strongest dissent visible.
+- **Present/record:** record material domain evidence in `docs/math/*` ledgers and material run
+  decisions in normal Elves memory.
+- **Reclassify:** if a proof attempt reveals missing sources, route back to source grounding; if a
+  theorem statement fails, route to weakened statements or failed-approach logging.
 
 ## When To Use This Workflow
 
@@ -37,7 +67,8 @@ Record these before spawning scouts:
 - known papers, if any;
 - what would count as useful progress;
 - what is out of scope;
-- available tools, models, search providers, and source access;
+- available host subagents, direct-analysis capacity, configured provider routes, search tools, and
+  source access;
 - whether the user wants breadth, a quick win, or a publication-grade result.
 
 ### Scout Lanes

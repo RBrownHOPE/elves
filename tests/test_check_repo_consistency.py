@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -630,11 +631,112 @@ Cobbler
             ],
         )
 
-    def test_math_workflow_remains_allowed_to_be_openrouter_first(self) -> None:
-        label = "references/math-provider-config.md"
+    def test_math_workflow_is_cobbler_managed_and_provider_optional(self) -> None:
+        self.assertIn("SKILL.md", self.consistency.DOMAIN_WORKFLOW_PHRASES)
+        self.assertIn(
+            "**Math** is the first domain workflow",
+            self.consistency.DOMAIN_WORKFLOW_PHRASES["SKILL.md"],
+        )
+        self.assertIn(
+            "Cobbler-managed Elves domain workflow",
+            self.consistency.MATH_MODULE_PHRASES["references/math-workflow.md"],
+        )
+        self.assertIn(
+            "No provider key is required by this template",
+            self.consistency.MATH_MODULE_PHRASES["references/math-provider-config.md"],
+        )
+        self.assertIn(
+            "math-required-env: []",
+            self.consistency.MATH_MODULE_PHRASES["references/survival-guide-template.md"],
+        )
 
-        self.assertNotIn(label, self.consistency.FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES)
-        self.assertIn("OPENROUTER_API_KEY", self.consistency.MATH_MODULE_PHRASES[label])
+    def test_math_workflow_forbidden_phrases_catch_openrouter_required_defaults(self) -> None:
+        label = "references/math-provider-config.md"
+        stale = "OpenRouter is the minimum useful setup"
+
+        self.assertIn(stale, self.consistency.DOMAIN_WORKFLOW_FORBIDDEN_PHRASES[label])
+
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.DOMAIN_WORKFLOW_FORBIDDEN_PHRASES,
+            "domain workflow",
+        )
+
+        self.assertEqual(errors, [f"{label}: stale domain workflow phrase `{stale}`"])
+
+    def test_math_workflow_forbidden_patterns_catch_required_openrouter_env(self) -> None:
+        label = "references/survival-guide-template.md"
+        text = "math-required-env:\n  - OPENROUTER_API_KEY"
+
+        errors = self.consistency.find_forbidden_patterns(
+            {label: text},
+            self.consistency.DOMAIN_WORKFLOW_FORBIDDEN_PATTERNS,
+            "domain workflow",
+        )
+
+        self.assertIn(
+            (
+                "references/survival-guide-template.md: stale domain workflow pattern "
+                "`\\bmath-required-env:\\s*\\n\\s*-\\s*OPENROUTER_API_KEY\\b`"
+            ),
+            errors,
+        )
+
+    def test_config_example_math_defaults_are_native_first_and_optional(self) -> None:
+        config = json.loads((REPO_ROOT / "config.json.example").read_text())
+        math_config = config["math"]
+
+        self.assertEqual(math_config["coordination"], "cobbler-managed-domain-workflow")
+        self.assertEqual(
+            math_config["provider_policy"],
+            "native-first-with-optional-external-routes",
+        )
+        self.assertEqual(math_config["required_env"], [])
+        self.assertIn("OPENROUTER_API_KEY", math_config["optional_env"])
+        self.assertNotIn("OPENROUTER_API_KEY", math_config["required_env"])
+        self.assertTrue(
+            all(
+                not route.startswith("openrouter:")
+                for route in math_config["role_models"].values()
+            )
+        )
+        self.assertTrue(
+            any(
+                route.startswith("openrouter:")
+                for route in math_config["external_route_examples"].values()
+            )
+        )
+
+    def test_config_domain_workflow_validator_reports_stale_openrouter_defaults(self) -> None:
+        original_read_text = self.consistency.read_text
+        stale_config = json.loads((REPO_ROOT / "config.json.example").read_text())
+        stale_config["math"]["provider_policy"] = "openrouter-first"
+        stale_config["math"]["required_env"] = ["OPENROUTER_API_KEY"]
+        stale_config["math"]["role_models"]["proof_critic"] = "openrouter:<model-id>"
+
+        def fake_read_text(path: Path) -> str:
+            if path == self.consistency.REPO_ROOT / "config.json.example":
+                return json.dumps(stale_config)
+            return original_read_text(path)
+
+        self.consistency.read_text = fake_read_text
+        try:
+            errors = self.consistency.validate_config_domain_workflow()
+        finally:
+            self.consistency.read_text = original_read_text
+
+        self.assertIn(
+            "config.json.example: `math.provider_policy` must not be `openrouter-first`",
+            errors,
+        )
+        self.assertIn(
+            "config.json.example: `math.required_env` must be empty by default",
+            errors,
+        )
+        self.assertIn(
+            "config.json.example: math role defaults must be native/direct, not OpenRouter (`proof_critic`)",
+            errors,
+        )
 
     def test_repo_consistency_workflow_guards_alias_and_config_paths(self) -> None:
         phrases = self.consistency.REPO_CONSISTENCY_WORKFLOW_PHRASES[

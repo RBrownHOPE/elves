@@ -44,6 +44,15 @@ def valid_guide_text() -> str:
 - Checkpoint rule: checkpoint is not completion
 - Continuation rule: continue without waiting for user acknowledgment
 
+## Cobbler Session State
+
+- Cobbler default: on
+- Activated by: Elves invocation
+- Scope: current Elves run
+- Behavior: treat follow-up prompts as Cobbler-mediated by default
+- Persistence: survival guide and .elves-session.json
+- Exit phrases: Cobbler Mode: off, leave Cobbler Mode
+
 ## Stop Gate
 
 - Planned batches remaining: 2

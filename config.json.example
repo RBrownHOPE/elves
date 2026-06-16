@@ -235,9 +235,11 @@
 
   "math": {
     "enabled": false,
-    "provider_policy": "openrouter-first",
-    "required_env": ["OPENROUTER_API_KEY"],
+    "coordination": "cobbler-managed-domain-workflow",
+    "provider_policy": "native-first-with-optional-external-routes",
+    "required_env": [],
     "optional_env": [
+      "OPENROUTER_API_KEY",
       "GEMINI_API_KEY",
       "ANTHROPIC_API_KEY",
       "XAI_API_KEY",
@@ -246,15 +248,19 @@
     ],
     "ledger_dir": "docs/math",
     "role_models": {
+      "subfield_scout": "native-subagent",
+      "cross_field_synthesizer": "native-coordinator",
+      "proof_critic": "native-subagent",
+      "derivation_checker": "native-subagent",
+      "source_auditor": "native-subagent",
+      "exposition_editor": "native-subagent",
+      "formalization_scout": "native-subagent"
+    },
+    "external_route_examples": {
       "subfield_scout": "openrouter:<model-id>",
-      "cross_field_synthesizer": "openrouter:<model-id>",
-      "proof_critic": "openrouter:<model-id>",
-      "derivation_checker": "openrouter:<model-id>",
-      "source_auditor": "openrouter:<model-id>",
-      "exposition_editor": "openrouter:<model-id>",
-      "formalization_scout": "openrouter:<model-id>"
+      "proof_critic": "openrouter:<model-id>"
     },
     "fallback_policy": "record-before-switching-provider",
-    "_comment": "Optional math research workflow configuration. Configure role slots in your project survival guide; do not hardcode private keys or provider secrets."
+    "_comment": "Optional math research workflow configuration. Math is a Cobbler-managed domain workflow. Configure role slots in your project survival guide; do not hardcode private keys or provider secrets. OPENROUTER_API_KEY is optional unless a project survival guide explicitly requires it."
   }
 }

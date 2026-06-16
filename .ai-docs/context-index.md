@@ -37,7 +37,8 @@ the runtime surfaces, and the checks that usually matter before editing.
 - `references/council-provider-config.md`: optional provider-backed Cobbler configuration.
 - `references/codex-goals.md`: how Goals keeps Codex moving while Cobbler coordinates the Elves
   loop.
-- `references/math-*.md`: math research workflow templates and provider-role guidance.
+- `references/math-*.md`: Cobbler-managed math domain workflow templates, ledgers, and provider
+  role guidance.
 
 ## Scripts
 
@@ -84,6 +85,10 @@ the runtime surfaces, and the checks that usually matter before editing.
   `references/council-provider-config.md`, survival/kickoff/execution-log templates, image assets
   such as `assets/cobbler-infographic.png`, and the Cobbler phrase maps in
   `scripts/check_repo_consistency.py`.
+- Math workflow change: read `references/math-workflow.md`, `references/math-provider-config.md`,
+  `references/math-plan-template.md`, `references/math-review-prompts.md`,
+  `references/math-artifact-ledgers.md`, `config.json.example`, README, and the domain-workflow
+  phrase maps and structured config tests.
 - Preflight or install change: read `scripts/preflight.sh`, `scripts/preflight_worktree.py`,
   `scripts/install_doctor.py`, `scripts/sync_installed_skills.py`, matching tests, README install
   sections, and `.ai-docs/gotchas.md`.

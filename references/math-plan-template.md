@@ -1,8 +1,10 @@
 # Plan: [Mathematical Research Goal]
 
 > Use this template when the mathematical target is uncertain or when the goal is to produce a
-> research note, proof, manuscript, or literature-grounded answer. Remove sections that do not
-> apply. Keep the distinction between ideas, checks, draft prose, and verified claims.
+> research note, proof, manuscript, or literature-grounded answer. Math is a Cobbler-managed Elves
+> domain workflow: Cobbler routes scouts, critics, auditors, ledgers, and provider roles while the
+> human owns mathematical verification. Remove sections that do not apply. Keep the distinction
+> between ideas, checks, draft prose, and verified claims.
 
 ## Mission
 
@@ -22,6 +24,8 @@ Example:
 - **Desired output:** [agenda / proof note / manuscript / source audit / formalization plan]
 - **Out of scope:** [topics not to pursue]
 - **Verification standard:** [human check expected / formal proof desired / exploratory only]
+- **Cobbler route:** [native-subagents/direct-analysis by default; optional configured provider
+  routes if explicitly available]
 
 ## Batch 1: Discovery Sprint
 
@@ -127,9 +131,14 @@ Example:
 ## Tool Configuration
 
 ```yaml
-math-provider-policy: openrouter-first
+math-coordination: cobbler-managed-domain-workflow
+math-provider-policy: native-first-with-optional-external-routes
+math-required-env: []
 math-source-search: exa-optional
 math-subfield-scouts: geometry, pde-spectral, convexity-optimization, probability-analysis, algebraic-combinatorial, numerical, formalization
 math-ledger-dir: docs/math
+math-external-route-examples:
+  # proof_critic: openrouter:<model-id>
+  # derivation_checker: gemini:<model-id>
 review: github-pr-comments
 ```

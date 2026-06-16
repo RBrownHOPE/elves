@@ -48,6 +48,16 @@ work, the agent implements the changes, runs validation gates, reads PR review c
 blocking findings, updates the documentation, and pushes a checkpoint, then immediately starts the
 next batch. No waiting, no prompting, no drift.
 
+The architecture is intentionally simple:
+
+- **Elves** is the execution system: plans, branches, PRs, validation, review, memory, and landing.
+- **Cobbler** is the default coordinator inside that system.
+- **Domain workflows** are Cobbler-managed packs for specialized work.
+- **Math** is the first domain workflow, with scouts, critics, source auditors, ledgers, and
+  human-verification gates.
+- **Providers** are optional role routes. They add perspective when configured; they are not the
+  orchestration layer.
+
 ### Reviewed PR landing command
 
 Elves also has a focused landing command for the moment when a PR is basically ready but you want
@@ -134,13 +144,15 @@ people, or project-specific workflows.
 
 ### Math research workflows
 
-Elves can be configured for mathematical research runs as well as software work. The math workflow
-is useful for preliminary research, proof search, source audit, paper drafting, and post-draft
-review. This module is beta. It is a portable public version of a fuller Aigora workflow, pared
-down to prompts, ledgers, provider roles, and ordinary PR-based review so people can use it without
-our internal tools. It treats a rough mathematical goal as a starting point, not as a hidden theorem:
-when the target is uncertain, the first step is a Discovery Sprint with independent scouts across
-relevant and adjacent subfields.
+Math research is a Cobbler-managed Elves domain workflow. It is useful for preliminary research,
+proof search, source audit, paper drafting, and post-draft review. This module is beta. It is a
+portable public version of a fuller Aigora workflow, pared down to prompts, ledgers, provider role
+slots, and ordinary PR-based review so people can use it without our internal tools. Cobbler
+classifies the research intent, builds the math context packet, routes independent scouts and
+critics, synthesizes one fitted research agenda or proof-review verdict, and records domain
+evidence in math ledgers. It treats a rough mathematical goal as a starting point, not as a hidden
+theorem: when the target is uncertain, the first step is a Discovery Sprint with independent scouts
+across relevant and adjacent subfields.
 
 Those scouts look for related solved problems, transferable techniques, natural assumptions, and
 plausible quick wins. The coordinator then synthesizes their reports into a ranked research agenda
@@ -148,11 +160,14 @@ before narrowing toward conjectures, proofs, or manuscript text. This is deliber
 keyword search; some of the best opportunities come from translating results across fields that do
 not use the same vocabulary.
 
-The workflow is provider-configurable. OpenRouter is the baseline model provider, while native
+The workflow is provider-configurable. Native host subagents or direct analysis are the default
+fallback. OpenRouter is a useful optional math role preset for broad model diversity, while native
 Gemini, Claude, xAI, OpenAI, Exa, and local tools can be assigned to specific roles when available.
-Model output is never treated as mathematical authority. It can generate ideas, stress-test proofs,
-check derivations, audit references, and improve exposition, but claims are not considered verified
-until a human records the proof and source checks.
+Missing optional provider access should be recorded with the fallback and confidence impact, but it
+does not make ordinary Cobbler or math discovery unusable. Model output is never treated as
+mathematical authority. It can generate ideas, stress-test proofs, check derivations, audit
+references, and improve exposition, but claims are not considered verified until a human records the
+proof and source checks.
 
 Start with [`references/math-workflow.md`](references/math-workflow.md) for the operating model,
 [`references/math-plan-template.md`](references/math-plan-template.md) for a ready-to-edit plan,
@@ -205,6 +220,12 @@ slash command. Exit with "Cobbler Mode: off" or "leave Cobbler Mode."
 Cobbler-first coordination is the default for Elves runs. The main coordinator still owns durable
 memory, git, PRs, and final synthesis; worker agents may edit the repo when the active batch or
 user request assigns them implementation work.
+
+After an Elves invocation starts a staged or active run, Cobbler stays the default posture for that
+Elves session. The survival guide records this under `## Cobbler Session State`, and
+`.elves-session.json` records it under `cobbler.default_for_session`, so a compacted or resumed
+agent keeps using Cobbler without you repeating the invocation. This durable run state is separate
+from Cobbler Mode, which is only a current-thread chat setting.
 
 Quick Cobbler is the default one-off answer mode. It is read-only, stateless, and
 native-subagent-first: Codex uses Codex subagents, Claude Code uses Claude Code subagents, and
@@ -402,13 +423,17 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
   `$elves council: ...` as the compatibility path
 - **Cobbler Mode**: `/cobbler-mode` in Claude Code and `$elves cobbler-mode` in Codex keep
   follow-up prompts Cobbler-mediated in the current thread until you say `Cobbler Mode: off`
+- **Run-level Cobbler session state**: staged and active Elves runs record `## Cobbler Session
+  State` and `.elves-session.json` `cobbler.default_for_session` so compaction does not lose the
+  Cobbler-first posture
 - **Optional model routing**: Cobbler roles can be mapped to native subagents or provider-backed
   models when keys are configured, but native host subagents remain the zero-config default and
   fallback
 - **Full-run model routing**: optional `model-routing` preferences let the Cobbler record requested
   and actual routes per phase while staying native-first and provider-optional
-- **Math research workflow kit**: optional templates for preliminary discovery, subfield scouting,
-  cross-field synthesis, proof review, source audit, manuscript drafting, and human verification
+- **Math domain workflow kit**: Cobbler-managed templates for preliminary discovery, subfield
+  scouting, cross-field synthesis, proof review, source audit, manuscript drafting, and human
+  verification
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`
 - **Auto-discovered validation gates** for Node.js, Python, Go, Rust, and Makefile projects. No configuration required.
 - **Pluggable review**: GitHub PR comments by default (zero config), custom review API opt-in, additional custom checks
@@ -573,6 +598,10 @@ project-local skill when you want defaults to persist across sessions. Put new C
 under the top-level `cobbler` block. The legacy `council` block is for compatibility with older
 projects; if both blocks are present, `cobbler` wins.
 
+Math preferences belong under `math`. The default math route is native-first with optional external
+routes; `OPENROUTER_API_KEY` belongs in optional environment/config examples unless a project
+survival guide explicitly requires it for that run.
+
 ### Tool configuration
 
 Tool-specific configuration lives in the survival guide under `## Tool Configuration`. This keeps the agent's instructions with the session rather than scattered across environment variables.
@@ -666,6 +695,10 @@ elves/
 │   ├── council-workflow.md               # Cobbler workflow and Council compatibility path
 │   ├── council-prompts.md                # Cobbler role and fitted-answer prompt templates
 │   ├── council-provider-config.md        # Optional provider-backed council setup
+│   ├── math-workflow.md                  # Cobbler-managed math domain workflow
+│   ├── math-provider-config.md           # Optional math role routing
+│   ├── math-review-prompts.md            # Math scout, critic, auditor, and editor prompts
+│   ├── math-artifact-ledgers.md          # Claim/source/model-call/human verification ledgers
 │   ├── verification-patterns.md          # Headless browser, video recording, state assertions
 │   └── open-ended-guide.md              # Open-ended mode patterns, QA/audit expansion rules
 ├── scripts/

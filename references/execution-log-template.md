@@ -198,6 +198,7 @@
 - Requested route: [none / phase preference]
 - Actual route: [host-native / native-subagent / direct-analysis / provider-backed / N/A]
 - Fallback reason: [none / material reason route changed]
+- Math ledger status, when relevant: [claim/source/model-call/human-verification ledgers updated / N/A]
 
 **Process adjustments:**
 - [Any entropy-check or retro adjustment made to the Elves process itself, e.g., "Added a

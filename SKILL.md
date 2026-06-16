@@ -85,13 +85,32 @@ Promotion flow: `execution log -> learnings -> .ai-docs`
 Documentation freshness is part of done. A batch is not truly complete if the code changed but the
 relevant durable docs, human docs, or recovery docs stayed stale.
 
+## Coordination Architecture
+
+Elves has one coordination hierarchy:
+
+- **Elves** is the execution system: plans, branches, PRs, validation, review, memory, and landing.
+- **Cobbler** is the default coordinator: classify intent, route agents/tools/skills, preserve
+  dissent, choose the medium, and fit one answer back into the run.
+- **Domain workflows** are specialized Cobbler-managed packs for a kind of work.
+- **Math** is the first domain workflow: Cobbler routes scouts, proof critics, source auditors,
+  derivation checkers, ledgers, and human-verification gates.
+- **Providers** are optional role routes. They add evidence when configured; they are not the
+  orchestration layer.
+
+Once Elves is invoked for a staged or active run, operate Cobbler-first for the rest of that Elves
+session unless the user turns it off or the survival guide explicitly overrides it. For real Elves
+runs, persist that session posture in the survival guide and `.elves-session.json` so compaction
+does not demote Cobbler back into a one-off command.
+
 ## Math Research Workflows
 
-Elves can also run configurable mathematical research workflows. This beta module is a lightweight
-public version of a fuller Aigora workflow: prompts, ledgers, provider roles, and review loops that
-work with ordinary tools. It is still an Elves run: stage the plan, open a PR or review surface
-early, keep durable memory, run independent review loops, and let the human own the final
-mathematical judgment.
+Math research is a Cobbler-managed Elves domain workflow. This beta module is a lightweight public
+version of a fuller Aigora workflow: prompts, ledgers, provider role slots, and review loops that
+work with ordinary tools. It is still an Elves run: Cobbler classifies the research intent, builds
+the math context packet, routes independent scouts/critics/auditors, synthesizes one fitted
+research agenda or proof-review verdict, records domain evidence in math ledgers, and lets the
+human own the final mathematical judgment.
 
 Use the math workflow when the task involves preliminary research, proof search, source audit,
 paper drafting, or post-draft review. If the mathematical target is still uncertain, start with a
@@ -100,11 +119,13 @@ adjacent subfields, ask what is known, what techniques transfer, and what quick 
 proof paths. Then synthesize the scouts into a ranked research agenda by tractability, novelty,
 verification burden, and likely value to a human mathematician.
 
-The math workflow is configurable. OpenRouter is the baseline provider because it gives broad model
-access through one key, while native Gemini, Claude, xAI, OpenAI, Exa, or local tools can be
-configured as optional role-specific upgrades. Never treat model output as mathematical authority:
-models may propose ideas, critique derivations, audit sources, and improve exposition, but claims
-remain unverified until a human records the proof and source checks.
+The math workflow is configurable. Native host subagents or direct analysis are the default
+fallback. OpenRouter is a useful optional math role preset because it gives broad model access
+through one key; native Gemini, Claude, xAI, OpenAI, Exa, or local tools can also be configured as
+role-specific upgrades. Missing optional provider access never blocks ordinary Cobbler use or a math
+Discovery Sprint; note the fallback and confidence change in the ledgers. Never treat model output
+as mathematical authority: models may propose ideas, critique derivations, audit sources, and
+improve exposition, but claims remain unverified until a human records the proof and source checks.
 
 ## Cobbler
 
@@ -149,6 +170,12 @@ risk, debugging, review, and synthesis decisions, use bounded independent lenses
 result back into the normal Elves loop. The main coordinator still owns durable memory, git, PRs,
 and final synthesis; worker agents may edit the repo when the active batch or user request assigns
 them implementation work.
+
+When an Elves invocation starts a staged or active run, Cobbler becomes the default posture for that
+current Elves session. Record material session state under `## Cobbler Session State` in the
+survival guide and under `cobbler.default_for_session` in `.elves-session.json`. This is different
+from Cobbler Mode: Cobbler Mode is current-thread chat state, while run-level Cobbler state is
+durable recovery state for that Elves run.
 
 Quick Cobbler is the default one-off answer mode. It is read-only, stateless, and
 native-subagent-first: Codex uses Codex subagents, Claude Code uses Claude Code subagents, and
@@ -1313,6 +1340,17 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
   "learnings_path": "docs/elves/learnings.md",
   "execution_log_path": "docs/elves/execution-log.md",
   "pr_number": 42,
+  "cobbler": {
+    "default_for_session": true,
+    "activated_by": "elves invocation",
+    "mode": "run",
+    "scope": "current Elves run",
+    "exit_phrases": [
+      "Cobbler Mode: off",
+      "leave Cobbler Mode",
+      "stop using Cobbler by default"
+    ]
+  },
   "continuation_guard": {
     "remaining_batches": 3,
     "stop_allowed": false,
@@ -1400,6 +1438,12 @@ The `review_comments` array is the compaction-safe record of every comment handl
 The optional `model_routes` array records material full-run routing changes only. Use snake_case
 JSON keys: `requested_route`, `actual_route`, and `fallback_reason`. Omit it when routing matches
 the native-first default and does not change risk or confidence.
+
+The `cobbler` object records durable run-level Cobbler session state. Use it when Elves has been
+invoked for a staged or active run and follow-up prompts should remain Cobbler-mediated across
+compaction. Do not add it for one-off Quick Cobbler answers. The required key is
+`default_for_session`; include `activated_by`, `mode`, `scope`, and `exit_phrases` when they help a
+future context recover the intended posture.
 
 The `continuation_guard` is the compaction-safe answer to "am I allowed to stop?" While work remains, `stop_allowed` should normally be `false`. Set it to `true` only when the recorded stop conditions are actually met.
 

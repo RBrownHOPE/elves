@@ -1,8 +1,15 @@
 # Math Review Prompts
 
-Use these prompts as role templates. Fill in the bracketed fields from the plan, ledgers, source
-notes, and current draft. Do not paste secrets. For source-heavy tasks, provide primary-source
-excerpts or links and ask the reviewer to say when source access is insufficient.
+Use these prompts as Cobbler role templates for the math domain workflow. Fill in the bracketed
+fields from the plan, ledgers, source notes, and current draft. Do not paste secrets. For
+source-heavy tasks, provide primary-source excerpts or links and ask the reviewer to say when
+source access is insufficient.
+
+Every math role should receive the same context packet: rough goal, current claim/source/model-call
+ledger state, definitions, hypotheses, available sources, assigned role, work scope, output medium,
+and forbidden actions. Host-native subagents or direct analysis are the fallback route. Configured
+external providers are optional role routes; record provider/model or route in the model-call
+ledger when the result materially affects the run.
 
 ## Subfield Scout
 
@@ -12,6 +19,8 @@ You are a mathematical subfield scout for [SUBFIELD].
 Goal: [ROUGH GOAL]
 Known context: [DEFINITIONS / SOURCES / EXAMPLES]
 Date: [CURRENT DATE]
+Route: [native-subagent / direct-analysis / configured provider route]
+Output medium: [chat / docs/math ledger / proof note / PR comment]
 
 Return:
 1. Closely related solved problems.
@@ -59,6 +68,7 @@ You are synthesizing independent mathematical scout reports.
 Goal: [ROUGH GOAL]
 Scout reports: [SCOUT REPORTS]
 Known constraints: [CONSTRAINTS]
+Route: [native-coordinator / configured provider route]
 
 Produce a ranked research agenda. For each item include:
 - candidate statement or research direction;
@@ -81,6 +91,7 @@ You are an adversarial proof reviewer.
 Claim: [CLAIM]
 Proof draft: [PROOF DRAFT]
 Dependencies: [CLAIM LEDGER / SOURCE LEDGER]
+Route: [native-subagent / direct-analysis / configured provider route]
 
 Your job is to find reasons the proof may fail. Check:
 - missing hypotheses;
@@ -104,6 +115,7 @@ You are checking calculations in a mathematical draft.
 Target calculation: [ASYMPTOTIC / INEQUALITY / CONSTANT / LIMIT]
 Context: [PROOF EXCERPT]
 Definitions: [NOTATION]
+Route: [native-subagent / direct-analysis / configured provider route]
 
 Check:
 - algebraic signs and factors;
@@ -126,6 +138,7 @@ You are auditing mathematical references.
 
 Draft claim or citation use: [CLAIM / CITATION]
 Available source excerpt or link: [SOURCE MATERIAL]
+Route: [native-subagent / direct-analysis / configured provider route]
 
 Check:
 - whether the cited result exists in the source;

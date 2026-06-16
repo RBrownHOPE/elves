@@ -4,6 +4,21 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+- Made Cobbler's role as the default Elves coordinator explicit across runtime docs, README,
+  templates, config examples, and durable `.ai-docs/*` notes.
+- Added durable run-level Cobbler session state guidance: staged and active Elves runs record
+  `## Cobbler Session State` and `.elves-session.json` `cobbler.default_for_session` so compaction
+  preserves the Cobbler-first posture.
+- Reframed math as the first Cobbler-managed domain workflow while preserving Discovery Sprint,
+  scout lanes, claim lifecycle, source audit, adversarial proof review, artifact ledgers, and human
+  verification.
+- Changed math provider defaults to native-first with optional external role routes. OpenRouter
+  remains a useful optional math role preset, but `OPENROUTER_API_KEY` is no longer required by
+  default in config examples.
+- Added repo consistency and structured config checks for Cobbler domain workflow hierarchy,
+  provider-optional math defaults, and run-level Cobbler session state.
+- Added the release checklist to the repo consistency CI workflow.
+
 ## [1.17.0] - 2026-06-15
 
 - Expanded Cobbler from council-style synthesis into an explicit harness loop: capability scan,
