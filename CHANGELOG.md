@@ -4,6 +4,8 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-06-16
+
 - Made Cobbler's role as the default Elves coordinator explicit across runtime docs, README,
   templates, config examples, and durable `.ai-docs/*` notes.
 - Added durable run-level Cobbler session state guidance: staged and active Elves runs record
