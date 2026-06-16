@@ -45,10 +45,10 @@ merge.
 
 ## Stop Gate
 
-- **Planned batches remaining:** 3
+- **Planned batches remaining:** 0
 - **Stop allowed right now:** no
-- **Why:** implementation, PR landing, and release bump remain
-- **Next required action:** finish Batch 0 setup, open the PR, then start Batch 1
+- **Why:** implementation is locally validated, but PR landing and release bump remain
+- **Next required action:** commit implementation, push, poll PR feedback and checks
 
 ## Active Compute
 
@@ -56,17 +56,19 @@ No active paid or long-running compute.
 
 ## Current Phase
 
-**Status:** Staging
+**Status:** In progress
 
-**Active batch:** Batch 0: setup
+**Active batch:** PR landing
 
-**What was just finished:** Baseline preflight, repo consistency, and unit tests passed.
+**What was just finished:** Implementation batches 1-3 were completed together because the docs,
+config, and consistency tests were tightly coupled.
 
-**Single next action:** Commit planning artifacts, push the branch, and open the implementation PR.
+**Single next action:** Commit and push the implementation, then run the PR feedback loop.
 
 ## Next Exact Batch
 
-Batch 1: update the core Cobbler architecture and session-state docs.
+PR landing: push the implementation commit, poll GitHub checks and comments, fix blockers, and
+merge PR #56 only after final readiness is clean.
 
 Build on:
 
@@ -77,10 +79,10 @@ Build on:
 
 Acceptance:
 
-- Elves hierarchy is explicit.
-- Cobbler session state survives compaction for real Elves runs.
-- One-off Cobbler remains read-only and stateless.
-- No Council aliases are removed.
+- Implementation PR checks are green.
+- No blocking review comments remain.
+- Operational run artifacts are removed before merge.
+- Release bump happens after merge on main.
 
 ## Validation Gates
 
@@ -94,7 +96,7 @@ Acceptance:
 ## PR
 
 - **Branch:** `codex/cobbler-domain-workflows`
-- **PR:** pending
+- **PR:** #56 https://github.com/aigorahub/elves/pull/56
 
 ## Review Lenses
 

@@ -10,13 +10,19 @@
   changes mid-run, rewrite the survival guide's `Run Control` block immediately and log the change
   in the execution log.
 - The live survival-guide sections are `Run Control`, `Current Phase`, `Active Compute`,
-  `Stop Gate`, and `Next Exact Batch`. Rewrite them in place; do not stack old updates there.
+  `Cobbler Session State`, `Stop Gate`, and `Next Exact Batch`. Rewrite them in place; do not
+  stack old updates there.
 - If a run uses paid compute, remote jobs, or long-lived local services, keep `Active Compute`
   current after every push and after every resource-topology change.
 - Every completed batch must end with `update docs -> commit -> push -> re-read survival guide`
   before later work begins.
 - Stopping should be explicit state, not interpretation. Use the survival guide's `Stop Gate` and
   `.elves-session.json` `continuation_guard` to record whether stopping is currently allowed.
+- Cobbler is the default coordinator after an Elves invocation. Persist that in the survival
+  guide's `Cobbler Session State` block and in `.elves-session.json` `cobbler.default_for_session`
+  for real runs. Do not add durable state for one-off Quick Cobbler answers.
+- Math is a Cobbler-managed domain workflow. Keep provider keys optional by default and record
+  math-specific evidence in `docs/math/*` ledgers, not in a separate Council ledger.
 - Installed Claude/Codex skill bundles should ship only the installable runtime surface:
   `SKILL.md`, `AGENTS.md` (Codex), `config.json.example`, `references/`,
   `scripts/preflight.sh`, `scripts/preflight_worktree.py`, `scripts/notify.sh`,

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import sys
+import json
 from pathlib import Path
 
 
@@ -149,6 +150,7 @@ REPO_CONSISTENCY_WORKFLOW_PHRASES = {
         "scripts/preflight_worktree.py",
         "scripts/validate_survival_guide.py",
         "scripts/workspace_guard.py",
+        "python3 scripts/release_checklist.py --allow-unreleased",
         "actions/checkout@v6",
         "actions/setup-python@v6",
     ],
@@ -424,18 +426,23 @@ OPERATOR_DOC_PHRASES = {
 MATH_MODULE_PHRASES = {
     "SKILL.md": [
         "## Math Research Workflows",
+        "Cobbler-managed Elves domain workflow",
         "Discovery Sprint",
-        "OpenRouter",
-        "Never treat model output as mathematical authority",
+        "Native host subagents or direct analysis are the default",
+        "useful optional math role preset",
+        "Never treat model output",
     ],
     "AGENTS.md": [
         "## Math Research Workflows",
+        "Cobbler-managed Elves domain workflow",
         "Discovery Sprint",
-        "OpenRouter",
-        "Never treat model output as mathematical authority",
+        "Native host subagents or direct analysis are the default",
+        "useful optional math role preset",
+        "Never treat model output",
     ],
     "README.md": [
         "### Math research workflows",
+        "Cobbler-managed Elves domain workflow",
         "Discovery Sprint",
         "references/math-workflow.md",
         "references/math-provider-config.md",
@@ -443,17 +450,25 @@ MATH_MODULE_PHRASES = {
     ],
     "references/survival-guide-template.md": [
         "### Math Configuration (optional)",
-        "math-provider-policy: openrouter-first",
-        "subfield_scout: openrouter:<model-id>",
-        "formalization_scout: openrouter:<model-id>",
+        "math-coordination: cobbler-managed-domain-workflow",
+        "math-provider-policy: native-first-with-optional-external-routes",
+        "math-required-env: []",
+        "subfield_scout: native-subagent",
+        "math-external-route-examples",
+        "record the",
+        "fallback in the model-call ledger",
     ],
     "references/tool-config-examples.md": [
         "## Math Research Workflow",
-        "math-provider-policy: openrouter-first",
+        "math-coordination: cobbler-managed-domain-workflow",
+        "math-provider-policy: native-first-with-optional-external-routes",
+        "math-required-env: []",
         "OPENROUTER_API_KEY",
         "math-ledger-dir: docs/math",
     ],
     "references/math-workflow.md": [
+        "Cobbler-managed Elves domain workflow",
+        "Cobbler Harness Mapping",
         "## The Discovery Sprint",
         "## Cross-Pollination",
         "## Claim Lifecycle",
@@ -465,7 +480,10 @@ MATH_MODULE_PHRASES = {
         "Every `quick_win` item has a plausible proof path",
     ],
     "references/math-provider-config.md": [
+        "Cobbler-managed domain-workflow setting",
+        "No provider key is required by this template",
         "## Role Slots",
+        "native-first-with-optional-external-routes",
         "OPENROUTER_API_KEY",
         "record-before-switching-provider",
     ],
@@ -476,6 +494,7 @@ MATH_MODULE_PHRASES = {
         "## Formalization Scout",
     ],
     "references/math-artifact-ledgers.md": [
+        "domain evidence ledgers",
         "## Claim Ledger",
         "## Source Ledger",
         "## Model-Call Ledger",
@@ -483,10 +502,176 @@ MATH_MODULE_PHRASES = {
     ],
     "config.json.example": [
         '"math"',
-        '"provider_policy": "openrouter-first"',
+        '"coordination": "cobbler-managed-domain-workflow"',
+        '"provider_policy": "native-first-with-optional-external-routes"',
+        '"required_env": []',
         '"subfield_scout"',
         '"fallback_policy": "record-before-switching-provider"',
     ],
+}
+
+DOMAIN_WORKFLOW_PHRASES = {
+    "SKILL.md": [
+        "## Coordination Architecture",
+        "**Elves** is the execution system",
+        "**Cobbler** is the default coordinator",
+        "**Domain workflows** are specialized Cobbler-managed packs",
+        "**Math** is the first domain workflow",
+        "**Providers** are optional role routes",
+        "cobbler.default_for_session",
+    ],
+    "AGENTS.md": [
+        "## Coordination Architecture",
+        "**Elves** is the execution system",
+        "**Cobbler** is the default coordinator",
+        "**Domain workflows** are specialized Cobbler-managed packs",
+        "**Math** is the first domain workflow",
+        "**Providers** are optional role routes",
+        "cobbler.default_for_session",
+    ],
+    "README.md": [
+        "**Elves** is the execution system",
+        "**Cobbler** is the default coordinator",
+        "**Domain workflows** are Cobbler-managed packs",
+        "**Math** is the first domain workflow",
+        "**Providers** are optional role routes",
+        "cobbler.default_for_session",
+    ],
+    "docs/cobbler.md": [
+        "## The coordination hierarchy",
+        "**Elves** handles execution",
+        "**Cobbler** handles coordination",
+        "**Domain workflows** handle specialized work under Cobbler",
+        "Math is the first domain workflow",
+        "cobbler.default_for_session",
+    ],
+    "references/council-workflow.md": [
+        "Elves executes, Cobbler coordinates, domain workflows specialize, and providers",
+        "route optional roles",
+        "Math is the first Cobbler-managed domain workflow",
+        "domain evidence artifacts",
+    ],
+    "references/kickoff-prompt-template.md": [
+        "Cobbler Session State",
+        "cobbler.default_for_session: true",
+        "math as a Cobbler-managed domain workflow",
+    ],
+    "references/survival-guide-template.md": [
+        "## Cobbler Session State",
+        "Cobbler default",
+        "cobbler.default_for_session: true",
+        "Math is a Cobbler-managed domain workflow",
+    ],
+    "references/review-subagent.md": [
+        "Cobbler Session State",
+        "cobbler.default_for_session",
+        "Math Domain Workflow Context",
+        "math ledgers are treated as domain evidence artifacts",
+    ],
+    "references/execution-log-template.md": [
+        "Math ledger status",
+    ],
+    "references/math-workflow.md": [
+        "Cobbler-managed Elves domain workflow",
+        "Cobbler is the coordinator",
+        "Present/record",
+        "Reclassify",
+    ],
+    "references/math-provider-config.md": [
+        "Math provider routing is a Cobbler-managed domain-workflow setting",
+        "No provider key is required by this template",
+        "Missing optional provider access never blocks ordinary Cobbler use or a",
+        "math Discovery Sprint",
+    ],
+    "references/math-plan-template.md": [
+        "Math is a Cobbler-managed Elves",
+        "math-coordination: cobbler-managed-domain-workflow",
+        "math-required-env: []",
+    ],
+    "references/math-review-prompts.md": [
+        "Cobbler role templates for the math domain workflow",
+        "Every math role should receive the same context packet",
+        "Configured",
+        "external providers are optional role routes",
+    ],
+    "references/math-artifact-ledgers.md": [
+        "domain evidence ledgers",
+        "not a separate Cobbler, Council, or run-state ledger",
+        "native-subagent",
+    ],
+    "references/tool-config-examples.md": [
+        "Math is a Cobbler-managed domain workflow",
+        "math-coordination: cobbler-managed-domain-workflow",
+        "math-required-env: []",
+    ],
+    "references/council-provider-config.md": [
+        "Math has its own Cobbler-managed domain workflow provider slots",
+        "host-native or direct analysis is the fallback",
+        "provider becomes required only when the project survival guide says",
+        "so explicitly",
+    ],
+    "config.json.example": [
+        '"coordination": "cobbler-managed-domain-workflow"',
+        '"provider_policy": "native-first-with-optional-external-routes"',
+        '"required_env": []',
+        '"external_route_examples"',
+    ],
+    ".ai-docs/architecture.md": [
+        "## Coordination hierarchy",
+        "Elves executes",
+        "Cobbler coordinates",
+        "Domain workflows specialize",
+        "Math is the first domain workflow",
+    ],
+    ".ai-docs/conventions.md": [
+        "Cobbler is the default coordinator after an Elves invocation",
+        "cobbler.default_for_session",
+        "Math is a Cobbler-managed domain workflow",
+    ],
+    ".ai-docs/gotchas.md": [
+        "Normal Cobbler and ordinary Elves must not require OpenRouter",
+        "math-required-env: []",
+    ],
+}
+
+DOMAIN_WORKFLOW_FORBIDDEN_PHRASES = {
+    label: [
+        "Elves can also run configurable mathematical research workflows",
+        "OpenRouter is the baseline provider",
+        "OpenRouter is the baseline model provider",
+        "OpenRouter is the minimum useful setup",
+        "Use OpenRouter first when no richer local setup exists",
+        "math-provider-policy: openrouter-first",
+        '"provider_policy": "openrouter-first"',
+        "math-required-env:\n  - OPENROUTER_API_KEY",
+        '"required_env": ["OPENROUTER_API_KEY"]',
+    ]
+    for label in (
+        "SKILL.md",
+        "AGENTS.md",
+        "README.md",
+        "references/survival-guide-template.md",
+        "references/tool-config-examples.md",
+        "references/math-workflow.md",
+        "references/math-provider-config.md",
+        "references/math-plan-template.md",
+        "references/math-review-prompts.md",
+        "references/math-artifact-ledgers.md",
+        "references/council-workflow.md",
+        "references/council-provider-config.md",
+        "config.json.example",
+    )
+}
+
+DOMAIN_WORKFLOW_FORBIDDEN_PATTERNS = {
+    label: [
+        r"\bmath\b[^.\n]*(?:peer|separate)\s+(?:coordinator|orchestrator|orchestration\s+layer)\b",
+        r"\bmath\b[^.\n]*(?:requires|needs)\s+openrouter\b",
+        r"\bopenrouter\b\s+is\s+required\s+for\s+math\b",
+        r"\bopenrouter_api_key\b\s+(?:is\s+)?(?:required|must\s+be\s+set)\b",
+        r"\bmath-required-env:\s*\n\s*-\s*OPENROUTER_API_KEY\b",
+    ]
+    for label in DOMAIN_WORKFLOW_FORBIDDEN_PHRASES
 }
 
 PUBLIC_API_SURFACE_SNAPSHOT_PHRASES = {
@@ -1551,6 +1736,61 @@ def find_missing_section_phrases(
     return errors
 
 
+def validate_config_domain_workflow() -> list[str]:
+    errors: list[str] = []
+    config = json.loads(read_text(REPO_ROOT / "config.json.example"))
+    math_config = config.get("math")
+    if not isinstance(math_config, dict):
+        return ["config.json.example: missing `math` config object"]
+
+    if math_config.get("coordination") != "cobbler-managed-domain-workflow":
+        errors.append(
+            "config.json.example: `math.coordination` must be `cobbler-managed-domain-workflow`"
+        )
+
+    if math_config.get("provider_policy") == "openrouter-first":
+        errors.append("config.json.example: `math.provider_policy` must not be `openrouter-first`")
+
+    if math_config.get("provider_policy") != "native-first-with-optional-external-routes":
+        errors.append(
+            "config.json.example: `math.provider_policy` must be "
+            "`native-first-with-optional-external-routes`"
+        )
+
+    required_env = math_config.get("required_env")
+    if required_env not in ([], None):
+        errors.append("config.json.example: `math.required_env` must be empty by default")
+
+    optional_env = math_config.get("optional_env")
+    if not isinstance(optional_env, list) or "OPENROUTER_API_KEY" not in optional_env:
+        errors.append("config.json.example: `OPENROUTER_API_KEY` should be optional for math")
+
+    role_models = math_config.get("role_models", {})
+    if isinstance(role_models, dict):
+        openrouter_defaults = [
+            role for role, route in role_models.items() if str(route).startswith("openrouter:")
+        ]
+        if openrouter_defaults:
+            roles = ", ".join(sorted(openrouter_defaults))
+            errors.append(
+                "config.json.example: math role defaults must be native/direct, not "
+                f"OpenRouter (`{roles}`)"
+            )
+    else:
+        errors.append("config.json.example: `math.role_models` must be an object")
+
+    external_examples = math_config.get("external_route_examples", {})
+    if not isinstance(external_examples, dict) or not any(
+        str(route).startswith("openrouter:") for route in external_examples.values()
+    ):
+        errors.append(
+            "config.json.example: optional OpenRouter math examples belong under "
+            "`math.external_route_examples`"
+        )
+
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
 
@@ -1668,6 +1908,35 @@ def main() -> int:
         for phrase in phrases:
             if phrase not in text:
                 errors.append(f"{label}: missing math-module phrase `{phrase}`")
+
+    domain_workflow_texts = {
+        label: read_text(REPO_ROOT / label)
+        for label in set(DOMAIN_WORKFLOW_PHRASES)
+        | set(DOMAIN_WORKFLOW_FORBIDDEN_PHRASES)
+        | set(DOMAIN_WORKFLOW_FORBIDDEN_PATTERNS)
+    }
+    errors.extend(
+        find_missing_phrases(
+            domain_workflow_texts,
+            DOMAIN_WORKFLOW_PHRASES,
+            "domain workflow",
+        )
+    )
+    errors.extend(
+        find_forbidden_phrases(
+            domain_workflow_texts,
+            DOMAIN_WORKFLOW_FORBIDDEN_PHRASES,
+            "domain workflow",
+        )
+    )
+    errors.extend(
+        find_forbidden_patterns(
+            domain_workflow_texts,
+            DOMAIN_WORKFLOW_FORBIDDEN_PATTERNS,
+            "domain workflow",
+        )
+    )
+    errors.extend(validate_config_domain_workflow())
 
     api_surface_texts = {
         label: read_text(REPO_ROOT / label)
@@ -1864,6 +2133,7 @@ def main() -> int:
     print("- Strategic forgetting and memory hygiene guardrails are aligned")
     print("- Elves Report guardrails are aligned")
     print("- Math research workflow guardrails are aligned")
+    print("- Cobbler domain workflow guardrails are aligned")
     print("- Public API surface snapshot guardrails are aligned")
     print("- Reviewed PR landing command guardrails are aligned")
     print("- Cobbler guardrails are aligned")

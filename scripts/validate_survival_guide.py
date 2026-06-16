@@ -22,6 +22,7 @@ from pathlib import Path
 
 REQUIRED_SECTIONS = [
     "Run Control",
+    "Cobbler Session State",
     "Stop Gate",
     "Effort Standard",
     "Forbidden Stop Reasons",
@@ -49,6 +50,14 @@ SECTION_REQUIREMENTS = {
         "Re-read rule",
         "Checkpoint rule",
         "Continuation rule",
+    ],
+    "Cobbler Session State": [
+        "Cobbler default",
+        "Activated by",
+        "Scope",
+        "Behavior",
+        "Persistence",
+        "Exit phrases",
     ],
     "Stop Gate": [
         "Planned batches remaining",
@@ -94,6 +103,11 @@ CRITICAL_PLACEHOLDER_FIELDS = [
     "May continue after checkpoint",
     "Actual stop conditions",
     "Final-response policy",
+    "Cobbler default",
+    "Activated by",
+    "Scope",
+    "Behavior",
+    "Persistence",
     "Planned batches remaining",
     "Stop allowed right now",
     "Why",

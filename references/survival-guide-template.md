@@ -50,6 +50,24 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
 
 ---
 
+## Cobbler Session State
+
+> Rewrite this section in place. It records whether an Elves invocation has made Cobbler the default
+> posture for the current run. This is durable run state, not ordinary Cobbler Mode chat state.
+
+- **Cobbler default:** [on | off]
+- **Activated by:** [Elves invocation | Cobbler Mode | explicit user instruction | survival-guide override]
+- **Scope:** [current Elves run | current thread only]
+- **Behavior:** [treat follow-up prompts as Cobbler-mediated by default / direct-agent override]
+- **Persistence:** [survival guide and `.elves-session.json` | current-thread only]
+- **Exit phrases:** ["Cobbler Mode: off", "leave Cobbler Mode", "stop using Cobbler by default"]
+
+For staged or active Elves runs, `Cobbler default` should normally be `on` and `.elves-session.json`
+should include `cobbler.default_for_session: true`. One-off Quick Cobbler answers do not need this
+section.
+
+---
+
 ## Session Budget
 
 - **Started:** [YYYY-MM-DD HH:MM timezone]
@@ -447,29 +465,39 @@ notification: pr-comment
 ### Math Configuration (optional)
 
 > Use this when the run is mathematical research: preliminary discovery, proof search, source
-> audit, paper drafting, or post-draft review. Configure role slots, not provider secrets.
+> audit, paper drafting, or post-draft review. Math is a Cobbler-managed domain workflow. Configure
+> role slots, not provider secrets.
 
 ```yaml
-math-provider-policy: openrouter-first
-math-required-env:
-  - OPENROUTER_API_KEY
+math-coordination: cobbler-managed-domain-workflow
+math-provider-policy: native-first-with-optional-external-routes
+math-required-env: []
 math-optional-env:
+  - OPENROUTER_API_KEY
   - GEMINI_API_KEY
   - ANTHROPIC_API_KEY
   - XAI_API_KEY
   - OPENAI_API_KEY
   - EXA_API_KEY
 math-role-models:
-  subfield_scout: openrouter:<model-id>
-  cross_field_synthesizer: openrouter:<model-id>
-  proof_critic: openrouter:<model-id>
-  derivation_checker: openrouter:<model-id>
-  source_auditor: openrouter:<model-id>
-  exposition_editor: openrouter:<model-id>
-  formalization_scout: openrouter:<model-id>
+  subfield_scout: native-subagent
+  cross_field_synthesizer: native-coordinator
+  proof_critic: native-subagent
+  derivation_checker: native-subagent
+  source_auditor: native-subagent
+  exposition_editor: native-subagent
+  formalization_scout: native-subagent
+math-external-route-examples:
+  # subfield_scout: openrouter:<model-id>
+  # proof_critic: openrouter:<model-id>
 math-fallback-policy: record-before-switching-provider
 math-ledger-dir: docs/math
 ```
+
+OpenRouter is a useful optional math role preset for broad model diversity, but do not make
+`OPENROUTER_API_KEY` required unless the user explicitly sets that requirement for this math run.
+If provider routes are missing, use host-native subagents or direct analysis and record the
+fallback in the model-call ledger.
 
 ### Cobbler Coordination Defaults
 

@@ -1,7 +1,9 @@
 # Math Artifact Ledgers
 
-Math runs need durable ledgers because chat transcripts are not reliable memory. Keep the ledgers
-in the project, usually under `docs/math/` unless the survival guide configures another directory.
+Math runs need durable domain evidence ledgers because chat transcripts are not reliable memory.
+Keep the ledgers in the project, usually under `docs/math/` unless the survival guide configures
+another directory. These are math-domain artifacts managed by Cobbler inside the Elves run; they are
+not a separate Cobbler, Council, or run-state ledger.
 
 The ledgers distinguish:
 
@@ -68,15 +70,16 @@ Use `docs/math/model-calls.md`.
 ```markdown
 # Model-Call Ledger
 
-| ID | Date | Role | Provider/model | Prompt/source path | Input scope | Verdict | Action taken |
+| ID | Date | Role | Provider/model or route | Prompt/source path | Input scope | Verdict | Action taken |
 |---|---|---|---|---|---|---|---|
 | M001 | YYYY-MM-DD | proof_critic | openrouter:<model-id> | references/math-review-prompts.md#proof-critic | C001 proof draft | PATCH_REQUIRED | patched Lemma 2 statement |
+| M002 | YYYY-MM-DD | source_auditor | native-subagent | references/math-review-prompts.md#source-auditor | S001 theorem use | verified | updated source ledger |
 ```
 
 Rules:
 
 - Record material calls, not every tiny formatting request.
-- If a provider fallback occurs, record the reason.
+- If a provider fallback occurs, record the reason and confidence impact.
 - Do not use model agreement as proof status.
 - Record when reviewers disagree and how the disagreement was adjudicated.
 

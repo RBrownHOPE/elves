@@ -273,8 +273,9 @@ notification: pr-comment
 ## Math Research Workflow
 
 > Use when a run includes preliminary research, proof search, source audit, paper drafting, or
-> post-draft mathematical review. OpenRouter is the baseline; native providers and source-search
-> tools are optional.
+> post-draft mathematical review. Math is a Cobbler-managed domain workflow. Host-native subagents
+> or direct analysis are the default fallback; external providers and source-search tools are
+> optional role routes.
 
 ```yaml
 ## Tool Configuration
@@ -282,23 +283,27 @@ notification: pr-comment
 review: github-pr-comments
 notification: pr-comment
 
-math-provider-policy: openrouter-first
-math-required-env:
-  - OPENROUTER_API_KEY
+math-coordination: cobbler-managed-domain-workflow
+math-provider-policy: native-first-with-optional-external-routes
+math-required-env: []
 math-optional-env:
+  - OPENROUTER_API_KEY
   - GEMINI_API_KEY
   - ANTHROPIC_API_KEY
   - XAI_API_KEY
   - OPENAI_API_KEY
   - EXA_API_KEY
 math-role-models:
-  subfield_scout: openrouter:<model-id>
-  cross_field_synthesizer: openrouter:<model-id>
-  proof_critic: openrouter:<model-id>
-  derivation_checker: openrouter:<model-id>
-  source_auditor: openrouter:<model-id>
-  exposition_editor: openrouter:<model-id>
-  formalization_scout: openrouter:<model-id>
+  subfield_scout: native-subagent
+  cross_field_synthesizer: native-coordinator
+  proof_critic: native-subagent
+  derivation_checker: native-subagent
+  source_auditor: native-subagent
+  exposition_editor: native-subagent
+  formalization_scout: native-subagent
+math-external-route-examples:
+  # subfield_scout: openrouter:<model-id>
+  # proof_critic: openrouter:<model-id>
 math-fallback-policy: record-before-switching-provider
 math-ledger-dir: docs/math
 ```

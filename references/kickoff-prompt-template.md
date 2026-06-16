@@ -40,6 +40,11 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - Set `Coordination mode` to Cobbler-first by default: use independent lenses for non-trivial
   planning, contract, risk, debugging, review, and synthesis decisions, while keeping writes, git,
   PRs, and durable memory in the coordinator unless explicitly delegated
+- Add `## Cobbler Session State` to the survival guide and `cobbler.default_for_session: true` to
+  `.elves-session.json` so follow-up prompts remain Cobbler-mediated after compaction
+- If the plan is mathematical, record math as a Cobbler-managed domain workflow and copy any
+  explicit math role/provider preferences into the survival guide without making provider keys
+  required by default
 - Create or switch to the branch, open or update the PR, and record the PR number
 - Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated git worktree instead of in the main checkout (`./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect first), and record the branch tip as a collision tripwire. The helper prints the branch, worktree path, base ref, and collision tripwire and does not reuse, delete, or repair existing worktrees.
 - Configure optional public API surface snapshot behavior if this project has public contract
@@ -76,6 +81,11 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - Set `Coordination mode` to Cobbler-first by default: use independent lenses for non-trivial
   planning, contract, risk, debugging, review, and synthesis decisions, while keeping writes, git,
   PRs, and durable memory in the coordinator unless explicitly delegated
+- Add `## Cobbler Session State` to the survival guide and `cobbler.default_for_session: true` to
+  `.elves-session.json` so follow-up prompts remain Cobbler-mediated after compaction
+- If the plan is mathematical, record math as a Cobbler-managed domain workflow and copy any
+  explicit math role/provider preferences into the survival guide without making provider keys
+  required by default
 - Create or switch to the branch, open or update the PR, and record the PR number
 - Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated git worktree instead of in the main checkout (`./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect first), and record the branch tip as a collision tripwire. The helper prints the branch, worktree path, base ref, and collision tripwire and does not reuse, delete, or repair existing worktrees.
 - Configure optional public API surface snapshot behavior if this project has public contract

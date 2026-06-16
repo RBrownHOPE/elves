@@ -27,3 +27,6 @@
   PR late starves the review loop.
 - This repo has no package-managed lint/typecheck/build/test pipeline, so proof comes from
   preflight sanity, reference consistency, and PR review cleanliness.
+- Provider wording drifts easily. Normal Cobbler and ordinary Elves must not require OpenRouter.
+  Math may show `openrouter:<model-id>` as an optional role route, but default config should keep
+  `math-required-env: []` unless a project survival guide explicitly opts in.

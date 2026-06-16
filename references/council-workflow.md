@@ -9,6 +9,11 @@ This file keeps its `council-workflow.md` name for `v1.14.0` compatibility. In `
 is the user-facing coordinator and default orchestration model. Council is the compatibility path
 and gathering mechanism, not a separate product.
 
+The hierarchy is: Elves executes, Cobbler coordinates, domain workflows specialize, and providers
+route optional roles. Math is the first Cobbler-managed domain workflow. Its claim, source,
+model-call, and human-verification ledgers are domain evidence artifacts, not a separate Council
+ledger or a replacement for normal Elves run memory.
+
 ## Invocation Semantics
 
 Host invocation depends on the agent surface:
