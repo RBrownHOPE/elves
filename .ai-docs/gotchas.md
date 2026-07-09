@@ -30,3 +30,10 @@
 - Provider wording drifts easily. Normal Cobbler and ordinary Elves must not require OpenRouter.
   Math may show `openrouter:<model-id>` as an optional role route, but default config should keep
   `math-required-env: []` unless a project survival guide explicitly opts in.
+- `status: complete` in `.elves-session.json` is self-certified unless paired with per-batch
+  `acceptance: [{criterion, met, evidence}]`. Green CI plus complete flags is not landable; plan
+  Acceptance with proof is. Less-disciplined models especially tend to close god-file / split
+  batches on structure or regex lock tests alone.
+- Multi-batch "close remaining" commits can make unfinished work look shippable. Prefer one batch
+  per close commit; otherwise require separate Validate sections per batch id and run
+  `scripts/elves_landing_check.py` before Final Readiness.

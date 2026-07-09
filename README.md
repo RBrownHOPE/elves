@@ -378,8 +378,8 @@ See [Installation](#installation) below for full details. The short version:
   `/council`, `/ec`, and `/elves-council` alias skills
 - **Codex:** copy the skill bundle into `~/.codex/skills/elves/` (at minimum `SKILL.md`,
   `AGENTS.md`, `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
-  `scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`, and
-  `scripts/validate_survival_guide.py`)
+  `scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`,
+  `scripts/validate_survival_guide.py`, and `scripts/elves_landing_check.py`)
 - **Claude.ai:** zip the `elves/` directory and upload via Settings > Features > Skills
 
 **2. Write a plan**
@@ -468,7 +468,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Slack notifications** (or any custom command): know when your run finishes without watching the terminal
 - **Constitution and legality check**: human-authored deal-breaker behaviors (`docs/constitution.md`) verified by a read-only judge after each batch. Three quality layers: correctness (tests), plan compliance (review), legality (judge). Success criteria the agent didn't author.
 - **PR Loop**: poll PR comments, inline reviews, and check status after every push, not just at batch boundaries
-- **Readiness Gate**: branch-level checklist before declaring review-ready (local proof on current tip, preview proof on exact runtime tip, final cumulative review, PR comments polled, legality check clean, strategic forgetting complete, git status clean, execution log current)
+- **Readiness Gate**: branch-level checklist before declaring review-ready (plan Acceptance with proof, `elves_landing_check.py` clean, local proof on current tip, preview proof on exact runtime tip, final cumulative review, PR comments polled, legality check clean, strategic forgetting complete, git status clean, execution log current). Green CI + `status: complete` alone is not landable.
 - **Structured session data** in `.elves-session.json` for tooling, dashboards, and analytics
 - **Install doctor and update advisory**: startup can flag newer published releases and explain
   when a project-local install differs from the global one that you thought you were using
@@ -711,6 +711,7 @@ elves/
 │   ├── pr_portfolio_report.py            # Repo-only PR health sweep helper
 │   ├── sync_installed_skills.py          # Local Claude/Codex install sync helper
 │   ├── validate_survival_guide.py        # Advisory survival-guide completeness check
+│   ├── elves_landing_check.py            # Pre-land plan Acceptance + acceptance evidence check
 │   └── workspace_guard.py                # Optional workspace owned-tip guard prototype
 └── .github/
     └── ISSUE_TEMPLATE/                   # Bug report, feature request, overnight run report
@@ -867,7 +868,7 @@ mkdir -p ~/.codex/skills/elves/scripts
 git clone https://github.com/aigorahub/elves.git /tmp/elves
 cp /tmp/elves/SKILL.md /tmp/elves/AGENTS.md /tmp/elves/config.json.example ~/.codex/skills/elves/
 cp -r /tmp/elves/references ~/.codex/skills/elves/
-cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/preflight_worktree.py /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py ~/.codex/skills/elves/scripts/
+cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/preflight_worktree.py /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py /tmp/elves/scripts/elves_landing_check.py ~/.codex/skills/elves/scripts/
 rm -rf /tmp/elves
 ```
 
@@ -956,8 +957,8 @@ For Codex, the sync helper updates the main skill bundle only. Invoke Cobbler wi
 
 The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
 `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
-`scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`, and
-`scripts/validate_survival_guide.py`.
+`scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`,
+`scripts/validate_survival_guide.py`, and `scripts/elves_landing_check.py`.
 Repo-only maintenance
 helpers such as `scripts/check_repo_consistency.py`, `scripts/release_checklist.py`,
 `scripts/pr_portfolio_report.py`, and `scripts/workspace_guard.py` stay in the checkout.
@@ -1035,6 +1036,19 @@ For real runs, I recommend exporting `ELVES_SURVIVAL_GUIDE_PATH` before `./scrip
 Preflight will run `python3 scripts/validate_survival_guide.py "$ELVES_SURVIVAL_GUIDE_PATH"` as a
 warning-only check. It won't block launch, but it will catch half-filled Stop Gate / Run Control
 fields before you go offline.
+
+Before Final Readiness or merge-on-green / reviewed-PR landing, run the landing check when the
+session JSON exists:
+
+```bash
+python3 scripts/elves_landing_check.py
+python3 scripts/elves_landing_check.py --plan docs/plans/my-plan.md \
+  --execution-log docs/elves/execution-log.md
+```
+
+It fails when batches are marked `complete` without plan Acceptance evidence, when plan checkboxes
+are still open, when god-file splits are closed on structure/regex locks alone, or when multi-batch
+"close remaining" commits lack per-batch Validate sections.
 
 **The validation gates** will be different for every project. A Python data pipeline has different gates than a React web app. Edit the survival guide's `## Tool Configuration` section to match your stack. See [`references/tool-config-examples.md`](references/tool-config-examples.md) for examples across Node, Python, Go, Rust, and monorepos.
 

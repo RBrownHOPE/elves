@@ -31,6 +31,7 @@ RUNTIME_SCRIPT_PATHS = [
     "scripts/notify.sh",
     "scripts/install_doctor.py",
     "scripts/validate_survival_guide.py",
+    "scripts/elves_landing_check.py",
 ]
 REPO_ONLY_SCRIPT_PATHS = [
     "scripts/check_repo_consistency.py",

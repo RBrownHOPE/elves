@@ -4,6 +4,21 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Acceptance evidence and landing hardening
+
+- **Policy:** Green CI + `status: complete` is not landable; landable is plan Acceptance with proof.
+- Added required per-batch `acceptance: [{criterion, met, evidence}]` on `.elves-session.json`
+  before a batch may be marked complete (Completion Contract, Structured Session Data, Document step).
+- **God-file rule:** structure/regex/characterization locks may lock behavior but must not alone
+  complete a split batch unless plan Acceptance explicitly allows characterization-only.
+- Prefer **one batch per close commit**; multi-batch closes require separate **Validate:** sections
+  per batch id in the execution log.
+- Added `scripts/elves_landing_check.py` as a pre-land / Final Readiness check (session acceptance,
+  plan Acceptance checkboxes, multi-batch close detection, optional evidence-dir layout).
+- Survival guide template: Acceptance Checks expanded; new Evidence / SCRATCH layout section.
+- Plan and execution-log templates: measurable split/god-file Acceptance and per-batch Validate proof.
+- Readiness Gate and Final Readiness Review now require landing-check-clean acceptance evidence.
+
 ## [1.18.0] - 2026-06-16
 
 - Made Cobbler's role as the default Elves coordinator explicit across runtime docs, README,

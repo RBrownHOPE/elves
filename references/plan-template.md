@@ -73,11 +73,16 @@ Example:
 - [ ] [Verifiable criterion]
 - [ ] [Verifiable criterion]
 - [ ] [If this batch changes existing behavior, include one criterion that proves old behavior still works]
+- [ ] [If this batch splits a large/god file: include a measurable bar (LOC, facade boundary, module count) — structure/regex lock tests alone do not complete the batch unless you explicitly allow characterization-only here]
 
 **Docs likely touched:**
 - [README / config docs / learnings / `.ai-docs/*` / "none expected"]
 
 **Risk:** [One sentence. What is most likely to go wrong, or what has the highest uncertainty?]
+
+> Elves records each completed criterion in `.elves-session.json` as
+> `acceptance: [{criterion, met, evidence}]`. Green tests without these proof rows do not make the
+> batch landable.
 
 ---
 
@@ -91,6 +96,7 @@ Example:
 - [ ] [Verifiable criterion]
 - [ ] [Verifiable criterion]
 - [ ] [If this batch changes existing behavior, include one regression-preservation check]
+- [ ] [If this is a split/god-file batch: measurable size/facade criterion, not only structure locks]
 
 **Docs likely touched:**
 - [README / config docs / learnings / `.ai-docs/*` / "none expected"]

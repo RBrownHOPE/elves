@@ -797,7 +797,7 @@ Update the execution log with a timestamped entry covering: batch name, timing b
 4. **Test baseline comparison:** compare the current test count against the baseline captured during Verify Green (step 2). Report the delta. Total tests should only go up or stay flat, never decrease. If the skipped count increased, explain why.
 5. **Confidence and reasoning:** state HIGH, MEDIUM, or LOW and explain *why*. "All tests pass" is necessary but not sufficient. Explain what you checked beyond tests and why you believe existing functionality is preserved. If you modified shared surfaces, explain why consumers aren't affected. If MEDIUM or LOW, describe the specific risk and what additional verification would raise confidence.
 
-Also update `.elves-session.json` — set the current batch status to `"complete"`, record the commit SHA and completion timestamp, and capture any resolved, deferred, or dismissed review-comment dispositions. This keeps the JSON in sync with the execution log so either can be used for recovery.
+Also update `.elves-session.json` — set the current batch status to `"complete"` **only after** recording a non-empty `acceptance` array (each item: `criterion`, `met: true`, `evidence`), record the commit SHA and completion timestamp, and capture any resolved, deferred, or dismissed review-comment dispositions. This keeps the JSON in sync with the execution log so either can be used for recovery. Do not mark `complete` because gates are green if plan Acceptance is still open.
 
 Promote durable lessons deliberately:
 - keep transient notes and one-off debugging trails in the execution log
@@ -821,6 +821,12 @@ Stage specific files (not `git add -A`), commit with a clear message that includ
 **At the end of every completed batch, this step is mandatory before any other work begins.** A
 batch is not complete while its finished work exists only in the working tree or only in your local
 branch.
+
+**One batch per close commit (default).** Prefer a single batch id in the close commit subject
+(`[branch · Batch N/Total] ...`). Do not collapse unfinished batches into a multi-batch "close
+remaining" commit. If circumstances force a multi-batch close, the execution log must include a
+separate **Validate:** section for each batch id before any of those batches may be marked
+`complete`.
 
 **Self-check before every commit:** verify your subject line matches the format below. If it doesn't, rewrite it before committing. This is non-negotiable.
 
@@ -1042,24 +1048,48 @@ Between batches, if your platform supports it, consider proactively compacting w
 
 ## Completion Contract
 
+**One-line policy:** Green CI + `status: complete` is not landable. Landable is **plan Acceptance with proof.**
+
 A batch isn't done unless:
 
 1. Code lints cleanly and type-checks with zero errors.
 2. Build succeeds.
 3. Touched-surface tests pass with no new failures. (Broad regression proof runs at entropy checks and before the Readiness Gate — see **Proof Scope**.)
 4. Preview deploys and smoke tests pass (if configured).
-5. Contract acceptance criteria marked as met (or exceptions documented with reasoning).
+5. **Plan and contract Acceptance criteria marked as met with evidence** (or exceptions documented with reasoning and a hard-stop note). Self-certified complete is not enough — see **Acceptance evidence** below.
 6. Review performed. The review loop ran until no blockers remained. All review threads resolved or replied to.
 7. Legality check passed (if a constitution exists). No unresolved FAIL verdicts.
 8. No accumulated debt: no skipped gates, no "will fix later" items, no known regressions.
 9. **Regression attestation written.** The execution log entry for this batch includes: cumulative diff review (`git diff <default-branch>...HEAD --stat`), shared surfaces identified with consumers verified, public API surface delta when configured, test baseline comparison (total tests never decreased), and a confidence level with reasoning. See step 9.
 10. **Documentation is up to date.** Any user-facing behavior changed by this batch must be reflected in the relevant docs: README, API docs, inline doc comments, config references, migration guides, changelogs, `learnings.md`, `.ai-docs/*`, or whatever the project uses. Stale docs are debt. A user who reads the docs and gets wrong information is worse off than a user with no docs at all.
-11. `.elves-session.json` updated with batch status, commit SHA, completion timestamp, current batch state, `continuation_guard`, and `review_comments` dispositions.
+11. `.elves-session.json` updated with batch status, commit SHA, completion timestamp, current batch state, `continuation_guard`, non-empty per-batch `acceptance` evidence, and `review_comments` dispositions.
 12. Memory and resource hygiene checked for long runs or large batches: live docs are concise, old log entries are archived in place when needed, idle resources are reconciled, and a fresh-thread handoff exists if memory pressure is visible.
 13. You're confident the batch is correct. Not "probably fine," but verified through testing, review, and deployment.
-14. Execution log updated with timestamps, evidence, and commit SHA.
+14. Execution log updated with timestamps, evidence, and commit SHA. Prefer **one batch per close commit**. If you must close more than one batch in one push, the execution log must contain a separate **Validate:** section per batch id.
 15. Survival guide updated with next batch and Stop Gate.
 16. Changes committed and pushed.
+17. **God-file / split batches:** source-regex, structure-already-exists, or characterization tests may *lock* behavior. They **must not alone** complete a split batch unless the plan Acceptance explicitly allows characterization-only. LOC/facade/size bars in the plan require matching metric evidence (or a hard-stop note explaining why the bar was missed).
+
+### Acceptance evidence (required before `status: complete`)
+
+Before flipping any batch to `complete` in `.elves-session.json`, record an `acceptance` array on that batch:
+
+```json
+"acceptance": [
+  {
+    "criterion": "facade or LOC cut as stated in plan Acceptance",
+    "met": true,
+    "evidence": "path, command transcript, metric, or commit SHA"
+  }
+]
+```
+
+Rules:
+- Every planned batch that is `status: complete` must have a non-empty `acceptance` list.
+- Every item must have `met: true` and non-empty `evidence`.
+- Evidence must speak to the plan Acceptance criterion (LOC, facade, behavior), not only "tests green."
+- Gate transcripts (typecheck/lint/test/build) should be captured under the run's evidence/SCRATCH dir when configured: `{evidence-root}/batch-N/{typecheck|lint|test|build}` (or `.log` / `.txt` suffixes).
+- Run `python3 scripts/elves_landing_check.py` before Final Readiness / landing when the script is available. Treat failures as blockers.
 
 Every batch must be tight before you move on. The next batch builds on this one. If this one is shaky, everything after it is shaky. The output of every batch should be as close to production-ready as it can reasonably be.
 
@@ -1139,17 +1169,21 @@ Not all proof is equal. Distinguish between:
 
 The **Completion Contract** governs individual batches — each batch must pass it before you move on. The **Readiness Gate** governs the branch as a whole before declaring it review-ready for the human. It includes everything in the Completion Contract plus branch-level concerns (legality check, cumulative proof).
 
+**Landing policy:** Green CI + every batch `status: complete` is **not** sufficient. Landable means every plan Acceptance criterion is met **with proof** in session JSON (and plan checkboxes / execution-log validate sections where applicable).
+
 Do not call a branch review-ready unless ALL of the following are true:
 
-1. **Execution log is current.** All batches documented with timestamps, evidence, and commit SHAs.
+1. **Execution log is current.** All batches documented with timestamps, evidence, and commit SHAs. Multi-batch "close remaining" commits without per-batch Validate sections are not ready.
 2. **Local proof is green on the current tip.** All validation gates pass on the latest commit, not on an earlier commit that has since been amended by review fixes.
 3. **Preview proof is green on the current tip** (if deployed behavior was touched). Re-verify after every push that changes deployed code.
 4. **Artifact inspection done** for any export/download behavior changes. The actual output was inspected, not just the success status.
-5. **Final cumulative review is clean.** A fresh review subagent, if supported by the platform, has reviewed `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, and every PR comment and check (resolved and unresolved), and has run every test that makes sense. If subagents are unavailable, do this review directly. Fix blockers, push, and repeat until the cumulative review is clean.
-6. **PR comments and checks have been polled.** No unresolved threads, no unreplied bot comments, no failing checks.
-7. **Legality check is clean.** If a constitution exists, the judge has run on the final tip with no unresolved FAIL verdicts. WARN findings are documented with reasoning.
-8. **Strategic forgetting is complete.** The survival guide is concise, long execution logs are archived in place, durable lessons are promoted or pruned, and a reactivation handoff exists for any remaining work.
-9. **Git status is clean.** No uncommitted changes, no untracked files that should be committed.
+5. **Plan Acceptance with proof.** Every planned batch 1–N has `status: complete` **and** a non-empty `acceptance` array with each item `met: true` and non-empty `evidence`. Walk plan Acceptance checkboxes; none may remain open unless a hard-stop note documents the miss. God-file / split batches must not be completed on structure/regex locks alone.
+6. **Landing check clean.** When available, run `python3 scripts/elves_landing_check.py` (optionally with `--plan`, `--execution-log`, and `--evidence-root`). Failures are blockers for review-ready and for merge-on-green / reviewed-PR landing.
+7. **Final cumulative review is clean.** A fresh review subagent, if supported by the platform, has reviewed `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, and every PR comment and check (resolved and unresolved), and has run every test that makes sense. If subagents are unavailable, do this review directly. Fix blockers, push, and repeat until the cumulative review is clean.
+8. **PR comments and checks have been polled.** No unresolved threads, no unreplied bot comments, no failing checks.
+9. **Legality check is clean.** If a constitution exists, the judge has run on the final tip with no unresolved FAIL verdicts. WARN findings are documented with reasoning.
+10. **Strategic forgetting is complete.** The survival guide is concise, long execution logs are archived in place, durable lessons are promoted or pruned, and a reactivation handoff exists for any remaining work.
+11. **Git status is clean.** No uncommitted changes, no untracked files that should be committed.
 
 If any gate fails, fix it before declaring readiness. This checklist is the final quality gate between "autonomous run complete" and "ready for human review."
 
@@ -1236,7 +1270,7 @@ When all batches are done or time is up:
 2. Update `.elves-session.json`.
 3. Do a final TODO.md pass.
 4. Update the survival guide and perform strategic forgetting: condense live state, archive old execution-log entries in place if the log is large, promote durable lessons, prune superseded lessons, and leave a concise reactivation handoff for any remaining work or future follow-up.
-5. **Run the Final Readiness Review before operational-artifact cleanup. This is the mandatory last step of every finite run — never skip it.** Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if the platform supports it; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json`, and **every** PR review comment (resolved and unresolved, from humans, bots, and CI), and must run every test that makes sense — the full suite plus any E2E or browser checks that apply — so you can be confident the branch is green to merge. Fix blocking findings, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun the final review.
+5. **Run the Final Readiness Review before operational-artifact cleanup. This is the mandatory last step of every finite run — never skip it.** First run `python3 scripts/elves_landing_check.py` when available and fix any acceptance-evidence failures. Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if the platform supports it; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json` (including per-batch `acceptance` proof), and **every** PR review comment (resolved and unresolved, from humans, bots, and CI), and must run every test that makes sense — the full suite plus any E2E or browser checks that apply — so you can be confident the branch is green to merge. Fix blocking findings, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun the final review.
 6. **Generate the Elves Report** for substantial runs. Use the current survival guide, execution log, `.elves-session.json`, learnings file, plan, and live PR/CI state. Include problems found, lessons learned, batch timeline, verification proof, residual risks, and human next steps. Save it under `/tmp` by default and do not commit it unless explicitly configured. This is the last normal point where all operational source documents are guaranteed present; fully regenerate the report here before cleanup if its content changed. The report is the user's morning briefing: surface its path in the final notification and explicitly tell them to read it before reviewing or merging the PR.
 7. **Clean up operational artifacts.** Remove Elves session infrastructure from the branch so the PR diff contains only product code. Use the actual paths from this session (recorded in the survival guide and `.elves-session.json`), not hard-coded defaults:
    ```bash
@@ -1386,7 +1420,14 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
       "commit": "abc1234",
       "rollback_tag": "elves/pre-batch-1",
       "started_at": "2026-03-24T22:00:00Z",
-      "completed_at": "2026-03-24T23:15:00Z"
+      "completed_at": "2026-03-24T23:15:00Z",
+      "acceptance": [
+        {
+          "criterion": "migrations apply cleanly on empty DB",
+          "met": true,
+          "evidence": "scratch/batch-1/test.log + commit abc1234"
+        }
+      ]
     },
     {
       "id": 2,
@@ -1395,7 +1436,8 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
       "commit": null,
       "rollback_tag": "elves/pre-batch-2",
       "started_at": "2026-03-24T23:16:00Z",
-      "completed_at": null
+      "completed_at": null,
+      "acceptance": []
     }
   ],
   "review_comments": [

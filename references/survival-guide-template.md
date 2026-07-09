@@ -348,7 +348,14 @@ worries us, and what should the manager do next?
 
 Before marking any batch complete, verify all of the following:
 
+**Policy:** Green CI + `status: complete` is not landable. Landable is plan Acceptance with proof.
+
 - [ ] All configured validation gates pass (lint, typecheck, build, test)
+- [ ] Plan Acceptance criteria for this batch are met with recorded evidence (not only "tests green")
+- [ ] `.elves-session.json` batch entry has non-empty `acceptance: [{criterion, met: true, evidence}]` before `status: complete`
+- [ ] God-file / split batches: LOC/facade/size bars proven; structure/regex locks alone do not complete the batch unless the plan allows characterization-only
+- [ ] One batch per close commit (or separate **Validate:** sections per batch id if multi-batch)
+- [ ] Gate transcripts saved under Evidence / SCRATCH (below) when that layout is in use
 - [ ] PR review performed, all blocking findings resolved
 - [ ] Execution log updated with timestamps, commands run, test results, commit SHA
 - [ ] Survival guide updated with new Current Phase and Next Exact Batch
@@ -358,6 +365,35 @@ Before marking any batch complete, verify all of the following:
 - [ ] Batch closed out with a commit and push before any later work begins
 - [ ] Survival guide re-read immediately after that commit and push
 - [ ] Rollback tag created _before_ the batch started
+- [ ] Before Final Readiness / landing: `python3 scripts/elves_landing_check.py` passes (when available)
+
+---
+
+## Evidence / SCRATCH Layout
+
+> Optional but strongly recommended for long runs and for less-disciplined models. Capture gate
+> transcripts before flipping a batch to `complete`. Keep this tree gitignored (ephemeral).
+
+```text
+[scratch-or-evidence-root]/
+  batch-1/
+    typecheck   # or typecheck.log / typecheck.txt
+    lint
+    test
+    build
+  batch-2/
+    typecheck
+    lint
+    test
+    build
+```
+
+- **Evidence root:** `[path/to/scratch-or-.elves/evidence | unset]`
+- **Required for complete:** when set, each complete batch should have the four gate artifacts above
+- **Landing check:** `python3 scripts/elves_landing_check.py --evidence-root <path> [--require-evidence-dirs]`
+
+Do not commit raw gate transcripts into the product PR unless the user asks. They are run evidence,
+not product code.
 
 ---
 
