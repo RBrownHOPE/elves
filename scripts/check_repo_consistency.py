@@ -1649,7 +1649,7 @@ PUBLIC_WORDING_FORBIDDEN_PHRASES = [
 
 
 def read_text(path: Path) -> str:
-    return path.read_text()
+    return path.read_text(encoding="utf-8")
 
 
 def read_frontmatter_version(path: Path) -> str | None:

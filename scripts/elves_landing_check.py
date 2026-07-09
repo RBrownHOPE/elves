@@ -67,7 +67,7 @@ CHARACTERIZATION_ALLOW_PATTERNS = re.compile(
 )
 
 BATCH_HEADING = re.compile(
-    r"^###?\s+Batch\s+(\d+)\s*[:.\-–—]?\s*(.*)$",
+    r"^###?\s+Batch\s+\[?(\d+)\]?\s*[:.\-–—]?\s*(.*)$",
     re.IGNORECASE | re.MULTILINE,
 )
 ACCEPTANCE_SECTION = re.compile(
@@ -160,8 +160,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def load_json(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Session file not found: {path}") from exc
+    except OSError as exc:
+        raise SystemExit(f"Session file could not be read: {path}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise SystemExit(f"Session file is not valid JSON: {path}: {exc}") from exc
     if not isinstance(data, dict):
@@ -225,8 +225,8 @@ def check_session_batches(session: dict[str, Any], report: Report) -> None:
             continue
 
         for index, item in enumerate(items):
-            criterion = str(item.get("criterion", "")).strip()
-            evidence = str(item.get("evidence", "")).strip()
+            criterion = str(item.get("criterion") or "").strip()
+            evidence = str(item.get("evidence") or "").strip()
             met = item.get("met")
             label = criterion or f"item[{index}]"
 
@@ -249,31 +249,31 @@ def check_session_batches(session: dict[str, Any], report: Report) -> None:
 
         # God-file / structure-lock rule: lock-only acceptance cannot alone complete
         # a split batch unless characterization-only is explicitly allowed.
-        criteria_text = " ".join(str(i.get("criterion", "")) for i in items)
-        evidence_text = " ".join(str(i.get("evidence", "")) for i in items)
+        criteria_text = " ".join(str(i.get("criterion") or "") for i in items)
+        evidence_text = " ".join(str(i.get("evidence") or "") for i in items)
         blob = f"{criteria_text} {evidence_text}"
         if LOCK_ONLY_PATTERNS.search(blob) and not CHARACTERIZATION_ALLOW_PATTERNS.search(blob):
             if SPLIT_ACCEPTANCE_PATTERNS.search(blob) or any(
-                SPLIT_ACCEPTANCE_PATTERNS.search(str(i.get("criterion", ""))) for i in items
+                SPLIT_ACCEPTANCE_PATTERNS.search(str(i.get("criterion") or "")) for i in items
             ):
                 # Has both lock language and split language — OK if met with real evidence.
                 pass
             else:
                 # All acceptance looks lock/structure-only with no split metric.
                 only_lock = all(
-                    LOCK_ONLY_PATTERNS.search(str(i.get("criterion", "")))
-                    or LOCK_ONLY_PATTERNS.search(str(i.get("evidence", "")))
-                    or not SPLIT_ACCEPTANCE_PATTERNS.search(str(i.get("criterion", "")))
+                    LOCK_ONLY_PATTERNS.search(str(i.get("criterion") or ""))
+                    or LOCK_ONLY_PATTERNS.search(str(i.get("evidence") or ""))
+                    or not SPLIT_ACCEPTANCE_PATTERNS.search(str(i.get("criterion") or ""))
                     for i in items
                 )
                 if only_lock and not any(
-                    SPLIT_ACCEPTANCE_PATTERNS.search(str(i.get("criterion", ""))) for i in items
+                    SPLIT_ACCEPTANCE_PATTERNS.search(str(i.get("criterion") or "")) for i in items
                 ):
                     # Soft when criteria are ordinary (not god-file related).
                     # Hard when every criterion is lock-only style.
                     if all(
-                        LOCK_ONLY_PATTERNS.search(str(i.get("criterion", "")))
-                        or LOCK_ONLY_PATTERNS.search(str(i.get("evidence", "")))
+                        LOCK_ONLY_PATTERNS.search(str(i.get("criterion") or ""))
+                        or LOCK_ONLY_PATTERNS.search(str(i.get("evidence") or ""))
                         for i in items
                     ):
                         report.error(
@@ -297,22 +297,13 @@ def parse_plan_batches(plan_text: str) -> dict[int, dict[str, Any]]:
         acceptance: list[dict[str, Any]] = []
         section_match = ACCEPTANCE_SECTION.search(body)
         section = section_match.group(1) if section_match else body
-        for box in CHECKBOX.finditer(section if section_match else ""):
+        for box in CHECKBOX.finditer(section):
             acceptance.append(
                 {
                     "checked": box.group(1).lower() == "x",
                     "text": box.group(2).strip(),
                 }
             )
-        # Fallback: any unchecked Acceptance-looking boxes near "Acceptance"
-        if not acceptance and "acceptance" in body.lower():
-            for box in CHECKBOX.finditer(body):
-                acceptance.append(
-                    {
-                        "checked": box.group(1).lower() == "x",
-                        "text": box.group(2).strip(),
-                    }
-                )
         result[bid] = {"title": title, "acceptance": acceptance, "body": body}
     return result
 

@@ -96,6 +96,30 @@ class ElvesLandingCheckTests(unittest.TestCase):
             code = self.mod.main(["--session", str(session_path)])
             self.assertEqual(code, 1)
 
+    def test_null_criterion_treated_as_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "batches": [
+                    {
+                        "id": 4,
+                        "status": "complete",
+                        "acceptance": [
+                            {"criterion": None, "met": True, "evidence": "sha"}
+                        ],
+                    }
+                ]
+            }
+            session_path = self._write_session(tmp, session)
+            code = self.mod.main(["--session", str(session_path)])
+            self.assertEqual(code, 1)
+
+    def test_batch_heading_accepts_bracketed_numbers(self) -> None:
+        text = "## Batch [3] Contract: 2026-07-08\n\n**Validate:**\n"
+        matches = list(self.mod.BATCH_HEADING.finditer(text))
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0].group(1), "3")
+
     def test_acceptance_missing_evidence_fails(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)
