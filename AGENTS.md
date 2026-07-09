@@ -1,5 +1,5 @@
 ---
-version: "1.18.0"
+version: "1.19.0"
 ---
 
 # Elves: Autonomous Development Agent (Codex)
@@ -734,6 +734,12 @@ Between batches, proactively compact with specific instructions: "Preserve: surv
 Don't report "done" unless all are true for the current batch. This is a condensed checklist; see `SKILL.md` **Completion Contract** for the full version.
 
 **One-line policy:** Green CI + `status: complete` is not landable. Landable is **plan Acceptance with proof.**
+
+**Why:** less disciplined models (and any model under compaction/time pressure) self-certify complete
+from green CI or structure locks while plan Acceptance (LOC/facade/split bars) stays open. Per-batch
+`acceptance` evidence, the god-file rule, one-batch close commits, and `elves_landing_check.py`
+turn that self-certification into auditable proof. See `SKILL.md` **Completion Contract** for the
+full rationale.
 
 1. Touched-surface validation gates passed (lint, typecheck, build, test, preview if configured). Broad regression runs at entropy checks and before the Readiness Gate.
 2. No accumulated debt: no skipped gates, no "will fix later" items, no known regressions.

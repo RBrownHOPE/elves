@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "1.18.0"
+  version: "1.19.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -1049,6 +1049,25 @@ Between batches, if your platform supports it, consider proactively compacting w
 ## Completion Contract
 
 **One-line policy:** Green CI + `status: complete` is not landable. Landable is **plan Acceptance with proof.**
+
+### Why acceptance evidence exists
+
+Overnight runs put pressure on models to declare victory. The cheapest victory signals are green
+CI, a structure/regex characterization test, and flipping `status: complete` in session JSON.
+Disciplined models still re-read plan Acceptance and refuse to close early. Less disciplined models
+— or any model after compaction, late-night thrash, or a multi-batch "close remaining" rush —
+satisfy the letter of the old gates while missing the plan spirit.
+
+These hardening steps convert self-certification into auditable proof:
+
+- **Per-batch `acceptance` rows** force a criterion → evidence link the next context (or a script)
+  can check without trusting narrative alone.
+- **The god-file rule** separates *locks* (structure already exists) from *completion* (LOC/facade
+  bar met). Locks prevent regression; they do not ship the split.
+- **One batch per close commit** keeps progress honest. Multi-batch closes hide unfinished work
+  behind a single green tip.
+- **`elves_landing_check.py`** is a machine check for Final Readiness and merge-on-green paths so
+  a tired agent cannot talk itself past open Acceptance.
 
 A batch isn't done unless:
 

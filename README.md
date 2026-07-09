@@ -469,6 +469,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Constitution and legality check**: human-authored deal-breaker behaviors (`docs/constitution.md`) verified by a read-only judge after each batch. Three quality layers: correctness (tests), plan compliance (review), legality (judge). Success criteria the agent didn't author.
 - **PR Loop**: poll PR comments, inline reviews, and check status after every push, not just at batch boundaries
 - **Readiness Gate**: branch-level checklist before declaring review-ready (plan Acceptance with proof, `elves_landing_check.py` clean, local proof on current tip, preview proof on exact runtime tip, final cumulative review, PR comments polled, legality check clean, strategic forgetting complete, git status clean, execution log current). Green CI + `status: complete` alone is not landable.
+- **Acceptance evidence (v1.19+)**: each complete batch records `acceptance: [{criterion, met, evidence}]` in `.elves-session.json`; god-file splits cannot close on structure/regex locks alone; prefer one batch per close commit
 - **Structured session data** in `.elves-session.json` for tooling, dashboards, and analytics
 - **Install doctor and update advisory**: startup can flag newer published releases and explain
   when a project-local install differs from the global one that you thought you were using
@@ -1036,6 +1037,29 @@ For real runs, I recommend exporting `ELVES_SURVIVAL_GUIDE_PATH` before `./scrip
 Preflight will run `python3 scripts/validate_survival_guide.py "$ELVES_SURVIVAL_GUIDE_PATH"` as a
 warning-only check. It won't block launch, but it will catch half-filled Stop Gate / Run Control
 fields before you go offline.
+
+### Why acceptance evidence and the landing check exist
+
+Elves already had strong gates against *early* land (Stop Gate, Completion Contract, regression
+attestation). What it did not force was proof that plan **Acceptance** was met — only that the
+agent *said* each batch was complete. That gap bites hardest on weaker or less disciplined models,
+and on any model after context compaction or late-run thrash:
+
+| Easy green signal | What it actually proves | What it does not prove |
+| --- | --- | --- |
+| CI / unit tests green | Code compiles and covered paths work | Plan Acceptance (LOC cut, facade, split) |
+| Structure / regex "lock" tests | A shape or characterization still holds | The god-file was actually split |
+| `status: complete` in session JSON | The agent flipped a flag | Criteria were met with evidence |
+| Multi-batch "close remaining" commit | Something pushed | Each batch had its own validate pass |
+
+So v1.19 hardens both skill surfaces (Claude `SKILL.md` and Codex `AGENTS.md`) the same way:
+
+1. **Per-batch acceptance rows** — `acceptance: [{criterion, met, evidence}]` before complete  
+2. **God-file rule** — locks lock; they do not complete a split unless the plan allows characterization-only  
+3. **One batch per close commit** (or labeled **Validate:** sections per batch id)  
+4. **`scripts/elves_landing_check.py`** — machine check before Final Readiness / merge-on-green  
+
+Policy in one line: **green CI + `status: complete` is not landable; landable is plan Acceptance with proof.**
 
 Before Final Readiness or merge-on-green / reviewed-PR landing, run the landing check when the
 session JSON exists:
