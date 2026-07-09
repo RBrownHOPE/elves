@@ -1,5 +1,5 @@
 ---
-version: "1.18.0"
+version: "1.19.0"
 ---
 
 # Elves: Autonomous Development Agent (Codex)
@@ -578,7 +578,7 @@ Append to execution log:
 
 **Write the regression attestation.** Review `git diff <default-branch>...HEAD --stat` for the cumulative delta. Identify shared surfaces modified, verify consumers, record the public API surface delta when configured, compare test count against the baseline from step 2, and state a confidence level with reasoning.
 
-Also update `.elves-session.json`. Set the batch status to `"complete"`, record commit SHA and timestamp.
+Also update `.elves-session.json`. Set the batch status to `"complete"` only after recording non-empty `acceptance` evidence (`criterion` / `met: true` / `evidence`), then record commit SHA and timestamp.
 
 Also update the learnings file when this batch surfaced something that is likely to matter again
 later tonight or in a future run. Only promote lessons that are reusable, stable, actionable, and
@@ -600,6 +600,8 @@ git push
 ```
 
 **At the end of every completed batch, this step is mandatory before any other work begins.** A batch is not complete while its finished work exists only in the working tree or only on the local branch.
+
+**One batch per close commit (default).** Do not collapse unfinished batches into multi-batch "close remaining" commits. If forced, record a separate **Validate:** section per batch id in the execution log before marking those batches complete.
 
 **Self-check before every commit:** verify your subject line matches the format. If it doesn't, rewrite it. Non-negotiable.
 
@@ -731,18 +733,27 @@ Between batches, proactively compact with specific instructions: "Preserve: surv
 
 Don't report "done" unless all are true for the current batch. This is a condensed checklist; see `SKILL.md` **Completion Contract** for the full version.
 
+**One-line policy:** Green CI + `status: complete` is not landable. Landable is **plan Acceptance with proof.**
+
+**Why:** less disciplined models (and any model under compaction/time pressure) self-certify complete
+from green CI or structure locks while plan Acceptance (LOC/facade/split bars) stays open. Per-batch
+`acceptance` evidence, the god-file rule, one-batch close commits, and `elves_landing_check.py`
+turn that self-certification into auditable proof. See `SKILL.md` **Completion Contract** for the
+full rationale.
+
 1. Touched-surface validation gates passed (lint, typecheck, build, test, preview if configured). Broad regression runs at entropy checks and before the Readiness Gate.
 2. No accumulated debt: no skipped gates, no "will fix later" items, no known regressions.
 3. **Regression attestation written.** Execution log entry includes: cumulative diff review, shared surfaces with consumers verified, public API surface delta when configured, test baseline comparison, and confidence level with reasoning. See step 9.
-4. Contract acceptance criteria marked as met (or exceptions documented).
+4. Plan and contract acceptance criteria marked as met **with evidence** (or exceptions + hard-stop note). Record per-batch `acceptance: [{criterion, met, evidence}]` in `.elves-session.json` before flipping `status: complete`.
 5. PR comments read; findings triaged. Review loop ran until no blockers remained. All review threads resolved or replied to.
 6. Legality check passed (if a constitution exists). No unresolved FAIL verdicts.
 7. **Documentation is up to date.** Any user-facing behavior changed by this batch is reflected in the relevant docs (README, API docs, inline doc comments, config references, changelogs, `learnings.md`, `.ai-docs/*`). Stale docs are debt.
-8. `.elves-session.json` updated with `session_id`, current batch state, batch status, commit SHA, completion timestamp, `continuation_guard`, Cobbler session state when applicable, and `review_comments` dispositions. The schema includes path fields for the plan/survival guide/learnings/execution log, a `cobbler` object with `default_for_session`, `activated_by`, `mode`, `scope`, and `exit_phrases` for run-level Cobbler recovery state, a `batches` array (id, name, status, commit, rollback_tag, started_at, completed_at), a `continuation_guard` object (`remaining_batches`, `stop_allowed`, `checkpoint_is_stop`, `next_required_action`), an optional `model_routes` array (`phase`, `requested_route`, `actual_route`, `fallback_reason`) for material full-run route changes, and a `review_comments` array (id, type, source, batch, cycle, summary, disposition, fix_commit/reason). See `SKILL.md` **Structured Session Data** for the full schema.
+8. `.elves-session.json` updated with `session_id`, current batch state, batch status, commit SHA, completion timestamp, `continuation_guard`, Cobbler session state when applicable, non-empty per-batch `acceptance` evidence, and `review_comments` dispositions. The schema includes path fields for the plan/survival guide/learnings/execution log, a `cobbler` object with `default_for_session`, `activated_by`, `mode`, `scope`, and `exit_phrases` for run-level Cobbler recovery state, a `batches` array (id, name, status, commit, rollback_tag, started_at, completed_at, acceptance), a `continuation_guard` object (`remaining_batches`, `stop_allowed`, `checkpoint_is_stop`, `next_required_action`), an optional `model_routes` array (`phase`, `requested_route`, `actual_route`, `fallback_reason`) for material full-run route changes, and a `review_comments` array (id, type, source, batch, cycle, summary, disposition, fix_commit/reason). See `SKILL.md` **Structured Session Data** for the full schema.
 9. Memory and resource hygiene checked for long runs or large batches: live docs concise, old log entries archived in place if needed, idle resources reconciled, and fresh-thread handoff written if memory pressure is visible.
-10. Execution log updated with timestamps, evidence, and commit SHA.
+10. Execution log updated with timestamps, evidence, and commit SHA. Prefer **one batch per close commit**; multi-batch closes require separate **Validate:** sections per batch id.
 11. Survival guide updated with next batch and Stop Gate.
 12. Changes committed and pushed.
+13. **God-file rule:** structure/regex/characterization tests may lock behavior; they must not alone complete a split batch unless plan Acceptance explicitly allows characterization-only.
 
 ## Constitution and the Legality Check
 
@@ -787,15 +798,19 @@ If a broad regression run is blocked by an unrelated known issue, record it and 
 
 The **Completion Contract** governs individual batches. The **Readiness Gate** governs the branch as a whole before declaring it review-ready. Do not call a branch review-ready unless ALL of the following are true:
 
-1. **Execution log is current.** All batches documented with timestamps, evidence, and commit SHAs.
+**Landing policy:** Green CI + every batch `status: complete` is not sufficient. Landable is plan Acceptance with proof.
+
+1. **Execution log is current.** All batches documented with timestamps, evidence, and commit SHAs. No multi-batch "close remaining" without per-batch Validate sections.
 2. **Local proof is green on the current tip.** All gates pass on the latest commit.
 3. **Preview proof is green on the current tip** (if deployed behavior was touched).
 4. **Artifact inspection done** for any export/download behavior changes.
-5. **Final cumulative review is clean.** A fresh review subagent, if supported, has reviewed `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, and every PR comment and check (resolved and unresolved), and has run every test that makes sense. If subagents are unavailable, do this review directly. Fix blockers, push, and repeat until clean.
-6. **PR comments and checks have been polled.** No unresolved threads, no failing checks.
-7. **Legality check is clean.** If a constitution exists, no unresolved FAIL verdicts.
-8. **Strategic forgetting is complete.** Live docs are concise, old log entries are archived in place when large, durable lessons are promoted or pruned, and any remaining work has a reactivation handoff.
-9. **Git status is clean.** No uncommitted changes.
+5. **Plan Acceptance with proof.** Every planned batch has `status: complete` and non-empty `acceptance` with `met: true` + evidence. Walk plan Acceptance checkboxes; god-file batches need LOC/facade proof, not structure locks alone.
+6. **Landing check clean.** Run `python3 scripts/elves_landing_check.py` when available; failures block review-ready and merge-on-green / reviewed-PR landing.
+7. **Final cumulative review is clean.** A fresh review subagent, if supported, has reviewed `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, and every PR comment and check (resolved and unresolved), and has run every test that makes sense. If subagents are unavailable, do this review directly. Fix blockers, push, and repeat until clean.
+8. **PR comments and checks have been polled.** No unresolved threads, no failing checks.
+9. **Legality check is clean.** If a constitution exists, no unresolved FAIL verdicts.
+10. **Strategic forgetting is complete.** Live docs are concise, old log entries are archived in place when large, durable lessons are promoted or pruned, and any remaining work has a reactivation handoff.
+11. **Git status is clean.** No uncommitted changes.
 
 If any gate fails, fix it before declaring readiness.
 
@@ -848,7 +863,7 @@ When all batches are done (or time is up):
 2. Update `.elves-session.json` with final state. **Batch status tracking belongs in JSON, not just Markdown** — models are less likely to corrupt structured JSON during updates. The `.elves-session.json` should include a `batches` array with id, name, status, commit, rollback_tag, started_at, and completed_at for each batch. After compaction, this file is the fastest way to determine where the run stands.
 3. Final pass through TODO.md.
 4. Update the survival guide and make sure the learnings file contains any durable lessons that should survive into future runs. Perform strategic forgetting: condense live state, archive old execution-log entries in place if the log is large, prune superseded lessons, and leave a concise reactivation handoff for any remaining work.
-5. **Run the Final Readiness Review before operational-artifact cleanup. This is the mandatory last step of every finite run — never skip it.** Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if supported; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json`, and **every** PR review comment (resolved and unresolved, from humans, bots, and CI), and must run every test that makes sense — the full suite plus any E2E or browser checks that apply — so you can be confident the branch is green to merge. Fix blockers, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun the final review.
+5. **Run the Final Readiness Review before operational-artifact cleanup. This is the mandatory last step of every finite run — never skip it.** First run `python3 scripts/elves_landing_check.py` when available and fix acceptance-evidence failures. Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if supported; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json` (including per-batch `acceptance` proof), and **every** PR review comment (resolved and unresolved, from humans, bots, and CI), and must run every test that makes sense — the full suite plus any E2E or browser checks that apply — so you can be confident the branch is green to merge. Fix blockers, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun the final review.
 6. **Generate the Elves Report** for substantial runs. Use the current survival guide, execution log, `.elves-session.json`, learnings file, plan, and live PR/CI state. Include problems found, lessons learned, batch timeline, verification proof, residual risks, and human next steps. Save it under `/tmp` by default and do not commit it unless explicitly configured. This is the last normal point where all operational source documents are guaranteed present; fully regenerate the report here before cleanup if its content changed. The report is the user's morning briefing: surface its path in the final notification and explicitly tell them to read it before reviewing or merging the PR.
 7. **Clean up operational artifacts.** Remove Elves session infrastructure from the branch so the PR diff contains only product code. Use the actual paths from this session (from the survival guide or `.elves-session.json`), not hard-coded defaults:
    ```bash

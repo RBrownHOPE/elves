@@ -155,6 +155,7 @@
 
 **Batch:** [N: Batch Name]
 **Contract status:** [all criteria met / exceptions: ...]
+**Close commit scope:** [single batch N only / multi-batch with per-batch Validate sections below]
 
 **Timing:**
 - Implement: [Xm] | Validate: [Xm] | Review: [Xm] | Total: [Xm]
@@ -170,6 +171,15 @@
 - `[command]` → [result / exit code / summary]
 - `[command]` → [result / exit code / summary]
 
+**Validate:** _(required for this batch id before `status: complete`; if closing multiple batches, repeat a labeled section per id, e.g. `**Validate for batch 3:**`)_
+- Evidence dir: `[scratch/batch-N/ or N/A]`
+- Lint: [PASS / FAIL (N errors)] → transcript `[path or inline summary]`
+- Typecheck: [PASS / FAIL (N errors)] → transcript `[path or inline summary]`
+- Build: [PASS / FAIL] → transcript `[path or inline summary]`
+- Tests: [PASS (N passed, N skipped) / FAIL (N failed: test name)] → transcript `[path or inline summary]`
+- Plan Acceptance proof: [list criterion → evidence; not only "tests green"]
+- God-file / split metric (if applicable): [LOC/facade result or "N/A" or hard-stop note]
+
 **Test results:**
 - Lint: [PASS / FAIL (N errors)]
 - Typecheck: [PASS / FAIL (N errors)]
@@ -177,6 +187,7 @@
 - Tests: [PASS (N passed, N skipped) / FAIL (N failed: test name)]
 - E2E: [PASS / FAIL / N/A]
 - Smoke: [PASS (HTTP 200) / FAIL (HTTP NNN) / N/A]
+- Session acceptance rows written: [yes — criterion/met/evidence / no — not complete yet]
 
 **Review findings:**
 - [[Severity]] [Finding title]: [Resolved: description of fix / Dismissed: reason]

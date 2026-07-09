@@ -4,6 +4,31 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-07-08
+
+### Acceptance evidence and landing hardening
+
+Frontier models often treat the Completion Contract as spirit. Smaller or less disciplined models
+treat it as a checklist they can satisfy with the easiest green signals: CI passed, a structure
+test exists, session JSON says `complete`. That gap is how a PR can look landable while plan
+Acceptance (LOC cuts, facades, real splits) is still open.
+
+- **Policy:** Green CI + `status: complete` is not landable; landable is plan Acceptance with proof.
+- Required per-batch `acceptance: [{criterion, met, evidence}]` on `.elves-session.json` before
+  `status: complete` (Completion Contract, Structured Session Data, Document step) on both Claude
+  (`SKILL.md`) and Codex (`AGENTS.md`) surfaces.
+- **God-file rule:** structure/regex/characterization locks may lock behavior but must not alone
+  complete a split batch unless plan Acceptance explicitly allows characterization-only.
+- Prefer **one batch per close commit**; multi-batch closes require separate **Validate:** sections
+  per batch id in the execution log (stops "close remaining" commits from laundering unfinished work).
+- Added `scripts/elves_landing_check.py` as a pre-land / Final Readiness check (session acceptance,
+  plan Acceptance checkboxes, multi-batch close detection, optional evidence-dir layout). Shipped in
+  the installable skill bundle for Claude and Codex.
+- Survival guide template: Acceptance Checks expanded; new Evidence / SCRATCH layout section.
+- Plan and execution-log templates: measurable split/god-file Acceptance and per-batch Validate proof.
+- Readiness Gate and Final Readiness Review require landing-check-clean acceptance evidence.
+- README documents why these guards exist and how to run the landing check.
+
 ## [1.18.0] - 2026-06-16
 
 - Made Cobbler's role as the default Elves coordinator explicit across runtime docs, README,

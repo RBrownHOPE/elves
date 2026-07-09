@@ -149,10 +149,41 @@ REPO_CONSISTENCY_WORKFLOW_PHRASES = {
         "scripts/pr_portfolio_report.py",
         "scripts/preflight_worktree.py",
         "scripts/validate_survival_guide.py",
+        "scripts/elves_landing_check.py",
         "scripts/workspace_guard.py",
         "python3 scripts/release_checklist.py --allow-unreleased",
         "actions/checkout@v6",
         "actions/setup-python@v6",
+    ],
+}
+
+ACCEPTANCE_EVIDENCE_PHRASES = {
+    "SKILL.md": [
+        "plan Acceptance with proof",
+        "acceptance",
+        "elves_landing_check.py",
+        "God-file",
+        "one batch per close commit",
+    ],
+    "AGENTS.md": [
+        "plan Acceptance with proof",
+        "acceptance",
+        "elves_landing_check.py",
+        "God-file",
+        "one batch per close commit",
+    ],
+    "references/survival-guide-template.md": [
+        "plan Acceptance with proof",
+        "Evidence / SCRATCH Layout",
+        "elves_landing_check.py",
+    ],
+    "references/execution-log-template.md": [
+        "**Validate:**",
+        "Plan Acceptance proof",
+    ],
+    "references/plan-template.md": [
+        "characterization-only",
+        "acceptance: [{criterion, met, evidence}]",
     ],
 }
 
@@ -1618,7 +1649,7 @@ PUBLIC_WORDING_FORBIDDEN_PHRASES = [
 
 
 def read_text(path: Path) -> str:
-    return path.read_text()
+    return path.read_text(encoding="utf-8")
 
 
 def read_frontmatter_version(path: Path) -> str | None:
@@ -1847,6 +1878,13 @@ def main() -> int:
         for phrase in phrases:
             if phrase not in text:
                 errors.append(f"{label}: missing final-readiness-review phrase `{phrase}`")
+
+    for label, phrases in ACCEPTANCE_EVIDENCE_PHRASES.items():
+        path = REPO_ROOT / label
+        text = read_text(path)
+        for phrase in phrases:
+            if phrase not in text:
+                errors.append(f"{label}: missing acceptance-evidence phrase `{phrase}`")
 
     for label, phrases in REPO_CONSISTENCY_WORKFLOW_PHRASES.items():
         path = REPO_ROOT / label
@@ -2129,6 +2167,7 @@ def main() -> int:
     print("- Non-stop guardrails are aligned across runtime and template docs")
     print("- Effort guardrails are aligned across runtime and template docs")
     print("- Final readiness review guardrails are aligned")
+    print("- Acceptance-evidence and landing-check guardrails are aligned")
     print("- Repo consistency workflow guardrails are aligned")
     print("- Strategic forgetting and memory hygiene guardrails are aligned")
     print("- Elves Report guardrails are aligned")

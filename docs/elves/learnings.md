@@ -20,6 +20,11 @@ silently deleting it.
 
 ## Repo Conventions
 
+- [2026-07-08] Batch `status: complete` must carry plan Acceptance proof in session JSON
+  (`acceptance: [{criterion, met, evidence}]`). Green CI alone is not landable. Structure/regex
+  characterization tests may lock god-file splits but must not alone complete them unless the plan
+  explicitly allows characterization-only. Prefer one batch per close commit; use
+  `scripts/elves_landing_check.py` before Final Readiness.
 - [2026-04-11] This repo has two canonical skill surfaces: `SKILL.md` for Claude-compatible agents
   and `AGENTS.md` for Codex. Any behavior change to Elves must update both in the same release.
 - [2026-04-11] Elves works best when staging and launch are treated as separate phases even if the
