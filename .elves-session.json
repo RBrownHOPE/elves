@@ -7,7 +7,7 @@
   "branch": "codex/cobbler-runtime-hardening-v1.20.1",
   "owned_worktree": ".",
   "owned_worktree_resolution": "Resolve relative to the repository root containing .elves-session.json and verify the branch with git before use",
-  "owned_tip_expected": "2aca0bf907633fdc6dfe1bc1ab46b44a035699b0",
+  "owned_tip_expected": "d8024b58c34a948e0e214d74f35a6fe3b77e458f",
   "base_ref": "origin/main",
   "collision_tripwire": "fca15a9e6175c528079bc7ca87e0925f83b9f9b9",
   "plan_path": "docs/plans/v1.20.1-cobbler-runtime-hardening.md",
@@ -44,7 +44,7 @@
     "stop_allowed": false,
     "checkpoint_is_stop": false,
     "staging_boundary_active": false,
-    "next_required_action": "Qualify the isolated persistent Grok Build worker and execute the Batch 1 contract"
+    "next_required_action": "Resume the qualified persistent Grok Build session with the detailed Batch 1 implementation packet"
   },
   "test_baseline": {
     "passed": 278,
@@ -143,9 +143,9 @@
     {
       "phase": "implement_batches_1_to_3",
       "requested_route": "one persistent Grok Build grok-4.5 worker, one substantial batch per exact-resume turn",
-      "actual_route": "manual outer isolation pending qualification in an independent credential-scrubbed clone",
+      "actual_route": "qualified session 00b682ea-b3df-4c3f-8009-7a0f51dd8f63 using grok-4.5/high in an independent credential-scrubbed no-remote clone",
       "required": true,
-      "fallback_reason": "Latest user instruction explicitly makes the procedure test the objective; host bypass is not an acceptable silent substitute"
+      "fallback_reason": "No model fallback. Initial dontAsk headless turn cancelled before inspection; the exact session resumed successfully with auto permission inside the audited outer boundary"
     },
     {
       "phase": "implement_after_batch_3",
@@ -235,8 +235,8 @@
       "batch": 1,
       "cycle": 0,
       "summary": "Committed session state used a maintainer-specific absolute owned_worktree path",
-      "disposition": "fixed_pending_push",
-      "resolution": "Use repository-relative dot plus an explicit canonicalization and branch-verification policy"
+      "disposition": "fixed_replied_and_resolved",
+      "resolution": "Commit d8024b5 uses repository-relative dot plus explicit canonicalization/branch verification; reply 3566734484 posted and thread PRRT_kwDORs6Fzc6QN51c resolved"
     }
   ],
   "procedure_test": {
@@ -244,8 +244,26 @@
     "worker_locator": "../elves-v1.20.1-grok-worker",
     "worker_repository_kind": "independent local clone with no remote",
     "requested_model": "grok-4.5",
-    "session_id": null,
-    "session_status": "pending qualification",
+    "actual_model": "grok-4.5",
+    "actual_model_evidence": "Grok session summary current_model_id plus assistant event model_id/model_fingerprint, independent of model-authored readiness prose",
+    "model_fingerprint": "fp_a39489019fa99b6e",
+    "reasoning_effort": "high",
+    "grok_cli_version": "0.2.93 (f00f96316d4b) [stable]",
+    "session_id": "00b682ea-b3df-4c3f-8009-7a0f51dd8f63",
+    "session_status": "qualified_idle",
+    "qualification_turns": 2,
+    "qualification_permission_finding": "dontAsk cancelled the first headless inspection; auto completed the same session inside the audited outer boundary",
+    "worker_base_head": "d8024b58c34a948e0e214d74f35a6fe3b77e458f",
+    "worker_current_head": "d8024b58c34a948e0e214d74f35a6fe3b77e458f",
+    "worker_detached": true,
+    "worker_remotes": [],
+    "worker_baseline": {
+      "refs_sha256": "11b00b197706d07b228ff92c07ab88ea381de2dd52185c032da96201a487abc8",
+      "local_config_sha256": "19cbc9356680206d7a310907260459480383d3004228e34ad0671e7ec981c94b",
+      "hooks_sha256": "869f208cd3158287f078a6adfae73e6b08f5abafa363a85932457e5a5a09af18",
+      "status": "clean"
+    },
+    "credential_boundary": "minimal env, secret/API/GitHub token variables absent, empty private GH_CONFIG_DIR, no remote, local empty credential helper",
     "worker_may_edit_run_memory": false,
     "worker_may_move_host_refs_or_push": false,
     "host_owns_pr_and_landing": true
