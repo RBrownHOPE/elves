@@ -40,6 +40,9 @@ class ExecutableResolutionTests(unittest.TestCase):
                 resolve_executable_for_launch("opencode", path="", home=home),
                 str(opencode.resolve()),
             )
+            explicit = resolve_executable("~/.local/bin/agy", path="", home=home)
+            self.assertIsNotNone(explicit)
+            self.assertEqual(Path(explicit or "").resolve(), agy.resolve())
 
     def test_inherited_path_keeps_portable_bare_launch_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

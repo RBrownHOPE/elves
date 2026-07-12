@@ -45,7 +45,12 @@ def resolve_executable(
     if not raw:
         return None
 
-    candidate = Path(raw).expanduser()
+    if home is not None and raw == "~":
+        candidate = Path(home)
+    elif home is not None and raw.startswith("~/"):
+        candidate = Path(home) / raw[2:]
+    else:
+        candidate = Path(raw).expanduser()
     if candidate.is_absolute():
         return str(candidate) if _is_executable_file(candidate) else None
 
