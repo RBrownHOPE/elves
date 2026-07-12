@@ -143,6 +143,25 @@ class BuildLaunchArgvTests(unittest.TestCase):
         self.assertTrue(any("alias" in n.lower() for n in notes))
         self.assertIsNotNone(effort)
 
+    def test_opencode_message_precedes_file_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "p.md"
+            packet.write_text("# packet\n", encoding="utf-8")
+            argv = build_launch_argv(
+                session_id="session-1",
+                packet=packet,
+                cwd=tmp,
+                model="openrouter/qwen/qwen3-max",
+                executable="opencode",
+                adapter="opencode-cli",
+            )
+
+        self.assertEqual(argv[:2], ["opencode", "run"])
+        self.assertIn("Implement the attached task packet", argv[2])
+        self.assertLess(2, argv.index("--file"))
+        self.assertEqual(argv[argv.index("--file") + 1], str(packet.resolve()))
+        self.assertIn("--auto", argv)
+
 
 class HumanizeGrokFailureTests(unittest.TestCase):
     def test_tools_allowlist_requirement_error(self) -> None:

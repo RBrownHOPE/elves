@@ -439,9 +439,16 @@ def build_launch_argv(
         # Attach packet via --file to avoid ARG_MAX (do not stuff full packet into argv).
         exe = (executable or "opencode").strip() or "opencode"
         model_name, _, _ = resolve_implement_model(model, adapter=adapter_name)
+        message = (
+            "Implement the attached task packet. Follow host packet constraints; "
+            "prefer exact session continuity; do not invent secrets."
+        )
         argv: list[str] = [
             exe,
             "run",
+            # OpenCode parses the first positional after `run` as the message. Keep it
+            # before --file flags; a trailing message can be consumed as another file.
+            message,
             "--dir",
             str(cwd_path),
             "--file",
@@ -453,10 +460,6 @@ def build_launch_argv(
             argv.extend(["--model", model_name])
         if yolo:
             argv.append("--auto")
-        argv.append(
-            "Implement the attached task packet. Follow host packet constraints; "
-            "prefer exact session continuity; do not invent secrets."
-        )
         if "-c" in argv or "--continue" in argv:
             raise ValidationIssue(
                 "ambiguous_session_flag",
