@@ -196,6 +196,28 @@ PROFILE_RECIPES: dict[str, dict[str, Any]] = {
         "plan_review_only": False,
         "executable_fallbacks": ("antigravity",),
     },
+    "opencode-cli": {
+        "adapter": "opencode-cli",
+        "executable": "opencode",
+        "notes": (
+            "OpenCode (opencode.ai) — Claude Code–like terminal agent; OpenRouter and 75+ "
+            "providers. Prefer plan/review with --agent plan; pin model as provider/model "
+            "(e.g. openrouter/qwen/qwen3-max). Exact --session for continuity."
+        ),
+        "plan_review_only": True,
+    },
+    "opencode-labor": {
+        "adapter": "opencode-cli",
+        "executable": "opencode",
+        "notes": (
+            "Experimental OpenCode implement labor (main batch coding) via "
+            "`opencode run --auto` + OpenRouter/other models. Not host-import write-lease "
+            "qualified; not Grok Lane A default. Pin requested_model (provider/model). "
+            "Prefer exact --session for continuity."
+        ),
+        "tier": "labor",
+        "plan_review_only": False,
+    },
     "custom-cli": {"adapter": "custom-cli"},
     # Provider-breadth tokens used in interview — not bare apply targets.
     # Host must configure a custom-cli wrapper (see cobbler-setup-recipes.md).

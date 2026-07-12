@@ -49,6 +49,7 @@ PURPOSE_CATALOG: tuple[dict[str, Any], ...] = (
             "codex-fugu",
             "gemini-cli",
             "antigravity-cli",
+            "opencode-cli",
         ),
         "required": False,
     },
@@ -69,6 +70,7 @@ PURPOSE_CATALOG: tuple[dict[str, Any], ...] = (
             "claude-code",
             "codex-fugu",
             "antigravity-labor",
+            "opencode-labor",
         ),
         "required": False,
     },
@@ -86,6 +88,7 @@ PURPOSE_CATALOG: tuple[dict[str, Any], ...] = (
             "codex-fugu",
             "gemini-cli",
             "antigravity-cli",
+            "opencode-cli",
             "openrouter-lens",
             "or-qwen-max",
             "or-glm",
@@ -208,6 +211,14 @@ ROUTE_HELP: dict[str, str] = {
     ),
     "or-glm": (
         "OpenRouter GLM-class plan/review preset — pin current slug (e.g. z-ai/glm-5)"
+    ),
+    "opencode-cli": (
+        "OpenCode terminal agent (Claude Code–like) — plan/review; OpenRouter + 75+ providers; "
+        "pin provider/model; exact --session preferred"
+    ),
+    "opencode-labor": (
+        "OpenCode implement labor — main batch coding via opencode run --auto + OR/other models; "
+        "experimental; not Grok Lane A default; not write-lease qualified"
     ),
     "meta-muse": (
         "Meta Muse Spark (API key) — not a bare CLI. Configure a custom-cli wrapper profile "

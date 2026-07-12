@@ -1544,6 +1544,27 @@ class AdapterBuilderTests(unittest.TestCase):
             self.assertIn("--conversation", agy_resume.argv)
             self.assertIn("11111111-2222-3333-4444-555555555555", agy_resume.argv)
 
+            oc = build_readonly_invocation(
+                adapter="opencode-cli",
+                profile="opencode-cli",
+                packet_path=packet,
+                prompt_path=prompt,
+                executable="opencode",
+                requested_model="openrouter/qwen/qwen3-max",
+                session_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                task="plan the batch",
+                role="planning",
+                repo_root=Path(tmp),
+            )
+            self.assertEqual(oc.argv[0], "opencode")
+            self.assertIn("run", oc.argv)
+            self.assertIn("--session", oc.argv)
+            self.assertIn("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", oc.argv)
+            self.assertIn("--model", oc.argv)
+            self.assertIn("openrouter/qwen/qwen3-max", oc.argv)
+            self.assertIn("--agent", oc.argv)
+            self.assertIn("plan", oc.argv)
+
     def test_custom_cli_requires_executable(self) -> None:
         with self.assertRaises(ValidationIssue) as ctx:
             build_readonly_invocation(

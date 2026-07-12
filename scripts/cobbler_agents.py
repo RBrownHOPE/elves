@@ -606,6 +606,7 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 git_mode=args.git_mode,
                 permission_mode=args.permission_mode,
                 executable=args.executable,
+                adapter=getattr(args, "adapter", None) or "grok-build",
             )
             if args.json:
                 return _emit_json(payload, exit_code=0)
@@ -1125,7 +1126,7 @@ def build_parser() -> argparse.ArgumentParser:
         "implement",
         help=(
             "Optional external batch implementer lifecycle "
-            "(prepare|launch|gate|resume-batch|status); e.g. Grok Build under host import"
+            "(prepare|launch|gate|resume-batch|status); Grok Build or OpenCode"
         ),
     )
     implement_sub = implement.add_subparsers(dest="implement_action", required=True)
@@ -1144,12 +1145,17 @@ def build_parser() -> argparse.ArgumentParser:
     i_prepare.add_argument(
         "--session-id",
         default=None,
-        help="Optional exact Grok session id (can set later on launch)",
+        help="Optional exact session id (Grok or OpenCode; never latest/continue)",
+    )
+    i_prepare.add_argument(
+        "--adapter",
+        default="grok-build",
+        help="Implementer adapter: grok-build (default) or opencode-cli",
     )
     i_prepare.add_argument(
         "--model",
-        default="grok-4.5",
-        help="Default implementer model (default: grok-4.5)",
+        default=None,
+        help="Default model (Grok: grok-4.5; OpenCode: provider/model e.g. openrouter/qwen/qwen3-max)",
     )
     i_prepare.add_argument(
         "--lane",
@@ -1169,14 +1175,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     i_prepare.add_argument(
         "--executable",
-        default="grok",
-        help="Grok CLI executable (default: grok)",
+        default=None,
+        help="CLI executable (default: grok or opencode based on --adapter)",
     )
     i_prepare.set_defaults(func=cmd_implement)
 
     i_launch = implement_sub.add_parser(
         "launch",
-        help="Emit exact grok argv (print-only by default; --exec optional)",
+        help="Emit exact implementer argv (print-only by default; --exec optional)",
     )
     _add_common_flags(i_launch)
     i_launch.add_argument(

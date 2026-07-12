@@ -184,6 +184,59 @@ executable = "gemini"
 # requested_model = "gemini-2.5-pro"          # or current Gemini CLI model id
 ```
 
+## Recipe: OpenCode (Claude Code–like agent + OpenRouter models)
+
+[OpenCode](https://opencode.ai) is an open-source terminal coding agent (TUI + `opencode run`
+headless). It is **not** an Elves main host (Claude Code / Codex still own the overnight loop), but
+it is a strong optional **implement labor** and plan/review path—especially with **OpenRouter**
+models (Qwen, GLM, etc.).
+
+### Install / auth
+
+```bash
+curl -fsSL https://opencode.ai/install | bash
+# or: npm install -g opencode-ai / brew install anomalyco/tap/opencode
+export PATH="$HOME/.opencode/bin:$PATH"
+opencode   # then /connect → OpenRouter → paste OPENROUTER key
+# or configure provider.openrouter in opencode.json / auth.json
+```
+
+### Elves profiles
+
+| Profile | Use |
+| --- | --- |
+| `opencode-cli` | Plan/review (headless `opencode run --agent plan`) |
+| `opencode-labor` | **Main batch implement** (`opencode run --auto` + tools) |
+
+```bash
+python3 scripts/cobbler_agents.py onboard apply --json \
+  --planning opencode-cli \
+  --implement opencode-labor \
+  --force
+# Pin in .elves/models.toml:
+#   requested_model = "openrouter/qwen/qwen3-max"  # re-check OpenRouter catalog
+```
+
+### Implement lifecycle (parallel to Grok Lane A)
+
+```bash
+python3 scripts/cobbler_agents.py implement prepare --json \
+  --adapter opencode-cli \
+  --model openrouter/qwen/qwen3-max \
+  --executable opencode
+
+# Print argv (add --exec to spawn):
+python3 scripts/cobbler_agents.py implement launch --json \
+  --packet .elves/runtime/packets/batch-N.md \
+  --session-id <exact-id-if-known>
+```
+
+**Session continuity:** prefer exact `--session <id>` (never bare `--continue`). Capture id via
+`opencode session list` after the first turn. If no id, attach plan/docs in the packet.
+
+**Honesty:** lightly tested vs Claude Code/Codex hosts; prefer PRs when flags drift. Not
+host-import write-lease qualified.
+
 ## Recipe: all three subscription CLIs (experimental mix)
 
 - planning: independent mix of host + claude-code + codex-fugu (read-only council)

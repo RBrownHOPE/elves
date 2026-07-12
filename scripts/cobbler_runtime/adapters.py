@@ -151,6 +151,15 @@ _BUILTIN: dict[str, StubAdapter] = {
         # headless `agy -p` with model pin (e.g. Gemini 3.5 Flash), not Lane A/Grok.
         supports_isolated_write=False,
     ),
+    "opencode-cli": StubAdapter(
+        name="opencode-cli",
+        executable_hint="opencode",
+        # Exact --session <id> only (never bare --continue / -c).
+        supports_persistent_sessions=True,
+        # Terminal coding agent (Claude Code–like) with OpenRouter and other providers.
+        # Not host-import write-lease qualified; experimental implement via opencode run --auto.
+        supports_isolated_write=False,
+    ),
     "custom-cli": StubAdapter(
         name="custom-cli",
         executable_hint="(user-defined)",
@@ -260,6 +269,31 @@ _RESERVED_CONTROL_FLAGS: dict[str, frozenset[str]] = {
             "--print-timeout",
         }
     ),
+    "opencode-cli": frozenset(
+        {
+            "run",
+            "-m",
+            "--model",
+            "-s",
+            "--session",
+            "-c",
+            "--continue",
+            "--fork",
+            "--agent",
+            "--format",
+            "-f",
+            "--file",
+            "--title",
+            "--attach",
+            "--dir",
+            "--auto",
+            "--variant",
+            "--thinking",
+            "-i",
+            "--interactive",
+            "--prompt",
+        }
+    ),
     "custom-cli": frozenset(),
 }
 
@@ -322,7 +356,7 @@ def default_profiles() -> dict[str, HarnessProfile]:
             input_c, output_c = "prompt-file", "grok-json"
         elif name == "codex-fugu":
             input_c, output_c = "stdin", "codex-jsonl"
-        elif name in {"gemini-cli", "antigravity-cli"}:
+        elif name in {"gemini-cli", "antigravity-cli", "opencode-cli"}:
             input_c, output_c = "none", "custom-json-envelope"
         elif name == "custom-cli":
             input_c, output_c = "json-stdio", "custom-json-envelope"
@@ -411,6 +445,7 @@ ADAPTER_CONTRACT_PAIRS: dict[str, tuple[str, str]] = {
     # should contain a JSON role report (fenced JSON ok); decode as custom envelope.
     "gemini-cli": ("none", "custom-json-envelope"),
     "antigravity-cli": ("none", "custom-json-envelope"),
+    "opencode-cli": ("none", "custom-json-envelope"),
     "custom-cli": ("json-stdio", "custom-json-envelope"),
     "host-native": ("host-injected", "host-injected"),
 }
@@ -666,6 +701,41 @@ def build_readonly_invocation(
             input_mode="stdin",
             decoder="codex-jsonl",
             cwd=work_cwd,
+        )
+
+    if name == "opencode-cli":
+        # OpenCode (opencode.ai): Claude Code–like TUI/agent; headless via `opencode run`.
+        # OpenRouter and 75+ providers; model format provider/model. Exact -s/--session only.
+        if not exe:
+            exe = "opencode"
+        # Prefer plan agent for read-only council/review when available.
+        agent = "plan"
+        argv_list = [exe, "run", "--format", "default", "--agent", agent]
+        if exact_session:
+            argv_list.extend(["--session", exact_session])
+        if requested_model:
+            argv_list.extend(["--model", str(requested_model)])
+        argv_list.extend(extras)
+        # Prompt as trailing message (no bare stdin contract).
+        argv_list.append(full_prompt)
+        return AdapterInvocation(
+            adapter=name,
+            executable=exe,
+            argv=tuple(argv_list),
+            read_only=True,
+            tool_scope="read-only",
+            sandbox_scope="ephemeral",
+            notes=(
+                "OpenCode headless `run` with --agent plan (read-oriented). "
+                "Pin model as provider/model (e.g. openrouter/qwen/qwen3-max). "
+                "Exact --session <id> for plan→review; never bare --continue. "
+                "For implement labor use profile opencode-labor / --auto separately."
+            ),
+            stdin_text=None,
+            input_mode="none",
+            decoder="custom-json-envelope",
+            cwd=work_cwd,
+            session_id=exact_session,
         )
 
     if name in {"gemini-cli", "antigravity-cli"}:
@@ -1419,6 +1489,34 @@ def build_session_create_invocation(
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
+    if name == "opencode-cli":
+        import uuid as _uuid  # noqa: PLC0415
+
+        sid = str(_uuid.uuid4())
+        argv = [
+            exe or "opencode",
+            "run",
+            "--title",
+            f"elves-{sid[:8]}",
+            "Reply with exactly: session-created",
+        ]
+        if requested_model:
+            argv.extend(["--model", str(requested_model)])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="opencode-cli",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes=(
+                "OpenCode session create: after first run, capture exact session id via "
+                "`opencode session list` / export and register it; resume with --session <id> "
+                "only (never bare --continue). Preferred for plan→review continuity."
+            ),
+            session_id=sid,
+        )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
     if name == "gemini-cli":
         # Host supplies exact UUID; Gemini creates under --session-id.
         import uuid as _uuid  # noqa: PLC0415
@@ -1553,6 +1651,24 @@ def build_session_resume_invocation(
             argv=tuple(argv),
             read_only=True,
             notes="exact --session-id <id>",
+            session_id=sid,
+        )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
+    if name == "opencode-cli":
+        argv = [exe or "opencode", "run", "--session", sid, "Continue the prior session."]
+        if requested_model:
+            argv.extend(["--model", str(requested_model)])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="opencode-cli",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes=(
+                "exact opencode --session <id> only — never bare --continue/-c; "
+                "resume planning session when reviewing"
+            ),
             session_id=sid,
         )
         assert_no_ambiguous_session_flags(inv.argv)

@@ -82,6 +82,9 @@ All notable changes to the Elves skill are documented here.
   `openrouter-lens`, `or-qwen-max`, `or-glm` (custom-cli). Exact `--session-id` for plan→review
   continuity; context files / packet when no session. Bare `openrouter` remains apply-blocked.
   Pin current OpenRouter model slugs locally (examples: `qwen/qwen3-max`, `z-ai/glm-5`).
+- **OpenCode implement/plan adapter:** `opencode-cli` / `opencode-labor` for the OpenCode terminal
+  agent (Claude Code–like; OpenRouter + 75+ providers). Headless `opencode run` with exact
+  `--session`; labor uses `--auto`. `implement prepare --adapter opencode-cli` alongside Grok.
 
 ## [1.20.2] - 2026-07-12
 

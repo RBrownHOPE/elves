@@ -137,6 +137,8 @@ Same pattern with `codex-fugu-planning` / `codex-fugu-labor`.
 | `antigravity-labor` | `agy` | **experimental** implement labor — pin Flash-class (e.g. 3.5 Flash); not Lane A |
 | `openrouter-lens` | `scripts/openrouter_lens.py` | OpenRouter plan/review — any `provider/model` via `requested_model` + `OPENROUTER_API_KEY` |
 | `or-qwen-max` / `or-glm` | same lens | Named OR presets for strong Qwen/GLM-class plan/review (pin current slug) |
+| `opencode-cli` | `opencode` | OpenCode TUI/agent (Claude Code–like); plan/review via `run --agent plan`; OpenRouter etc. |
+| `opencode-labor` | `opencode` | OpenCode **implement** labor (`run --auto`); pin `provider/model`; exact `--session` preferred |
 
 ### Session continuity (plan → review)
 

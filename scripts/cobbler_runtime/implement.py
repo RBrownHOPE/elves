@@ -177,13 +177,18 @@ def prepare_implement(
     git_mode: str = DEFAULT_GIT_MODE,
     permission_mode: str = DEFAULT_PERMISSION_MODE,
     executable: str = DEFAULT_EXECUTABLE,
+    adapter: str = "grok-build",
 ) -> dict[str, Any]:
     """Record implementer metadata. Creates dirs mode 0700. No network."""
     wt = str(Path(worktree).expanduser().resolve()) if worktree else str(Path(repo_root).resolve())
     mode = (permission_mode or DEFAULT_PERMISSION_MODE).strip()
     if not mode:
         mode = DEFAULT_PERMISSION_MODE
-    if mode == FORBIDDEN_DEFAULT_PERMISSION:
+    adapter_name = (adapter or "grok-build").strip().lower() or "grok-build"
+    if adapter_name in {"opencode", "opencode-labor"}:
+        adapter_name = "opencode-cli"
+    is_opencode = adapter_name == "opencode-cli"
+    if mode == FORBIDDEN_DEFAULT_PERMISSION and not is_opencode:
         # Explicit dontAsk is allowed only if the operator forces it; prepare still
         # warns by refusing to treat it as the lane default — block as product rule.
         raise ValidationIssue(
@@ -194,26 +199,40 @@ def prepare_implement(
 
     existing = load_state(repo_root)
     now = _utc_now()
+    default_model = (
+        "openrouter/qwen/qwen3-max" if is_opencode else DEFAULT_MODEL
+    )
+    default_exe = "opencode" if is_opencode else DEFAULT_EXECUTABLE
+    model_value = (model or "").strip() or default_model
+    exe_value = (executable or "").strip() or default_exe
     state = ImplementState(
         lane=(lane or DEFAULT_LANE).strip() or DEFAULT_LANE,
         git_mode=(git_mode or DEFAULT_GIT_MODE).strip() or DEFAULT_GIT_MODE,
-        adapter="grok-build",
-        model=(model or DEFAULT_MODEL).strip() or DEFAULT_MODEL,
+        adapter=adapter_name,
+        model=model_value,
         permission_mode=mode,
         worktree=wt,
         branch=branch,
         session_id=(session_id.strip() if session_id else None)
         or (existing.session_id if existing else None),
-        executable=(executable or DEFAULT_EXECUTABLE).strip() or DEFAULT_EXECUTABLE,
+        executable=exe_value,
         subagents=True,
         created_at=existing.created_at if existing and existing.created_at else now,
         updated_at=now,
         last_batch=existing.last_batch if existing else None,
         last_packet=existing.last_packet if existing else None,
         notes=[
-            "Lane A fast implementer (default for 'have Grok run it')",
-            "Host/human launches Grok; CLI prints argv unless --exec",
-            "Never pass --no-subagents; never default permission to dontAsk",
+            (
+                "OpenCode implement labor (Claude Code–like agent; OpenRouter/other models)"
+                if is_opencode
+                else "Lane A fast implementer (default for optional Grok Build)"
+            ),
+            "Host/human launches; CLI prints argv unless --exec",
+            (
+                "OpenCode: exact --session preferred; never bare --continue; use --auto carefully"
+                if is_opencode
+                else "Never pass --no-subagents; never default permission to dontAsk"
+            ),
         ],
     )
     path = save_state(repo_root, state)
@@ -254,18 +273,19 @@ def build_launch_argv(
     yolo: bool = True,
     max_turns: int | None = 80,
     output_format: str | None = "json",
+    adapter: str = "grok-build",
 ) -> list[str]:
-    """Build exact grok argv for Lane A headless implementer turns.
+    """Build headless implementer argv for Grok Build (Lane A) or OpenCode.
 
-    Dogfood findings (Grok Build 0.2.93):
+    Grok Build dogfood (0.2.93):
     - ``--prompt-file`` or ``-p`` both trigger headless multi-turn with tools.
-    - ``--yolo`` / ``--always-approve`` is required for unattended edits (not
-      ``--permission-mode auto`` alone).
-    - ``--effort high`` roughly doubles tiny-task latency; default ``medium``.
-    - Do not pass ``-p`` and ``--prompt-file`` together (CLI rejects).
-    - Prefer whole-batch packets; host gates between batches, not breaths.
-    - Interactive TUI (positional prompt, no ``-p``) remains valid for humans;
-      this builder targets the scripted/host path.
+    - ``--yolo`` / ``--always-approve`` is required for unattended edits.
+    - Exact session id only; never bare continue.
+
+    OpenCode (opencode.ai):
+    - ``opencode run`` with packet contents as message; ``--auto`` for unattended tools.
+    - Model format ``provider/model`` (often via OpenRouter).
+    - Exact ``--session <id>`` only (never bare ``--continue``).
     """
     packet_path = Path(packet).expanduser().resolve()
     if not packet_path.is_file():
@@ -274,13 +294,49 @@ def build_launch_argv(
             f"Packet file not found: {packet_path}",
         )
     cwd_path = Path(cwd).expanduser().resolve()
+    adapter_name = (adapter or "grok-build").strip().lower()
+    sid = (session_id or "").strip()
+    if sid.lower() in {"latest", "last", "continue", "most-recent", "most_recent"}:
+        raise ValidationIssue(
+            "ambiguous_session_id",
+            f"Session id `{sid}` is ambiguous and forbidden for implement launch",
+            hint="Use an exact UUID/session id from the registry",
+        )
+
+    if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
+        exe = (executable or "opencode").strip() or "opencode"
+        model_name = (model or "").strip()
+        try:
+            prompt = packet_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ValidationIssue(
+                "packet_read_error",
+                f"Unable to read packet {packet_path}: {exc}",
+            ) from exc
+        if len(prompt) > 200_000:
+            prompt = prompt[:200_000] + "\n\n…[packet truncated for argv]…\n"
+        argv: list[str] = [exe, "run", "--dir", str(cwd_path)]
+        if sid:
+            argv.extend(["--session", sid])
+        if model_name:
+            argv.extend(["--model", model_name])
+        if yolo:
+            argv.append("--auto")
+        argv.append(prompt)
+        if "-c" in argv or "--continue" in argv:
+            raise ValidationIssue(
+                "ambiguous_session_flag",
+                "OpenCode implement launch must not use bare --continue",
+            )
+        return argv
+
+    # Default: Grok Build Lane A
     perm = _normalize_permission(permission_mode)
     exe = (executable or DEFAULT_EXECUTABLE).strip() or DEFAULT_EXECUTABLE
     model_name = (model or DEFAULT_MODEL).strip() or DEFAULT_MODEL
     effort_name = (effort or DEFAULT_EFFORT).strip() or DEFAULT_EFFORT
 
-    argv: list[str] = [exe]
-    sid = (session_id or "").strip()
+    argv = [exe]
     if create:
         if not sid:
             raise ValidationIssue(
@@ -346,18 +402,25 @@ def launch_payload(
     """Build (and optionally exec) Lane A launch argv. Default is print-only."""
     state = load_state(repo_root)
     sid = (session_id or (state.session_id if state else None) or "").strip()
-    if not sid:
+    adapter_name = (state.adapter if state else "grok-build") or "grok-build"
+    # OpenCode may start without a pre-allocated session id (host captures after first run).
+    if not sid and adapter_name not in {"opencode-cli", "opencode-labor", "opencode"}:
         raise ValidationIssue(
             "missing_session_id",
             "session_id required (pass --session-id or run prepare first)",
         )
     worktree = cwd or (state.worktree if state else None) or str(Path(repo_root).resolve())
-    model_name = model or (state.model if state else None) or DEFAULT_MODEL
+    is_opencode = adapter_name in {"opencode-cli", "opencode-labor", "opencode"}
+    model_name = model or (state.model if state else None) or (
+        "openrouter/qwen/qwen3-max" if is_opencode else DEFAULT_MODEL
+    )
     perm = permission_mode or (state.permission_mode if state else None) or DEFAULT_PERMISSION_MODE
-    exe = executable or (state.executable if state else None) or DEFAULT_EXECUTABLE
+    exe = executable or (state.executable if state else None) or (
+        "opencode" if is_opencode else DEFAULT_EXECUTABLE
+    )
 
     argv = build_launch_argv(
-        session_id=sid,
+        session_id=sid or None,
         packet=packet,
         cwd=worktree,
         model=model_name,
@@ -368,23 +431,26 @@ def launch_payload(
         yolo=True,
         max_turns=80,
         output_format="json",
+        adapter=adapter_name,
     )
 
     # Persist last launch pointers for status/resume.
     if state is None:
         state = ImplementState(
             worktree=str(Path(worktree).expanduser().resolve()),
+            adapter=adapter_name,
             model=model_name,
-            permission_mode=_normalize_permission(perm),
-            session_id=sid,
+            permission_mode=perm if is_opencode else _normalize_permission(perm),
+            session_id=sid or None,
             executable=exe,
             created_at=_utc_now(),
         )
     else:
-        state.session_id = sid
+        state.session_id = sid or state.session_id
         state.worktree = str(Path(worktree).expanduser().resolve())
         state.model = model_name
-        state.permission_mode = _normalize_permission(perm)
+        state.adapter = adapter_name
+        state.permission_mode = perm if is_opencode else _normalize_permission(perm)
         state.executable = exe
     state.last_packet = str(Path(packet).expanduser().resolve())
     if batch is not None:
@@ -394,20 +460,22 @@ def launch_payload(
     payload: dict[str, Any] = {
         "ok": True,
         "action": "launch",
-        "session_id": sid,
+        "session_id": sid or None,
+        "adapter": adapter_name,
         "argv": argv,
         "argv_joined": " ".join(argv),
         "cwd": str(Path(worktree).expanduser().resolve()),
         "packet": str(Path(packet).expanduser().resolve()),
         "model": model_name,
-        "permission_mode": _normalize_permission(perm),
+        "permission_mode": perm if is_opencode else _normalize_permission(perm),
         "create": create,
         "launched": False,
         "mutated_repo": False,
         "model_calls_made": False,
         "notes": [
             "Default is print-only; pass --exec to spawn the process",
-            "Never defaults to dontAsk; does not pass --no-subagents",
+            "Grok Lane A: never dontAsk / no --no-subagents",
+            "OpenCode labor: opencode run --auto; exact --session preferred; OpenRouter provider/model",
         ],
     }
 
