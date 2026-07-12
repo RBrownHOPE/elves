@@ -1,0 +1,228 @@
+{
+  "session_id": "elves-2026-07-12-cobbler-runtime-hardening-v1-20-1",
+  "version": "1.20.0",
+  "target_version": "1.20.1",
+  "status": "staged",
+  "run_mode": "finite",
+  "branch": "codex/cobbler-runtime-hardening-v1.20.1",
+  "owned_worktree": "/Users/john/aigora/dev/elves-v1.20.1-hardening",
+  "base_ref": "origin/main",
+  "collision_tripwire": "fca15a9e6175c528079bc7ca87e0925f83b9f9b9",
+  "plan_path": "docs/plans/v1.20.1-cobbler-runtime-hardening.md",
+  "survival_guide_path": "docs/elves/v1.20.1-cobbler-runtime-hardening-survival-guide.md",
+  "learnings_path": "docs/elves/learnings.md",
+  "execution_log_path": "docs/elves/v1.20.1-cobbler-runtime-hardening-execution-log.md",
+  "pr_number": null,
+  "cobbler": {
+    "default_for_session": true,
+    "activated_by": "explicit Elves invocation and Elves ceremony request",
+    "mode": "run",
+    "scope": "current Elves run",
+    "exit_phrases": [
+      "Cobbler Mode: off",
+      "leave Cobbler Mode",
+      "stop using Cobbler by default"
+    ]
+  },
+  "authorization": {
+    "merge_policy": "merge_commit_on_green",
+    "merge_authorized": true,
+    "squash_or_rebase_allowed": false,
+    "target_release": "v1.20.1",
+    "local_tag_authorized_after_merge": true,
+    "github_release_authorized_after_merge": true,
+    "installed_skill_sync_authorized": [
+      "codex",
+      "claude"
+    ]
+  },
+  "continuation_guard": {
+    "remaining_batches": 5,
+    "stop_allowed": true,
+    "checkpoint_is_stop": false,
+    "staging_boundary_active": true,
+    "next_required_action": "User sends the fresh launch prompt; launch flips stop_allowed to false and starts Batch 1"
+  },
+  "test_baseline": {
+    "passed": 278,
+    "total": 278,
+    "skipped": 0,
+    "status": "captured",
+    "captured_at": "2026-07-12T16:30:54Z",
+    "command": "python3 -m unittest discover -s tests",
+    "reason": null
+  },
+  "current_batch": {
+    "id": 0,
+    "name": "Staging",
+    "status": "in_progress"
+  },
+  "batches": [
+    {
+      "id": 1,
+      "name": "Effective configuration and truthful read-only dispatch",
+      "status": "pending",
+      "commit": null,
+      "rollback_tag": "elves/v1.20.1-pre-batch-1",
+      "started_at": null,
+      "completed_at": null,
+      "acceptance": []
+    },
+    {
+      "id": 2,
+      "name": "Exact persistent sessions and subprocess lifecycle",
+      "status": "pending",
+      "commit": null,
+      "rollback_tag": "elves/v1.20.1-pre-batch-2",
+      "started_at": null,
+      "completed_at": null,
+      "acceptance": []
+    },
+    {
+      "id": 3,
+      "name": "Transactional external writer boundary",
+      "status": "pending",
+      "commit": null,
+      "rollback_tag": "elves/v1.20.1-pre-batch-3",
+      "started_at": null,
+      "completed_at": null,
+      "acceptance": []
+    },
+    {
+      "id": 4,
+      "name": "Inspect-first setup and natural Codex/Claude experience",
+      "status": "pending",
+      "commit": null,
+      "rollback_tag": "elves/v1.20.1-pre-batch-4",
+      "started_at": null,
+      "completed_at": null,
+      "acceptance": []
+    },
+    {
+      "id": 5,
+      "name": "Live host parity, documentation, v1.20.1 release, and landing",
+      "status": "pending",
+      "commit": null,
+      "rollback_tag": "elves/v1.20.1-pre-batch-5",
+      "started_at": null,
+      "completed_at": null,
+      "acceptance": []
+    }
+  ],
+  "planning_lenses": [
+    {
+      "agent": "Chandrasekhar",
+      "scope": "adapter, config, dispatch, fallback, model evidence, process lifecycle",
+      "status": "complete",
+      "material_influence": "Explicit argv/stdin/decoder contracts, no canned host quorum, ordered attempt graph, adapter-derived model evidence, process groups, scoped named-secret delegation"
+    },
+    {
+      "agent": "Beauvoir",
+      "scope": "sessions, registries, leases, audit, export, apply-check",
+      "status": "complete",
+      "material_influence": "Sticky nonce-backed rehydration, common-repository atomic store and revisions, immutable lease binding, linear audit/export state machine, common-dir audit, cumulative patch verification"
+    },
+    {
+      "agent": "Maxwell",
+      "scope": "setup, config UX, Codex/Claude parity, release and installation",
+      "status": "complete",
+      "material_influence": "Narrow truthfulness patch, distinct capability states, provider-neutral wrapper, inspect-first setup, safe migration, all-host install matrix, post-merge release identity"
+    }
+  ],
+  "model_routes": [
+    {
+      "phase": "supervise_and_document",
+      "requested_route": "current Codex host",
+      "actual_route": "current Codex host",
+      "required": true,
+      "fallback_reason": null
+    },
+    {
+      "phase": "implement_batches_1_to_3",
+      "requested_route": "native Codex workers or direct host",
+      "actual_route": "pending fresh launch",
+      "required": true,
+      "fallback_reason": "v1.20.0 external writer boundary is under repair and cannot safely bootstrap itself"
+    },
+    {
+      "phase": "implement_after_batch_3",
+      "requested_route": "qualified persistent Grok 4.5 for one substantial batch/canary",
+      "actual_route": "pending Batch 3 qualification",
+      "required": false,
+      "fallback_reason": "Product edits may fall back native; the real writer qualification remains a required Batch 5 release gate"
+    },
+    {
+      "phase": "review",
+      "requested_route": "parallel fresh native reviewer plus Claude/Fable and Sakana/Fugu; exclude Grok implementer",
+      "actual_route": "pending execution",
+      "required": true,
+      "required_quorum": 2,
+      "fallback_reason": null
+    },
+    {
+      "phase": "validate",
+      "requested_route": "deterministic host shell",
+      "actual_route": "deterministic host shell",
+      "required": true,
+      "fallback_reason": null
+    },
+    {
+      "phase": "live_release_matrix",
+      "requested_route": "Claude/Fable or Opus, Grok 4.5, Sakana/Fugu Ultra, Codex host, Claude Code host",
+      "actual_route": "pending Batch 5",
+      "required": true,
+      "fallback_reason": "Required for this explicit release qualification; shipped public routes remain optional"
+    },
+    {
+      "phase": "git_pr_merge_tag_release",
+      "requested_route": "deterministic host shell",
+      "actual_route": "pending final readiness",
+      "required": true,
+      "fallback_reason": null
+    }
+  ],
+  "staging_preflight": {
+    "status": "pass_with_expected_advisories",
+    "captured_at": "2026-07-12T16:48:43Z",
+    "collision_tripwire": "fca15a9e6175c528079bc7ca87e0925f83b9f9b9",
+    "validation": {
+      "tests": "278 passed, 0 failed, 0 skipped after staging document creation",
+      "repo_consistency": "pass at v1.20.0",
+      "compileall": "pass",
+      "shell_syntax": "pass",
+      "json": "session and config example pass",
+      "release_checklist": "pass for current v1.20.0",
+      "survival_guide": "pass",
+      "plan_hash": "ab91d5ad4e29951b51e2153fc69b6f86b9d611e7b37e91cb72c9145bcd545b85",
+      "whitespace": "pass",
+      "credential_scan": "pass: no secret-value signature matched staging artifacts"
+    },
+    "expected_advisories": [
+      "Installed skill sync is intentionally deferred until the corrective branch is green",
+      "No package-manager project marker; this repository is a script/docs skill with GitHub Actions"
+    ],
+    "noninteractive_environment": "pass",
+    "git_remote_auth_dry_run": "pass",
+    "workspace_ownership": "pass",
+    "branch_staleness": "pass",
+    "active_compute": "none"
+  },
+  "release_state_at_staging": {
+    "latest_local_tag": "v1.20.0",
+    "latest_github_release": "v1.20.0",
+    "target_tag_available": true,
+    "codex_installed_version": "1.19.0",
+    "claude_installed_version": "1.19.0",
+    "installed_sync_deferred_until_green": true
+  },
+  "review_comments": [],
+  "active_compute": [],
+  "launch_prompt": {
+    "prepared": true,
+    "execution_must_start_in_fresh_user_call": true,
+    "surfaces": [
+      "docs/elves/v1.20.1-cobbler-runtime-hardening-survival-guide.md#fresh-call-launch-prompt",
+      "docs/elves/v1.20.1-cobbler-runtime-hardening-execution-log.md#launch-prompt"
+    ]
+  }
+}
