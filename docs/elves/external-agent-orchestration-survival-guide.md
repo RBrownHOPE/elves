@@ -89,10 +89,10 @@ acceptance, synthesis, and final integration.
 ## Stop Gate
 
 - **Planned batches remaining:** 0
-- **Stop allowed right now:** no
-- **Why:** finite run in progress; Batches 1–3 complete with acceptance evidence; Batches 4–6 remain;
-  no user stop and no true blocker
-- **Next required action:** issue Batch 4 lease to exact Grok successor after host Close push and
+- **Stop allowed right now:** yes
+- **Why:** all six planned batches are product-complete with acceptance evidence; Final Readiness and Elves Report delivered; only user merge remains
+
+- **Next required action:** user reviews PR #59 and Elves Report; user merges when ready (elves never merges by default)
   clean worker alignment; continue through Batches 4–6 with review quorum 2
 
 ## Effort Standard

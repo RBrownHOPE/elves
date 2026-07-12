@@ -95,6 +95,17 @@ silently deleting it.
 
 ## Known Traps
 
+- [2026-07-12] Grok Build headless turns can exit before detached commits despite incomplete work.
+  Prefer absolute `--prompt-file` paths (worker CWD is not the host runtime dir). If the process
+  exits with dirty porcelain twice, host-seal audited worker tree commits with explicit recovery
+  notes rather than thrashing the same lease indefinitely.
+- [2026-07-12] Independent review quorum can tolerate optional lane rate limits when host + another
+  independent non-implementer lane still meet required_quorum. Never use the exact implementer
+  successor as its own independent reviewer.
+- [2026-07-12] Accidental `#` H1 lines inside README sections break `extract_markdown_section`
+  phrase pins for Cobbler; demote accidental headings before closing docs batches.
+
+
 - [2026-07-12] Grok Build 0.2.93 headless `--worktree --resume` can silently retain the source
   checkout. Interactive worktree resume creates a discoverable child session with the full parent
   transcript. Verify actual CWD, registered detached worktree, parent/child identity, and HEAD; never

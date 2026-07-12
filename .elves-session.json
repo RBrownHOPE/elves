@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
   "session_id": "elves-external-agent-orchestration-20260712",
-  "status": "finalizing",
+  "status": "complete_awaiting_user_merge",
   "created_at": "2026-07-12T12:39:00Z",
-  "updated_at": "2026-07-12T15:14:33Z",
+  "updated_at": "2026-07-12T15:15:11Z",
   "run_mode": "finite",
   "execution_budget_hours": 8,
   "checkpoint": {
@@ -810,9 +810,9 @@
   "active_compute": [],
   "continuation_guard": {
     "remaining_batches": 0,
-    "stop_allowed": false,
+    "stop_allowed": true,
     "checkpoint_is_stop": false,
-    "next_required_action": "Final Readiness Review, Elves Report, cleanup; never merge"
+    "next_required_action": "User review and merge only"
   },
   "current_batch": {
     "id": 6,

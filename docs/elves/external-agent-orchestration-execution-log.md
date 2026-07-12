@@ -5,6 +5,19 @@ control in the Survival Guide; promote stable lessons to `docs/elves/learnings.m
 
 ## Run Digest
 
+## Session Summary
+
+- **Duration:** ~2026-07-12 10:11–11:15 EDT
+- **Batches completed:** 6 of 6 product batches
+- **Status:** product complete, Final Readiness clean enough for human review; **unmerged**
+- **Tests:** 278 passed
+- **Version:** 1.20.0
+- **Elves Report:** /tmp/elves-report-elves-external-agents-2026-07-12.html
+- **Merge:** never by default — user merges
+
+---
+
+
 - **Last updated:** 2026-07-12 11:15 EDT
 - **Current phase:** All batches product-complete; Final Readiness
 - **Active batch:** Batch 4: Single external writer lease and Grok implementation adapter
