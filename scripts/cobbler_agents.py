@@ -11,7 +11,7 @@ Commands:
   worker prepare|audit|export|refresh
                              Single external writer lease lifecycle (host-owned)
   implement prepare|launch|gate|resume-batch|status
-                             Lane A fast implementer (default for "have Grok run it")
+                             Optional external batch implementer (e.g. Grok Build under host import)
   setup [--json]             Inventory tools and write local .elves/models.toml
   onboard plan|show|apply|probe
                              Model onboarding: interview packet, update routes, probe
@@ -280,7 +280,22 @@ def cmd_session(args: argparse.Namespace) -> int:
 def cmd_setup(args: argparse.Namespace) -> int:
     """Inventory tools and optionally write ignored local models.toml."""
     repo_root = _repo_root_from_args(args)
-    required = [r.strip() for r in (args.required or "").split(",") if r.strip()]
+    # Partial flag updates merge into existing models.toml roles (same as onboard apply).
+    from cobbler_runtime.onboard import load_models_toml_state  # noqa: PLC0415
+
+    base_roles = None
+    required: list[str] | None
+    if getattr(args, "required", None) is None:
+        required = None
+    else:
+        required = [r.strip() for r in str(args.required).split(",") if r.strip()]
+    if not getattr(args, "reset_roles", False):
+        state = load_models_toml_state(repo_root)
+        base_roles = state.roles
+        if required is None:
+            required = list(state.required_roles)
+    else:
+        required = required or []
     prefs = preferences_from_flags(
         implement=args.implement,
         review=args.review,
@@ -289,10 +304,11 @@ def cmd_setup(args: argparse.Namespace) -> int:
         validate=args.validate,
         synthesize=args.synthesize,
         scout=args.scout,
-        required=required,
+        required=required or [],
         session_mode=args.session_mode,
         sharing_policy=args.sharing_policy,
         native_fallback=not args.no_native_fallback,
+        base_roles=base_roles,
     )
     try:
         result = run_setup(
@@ -364,7 +380,13 @@ def cmd_onboard(args: argparse.Namespace) -> int:
         return 0
 
     if action == "apply":
-        required = [r.strip() for r in (getattr(args, "required", "") or "").split(",") if r.strip()]
+        # None = preserve existing required flags on merge; list = explicit set (may be empty).
+        required_raw = getattr(args, "required", None)
+        required: list[str] | None
+        if required_raw is None:
+            required = None
+        else:
+            required = [r.strip() for r in str(required_raw).split(",") if r.strip()]
         role_flags = {
             "implement": getattr(args, "implement", None),
             "review": getattr(args, "review", None),
@@ -381,6 +403,7 @@ def cmd_onboard(args: argparse.Namespace) -> int:
             force=bool(getattr(args, "force", False)),
             dry_run=bool(getattr(args, "dry_run", False)),
             run_smoke=bool(getattr(args, "smoke", False)),
+            merge_existing=not bool(getattr(args, "reset_roles", False)),
         )
         if args.json:
             return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
@@ -567,7 +590,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
 
 
 def cmd_implement(args: argparse.Namespace) -> int:
-    """Lane A fast implementer: prepare|launch|gate|resume-batch|status."""
+    """Optional external batch implementer: prepare|launch|gate|resume-batch|status."""
     repo_root = _repo_root_from_args(args)
     action = args.implement_action
 
@@ -853,8 +876,8 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--scout", default=None, help="Profile for scout role")
     setup.add_argument(
         "--required",
-        default="",
-        help="Comma-separated roles that are required (explicit opt-in)",
+        default=None,
+        help="Comma-separated roles that are required (explicit opt-in; omit to preserve existing)",
     )
     setup.add_argument(
         "--session-mode",
@@ -886,6 +909,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--smoke",
         action="store_true",
         help="Opt into smoke acknowledgment (still does not print secrets or require paid turns)",
+    )
+    setup.add_argument(
+        "--reset-roles",
+        action="store_true",
+        help="Reset unspecified roles to host-native instead of merging into existing models.toml",
     )
     setup.set_defaults(func=cmd_setup)
 
@@ -922,10 +950,19 @@ def build_parser() -> argparse.ArgumentParser:
     onboard_apply.add_argument("--validate", default=None)
     onboard_apply.add_argument("--synthesize", default=None)
     onboard_apply.add_argument("--scout", default=None)
-    onboard_apply.add_argument("--required", default="")
+    onboard_apply.add_argument(
+        "--required",
+        default=None,
+        help="Comma-separated roles marked required (omit to preserve existing required flags)",
+    )
     onboard_apply.add_argument("--dry-run", action="store_true")
     onboard_apply.add_argument("--force", action="store_true")
     onboard_apply.add_argument("--smoke", action="store_true")
+    onboard_apply.add_argument(
+        "--reset-roles",
+        action="store_true",
+        help="Reset unspecified roles to host-native instead of merging into existing models.toml",
+    )
     onboard_apply.set_defaults(func=cmd_onboard, onboard_action="apply")
 
     onboard_probe = onboard_sub.add_parser(
@@ -1087,8 +1124,8 @@ def build_parser() -> argparse.ArgumentParser:
     implement = sub.add_parser(
         "implement",
         help=(
-            "Lane A fast implementer lifecycle "
-            "(prepare|launch|gate|resume-batch|status); default for 'have Grok run it'"
+            "Optional external batch implementer lifecycle "
+            "(prepare|launch|gate|resume-batch|status); e.g. Grok Build under host import"
         ),
     )
     implement_sub = implement.add_subparsers(dest="implement_action", required=True)

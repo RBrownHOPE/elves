@@ -8,6 +8,7 @@ Never print credential values. Paid smokes are opt-in only.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass, field
@@ -18,10 +19,14 @@ from typing import Any, Mapping, Sequence
 from .adapters import default_profiles
 from .setup import (
     OPTIONAL_ENV_NAMES,
+    PROFILE_RECIPES,
     SETUP_ROLE_SLOTS,
     inventory_tools,
     preferences_from_flags,
+    profile_adapter_name,
+    profile_is_apply_blocked,
     recommend_routes,
+    resolve_recipe_executable,
     run_setup,
 )
 
@@ -139,11 +144,15 @@ PURPOSE_CATALOG: tuple[dict[str, Any], ...] = (
         "id": "math_evolutionary_search",
         "role_slot": None,
         "label": "Math evolutionary search (AlphaEvolve)",
-        "description": "Optional numerical examples / counterexample search when GCP runner exists",
+        "description": (
+            "Optional numerical examples / counterexample search when GCP runner exists "
+            "(Survival Guide / math config — not an onboard role flag)"
+        ),
         "default_route": "off",
         "suggested_routes": ("off", "alphaevolve"),
         "required": False,
         "optional_tool": "alphaevolve",
+        "apply_via": "manual",  # not a SETUP_ROLE_SLOTS flag
     },
 )
 
@@ -155,6 +164,7 @@ ONBOARD_ENV_NAMES: tuple[str, ...] = tuple(
             "META_API_KEY",
             "MODEL_API_KEY",
             "EXA_API_KEY",
+            "SAKANA_API_KEY",
         )
     )
 )
@@ -170,26 +180,38 @@ ROUTE_HELP: dict[str, str] = {
     "codex-fugu-labor": "Codex labor tier for implement volume (pin requested_model in TOML)",
     "gemini-cli": "Google Gemini CLI — plan/review/scout; usually not cost-effective for bulk implement",
     "antigravity-cli": "Google Antigravity CLI — plan/review; usually not cost-effective for bulk implement",
-    "openrouter": "OpenRouter models via project wrapper + OPENROUTER_API_KEY (read-only breadth)",
-    "meta-muse": "Meta Muse Spark 1.1 via project wrapper + META_API_KEY (read-only plan/review)",
-    "alphaevolve": "Google Cloud AlphaEvolve for evolutionary example search (math module)",
+    "openrouter": (
+        "OpenRouter (API key) — not a bare CLI. Configure a custom-cli wrapper profile "
+        "(cobbler-setup-recipes.md); bare `onboard apply --review openrouter` is rejected"
+    ),
+    "meta-muse": (
+        "Meta Muse Spark (API key) — not a bare CLI. Configure a custom-cli wrapper profile "
+        "(cobbler-setup-recipes.md); bare `onboard apply --review meta-muse` is rejected"
+    ),
+    "alphaevolve": (
+        "Google Cloud AlphaEvolve for evolutionary example search (math Survival Guide config, "
+        "not an onboard apply role — see math-alphaevolve.md)"
+    ),
     "off": "Disabled for this purpose",
     "custom-cli": "User wrapper executable (qualify before write roles)",
 }
 
-# Map onboard route labels → inventory adapter / presence check.
-_ROUTE_PRESENCE_ADAPTER: dict[str, str] = {
-    "claude-code": "claude-code",
-    "claude-code-planning": "claude-code",
-    "claude-code-labor": "claude-code",
-    "grok-build": "grok-build",
-    "codex-fugu": "codex-fugu",
-    "codex-fugu-planning": "codex-fugu",
-    "codex-fugu-labor": "codex-fugu",
-    "gemini-cli": "gemini-cli",
-    "antigravity-cli": "antigravity-cli",
-    "custom-cli": "custom-cli",
-}
+
+def route_presence_adapter(route: str) -> str | None:
+    """Map onboard route / tier label → inventory adapter key (single source: PROFILE_RECIPES)."""
+    if route in ("host-native", "off"):
+        return None
+    if profile_is_apply_blocked(route):
+        return None  # env / gcloud presence handled separately
+    recipe = PROFILE_RECIPES.get(route)
+    if recipe:
+        adapter = recipe.get("adapter")
+        return str(adapter) if adapter else None
+    # Bare adapter name or custom profile name
+    defaults = default_profiles()
+    if route in defaults:
+        return route
+    return None
 
 
 @dataclass
@@ -217,47 +239,168 @@ class OnboardPacket:
     questions: list[dict[str, Any]] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass
+class ModelsTomlState:
+    """Parsed local models.toml for onboarding (roles + profile bodies)."""
+
+    roles: dict[str, str]
+    profiles: dict[str, dict[str, Any]]
+    warnings: list[str]
+    path: Path
+    exists: bool
+    parse_ok: bool
+    required_roles: list[str] = field(default_factory=list)
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+_ENV_LOCAL_ASSIGN = re.compile(
+    r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$",
+)
+
+
+def _env_names_from_dotenv(path: Path) -> set[str]:
+    """Return env *names* with non-empty values in a dotenv file. Never returns values."""
+    if not path.is_file():
+        return set()
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    names: set[str] = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = _ENV_LOCAL_ASSIGN.match(stripped)
+        if not match:
+            continue
+        name, raw = match.group(1), match.group(2)
+        # Drop inline comments and surrounding quotes without exposing the value.
+        value_part = raw.split("#", 1)[0].strip()
+        if len(value_part) >= 2 and value_part[0] == value_part[-1] and value_part[0] in "\"'":
+            value_part = value_part[1:-1]
+        if value_part.strip():
+            names.add(name)
+    return names
+
+
 def env_name_presence(
     names: Sequence[str] = ONBOARD_ENV_NAMES,
     *,
     environ: Mapping[str, str] | None = None,
+    repo_root: Path | None = None,
 ) -> dict[str, bool]:
-    """Report whether env var *names* are set. Never returns values."""
+    """Report whether env var *names* are set. Never returns values.
+
+    When ``repo_root`` is provided, also treats a name as present if it appears as a
+    left-hand assignment in ignored ``.env.local`` (name scan only — file values are
+    never returned). Process environment still wins for actual runtime; this only
+    improves onboarding *availability hints* when keys live in `.env.local` but are
+    not yet exported into the CLI process.
+    """
     env = environ if environ is not None else os.environ
+    dotenv_names: set[str] = set()
+    if repo_root is not None:
+        dotenv_names = _env_names_from_dotenv(Path(repo_root) / ".env.local")
     out: dict[str, bool] = {}
     for name in names:
         val = env.get(name)
-        out[name] = bool(val and str(val).strip())
+        in_process = bool(val and str(val).strip())
+        out[name] = in_process or (name in dotenv_names)
     return out
+
+
+def load_models_toml_state(repo_root: Path) -> ModelsTomlState:
+    """Load roles and [profiles.*] bodies from ignored models.toml if present."""
+    path = Path(repo_root) / ".elves" / "models.toml"
+    roles = {role: "host-native" for role in SETUP_ROLE_SLOTS}
+    profiles: dict[str, dict[str, Any]] = {}
+    warnings: list[str] = []
+    required_roles: list[str] = []
+    if not path.is_file():
+        return ModelsTomlState(
+            roles=roles,
+            profiles=profiles,
+            warnings=warnings,
+            path=path,
+            exists=False,
+            parse_ok=True,
+            required_roles=required_roles,
+        )
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        warnings.append(
+            f"`{path}` exists but this Python has no tomllib (need 3.11+); "
+            "falling back to host-native roles for display/probe"
+        )
+        return ModelsTomlState(
+            roles=roles,
+            profiles=profiles,
+            warnings=warnings,
+            path=path,
+            exists=True,
+            parse_ok=False,
+            required_roles=required_roles,
+        )
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 — surface parse failure, do not crash
+        warnings.append(
+            f"`{path}` could not be parsed ({type(exc).__name__}: {exc}); "
+            "falling back to host-native roles for display/probe"
+        )
+        return ModelsTomlState(
+            roles=roles,
+            profiles=profiles,
+            warnings=warnings,
+            path=path,
+            exists=True,
+            parse_ok=False,
+            required_roles=required_roles,
+        )
+    if not isinstance(data, dict):
+        warnings.append(f"`{path}` root is not a table; falling back to host-native")
+        return ModelsTomlState(
+            roles=roles,
+            profiles=profiles,
+            warnings=warnings,
+            path=path,
+            exists=True,
+            parse_ok=False,
+            required_roles=required_roles,
+        )
+    for role, body in (data.get("roles") or {}).items():
+        if role in roles and isinstance(body, dict) and body.get("profile"):
+            roles[role] = str(body["profile"])
+            if body.get("required") is True:
+                required_roles.append(role)
+    for name, body in (data.get("profiles") or {}).items():
+        if isinstance(body, dict):
+            profiles[str(name)] = dict(body)
+    return ModelsTomlState(
+        roles=roles,
+        profiles=profiles,
+        warnings=warnings,
+        path=path,
+        exists=True,
+        parse_ok=True,
+        required_roles=required_roles,
+    )
 
 
 def load_role_profiles_from_models_toml(repo_root: Path) -> dict[str, str]:
     """Read current role→profile map from ignored models.toml if present."""
-    path = Path(repo_root) / ".elves" / "models.toml"
-    roles = {role: "host-native" for role in SETUP_ROLE_SLOTS}
-    if not path.is_file():
-        return roles
-    try:
-        import tomllib
-    except ModuleNotFoundError:
-        return roles
-    try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return roles
-    for role, body in (data.get("roles") or {}).items():
-        if role in roles and isinstance(body, dict) and body.get("profile"):
-            roles[role] = str(body["profile"])
-    return roles
+    return load_models_toml_state(repo_root).roles
 
 
 def build_onboarding_packet(
@@ -267,8 +410,9 @@ def build_onboarding_packet(
     environ: Mapping[str, str] | None = None,
 ) -> OnboardPacket:
     inventory = inventory_tools(fake_presence=fake_presence)
-    env_present = env_name_presence(environ=environ)
-    current = load_role_profiles_from_models_toml(repo_root)
+    env_present = env_name_presence(environ=environ, repo_root=repo_root)
+    state = load_models_toml_state(repo_root)
+    current = state.roles
     present_adapters = sorted(i.adapter for i in inventory if i.present)
 
     questions: list[dict[str, Any]] = []
@@ -276,24 +420,34 @@ def build_onboarding_packet(
         options = []
         for route in purpose["suggested_routes"]:
             available = True
-            adapter_key = _ROUTE_PRESENCE_ADAPTER.get(route)
+            apply_ready = not profile_is_apply_blocked(route) and route not in ("off",)
+            adapter_key = route_presence_adapter(route)
             if adapter_key:
                 available = adapter_key in present_adapters
             if route == "openrouter":
                 available = env_present.get("OPENROUTER_API_KEY", False)
+                apply_ready = False
             if route == "meta-muse":
                 available = env_present.get("META_API_KEY", False) or env_present.get(
                     "MODEL_API_KEY", False
                 )
+                apply_ready = False
             if route == "alphaevolve":
                 available = shutil.which("gcloud") is not None
+                apply_ready = False
             if route == "host-native":
                 available = True
+                apply_ready = True
+            if route == "off":
+                available = True
+                apply_ready = False
             options.append(
                 {
                     "route": route,
                     "help": ROUTE_HELP.get(route, route),
                     "available_hint": available,
+                    "apply_ready": apply_ready,
+                    "apply_blocked": profile_is_apply_blocked(route),
                 }
             )
         current_route = purpose["default_route"]
@@ -310,6 +464,7 @@ def build_onboarding_packet(
                 "options": options,
                 "current": current_route,
                 "allow_custom": True,
+                "apply_via": purpose.get("apply_via", "role_flag"),
             }
         )
 
@@ -318,16 +473,25 @@ def build_onboarding_packet(
         "Never paste API keys into chat, models.toml, or the Survival Guide.",
         "Commit/push/PR are host operations, not model roles.",
         "After apply, run `onboard probe` (and optional `--smoke`) to verify routes.",
-        "Update anytime: re-run onboarding or `onboard apply` with new flags.",
+        "Update anytime: re-run onboarding or `onboard apply` with new flags "
+        "(partial apply merges into existing models.toml roles).",
         "Claude Code: /setup-cobbler or natural language. Codex: $elves setup-cobbler / natural language.",
         "Tier split: high-quality Claude/Codex for plan+review, labor model for implement "
         "(claude-code-planning / claude-code-labor, codex-fugu-planning / codex-fugu-labor).",
         "Google Gemini CLI / Antigravity CLI: good for plan/review; usually not for bulk implement.",
+        "openrouter / meta-muse / alphaevolve are interview hints only for bare apply — "
+        "configure a custom-cli wrapper (or math Survival Guide for AlphaEvolve) first.",
     ]
     if env_present.get("OPENROUTER_API_KEY"):
-        notes.append("OPENROUTER_API_KEY is set: OpenRouter models can be offered for review/scout.")
+        notes.append(
+            "OPENROUTER_API_KEY name is set: offer OpenRouter via a custom-cli wrapper recipe, "
+            "not bare --review openrouter."
+        )
     if env_present.get("META_API_KEY") or env_present.get("MODEL_API_KEY"):
-        notes.append("Meta API key name is set: Muse Spark can be offered for plan/review breadth.")
+        notes.append(
+            "Meta API key name is set: offer Muse Spark via a custom-cli wrapper recipe, "
+            "not bare --review meta-muse."
+        )
     if shutil.which("gcloud"):
         notes.append("gcloud present: AlphaEvolve may be available if the project has a runner.")
 
@@ -349,6 +513,7 @@ def build_onboarding_packet(
         questions=questions,
         recommendations=recommend_routes(inventory),
         notes=notes,
+        warnings=list(state.warnings),
     )
 
 
@@ -362,8 +527,25 @@ def apply_onboarding(
     run_smoke: bool = False,
     smoke_executor: Any | None = None,
     fake_presence: Mapping[str, bool] | None = None,
+    merge_existing: bool = True,
 ) -> dict[str, Any]:
-    """Write role preferences (setup). Returns setup result dict + onboarding meta."""
+    """Write role preferences (setup). Returns setup result dict + onboarding meta.
+
+    Partial apply is **merge** by default: existing models.toml roles are preserved
+    unless a flag overwrites them. Pass ``merge_existing=False`` to reset all
+    unspecified roles to host-native.
+    """
+    base_roles = None
+    if required is None:
+        merged_required: list[str] = []
+    else:
+        merged_required = list(required)
+    if merge_existing:
+        state = load_models_toml_state(repo_root)
+        base_roles = state.roles
+        # Preserve existing required flags unless caller passes --required explicitly.
+        if required is None:
+            merged_required = list(state.required_roles)
     prefs = preferences_from_flags(
         implement=role_flags.get("implement"),
         review=role_flags.get("review"),
@@ -372,10 +554,10 @@ def apply_onboarding(
         validate=role_flags.get("validate"),
         synthesize=role_flags.get("synthesize"),
         scout=role_flags.get("scout"),
-        required=required,
+        required=merged_required,
         native_fallback=True,
+        base_roles=base_roles,
     )
-    # Keep host-native for validate/synthesize unless user explicitly overrode.
     result = run_setup(
         Path(repo_root),
         preferences=prefs,
@@ -387,9 +569,16 @@ def apply_onboarding(
         fake_presence=fake_presence,
     )
     payload = result.to_dict()
+    changed = {
+        k: v
+        for k, v in prefs.roles.items()
+        if role_flags.get(k)  # only flags the user actually passed
+    }
     payload["onboarding"] = {
         "action": "apply",
-        "updated_roles": {k: v for k, v in prefs.roles.items()},
+        "merge_existing": merge_existing,
+        "updated_roles": changed,
+        "effective_roles": dict(prefs.roles),
         "next": [
             "python3 scripts/cobbler_agents.py onboard show --json",
             "python3 scripts/cobbler_agents.py onboard probe --json",
@@ -399,10 +588,11 @@ def apply_onboarding(
     return payload
 
 
-def _probe_executable(name: str | None) -> ProbeResult:
+def _probe_executable(name: str | None, *, route: str | None = None) -> ProbeResult:
+    label = route or name or "unknown"
     if not name:
         return ProbeResult(
-            route="unknown",
+            route=label,
             purpose=None,
             status="skip",
             detail="No executable name",
@@ -410,7 +600,7 @@ def _probe_executable(name: str | None) -> ProbeResult:
     path = shutil.which(name)
     if not path:
         return ProbeResult(
-            route=name,
+            route=label,
             purpose=None,
             status="fail",
             detail=f"Executable `{name}` not found on PATH",
@@ -427,31 +617,54 @@ def _probe_executable(name: str | None) -> ProbeResult:
         out = (proc.stdout or "") + (proc.stderr or "")
         if out.strip() or proc.returncode in (0, 1, 2):
             return ProbeResult(
-                route=name,
+                route=label,
                 purpose=None,
                 status="pass",
                 detail=f"`{name}` runs (--help ok, exit={proc.returncode})",
             )
         return ProbeResult(
-            route=name,
+            route=label,
             purpose=None,
             status="warn",
             detail=f"`{name}` found but --help produced no output (exit={proc.returncode})",
         )
     except subprocess.TimeoutExpired:
         return ProbeResult(
-            route=name,
+            route=label,
             purpose=None,
             status="warn",
             detail=f"`{name}` --help timed out",
         )
     except OSError as exc:
         return ProbeResult(
-            route=name,
+            route=label,
             purpose=None,
             status="fail",
             detail=f"`{name}` failed to launch: {exc}",
         )
+
+
+def _resolve_profile_executable(
+    profile: str,
+    *,
+    profile_bodies: Mapping[str, Mapping[str, Any]],
+    inventory_by_adapter: Mapping[str, Any],
+) -> tuple[str | None, str]:
+    """Return (executable_or_None, detail_hint) for a configured profile name."""
+    body = profile_bodies.get(profile) or {}
+    if body.get("executable"):
+        return str(body["executable"]), "from models.toml profiles.*.executable"
+    recipe_exe = resolve_recipe_executable(profile)
+    if recipe_exe:
+        return recipe_exe, "from PROFILE_RECIPES"
+    adapter = str(body.get("adapter") or profile_adapter_name(profile))
+    item = inventory_by_adapter.get(adapter)
+    if item is not None and getattr(item, "executable", None):
+        return str(item.executable), f"from inventory adapter `{adapter}`"
+    defaults = default_profiles()
+    if adapter in defaults and defaults[adapter].executable:
+        return defaults[adapter].executable, f"from default adapter `{adapter}`"
+    return None, f"no executable for profile `{profile}` (adapter `{adapter}`)"
 
 
 def probe_routes(
@@ -467,11 +680,18 @@ def probe_routes(
     Structural: executable on PATH + --help, env *names* present for API routes.
     Live smoke: only when live_smoke and smoke_executor provided (never invents responses).
     """
-    roles = load_role_profiles_from_models_toml(repo_root)
+    state = load_models_toml_state(repo_root)
+    roles = state.roles
     inventory = inventory_tools(fake_presence=fake_presence)
     by_adapter = {i.adapter: i for i in inventory}
-    env_present = env_name_presence(environ=environ)
+    env_present = env_name_presence(environ=environ, repo_root=repo_root)
     probes: list[ProbeResult] = []
+    notes = [
+        "Structural probes do not spend model tokens.",
+        "Live smoke is opt-in and must use a host-provided smoke_executor or follow-up host turns.",
+        "Never print API key values.",
+    ]
+    notes.extend(state.warnings)
 
     # Always confirm host-native.
     probes.append(
@@ -483,10 +703,7 @@ def probe_routes(
         )
     )
 
-    profiles = default_profiles()
-    seen_profiles: set[str] = set()
     for role, profile in roles.items():
-        seen_profiles.add(profile)
         if profile == "host-native":
             probes.append(
                 ProbeResult(
@@ -497,15 +714,33 @@ def probe_routes(
                 )
             )
             continue
-        # Tier profiles share an underlying adapter (e.g. claude-code-planning → claude-code).
-        adapter_key = _ROUTE_PRESENCE_ADAPTER.get(profile, profile)
-        item = by_adapter.get(adapter_key) or by_adapter.get(profile)
-        if item is None:
-            # custom or unknown profile name — try as executable
-            probes.append(_probe_executable(profile))
-            probes[-1].purpose = role
+        if profile_is_apply_blocked(profile):
+            probes.append(
+                ProbeResult(
+                    route=profile,
+                    purpose=role,
+                    status="fail",
+                    detail=(
+                        f"Profile `{profile}` is apply-blocked (not a bare CLI). "
+                        "Configure a custom-cli wrapper profile and point the role at that name."
+                    ),
+                )
+            )
             continue
-        if not item.present:
+
+        adapter_key = route_presence_adapter(profile) or profile_adapter_name(profile)
+        item = by_adapter.get(adapter_key)
+        body = state.profiles.get(profile) or {}
+        body_exe = str(body["executable"]) if body.get("executable") else None
+
+        # Built-in adapters: inventory presence (including fake_presence) is authoritative.
+        # custom-cli wrappers always declare their own executable in models.toml and are
+        # probed by that binary, not by a generic "custom-cli" PATH entry.
+        if (
+            item is not None
+            and not item.present
+            and adapter_key != "custom-cli"
+        ):
             probes.append(
                 ProbeResult(
                     route=profile,
@@ -515,12 +750,32 @@ def probe_routes(
                 )
             )
             continue
-        exe = item.executable or (
-            profiles.get(adapter_key).executable if adapter_key in profiles else None
+
+        exe, exe_source = _resolve_profile_executable(
+            profile,
+            profile_bodies=state.profiles,
+            inventory_by_adapter=by_adapter,
         )
-        pr = _probe_executable(exe)
+
+        if not exe:
+            # Unknown custom profile without executable — warn, not silent pass.
+            probes.append(
+                ProbeResult(
+                    route=profile,
+                    purpose=role,
+                    status="warn" if profile in state.profiles else "fail",
+                    detail=(
+                        f"{exe_source}. Set profiles.{profile}.executable in models.toml "
+                        "(see cobbler-setup-recipes.md for custom-cli wrappers)."
+                    ),
+                )
+            )
+            continue
+
+        pr = _probe_executable(exe, route=profile)
         pr.purpose = role
-        pr.route = profile
+        if pr.status == "pass":
+            pr.detail = f"{pr.detail} ({exe_source})"
         probes.append(pr)
 
     # Optional API routes (env presence only unless smoke).
@@ -530,7 +785,10 @@ def probe_routes(
                 route="openrouter",
                 purpose="provider_breadth",
                 status="pass",
-                detail="OPENROUTER_API_KEY name is set (value not inspected)",
+                detail=(
+                    "OPENROUTER_API_KEY name is set (value not inspected). "
+                    "Use a custom-cli wrapper profile for dispatch — bare openrouter is not apply-ready."
+                ),
             )
         )
     else:
@@ -549,7 +807,10 @@ def probe_routes(
                 route="meta-muse",
                 purpose="provider_breadth",
                 status="pass",
-                detail="META_API_KEY or MODEL_API_KEY name is set (value not inspected)",
+                detail=(
+                    "META_API_KEY or MODEL_API_KEY name is set (value not inspected). "
+                    "Use a custom-cli wrapper profile for dispatch — bare meta-muse is not apply-ready."
+                ),
             )
         )
     else:
@@ -616,7 +877,9 @@ def probe_routes(
                     out.get("text") or out.get("content") or out.get("results")
                 ):
                     smoke["ran"] = True
-                    smoke["detail"] = "Smoke executor returned a non-empty response (credentials not printed)"
+                    smoke["detail"] = (
+                        "Smoke executor returned a non-empty response (credentials not printed)"
+                    )
                     probes.append(
                         ProbeResult(
                             route="live_smoke",
@@ -644,32 +907,48 @@ def probe_routes(
         "ok": fails == 0,
         "generated_at": _utc_now(),
         "roles": roles,
+        "profiles": {
+            name: {
+                "adapter": body.get("adapter"),
+                "executable": body.get("executable"),
+            }
+            for name, body in state.profiles.items()
+        },
         "env_present": env_present,
         "probes": [p.to_dict() for p in probes],
-        "summary": {"pass": sum(1 for p in probes if p.status == "pass"), "warn": warns, "fail": fails},
+        "summary": {
+            "pass": sum(1 for p in probes if p.status == "pass"),
+            "warn": warns,
+            "fail": fails,
+        },
         "smoke": smoke,
         "credentials_printed": False,
-        "notes": [
-            "Structural probes do not spend model tokens.",
-            "Live smoke is opt-in and must use a host-provided smoke_executor or follow-up host turns.",
-            "Never print API key values.",
-        ],
+        "warnings": list(state.warnings),
+        "notes": notes,
     }
 
 
 def show_onboarding(repo_root: Path) -> dict[str, Any]:
-    roles = load_role_profiles_from_models_toml(repo_root)
-    path = Path(repo_root) / ".elves" / "models.toml"
+    state = load_models_toml_state(repo_root)
     return {
-        "ok": True,
-        "models_toml_path": str(path),
-        "models_toml_exists": path.is_file(),
-        "roles": roles,
+        "ok": state.parse_ok or not state.exists,
+        "models_toml_path": str(state.path),
+        "models_toml_exists": state.exists,
+        "roles": state.roles,
+        "profiles": {
+            name: {
+                "adapter": body.get("adapter"),
+                "executable": body.get("executable"),
+            }
+            for name, body in state.profiles.items()
+        },
         "purposes": list(PURPOSE_CATALOG),
-        "env_present": env_name_presence(),
+        "env_present": env_name_presence(repo_root=repo_root),
+        "warnings": list(state.warnings),
         "update_hint": (
             "Re-run onboard plan (host interviews user) then onboard apply, "
-            "or pass flags to onboard apply / setup directly."
+            "or pass flags to onboard apply / setup directly. "
+            "Partial apply merges into existing roles."
         ),
         "credentials_printed": False,
     }

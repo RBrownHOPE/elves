@@ -16,7 +16,8 @@ runs the skill, owns the overnight loop, git/PR, gates, and run memory.
 | **Claude Code** (supported main driver) | `/setup-cobbler` or natural language: “set up my model routes” / “onboard models” |
 | **Codex** (supported main driver) | `$elves setup-cobbler` or natural language — **not** a top-level Codex slash command |
 
-Both supported hosts follow the same four steps. Do not invent different product rules per host.
+Both supported hosts follow the same operator CLI (`plan` → `apply` → `show` → `probe`) and the
+same host-mediated protocol below. Do not invent different product rules per host.
 
 **Other tools are not main drivers.** Gemini CLI, Antigravity CLI, Muse, OpenRouter, Grok Build,
 AlphaEvolve, and similar routes may be **optional lenses or helpers** the host can call when
@@ -172,7 +173,10 @@ When the user asks to onboard, reconfigure models, or “which model should do w
    structural probes only.
 
 6. **Update later**  
-   Same flow. `onboard show` first, then re-interview changed purposes, `apply --force`, `probe`.
+   Same flow. `onboard show` first, then re-interview **changed** purposes only.
+   `onboard apply` **merges** into existing `.elves/models.toml` roles (unspecified flags keep
+   prior values). Pass `--reset-roles` only when you intentionally want unspecified roles reset
+   to host-native. Use `--force` when overwriting a TOML that has unknown sections.
 
 7. **Staging snapshot**  
    During Elves staging, paste effective routes into the Survival Guide so the PR shows provenance
@@ -182,7 +186,7 @@ When the user asks to onboard, reconfigure models, or “which model should do w
 
 | Kind | What |
 | --- | --- |
-| **Structural** | host-native always; configured CLI on PATH + `--help`; env **names** for OpenRouter/Meta; gcloud for AlphaEvolve hint |
+| **Structural** | host-native always; configured role profiles → resolved executable (from `models.toml` `[profiles.*]`, recipe, or inventory) on PATH + `--help`; env **names** for OpenRouter/Meta (process or `.env.local` name scan); gcloud for AlphaEvolve hint |
 | **Live smoke** | Opt-in; requires host-provided real model response; empty/fake smoke does not count |
 
 Probe never invents remaining quota and never prints secrets.
@@ -191,9 +195,16 @@ Probe never invents remaining quota and never prints secrets.
 
 These are **optional upgrades** on top of native:
 
-- **OpenRouter** — review/scout breadth when `OPENROUTER_API_KEY` is set + project wrapper  
-- **Meta Muse Spark 1.1** — plan/review when `META_API_KEY` or `MODEL_API_KEY` is set  
-- **AlphaEvolve** — math `evolutionary_search` when gcloud + project runner exist  
+- **OpenRouter** — review/scout breadth when `OPENROUTER_API_KEY` is set + a **custom-cli wrapper**
+  profile (see recipes). Bare `onboard apply --review openrouter` is **rejected** (`apply_blocked`).
+- **Meta Muse Spark 1.1** — plan/review when `META_API_KEY` or `MODEL_API_KEY` is set + wrapper.
+  Bare `meta-muse` apply is **rejected**.
+- **AlphaEvolve** — math `evolutionary_search` when gcloud + project runner exist. Configure via
+  Survival Guide / math docs, not as an onboard role flag.
+
+`onboard plan` may still *mention* these when env names or gcloud are present (`apply_ready: false`).
+Probe can check env name presence / gcloud; dispatch needs a real wrapper executable recorded under
+`[profiles.<name>]`.
 
 See [`math-alphaevolve.md`](math-alphaevolve.md), [`math-provider-config.md`](math-provider-config.md),
 [`cobbler-setup-recipes.md`](cobbler-setup-recipes.md).

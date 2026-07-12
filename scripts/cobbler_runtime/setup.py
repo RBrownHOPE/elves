@@ -170,9 +170,68 @@ PROFILE_RECIPES: dict[str, dict[str, Any]] = {
         "executable": "antigravity",
         "notes": "Google Antigravity CLI — plan/review only; not recommended for bulk implement",
         "plan_review_only": True,
+        "executable_fallbacks": ("agy",),
     },
     "custom-cli": {"adapter": "custom-cli"},
+    # Provider-breadth tokens used in interview — not bare apply targets.
+    # Host must configure a custom-cli wrapper (see cobbler-setup-recipes.md).
+    "openrouter": {
+        "adapter": "custom-cli",
+        "apply_blocked": True,
+        "notes": (
+            "OpenRouter is not a bare CLI. Configure a custom-cli wrapper profile "
+            "(see cobbler-setup-recipes.md) and apply that profile name."
+        ),
+    },
+    "meta-muse": {
+        "adapter": "custom-cli",
+        "apply_blocked": True,
+        "notes": (
+            "Meta Muse is not a bare CLI. Configure a custom-cli wrapper profile "
+            "(see cobbler-setup-recipes.md) and apply that profile name."
+        ),
+    },
+    "alphaevolve": {
+        "adapter": "custom-cli",
+        "apply_blocked": True,
+        "notes": (
+            "AlphaEvolve is math Survival Guide config, not an onboard apply role "
+            "(see math-alphaevolve.md)."
+        ),
+    },
 }
+
+
+def profile_adapter_name(profile: str) -> str:
+    """Resolve a profile or tier name to its inventory adapter key."""
+    recipe = PROFILE_RECIPES.get(profile)
+    if recipe:
+        return str(recipe.get("adapter") or profile)
+    return profile
+
+
+def profile_is_apply_blocked(profile: str) -> bool:
+    recipe = PROFILE_RECIPES.get(profile) or {}
+    return bool(recipe.get("apply_blocked"))
+
+
+def resolve_recipe_executable(profile: str) -> str | None:
+    """Pick executable from recipe, preferring PATH-present fallbacks."""
+    recipe = PROFILE_RECIPES.get(profile) or {}
+    primary = recipe.get("executable")
+    if primary and which_executable(str(primary)):
+        return str(primary)
+    for alt in recipe.get("executable_fallbacks") or ():
+        if which_executable(str(alt)):
+            return str(alt)
+    if primary:
+        return str(primary)
+    # Bare adapter profiles use default_profiles executable hints.
+    defaults = default_profiles()
+    adapter = profile_adapter_name(profile)
+    if adapter in defaults and defaults[adapter].executable:
+        return defaults[adapter].executable
+    return None
 
 
 def inventory_tools(
@@ -324,30 +383,41 @@ def render_models_toml(preferences: SetupPreferences) -> str:
         if recipe is None:
             adapter = "custom-cli"
             executable = None
-            notes = "Unknown profile name; treat as custom-cli and set executable"
+            notes = (
+                "Unknown profile name — set adapter/executable explicitly before use; "
+                "onboard apply rejects bare openrouter/meta-muse/alphaevolve tokens"
+            )
         else:
             adapter = str(recipe.get("adapter") or "custom-cli")
-            executable = recipe.get("executable")
+            executable = resolve_recipe_executable(profile_name)
             notes = recipe.get("notes")
         lines.append(f"[profiles.{profile_name}]")
         lines.append(f'adapter = "{adapter}"')
         if executable:
             lines.append(f'executable = "{executable}"')
-        if adapter == "custom-cli" and profile_name != "custom-cli" and not executable:
-            lines.append('executable = "my-coding-agent"')
-            notes = notes or "Replace executable for your wrapper"
+        if (
+            adapter == "custom-cli"
+            and profile_name not in PROFILE_RECIPES
+            and not executable
+        ):
+            # Do not invent my-coding-agent for known apply-blocked tokens.
+            lines.append(
+                '# executable = "…"  # required for custom-cli — set your wrapper path'
+            )
         if notes:
-            # Escape quotes in notes for TOML single-line strings
             safe = str(notes).replace('"', "'")
             lines.append(f'notes = "{safe}"')
-        # Tier profiles: leave requested_model commented for the user to pin a local model id.
         if recipe and recipe.get("tier") in {"planning", "labor"}:
             lines.append(
-                f'# requested_model = "…"  # optional: pin high-quality vs labor model for this tier'
+                '# requested_model = "…"  # optional: pin high-quality vs labor model for this tier'
             )
         if recipe and recipe.get("plan_review_only"):
             lines.append(
-                '# Prefer this profile on planning/review/scout roles only — not bulk implement.'
+                "# Prefer this profile on planning/review/scout roles only — not bulk implement."
+            )
+        if recipe and recipe.get("apply_blocked"):
+            lines.append(
+                "# apply_blocked: do not use this token as roles.*.profile without a real wrapper."
             )
         lines.append("")
 
@@ -452,9 +522,18 @@ def preferences_from_flags(
     session_mode: str = "ephemeral",
     sharing_policy: str = "local-only",
     native_fallback: bool = True,
+    base_roles: Mapping[str, str] | None = None,
 ) -> SetupPreferences:
-    """Deterministic non-interactive preference builder."""
+    """Deterministic non-interactive preference builder.
+
+    When ``base_roles`` is provided (e.g. existing models.toml), only roles with
+    explicit non-empty flags are overwritten — partial apply is merge semantics.
+    """
     roles = {role: NATIVE_PROFILE_NAME for role in SETUP_ROLE_SLOTS}
+    if base_roles:
+        for role, profile in base_roles.items():
+            if role in roles and profile:
+                roles[role] = str(profile)
     mapping = {
         "implement": implement,
         "review": review,
@@ -473,7 +552,6 @@ def preferences_from_flags(
             if profile != NATIVE_PROFILE_NAME:
                 fallbacks[role] = [NATIVE_PROFILE_NAME]
     required_roles = [r for r in (required or []) if r in SETUP_ROLE_SLOTS]
-    # validate/synthesize default required for safety of host ownership messaging
     return SetupPreferences(
         roles=roles,
         fallbacks=fallbacks,
@@ -565,17 +643,46 @@ def run_setup(
                     "Smoke executor returned a non-mapping result; smoked=false"
                 )
 
-    # Validate required roles against inventory presence.
+    # Reject apply-blocked tokens (openrouter/meta-muse/alphaevolve bare names).
+    for role, profile in prefs.roles.items():
+        if profile_is_apply_blocked(profile):
+            result.ok = False
+            result.issues.append(
+                {
+                    "code": "apply_blocked_profile",
+                    "message": (
+                        f"Role `{role}` uses apply-blocked profile `{profile}`. "
+                        f"{(PROFILE_RECIPES.get(profile) or {}).get('notes', '')}"
+                    ),
+                }
+            )
+
+    # Warn when plan_review_only profile is used for implement.
+    implement_profile = prefs.roles.get("implement", NATIVE_PROFILE_NAME)
+    impl_recipe = PROFILE_RECIPES.get(implement_profile) or {}
+    if impl_recipe.get("plan_review_only"):
+        result.warnings.append(
+            f"Implement role uses plan/review-only profile `{implement_profile}` — "
+            "usually not cost-effective for bulk implement; prefer host-native or labor tier."
+        )
+
+    # Validate required roles against inventory presence (tier → underlying adapter).
     present = {item.adapter for item in inventory if item.present}
     for role in prefs.required_roles:
         profile = prefs.roles.get(role, NATIVE_PROFILE_NAME)
-        if profile != NATIVE_PROFILE_NAME and profile not in present:
+        if profile == NATIVE_PROFILE_NAME:
+            continue
+        if profile_is_apply_blocked(profile):
+            continue  # already recorded
+        adapter = profile_adapter_name(profile)
+        if adapter not in present and profile not in present:
             result.ok = False
             result.issues.append(
                 {
                     "code": "required_route_unavailable",
                     "message": (
-                        f"Required role `{role}` maps to `{profile}` but that tool is not present"
+                        f"Required role `{role}` maps to profile `{profile}` "
+                        f"(adapter `{adapter}`) but that tool is not present"
                     ),
                 }
             )

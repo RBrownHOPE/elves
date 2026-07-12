@@ -52,6 +52,17 @@ All notable changes to the Elves skill are documented here.
   Code and Codex only**; other tools are optional lenses, not claimed Elves hosts. Exotic
   interfaces (Antigravity included) are **not heavily tested** — no maintainer dogfood without
   the right subscription. Prefer PRs (or issues) when something breaks.
+- **Onboard correctness (pre-merge review fixes):**
+  - Partial `onboard apply` / `setup` **merges** into existing models.toml roles (use
+    `--reset-roles` to wipe unspecified roles back to host-native).
+  - Bare `openrouter` / `meta-muse` / `alphaevolve` tokens are **apply-blocked**; configure a
+    custom-cli wrapper (or math Survival Guide for AlphaEvolve). No placeholder `my-coding-agent`.
+  - `--required` resolves tier profiles to underlying adapters (e.g. `claude-code-planning` →
+    `claude-code`).
+  - Probe reads `[profiles.*].executable` (custom wrappers, antigravity `agy` fallback).
+  - Env **name** presence also scans ignored `.env.local` (values never returned).
+  - Plan/review-only profiles on implement emit a warning; corrupt models.toml surfaces warnings
+    instead of silent host-native pass.
 
 ## [1.20.2] - 2026-07-12
 
