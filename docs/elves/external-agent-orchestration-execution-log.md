@@ -14,6 +14,17 @@ control in the Survival Guide; promote stable lessons to `docs/elves/learnings.m
 - **Docs promoted this run:** qualification lessons added to `docs/elves/learnings.md`
 - **Latest Elves Report:** not generated
 
+## Batch 3 Contract: 2026-07-12 ~10:56 EDT
+
+**Contract:** Exact sessions, digests/rehydration, Grok lineage honesty, usage with unknown quota,
+doctor discovery. No writer leases.
+
+**Lease:** lease-batch-3-20260712-A base 
+
+**Rollback:** elves/pre-batch-3
+
+---
+
 ## Batch 2 Close: 2026-07-12 ~10:55 EDT
 
 **Batch:** 2 Parallel read-only council dispatcher
