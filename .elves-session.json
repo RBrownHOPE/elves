@@ -3,7 +3,7 @@
   "session_id": "elves-external-agent-orchestration-20260712",
   "status": "in_progress",
   "created_at": "2026-07-12T12:39:00Z",
-  "updated_at": "2026-07-12T14:11:29Z",
+  "updated_at": "2026-07-12T14:40:56Z",
   "run_mode": "finite",
   "execution_budget_hours": 8,
   "checkpoint": {
@@ -93,19 +93,20 @@
     "mode": "strict",
     "branch": "codex/external-agent-orchestration",
     "start_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
-    "allowed_head_tip": "88a31fd75014c9182dda856a3eb295cbb8c38279",
+    "allowed_head_tip": "98b0e07b20b8b864f648744d2210fe13f9f434d1",
     "remote_ref": "origin/codex/external-agent-orchestration",
-    "expected_remote_tip": "88a31fd75014c9182dda856a3eb295cbb8c38279",
-    "last_pushed_tip": "88a31fd75014c9182dda856a3eb295cbb8c38279",
+    "expected_remote_tip": "98b0e07b20b8b864f648744d2210fe13f9f434d1",
+    "last_pushed_tip": "98b0e07b20b8b864f648744d2210fe13f9f434d1",
     "external_writer_enforcement": "manual host audit until the mechanical lease guard ships in Batch 4"
   },
   "test_baseline": {
     "command": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
-    "total": 170,
-    "passed": 170,
+    "total": 199,
+    "passed": 199,
     "failed": 0,
     "skipped": 0,
-    "captured_at": "2026-07-12T12:03:00Z"
+    "captured_at": "2026-07-12T14:40:56Z",
+    "prior_baseline": 170
   },
   "qualification": {
     "status": "pass",
@@ -310,7 +311,7 @@
       "parent_session_id": null,
       "worktree_id": "2026-07-12-e8fa7ada-e1507717b9a587a4",
       "worktree_path": "${HOME}/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada",
-      "worktree_head": "88a31fd75014c9182dda856a3eb295cbb8c38279",
+      "worktree_head": "d7270403b907d4e183ef62b5d6bb2a77fca36fd0",
       "worktree_state": "clean_detached",
       "sandbox_profile": "devbox",
       "roles": [
@@ -318,7 +319,7 @@
         "remediation",
         "detached_commit_handoff"
       ],
-      "status": "leased_pending",
+      "status": "qualified_idle",
       "remaining_quota": "unknown"
     },
     "sakana_fugu_ultra": {
@@ -428,7 +429,7 @@
     }
   ],
   "external_writer": {
-    "status": "lease_preparing",
+    "status": "qualified_idle",
     "active_lease": null,
     "maximum_concurrent_leases": 1,
     "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
@@ -445,7 +446,7 @@
     "worker_may_join_independent_review": false,
     "integration_owner": "host-coordinator",
     "integration_method": "audit per-commit binary patches; no bare cherry-pick; host creates sanitized branch commits recording worker SHAs",
-    "next_action": "Issue Batch 1 lease after Contract commit"
+    "next_action": "Issue Batch 2 lease after Close push and worker align"
   },
   "staging_preflight": {
     "status": "pass",
@@ -488,12 +489,58 @@
     {
       "id": 1,
       "name": "Contracts, configuration, and implementer clarity",
-      "status": "in_progress",
-      "commit": null,
+      "status": "complete",
+      "commit": "98b0e07b20b8b864f648744d2210fe13f9f434d1",
       "rollback_tag": "elves/pre-batch-1",
       "started_at": "2026-07-12T14:11:29Z",
-      "completed_at": null,
-      "acceptance": []
+      "completed_at": "2026-07-12T14:40:56Z",
+      "acceptance": [
+        {
+          "criterion": "Unit tests prove config precedence/provenance, fallback, required, native defaults",
+          "met": true,
+          "evidence": "tests/test_cobbler_agents_config.py ConfigResolutionTests; 199 full suite OK at 98b0e07"
+        },
+        {
+          "criterion": "Schema maps implementation to Claude/Grok/custom without source changes",
+          "met": true,
+          "evidence": "test_map_implementation_to_claude_grok_or_custom_without_source_changes"
+        },
+        {
+          "criterion": "Lightweight review maps without changing supervisor; git/PR non-model",
+          "met": true,
+          "evidence": "test_lightweight_review_mapping_leaves_supervisor_unchanged; CLI has no git/PR dispatch"
+        },
+        {
+          "criterion": "TOML stdlib-only with Python 3.11 feature floor diagnostics",
+          "met": true,
+          "evidence": "test_load_toml_requires_python_311_when_file_present; config.py tomllib"
+        },
+        {
+          "criterion": "Local models.toml ignored; tracked example credential/path-free; Survival Guide owns effective routes",
+          "met": true,
+          "evidence": "test_tracked_example_is_credential_and_path_free; ExampleAndIgnoreTests; host Survival Guide model-routing block"
+        },
+        {
+          "criterion": "validate-config --json stable, no paid model, no mutation",
+          "met": true,
+          "evidence": "CliSkeletonTests; host run validate-config --json ok/model_calls_made=false"
+        },
+        {
+          "criterion": "Implementer handoff standard in SKILL/AGENTS/templates/review with consistency pins",
+          "met": true,
+          "evidence": "IMPLEMENTER_HANDOFF_PHRASES; ConsistencyPhraseTests; check_repo_consistency OK"
+        },
+        {
+          "criterion": "Progress-commit schema and worker ref/push denial pinned",
+          "met": true,
+          "evidence": "PROGRESS_COMMIT_PHRASES; SKILL/AGENTS Git History as Operator UI"
+        },
+        {
+          "criterion": "Focused+full gates pass; test count >=170 no new skips",
+          "met": true,
+          "evidence": "199/199 tests OK; baseline 170"
+        }
+      ]
     },
     {
       "id": 2,
@@ -570,6 +617,18 @@
       "surface": ".elves-session.json Grok worktree",
       "status": "addressed_replied_in_52a7fb6",
       "resolution": "use ${HOME} locator then canonicalize and verify git worktree registration"
+    },
+    {
+      "id": "batch1-fable",
+      "surface": "Batch1 independent review",
+      "status": "pass",
+      "resolution": "PASS no blockers; non-blocking notes deferred"
+    },
+    {
+      "id": "batch1-host",
+      "surface": "Batch1 independent review",
+      "status": "pass",
+      "resolution": "PASS findings empty"
     }
   ],
   "staging_close": {
@@ -583,15 +642,15 @@
   },
   "active_compute": [],
   "continuation_guard": {
-    "remaining_batches": 6,
+    "remaining_batches": 5,
     "stop_allowed": false,
     "staging_stop": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Issue Batch 1 Grok lease and implement contracts/config/handoff standard"
+    "next_required_action": "Start Batch 2: Parallel read-only council dispatcher"
   },
   "current_batch": {
-    "id": 1,
-    "name": "Contracts, configuration, and implementer clarity",
-    "status": "in_progress"
+    "id": 2,
+    "name": "Parallel read-only council dispatcher",
+    "status": "pending"
   }
 }

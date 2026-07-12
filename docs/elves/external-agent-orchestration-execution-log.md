@@ -5,14 +5,60 @@ control in the Survival Guide; promote stable lessons to `docs/elves/learnings.m
 
 ## Run Digest
 
-- **Last updated:** 2026-07-12 10:11 EDT
-- **Current phase:** Execution launched; Batch 1 in progress
-- **Active batch:** Batch 1: Contracts, configuration, and implementer clarity
-- **Last completed batch:** none; implementation has not started
-- **Next exact batch:** Batch 1: Contracts, configuration, and implementer clarity
+- **Last updated:** 2026-07-12 10:35 EDT
+- **Current phase:** Batch 1 complete; Batch 2 next
+- **Active batch:** Batch 2: Parallel read-only council dispatcher
+- **Last completed batch:** Batch 1
+- **Next exact batch:** Batch 2: Parallel read-only council dispatcher
 - **Active PR:** draft PR #59, `https://github.com/aigorahub/elves/pull/59`
 - **Docs promoted this run:** qualification lessons added to `docs/elves/learnings.md`
 - **Latest Elves Report:** not generated
+
+## Batch 1 Close: 2026-07-12 ~10:35 EDT
+
+**Batch:** 1 Contracts, configuration, and implementer clarity  
+**Timing:** Implement ~7m (Grok) / Validate ~2m / Review ~12m+ / Total ~25m  
+**Budget remaining:** ~7.5h
+
+**What changed:**
+- `scripts/cobbler_runtime/{schema,config,capabilities,adapters}.py` + `__init__.py`
+- `scripts/cobbler_agents.py` validate-config/doctor skeleton
+- `tests/test_cobbler_agents_config.py` (+ consistency phrase tests)
+- `references/models.toml.example`
+- SKILL.md / AGENTS.md handoff + progress-commit standards; templates; review-subagent
+- check_repo_consistency pins; sync_installed_skills runtime paths
+
+**Worker lease:** `lease-batch-1-20260712-A` session `9927883a-0203-42e1-a3e4-710a02096d46`
+base `3928f82` -> worker final `d727040` (4 detached commits). Audit PASS: refs/config/hooks
+unchanged; binary patches imported; host commits `efc0a4b..98b0e07`.
+
+**Contract status:** all Batch 1 acceptance criteria met with evidence rows in session JSON.
+
+**Test results:** PASS 199/199 (baseline 170 → +29); consistency/compile/shell/json/toml/whitespace/
+survival-guide PASS.
+
+**Review findings:**
+- fresh-host PASS (0 findings)
+- Fable `claude-fable-5` PASS; strongest dissent: shape≠reality until Batch 4 lease guard
+- Fugu still in flight at close; quorum 2 already satisfied without it
+- Non-blocking Fable notes deferred to later batches/TODO
+
+**Decisions made:** Close Batch 1 on host+Fable quorum without waiting for optional Fugu completion;
+record Fugu result when available. Do not remediate non-blocking dead-code notes in Batch 1.
+
+**Docs:** Impacted SKILL/AGENTS/templates/README/.ai-docs. Updated in worker import. Promoted none
+beyond batch product. Deferred Survival Guide machine-parse to later batches.
+
+**Regression attestation:** Cumulative product delta from main includes Batch 0 staging + Batch 1
+foundation. Shared surfaces: `check_repo_consistency.py` and `sync_installed_skills.py` additive
+phrase/path lists. Public API surface: not configured required. Test baseline 170→199, skips 0.
+Confidence HIGH: full suite green, independent review quorum met, lease audit clean.
+
+**Commit:** host tip at Close will record; rollback `elves/pre-batch-1`
+
+**Next:** 1. Batch 2 council dispatcher  2. Batch 3 sessions
+
+---
 
 ## Launch: 2026-07-12 10:11 EDT
 

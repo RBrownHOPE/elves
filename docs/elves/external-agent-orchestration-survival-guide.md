@@ -84,16 +84,16 @@ acceptance, synthesis, and final integration.
 - **Time budget:** approximately 8 hours from launch, with judgment to complete a near-finished finite
   batch or stop cleanly at a genuine hard boundary
 - **Average batch time so far:** N/A; execution not launched
-- **Batches remaining:** 6 of 6
+- **Batches remaining:** 5 of 6
 
 ## Stop Gate
 
-- **Planned batches remaining:** 6
+- **Planned batches remaining:** 5
 - **Stop allowed right now:** no
-- **Why:** launch call received; finite run in progress with six incomplete batches; no user stop and
-  no true blocker
-- **Next required action:** complete Batch 1 under the Grok successor lease, then continue through
-  Batches 2–6 with independent review quorum 2 after each batch
+- **Why:** finite run in progress; Batch 1 complete with acceptance evidence; Batches 2–6 remain;
+  no user stop and no true blocker
+- **Next required action:** issue Batch 2 lease to exact Grok successor after host Close push and
+  clean worker alignment; continue through Batches 2–6 with review quorum 2
 
 ## Effort Standard
 
@@ -207,19 +207,17 @@ Promotion flow: execution log -> learnings -> `.ai-docs/*`.
 
 ## Current Phase
 
-**Status:** Execution launched; Batch 1 implementation lease about to issue
+**Status:** Batch 1 accepted; preparing Batch 2
 
-**Active batch:** Batch 1: Contracts, configuration, and implementer clarity
+**Active batch:** Batch 2: Parallel read-only council dispatcher
 
-**What was just finished:** Launch call verified plan hash
-`27a400cff4f1a12de8ae75b59167a6921df1287910e21d93fb1ade5bad357309`, draft PR #59 all-green, owned and
-worker worktrees clean and aligned at `88a31fd75014c9182dda856a3eb295cbb8c38279`, non-interactive
-environment exported, local rollback tag `elves/pre-batch-1` retargeted to current HEAD, and Stop Gate
-set to `no`.
+**What was just finished:** Batch 1 imported from audited Grok detached chain (4 commits), full
+validation 199/199, host+Fable independent review PASS (quorum 2). Fugu review still in flight as
+optional third lane. Product foundation: `scripts/cobbler_runtime/*`, `cobbler_agents.py`, models
+TOML example, handoff/progress-commit standards and consistency pins.
 
-**Single next action:** issue the Batch 1 writer lease to exact Grok successor
-`9927883a-0203-42e1-a3e4-710a02096d46`, audit its detached chain, import approved binary patches, and
-push sanitized host progress commits.
+**Single next action:** Close Batch 1 run-memory commit/push, align clean Grok successor to new tip,
+write Batch 2 contract packet, and issue the next whole-batch lease.
 
 ## Active Compute
 
@@ -236,25 +234,25 @@ resources only:
 
 ## Next Exact Batch
 
-**Batch:** 1: Contracts, configuration, and implementer clarity
+**Batch:** 2: Parallel read-only council dispatcher
 
 **Scope:**
 
-- Host writes the complete Batch 1 contract and worker packet from the plan.
-- Grok successor implements typed harness/config/capability foundations and the handoff standard
-  inside its detached lease checkout, targeting two to five meaningful detached commits.
-- Host audits the full chain, imports approved binary patches, runs focused/full tests, and updates
-  product docs/run memory before creating and pushing sanitized branch commits.
-- Luna-low may perform bounded routine read-only checks; fresh Sol/native + Fable + Fugu review in
-  parallel closes risk, with remediation returning to the same Grok successor.
+- Host writes the complete Batch 2 contract and worker packet from the plan.
+- Grok successor implements parallel independent read-only council fan-out, redaction, adapter
+  command builders, lightweight-review dispatch, and quorum/fallback policy inside its detached
+  lease checkout (2–5 meaningful detached commits).
+- Host audits/imports binary patches, runs focused/full validation, and pushes sanitized host
+  commits recording worker SHAs.
+- Independent review: fresh host + Fable + Fugu concurrently; Grok excluded; quorum 2.
 
-**Acceptance criteria:** use every Batch 1 criterion in the plan, with non-empty evidence rows in
-`.elves-session.json`; do not close on tests alone.
+**Acceptance criteria:** use every Batch 2 criterion in the plan, with non-empty evidence rows in
+`.elves-session.json`; fake adapters must prove wall-clock overlap.
 
-**Risk:** provider-specific assumptions or a weak config contract becoming the foundation
-for every later batch.
+**Risk:** concurrency cleanup, credential inheritance, and treating exit-code-zero as inference
+success.
 
-**Rollback tag:** `elves/pre-batch-1`
+**Rollback tag:** `elves/pre-batch-2`
 
 ## Post-Checkpoint Control Loop
 
