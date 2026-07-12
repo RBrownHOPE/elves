@@ -28,6 +28,7 @@ from .setup import (
     recommend_routes,
     resolve_recipe_executable,
     run_setup,
+    which_executable,
 )
 
 
@@ -674,7 +675,7 @@ def _resolve_executable_for_probe(
         under_root = Path(repo_root) / name
         if under_root.is_file():
             return str(under_root.resolve())
-    return shutil.which(name)
+    return which_executable(name)
 
 
 def _probe_executable(

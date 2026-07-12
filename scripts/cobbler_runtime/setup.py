@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import stat
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -21,6 +20,7 @@ from typing import Any, Mapping, Sequence  # Any used by PROFILE_RECIPES
 from .adapters import default_profiles
 from .capabilities import doctor_inventory
 from .config import models_toml_is_local_only, resolve_config
+from .executables import resolve_executable
 from .schema import NATIVE_PROFILE_NAME, RoleName, ValidationIssue
 
 
@@ -129,9 +129,7 @@ def _utc_now() -> str:
 
 
 def which_executable(name: str | None) -> str | None:
-    if not name or name.startswith("("):
-        return None
-    return shutil.which(name)
+    return resolve_executable(name)
 
 
 # Named profiles beyond bare adapter names: planning-quality vs labor tiers, Google plan/review.

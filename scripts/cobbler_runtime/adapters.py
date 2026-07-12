@@ -10,12 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
 from .context import ROLE_REPORT_SCHEMA_FIELDS
+from .executables import resolve_executable, resolve_executable_for_launch
 from .schema import BUILTIN_ADAPTER_NAMES, HarnessProfile, NATIVE_PROFILE_NAME, ValidationIssue
 
 
@@ -569,7 +569,7 @@ def build_readonly_invocation(
         name = "custom-cli"
 
     meta = _BUILTIN.get(name, _BUILTIN["custom-cli"])
-    exe = executable or meta.executable_hint
+    exe = resolve_executable_for_launch(executable or meta.executable_hint)
     extras = tuple(extra_args)
     validate_extra_args(name, extras)
     exact_session = (
@@ -751,13 +751,8 @@ def build_readonly_invocation(
                     candidates.append(str(cand))
             resolved = None
             for cand in candidates:
-                # Prefer basename if on PATH so argv[0] stays short and portable.
-                base = Path(cand).name if "/" in cand or cand.startswith(".") else cand
-                if shutil.which(base):
-                    resolved = base
-                    break
-                if shutil.which(cand):
-                    resolved = cand
+                if resolve_executable(cand):
+                    resolved = resolve_executable_for_launch(cand)
                     break
             if resolved:
                 exe = resolved
@@ -1439,7 +1434,7 @@ def build_session_create_invocation(
 ) -> AdapterInvocation:
     name = adapter.strip().lower()
     meta = _BUILTIN.get(name, _BUILTIN["custom-cli"])
-    exe = executable or meta.executable_hint
+    exe = resolve_executable_for_launch(executable or meta.executable_hint)
     extras = tuple(extra_args)
     if name == "host-native":
         raise ValidationIssue(
@@ -1597,7 +1592,7 @@ def build_session_resume_invocation(
     sid = assert_exact_session_id(session_id, adapter=adapter)
     name = adapter.strip().lower()
     meta = _BUILTIN.get(name, _BUILTIN["custom-cli"])
-    exe = executable or meta.executable_hint
+    exe = resolve_executable_for_launch(executable or meta.executable_hint)
     extras = tuple(extra_args)
     if name == "host-native":
         raise ValidationIssue(

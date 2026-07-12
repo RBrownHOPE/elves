@@ -170,6 +170,11 @@ Same pattern with `codex-fugu-planning` / `codex-fugu-labor`.
 | `opencode-cli` | `opencode` | OpenCode TUI/agent (Claude Code–like); plan/review via `run --agent plan`; OpenRouter etc. |
 | `opencode-labor` | `opencode` | OpenCode **implement** labor (`run --auto`); pin `provider/model`; exact `--session` preferred |
 
+Official installers commonly place `agy` in `~/.local/bin` and OpenCode in
+`~/.opencode/bin`. Elves checks those installer directories as well as inherited `PATH`, so an
+already-running Codex or Claude Code host can probe and launch a newly installed CLI without a
+restart. A new ordinary terminal still needs its shell profile reloaded.
+
 ### Session continuity (plan → review)
 
 **Preferred (most robust):** exact session/conversation id so the same chat that planned can review

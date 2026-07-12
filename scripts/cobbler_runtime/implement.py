@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .executables import resolve_executable_for_launch
 from .schema import ValidationIssue
 
 DEFAULT_MODEL = "grok-4.5"
@@ -437,7 +438,8 @@ def build_launch_argv(
 
     if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
         # Attach packet via --file to avoid ARG_MAX (do not stuff full packet into argv).
-        exe = (executable or "opencode").strip() or "opencode"
+        exe_hint = (executable or "opencode").strip() or "opencode"
+        exe = resolve_executable_for_launch(exe_hint) or exe_hint
         model_name, _, _ = resolve_implement_model(model, adapter=adapter_name)
         message = (
             "Implement the attached task packet. Follow host packet constraints; "
@@ -469,7 +471,8 @@ def build_launch_argv(
 
     # Default: Grok Build Lane A
     perm = _normalize_permission(permission_mode)
-    exe = (executable or DEFAULT_EXECUTABLE).strip() or DEFAULT_EXECUTABLE
+    exe_hint = (executable or DEFAULT_EXECUTABLE).strip() or DEFAULT_EXECUTABLE
+    exe = resolve_executable_for_launch(exe_hint) or exe_hint
     model_name, effort_name, _alias_notes = resolve_implement_model(
         model, effort=effort, adapter="grok-build"
     )
