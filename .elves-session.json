@@ -2,12 +2,12 @@
   "session_id": "elves-2026-07-12-cobbler-runtime-hardening-v1-20-1",
   "version": "1.20.1",
   "target_version": "1.20.1",
-  "status": "closing",
+  "status": "ready_to_land",
   "run_mode": "finite",
   "branch": "codex/cobbler-runtime-hardening-v1.20.1",
   "owned_worktree": ".",
   "owned_worktree_resolution": "Resolve relative to the repository root containing .elves-session.json and verify the branch with git before use",
-  "owned_tip_expected": "update-after-push",
+  "owned_tip_expected": "24659b6e42f220a6d6e531b320c44cbb75fbd3ad",
   "base_ref": "origin/main",
   "collision_tripwire": "fca15a9e6175c528079bc7ca87e0925f83b9f9b9",
   "plan_path": "docs/plans/v1.20.1-cobbler-runtime-hardening.md",
@@ -43,8 +43,7 @@
     "remaining_batches": 0,
     "stop_allowed": false,
     "checkpoint_is_stop": false,
-    "staging_boundary_active": false,
-    "next_required_action": "Final readiness review, undraft PR, merge-commit land, tag/release v1.20.1, sync installs"
+    "next_required_action": "Remove operational artifacts, push, undraft, merge-commit, tag/release, sync installs"
   },
   "test_baseline": {
     "passed": 317,
@@ -58,14 +57,14 @@
   "current_batch": {
     "id": 5,
     "name": "Live host parity, documentation, v1.20.1 release, and landing",
-    "status": "in_progress"
+    "status": "complete"
   },
   "batches": [
     {
       "id": 1,
       "name": "Effective configuration and truthful read-only dispatch",
       "status": "complete",
-      "commit": null,
+      "commit": "24659b6e42f220a6d6e531b320c44cbb75fbd3ad",
       "rollback_tag": "elves/v1.20.1-pre-batch-1",
       "started_at": "2026-07-12T17:00:12Z",
       "completed_at": "2026-07-12T18:42:32Z",
@@ -121,7 +120,7 @@
       "id": 2,
       "name": "Exact persistent sessions and subprocess lifecycle",
       "status": "complete",
-      "commit": null,
+      "commit": "24659b6e42f220a6d6e531b320c44cbb75fbd3ad",
       "rollback_tag": "elves/v1.20.1-pre-batch-2",
       "started_at": "2026-07-12T18:42:32Z",
       "completed_at": "2026-07-12T18:42:32Z",
@@ -162,7 +161,7 @@
       "id": 3,
       "name": "Transactional external writer boundary",
       "status": "complete",
-      "commit": null,
+      "commit": "24659b6e42f220a6d6e531b320c44cbb75fbd3ad",
       "rollback_tag": "elves/v1.20.1-pre-batch-3",
       "started_at": "2026-07-12T18:42:32Z",
       "completed_at": "2026-07-12T18:42:32Z",
@@ -208,7 +207,7 @@
       "id": 4,
       "name": "Inspect-first setup and natural Codex/Claude experience",
       "status": "complete",
-      "commit": null,
+      "commit": "24659b6e42f220a6d6e531b320c44cbb75fbd3ad",
       "rollback_tag": "elves/v1.20.1-pre-batch-4",
       "started_at": "2026-07-12T18:42:32Z",
       "completed_at": "2026-07-12T18:42:32Z",
@@ -249,10 +248,10 @@
       "id": 5,
       "name": "Live host parity, documentation, v1.20.1 release, and landing",
       "status": "complete",
-      "commit": null,
+      "commit": "24659b6e42f220a6d6e531b320c44cbb75fbd3ad",
       "rollback_tag": "elves/v1.20.1-pre-batch-5",
       "started_at": "2026-07-12T18:42:32Z",
-      "completed_at": "2026-07-12T18:42:32Z",
+      "completed_at": "2026-07-12T18:44:17Z",
       "acceptance": [
         {
           "criterion": "317 tests pass; consistency/compileall/diff-check/release checklist",
