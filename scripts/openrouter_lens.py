@@ -470,10 +470,23 @@ def main(argv: list[str] | None = None) -> int:
         temperature=float(args.temperature),
         timeout_s=float(args.timeout),
     )
-    # Never include secrets in output
+    # Never include secrets in output (check env values only — not the literal "sk-" discussion).
     text = json.dumps(result, indent=2, sort_keys=True)
-    if "OPENROUTER_API_KEY" in text or re.search(r"\bsk-[A-Za-z0-9]{10,}", text):
+    key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    if key and key in text:
         raise SystemExit("Refusing to print output that appears to contain secrets")
+    for env_name in (
+        "OPENROUTER_API_KEY",
+        "META_API_KEY",
+        "MODEL_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "XAI_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+    ):
+        val = (os.environ.get(env_name) or "").strip()
+        if val and len(val) >= 8 and val in text:
+            raise SystemExit("Refusing to print output that appears to contain secrets")
     sys.stdout.write(text + "\n")
     return 0
 

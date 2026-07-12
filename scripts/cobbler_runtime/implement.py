@@ -304,25 +304,27 @@ def build_launch_argv(
         )
 
     if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
+        # Attach packet via --file to avoid ARG_MAX (do not stuff full packet into argv).
         exe = (executable or "opencode").strip() or "opencode"
         model_name = (model or "").strip()
-        try:
-            prompt = packet_path.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise ValidationIssue(
-                "packet_read_error",
-                f"Unable to read packet {packet_path}: {exc}",
-            ) from exc
-        if len(prompt) > 200_000:
-            prompt = prompt[:200_000] + "\n\n…[packet truncated for argv]…\n"
-        argv: list[str] = [exe, "run", "--dir", str(cwd_path)]
+        argv: list[str] = [
+            exe,
+            "run",
+            "--dir",
+            str(cwd_path),
+            "--file",
+            str(packet_path),
+        ]
         if sid:
             argv.extend(["--session", sid])
         if model_name:
             argv.extend(["--model", model_name])
         if yolo:
             argv.append("--auto")
-        argv.append(prompt)
+        argv.append(
+            "Implement the attached task packet. Follow host packet constraints; "
+            "prefer exact session continuity; do not invent secrets."
+        )
         if "-c" in argv or "--continue" in argv:
             raise ValidationIssue(
                 "ambiguous_session_flag",
