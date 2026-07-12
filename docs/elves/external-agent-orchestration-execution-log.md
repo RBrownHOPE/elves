@@ -5,21 +5,31 @@ control in the Survival Guide; promote stable lessons to `docs/elves/learnings.m
 
 ## Run Digest
 
-- **Last updated:** 2026-07-12 10:55 EDT
-- **Current phase:** Batch 2 complete; Batch 3 next
-- **Active batch:** Batch 3: Exact persistent sessions, model discovery, and usage ledger
-- **Last completed batch:** Batch 2
-- **Next exact batch:** Batch 3: Exact persistent sessions, model discovery, and usage ledger
+- **Last updated:** 2026-07-12 11:02 EDT
+- **Current phase:** Batch 3 complete; Batch 4 next
+- **Active batch:** Batch 4: Single external writer lease and Grok implementation adapter
+- **Last completed batch:** Batch 3
+- **Next exact batch:** Batch 4: Single external writer lease and Grok implementation adapter
 - **Active PR:** draft PR #59, `https://github.com/aigorahub/elves/pull/59`
 - **Docs promoted this run:** qualification lessons added to `docs/elves/learnings.md`
 - **Latest Elves Report:** not generated
+
+## Batch 3 Close: 2026-07-12 ~11:02 EDT
+
+**Batch:** 3 Exact persistent sessions, discovery, usage
+**Tests:** 245/245 OK
+**Note:** Grok successor exited mid-turn twice; host sealed product commits from audited worker tree and fixed README H1 pin break. Documented under Decisions.
+**Review:** host PASS + fresh non-implementer Grok PASS (quorum 2). Fable/Codex still rate-limited earlier.
+**Next:** Batch 4 writer lease.
+
+---
 
 ## Batch 3 Contract: 2026-07-12 ~10:56 EDT
 
 **Contract:** Exact sessions, digests/rehydration, Grok lineage honesty, usage with unknown quota,
 doctor discovery. No writer leases.
 
-**Lease:** lease-batch-3-20260712-A base 
+**Lease:** lease-batch-3-20260712-A base
 
 **Rollback:** elves/pre-batch-3
 

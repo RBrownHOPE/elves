@@ -3,7 +3,7 @@
   "session_id": "elves-external-agent-orchestration-20260712",
   "status": "in_progress",
   "created_at": "2026-07-12T12:39:00Z",
-  "updated_at": "2026-07-12T14:55:10Z",
+  "updated_at": "2026-07-12T15:02:36Z",
   "run_mode": "finite",
   "execution_budget_hours": 8,
   "checkpoint": {
@@ -93,20 +93,19 @@
     "mode": "strict",
     "branch": "codex/external-agent-orchestration",
     "start_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
-    "allowed_head_tip": "55fccae2afb834bcd5b5967edf5dff1f975f30c4",
+    "allowed_head_tip": "6ebbb9d98e8dd272e68487a89bf97dadeaf857f4",
     "remote_ref": "origin/codex/external-agent-orchestration",
-    "expected_remote_tip": "55fccae2afb834bcd5b5967edf5dff1f975f30c4",
-    "last_pushed_tip": "55fccae2afb834bcd5b5967edf5dff1f975f30c4",
+    "expected_remote_tip": "6ebbb9d98e8dd272e68487a89bf97dadeaf857f4",
+    "last_pushed_tip": "6ebbb9d98e8dd272e68487a89bf97dadeaf857f4",
     "external_writer_enforcement": "manual host audit until the mechanical lease guard ships in Batch 4"
   },
   "test_baseline": {
     "command": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
-    "total": 227,
-    "passed": 227,
+    "total": 245,
+    "passed": 245,
     "failed": 0,
     "skipped": 0,
-    "captured_at": "2026-07-12T14:54:47Z",
-    "prior_baseline": 199
+    "captured_at": "2026-07-12T15:02:36Z"
   },
   "qualification": {
     "status": "pass",
@@ -319,7 +318,7 @@
         "remediation",
         "detached_commit_handoff"
       ],
-      "status": "leased_active",
+      "status": "qualified_idle",
       "remaining_quota": "unknown"
     },
     "sakana_fugu_ultra": {
@@ -429,30 +428,14 @@
     }
   ],
   "external_writer": {
-    "status": "active",
-    "active_lease": {
-      "id": "lease-batch-3-20260712-A",
-      "batch": 3,
-      "base_head": "1526c7c499d76b525d19f0a49346c0d055324b28",
-      "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
-      "started_at": "2026-07-12T14:55:10Z"
-    },
-    "maximum_concurrent_leases": 1,
+    "status": "qualified_idle",
+    "active_lease": null,
+    "next_action": "Issue Batch 4 lease",
     "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
     "sandbox_profile": "devbox",
-    "delegation_unit": "one substantial complete batch per turn",
     "worker_may_commit_detached": true,
-    "target_detached_commits_per_batch": [
-      2,
-      5
-    ],
     "worker_may_create_or_move_refs": false,
-    "worker_may_push": false,
-    "worker_may_edit_run_memory": false,
-    "worker_may_join_independent_review": false,
-    "integration_owner": "host-coordinator",
-    "integration_method": "audit per-commit binary patches; no bare cherry-pick; host creates sanitized branch commits recording worker SHAs",
-    "next_action": "Issue Batch 3 lease after Close push and worker align"
+    "worker_may_push": false
   },
   "staging_preflight": {
     "status": "pass",
@@ -602,12 +585,43 @@
     {
       "id": 3,
       "name": "Exact persistent sessions, model discovery, and usage ledger",
-      "status": "in_progress",
-      "commit": null,
+      "status": "complete",
+      "commit": "6ebbb9d98e8dd272e68487a89bf97dadeaf857f4",
       "rollback_tag": "elves/pre-batch-3",
       "started_at": "2026-07-12T14:55:10Z",
-      "completed_at": null,
-      "acceptance": []
+      "completed_at": "2026-07-12T15:02:36Z",
+      "acceptance": [
+        {
+          "criterion": "Fake lifecycle exact resume/rehydration/drift/closed",
+          "met": true,
+          "evidence": "tests/test_cobbler_agents_sessions.py; 245 tests OK"
+        },
+        {
+          "criterion": "No ambiguous session-selection flags in generated commands",
+          "met": true,
+          "evidence": "adapter builders + forbidden-flag tests"
+        },
+        {
+          "criterion": "Grok lineage fixture + headless worktree-resume fail-closed",
+          "met": true,
+          "evidence": "sessions assert_grok_worktree_isolation; tests"
+        },
+        {
+          "criterion": "Usage remaining_quota unknown not zero",
+          "met": true,
+          "evidence": "UsageRecord defaults + parse_usage_payload"
+        },
+        {
+          "criterion": "doctor --json separate fields",
+          "met": true,
+          "evidence": "doctor inventory extensions"
+        },
+        {
+          "criterion": "Full suite not decreased",
+          "met": true,
+          "evidence": "245/245 (baseline 227)"
+        }
+      ]
     },
     {
       "id": 4,
@@ -707,15 +721,15 @@
   },
   "active_compute": [],
   "continuation_guard": {
-    "remaining_batches": 4,
+    "remaining_batches": 3,
     "stop_allowed": false,
     "staging_stop": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Start Batch 3: Exact persistent sessions, model discovery, usage ledger"
+    "next_required_action": "Start Batch 4 writer lease and Grok adapter"
   },
   "current_batch": {
-    "id": 3,
-    "name": "Exact persistent sessions, model discovery, and usage ledger",
-    "status": "in_progress"
+    "id": 4,
+    "name": "Single external writer lease and Grok implementation adapter",
+    "status": "pending"
   }
 }

@@ -84,16 +84,16 @@ acceptance, synthesis, and final integration.
 - **Time budget:** approximately 8 hours from launch, with judgment to complete a near-finished finite
   batch or stop cleanly at a genuine hard boundary
 - **Average batch time so far:** N/A; execution not launched
-- **Batches remaining:** 4 of 6
+- **Batches remaining:** 3 of 6
 
 ## Stop Gate
 
-- **Planned batches remaining:** 4
+- **Planned batches remaining:** 3
 - **Stop allowed right now:** no
-- **Why:** finite run in progress; Batches 1–2 complete with acceptance evidence; Batches 3–6 remain;
+- **Why:** finite run in progress; Batches 1–3 complete with acceptance evidence; Batches 4–6 remain;
   no user stop and no true blocker
-- **Next required action:** issue Batch 3 lease to exact Grok successor after host Close push and
-  clean worker alignment; continue through Batches 3–6 with review quorum 2
+- **Next required action:** issue Batch 4 lease to exact Grok successor after host Close push and
+  clean worker alignment; continue through Batches 4–6 with review quorum 2
 
 ## Effort Standard
 
@@ -207,15 +207,13 @@ Promotion flow: execution log -> learnings -> `.ai-docs/*`.
 
 ## Current Phase
 
-**Status:** Batch 2 accepted; preparing Batch 3
+**Status:** Batch 3 accepted; preparing Batch 4
 
-**Active batch:** Batch 3: Exact persistent sessions, model discovery, and usage ledger
+**Active batch:** Batch 4: Single external writer lease and Grok implementation adapter
 
-**What was just finished:** Batch 2 parallel read-only council dispatcher imported (4+2 commits),
-227 tests, Fable FAIL on permission-bypass remediated, re-review quorum via host + fresh non-implementer
-Grok (Fable/Codex rate-limited).
+**What was just finished:** Session registry, exact create/resume, digests, usage unknown-quota, doctor inventory; 245 tests; host+fresh Grok review PASS. Grok process-exit thrash host-sealed with documented handoff.
 
-**Single next action:** Close Batch 2 run-memory, align Grok successor, lease Batch 3 sessions/usage work.
+**Single next action:** Close Batch 3, align worker, lease Batch 4.
 
 
 ## Active Compute
@@ -233,16 +231,11 @@ resources only:
 
 ## Next Exact Batch
 
-**Batch:** 3: Exact persistent sessions, model discovery, and usage ledger
+**Batch:** 4: Single external writer lease and Grok implementation adapter
 
-**Scope:** session registry, exact create/resume, context digests, Grok lineage honesty, usage ledger
-with unknown quota, doctor discovery — via Grok successor lease (2–5 detached commits).
+**Scope:** one-writer lease, full pre/post audit, binary-patch import path, Grok write adapter fail-closed; mechanical enforcement of writer lease.
 
-**Acceptance criteria:** plan Batch 3 criteria with evidence rows.
-
-**Risk:** stale context outranking disk state; ambiguous session selection.
-
-**Rollback tag:** `elves/pre-batch-3`
+**Rollback tag:** `elves/pre-batch-4`
 
 
 ## Post-Checkpoint Control Loop
