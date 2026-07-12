@@ -19,10 +19,17 @@ runs the skill, owns the overnight loop, git/PR, gates, and run memory.
 Both supported hosts follow the same operator CLI (`plan` → `apply` → `show` → `probe`) and the
 same host-mediated protocol below. Do not invent different product rules per host.
 
-**Other tools are not main drivers.** Gemini CLI, Antigravity CLI, Muse, OpenRouter, Grok Build,
-AlphaEvolve, and similar routes may be **optional lenses or helpers** the host can call when
-installed. They may work; **that has not been our focus.** We do **not** claim Elves works as a
-full overnight system if Antigravity (or another non-Claude/non-Codex product) is the primary host.
+**Other tools are not Elves hosts.** Gemini CLI, Antigravity CLI, OpenCode, Muse, OpenRouter, Grok
+Build, AlphaEvolve, and similar may be **optional lenses or implement drivers** the host can call
+when installed. They may work; **that has not been our focus.** We do **not** claim Elves works as
+a full overnight system if OpenCode/Antigravity/etc. is the *skill host* (the process that owns
+the skill, PR, and loop).
+
+**Host vs implement driver:** Claude Code or Codex can **drive** an OpenCode (or Grok / Antigravity)
+session for the main coding block—prepare packet → launch headless agent → host validates/reviews.
+That *is* supported as an option. Running the Elves skill *inside* OpenCode as the overnight
+coordinator is not.
+
 Prefer Claude Code or Codex as `host-native` for validate, synthesize, git/PR, and the unattended
 loop.
 

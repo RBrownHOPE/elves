@@ -85,6 +85,7 @@ All notable changes to the Elves skill are documented here.
 - **OpenCode implement/plan adapter:** `opencode-cli` / `opencode-labor` for the OpenCode terminal
   agent (Claude Code–like; OpenRouter + 75+ providers). Headless `opencode run` with exact
   `--session`; labor uses `--auto`. `implement prepare --adapter opencode-cli` alongside Grok.
+  Framed as **implement driver under Claude Code/Codex host** (not Elves skill host).
 
 ## [1.20.2] - 2026-07-12
 

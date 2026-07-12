@@ -184,12 +184,28 @@ executable = "gemini"
 # requested_model = "gemini-2.5-pro"          # or current Gemini CLI model id
 ```
 
-## Recipe: OpenCode (Claude Code–like agent + OpenRouter models)
+## Recipe: OpenCode as implement driver (orchestrated by Claude Code / Codex)
 
 [OpenCode](https://opencode.ai) is an open-source terminal coding agent (TUI + `opencode run`
-headless). It is **not** an Elves main host (Claude Code / Codex still own the overnight loop), but
-it is a strong optional **implement labor** and plan/review path—especially with **OpenRouter**
-models (Qwen, GLM, etc.).
+headless)—Claude Code–like, with **OpenRouter** and 75+ providers (Qwen, GLM, etc.).
+
+### Two different “drivers”
+
+| Role | Who | OpenCode? |
+| --- | --- | --- |
+| **Elves host / orchestrator** | Runs the skill, Ralph loop, git/PR, gates, survival guide, Cobbler | **No** — still **Claude Code or Codex** only |
+| **Implement driver** | Does the main batch coding work under host control | **Yes** — `opencode-labor` / `implement prepare --adapter opencode-cli` |
+
+So: you **can** make OpenCode do the bulk of the coding **if** Claude Code or Codex is still the
+session that stages, launches packets, validates, reviews, and lands the PR. That is the supported
+shape—host-driven OpenCode sessions—not “run Elves *inside* OpenCode as the skill host.”
+
+```text
+Claude Code or Codex (Elves host)
+  → Cobbler / implement prepare|launch
+  → OpenCode run --auto  (main implement block, OpenRouter models)
+  → host gates, review, push, PR
+```
 
 ### Install / auth
 
@@ -206,18 +222,22 @@ opencode   # then /connect → OpenRouter → paste OPENROUTER key
 | Profile | Use |
 | --- | --- |
 | `opencode-cli` | Plan/review (headless `opencode run --agent plan`) |
-| `opencode-labor` | **Main batch implement** (`opencode run --auto` + tools) |
+| `opencode-labor` | **Main implement driver** (`opencode run --auto` + tools) |
 
 ```bash
+# Host is still Claude Code or Codex; OpenCode does implement labor
 python3 scripts/cobbler_agents.py onboard apply --json \
-  --planning opencode-cli \
+  --validate host-native \
+  --synthesize host-native \
+  --planning host-native \
   --implement opencode-labor \
+  --review host-native \
   --force
 # Pin in .elves/models.toml:
 #   requested_model = "openrouter/qwen/qwen3-max"  # re-check OpenRouter catalog
 ```
 
-### Implement lifecycle (parallel to Grok Lane A)
+### Implement lifecycle (host-driven; parallel to Grok)
 
 ```bash
 python3 scripts/cobbler_agents.py implement prepare --json \
@@ -225,7 +245,7 @@ python3 scripts/cobbler_agents.py implement prepare --json \
   --model openrouter/qwen/qwen3-max \
   --executable opencode
 
-# Print argv (add --exec to spawn):
+# Host prints argv (add --exec to spawn from Claude Code / Codex):
 python3 scripts/cobbler_agents.py implement launch --json \
   --packet .elves/runtime/packets/batch-N.md \
   --session-id <exact-id-if-known>
@@ -235,7 +255,7 @@ python3 scripts/cobbler_agents.py implement launch --json \
 `opencode session list` after the first turn. If no id, attach plan/docs in the packet.
 
 **Honesty:** lightly tested vs Claude Code/Codex hosts; prefer PRs when flags drift. Not
-host-import write-lease qualified.
+host-import write-lease qualified. Do not treat OpenCode as a drop-in Elves skill host.
 
 ## Recipe: all three subscription CLIs (experimental mix)
 
