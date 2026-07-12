@@ -133,6 +133,8 @@
       "required_env": [],
       "optional_env": [
         "OPENROUTER_API_KEY",
+        "META_API_KEY",
+        "MODEL_API_KEY",
         "GEMINI_API_KEY",
         "ANTHROPIC_API_KEY",
         "XAI_API_KEY",
@@ -146,7 +148,12 @@
         "tester": "native-subagent",
         "synthesis": "native-coordinator"
       },
-      "external_route_example": "openrouter:<model-id>",
+      "external_route_examples": [
+        "openrouter:<provider/model-id>",
+        "meta:muse-spark-1.1"
+      ],
+      "external_route_example": "openrouter:<provider/model-id>",
+      "meta_muse_notes": "Pin muse-spark-1.1 from Meta /v1/models; accept META_API_KEY or MODEL_API_KEY; independent review lane only",
       "role_effort": {
         "architect": "high",
         "skeptic": "high",

@@ -79,18 +79,107 @@ public defaults.
 - Qualify session/write capabilities before using implement
 - Keep `host-native` fallback
 
-## Recipe: OpenRouter breadth (custom / experimental)
+## Recipe: OpenRouter models as planner / reviewer (experimental)
 
-- Optional env var **name**: `OPENROUTER_API_KEY` (value stays in the environment)
-- Suitable for **read-only** scout/review/synthesis breadth when a wrapper qualifies
-- **Not** a default; missing key falls back to native
-- Do **not** claim OpenRouter can edit or persist a coding worktree without a qualified wrapper
+**Reference pattern:** production math runs (e.g. Aigora geometry-exploration) use a thin CLI
+wrapper plus named **presets**, not a hardcoded “best model” table in Elves core.
 
-## Recipe: API-only models such as Muse (custom)
+When the user has `OPENROUTER_API_KEY` (env or ignored `.env.local`):
 
-- Map as `custom-cli` or API wrapper route for read-only analysis
-- Cannot edit worktrees or hold exact coding sessions unless the wrapper proves those capabilities
-- Always document native fallback
+1. Call OpenRouter through a project wrapper (geometry shape:
+   `node tools/openrouter_tools.mjs --model <openrouter-model-id> --prompt-file …`).
+2. Register **named presets** for the models they care about (`or-gpt55`, `or-deepseek-v4-pro`,
+   …) that map to that wrapper + argv.
+3. Run them as **read-only** independent plan/review/scout lanes via a panel command
+   (`review_panel` / research panel) or Cobbler role routes — never as mathematical or merge
+   authority.
+4. Missing key → skip those presets; host-native continues.
+
+Optional Cobbler / Survival Guide wiring (still native-first):
+
+```yaml
+cobbler-provider-backed-enabled: true
+cobbler-provider-backed-optional-env:
+  - OPENROUTER_API_KEY
+# Role hints only — actual launch is the project wrapper + preset:
+# openrouter:<provider/model-id>  e.g. openrouter:deepseek/deepseek-v4-pro
+```
+
+Rules:
+
+- Env var **name** only in docs/config: `OPENROUTER_API_KEY`
+- Do **not** stage keys; do not print them
+- OpenRouter is for **breadth** (many models, one key), not the default overnight implementer
+- Do not claim OpenRouter can edit a coding worktree without a separate qualified write path
+
+## Recipe: Meta Muse Spark 1.1 as planner / reviewer (experimental)
+
+**Reference pattern:** geometry-exploration `tools/meta_tools.mjs` + preset `meta-muse-spark11`
+(+ research lane `meta-muse-spark11-research`), orchestrated through the same multi-model review
+panel as Gemini/Grok/OpenRouter lanes.
+
+When the user has a Meta Model API key:
+
+| Item | Value used in the reference project |
+| --- | --- |
+| Env | `META_API_KEY` (fallback name accepted: `MODEL_API_KEY`) |
+| Base URL | `https://api.meta.ai` (override: `META_API_BASE_URL`) |
+| Model id | **`muse-spark-1.1`** (pin the catalog id; do not assume `muse-spark-latest`) |
+| Endpoint | Responses API (`/v1/responses`) with structured `input_text` |
+| Typical preset | high/xhigh reasoning, large max output tokens, long timeout for hard prompts |
+| Role | independent brainstorm / plan critique / review lane — **not** sole authority |
+
+Operator shape:
+
+```bash
+# Direct (after project provides a meta_tools-style wrapper)
+node tools/meta_tools.mjs \
+  --model muse-spark-1.1 \
+  --reasoning-effort xhigh \
+  --prompt-file path/to/packet.md \
+  --max-output-tokens 32768 \
+  --timeout-ms 1200000
+
+# Via named preset on a multi-model panel
+node tools/review_panel.mjs \
+  --prompt-file path/to/review.md \
+  --models meta-muse-spark11 \
+  --min-success 1
+```
+
+Cobbler integration:
+
+- Capability scan: if `META_API_KEY` (or `MODEL_API_KEY`) is present **and** a Meta wrapper exists,
+  offer Muse as an optional planning/review lens.
+- Config route hint: `meta:muse-spark-1.1` or a `custom-cli` profile whose executable is the Meta
+  wrapper.
+- Missing key / empty key / wrapper missing → native fallback; never block ordinary Elves.
+- In mixed panels, one provider’s failure must not decide the whole run (use `min-success` /
+  quorum, same idea as geometry’s proof swarm).
+
+Local `.elves/models.toml` sketch (ignored; never stage):
+
+```toml
+[profiles.muse_spark]
+adapter = "custom-cli"
+executable = "node"   # or a shell wrapper around tools/meta_tools.mjs
+# extra_args would point at tools/meta_tools.mjs + --model muse-spark-1.1 …
+notes = "META_API_KEY; muse-spark-1.1; read-only plan/review; native fallback"
+
+[roles.planning]
+profile = "muse_spark"
+required = false
+fallback_chain = [
+  { profile = "host-native", reason = "no META_API_KEY or Meta wrapper" },
+]
+
+[roles.review]
+profile = "muse_spark"
+required = false
+fallback_chain = [
+  { profile = "host-native", reason = "keep review available without Meta" },
+]
+```
 
 ## Recipe: future Google / Antigravity tools (custom)
 

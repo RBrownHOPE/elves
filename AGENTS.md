@@ -167,11 +167,13 @@ reports plus synthesis; it does not copy vendor identity, policy, persona, or sa
 
 Optional model routing is role-scoped, not a new user mode. The default route is always the host's
 native subagent, worker agent, or direct analysis according to the task. If a survival guide or
-config maps a Cobbler role to a provider model such as `openrouter:<model-id>`, use it only when
-provider-backed council is enabled and the named environment variable is present; otherwise fall
-back to native and note the fallback in the answer. Treat model diversity as another source of
-evidence, not authority: resolve dissent by repo facts, tests, sources, and user constraints
-rather than by model prestige.
+config maps a Cobbler role to a provider model such as `openrouter:<model-id>` or
+`meta:muse-spark-1.1` (Meta catalog id `muse-spark-1.1`), use it only when provider-backed routes
+are enabled **and** the named environment variable is present (`OPENROUTER_API_KEY`,
+`META_API_KEY` / `MODEL_API_KEY`, etc.) **and** a project wrapper can actually call the API;
+otherwise fall back to native and note the fallback. Prefer named presets + multi-lane panels over
+ad-hoc shell one-offs. Treat model diversity as evidence, not authority: resolve dissent by repo
+facts, tests, sources, and user constraints rather than by model prestige.
 
 Full-run model routing is a separate optional staging preference, not a Quick Cobbler mode. A plan
 or survival guide may record `model-routing` phase preferences for implementation, validation,
@@ -196,8 +198,12 @@ block an ordinary overnight run.
 or keys the user already has, Cobbler may use them for additional benefit. They are role routes and
 operator helpers, not a second product:
 
-- **Extra models for planning / review / council** — configured provider routes or other CLIs when
-  present; fall back to native and note the fallback.
+- **Extra models for planning / review / council** — when keys + project wrappers exist, same
+  pattern as production multi-model math runs: OpenRouter (`OPENROUTER_API_KEY` + named `or-…`
+  presets / `openrouter:<model-id>`) and Meta Muse Spark 1.1 (`META_API_KEY` or `MODEL_API_KEY`,
+  model id `muse-spark-1.1`, preset e.g. `meta-muse-spark11`) as **independent read-only**
+  planner/reviewer lanes. Fall back to native if missing. Never treat them as sole authority.
+  See `references/council-provider-config.md` and `references/cobbler-setup-recipes.md`.
 - **External batch implementer (e.g. Grok Build)** — only when the user has that CLI and wants it.
   Record `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
   `.elves-session.json`). Operator CLI:

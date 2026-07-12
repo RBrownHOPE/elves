@@ -66,5 +66,32 @@ required = true
 profile = "host-native"
 required = false
 
-# Optional provider breadth (read-only recipes in later batches) may name env vars:
-# optional_env = ["OPENROUTER_API_KEY", "GEMINI_API_KEY"]
+# Optional provider breadth (read-only plan/review/scout) — env var NAMES only:
+# optional_env = ["OPENROUTER_API_KEY", "META_API_KEY", "MODEL_API_KEY", "GEMINI_API_KEY"]
+#
+# Geometry-exploration style: thin CLI wrappers + named presets, not prestige IDs in Elves core.
+# Keys live in ignored .env.local. Missing key → host-native fallback.
+#
+# [profiles.openrouter_lens]
+# adapter = "custom-cli"
+# executable = "node"
+# notes = "tools/openrouter_tools.mjs --model <provider/model-id>; env OPENROUTER_API_KEY"
+#
+# [profiles.muse_spark]
+# adapter = "custom-cli"
+# executable = "node"
+# notes = "tools/meta_tools.mjs --model muse-spark-1.1; env META_API_KEY|MODEL_API_KEY; base api.meta.ai"
+#
+# [roles.planning]
+# profile = "muse_spark"
+# required = false
+# fallback_chain = [
+#   { profile = "host-native", reason = "META_API_KEY missing or Meta wrapper unavailable" },
+# ]
+#
+# [roles.review]
+# profile = "openrouter_lens"
+# required = false
+# fallback_chain = [
+#   { profile = "host-native", reason = "OPENROUTER_API_KEY missing; keep review available" },
+# ]

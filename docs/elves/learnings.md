@@ -100,6 +100,12 @@ silently deleting it.
 - [2026-07-12] **Default implementer is the host** (Claude Code or Codex). Grok Build, multi-provider
   plan/review, and the host-import writer lease are optional upgrades when those tools exist — same
   pattern as the math module. Do not imply overnight Elves requires Grok or “Lane A.”
+- [2026-07-12] Optional plan/review routes follow the geometry-exploration multi-model panel
+  pattern: OpenRouter via `OPENROUTER_API_KEY` + wrapper + named `or-…` presets (any
+  `provider/model-id`); Meta Muse Spark 1.1 via `META_API_KEY`/`MODEL_API_KEY` + wrapper, model id
+  **`muse-spark-1.1`**, preset e.g. `meta-muse-spark11`. Independent read-only lanes only; pin the
+  Meta catalog id (not assumed aliases); native fallback when key/wrapper missing; never sole
+  authority. Recipes: `references/cobbler-setup-recipes.md`, `references/council-provider-config.md`.
 - [2026-07-12] When the user *does* have Grok Build and wants it, prefer
   `implementation_lane: fast` with one whole-batch launch
   (`--prompt-file <packet> --yolo --effort medium`, session create/resume, sensible `--max-turns`)

@@ -12,6 +12,17 @@ All notable changes to the Elves skill are documented here.
 - Kept operator CLIs (`implement …`, `worker …`) and `implementation_lane: fast | untrusted` as
   opt-in surfaces; they are not the default overnight path.
 
+### Docs: Muse Spark and OpenRouter as optional planner/reviewer routes
+
+- Documented optional multi-model **plan/review** lanes after the production math-run pattern
+  (thin CLI wrappers, named presets, panel orchestration):
+  - **OpenRouter:** `OPENROUTER_API_KEY` + any `provider/model-id` via named `or-…` presets
+  - **Meta Muse Spark 1.1:** `META_API_KEY` / `MODEL_API_KEY`, catalog id **`muse-spark-1.1`**,
+    preset e.g. `meta-muse-spark11`, Responses API at `api.meta.ai`
+- Independent read-only evidence only; native fallback if key/wrapper missing; never sole
+  authority. Recipes in `references/cobbler-setup-recipes.md` and
+  `references/council-provider-config.md`.
+
 ## [1.20.2] - 2026-07-12
 
 ### Optional external batch implementer
