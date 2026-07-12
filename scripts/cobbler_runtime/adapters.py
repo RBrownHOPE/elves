@@ -48,7 +48,13 @@ class StubAdapter:
 
 @dataclass(frozen=True)
 class AdapterInvocation:
-    """Argv-safe read-only invocation (never a shell string)."""
+    """Argv-safe read-only invocation (never a shell string).
+
+    Task/packet text travels via ``stdin_text`` or an explicitly supported
+    prompt-file path in argv — never shell interpolation and never invented
+    flags. ``unavailable`` marks host-native / unusable contracts without a
+    subprocess.
+    """
 
     adapter: str
     executable: str
@@ -57,6 +63,11 @@ class AdapterInvocation:
     tool_scope: str = "read-only"
     sandbox_scope: str = "ephemeral"
     notes: str = ""
+    stdin_text: str | None = None
+    input_mode: str = "none"  # none | stdin | prompt-file
+    decoder: str = "json-role-report"
+    unavailable: bool = False
+    unavailable_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -67,6 +78,12 @@ class AdapterInvocation:
             "tool_scope": self.tool_scope,
             "sandbox_scope": self.sandbox_scope,
             "notes": self.notes,
+            "input_mode": self.input_mode,
+            "decoder": self.decoder,
+            "unavailable": self.unavailable,
+            "unavailable_reason": self.unavailable_reason,
+            # Never include stdin payload (may contain task text) in logs by default.
+            "has_stdin": bool(self.stdin_text),
         }
 
 
@@ -103,26 +120,55 @@ _BUILTIN: dict[str, StubAdapter] = {
     ),
 }
 
-# Host-native read-only lane emits a structured report from the packet without
-# external provider CLIs. Implemented as `python3 -c <script>` with argv only.
-_HOST_NATIVE_READONLY_SCRIPT = r"""
-import json, pathlib, sys
-packet_path = pathlib.Path(sys.argv[1])
-packet = json.loads(packet_path.read_text(encoding="utf-8"))
-report = {
-    "role": packet.get("role") or "host-native",
-    "verdict": "pass",
-    "confidence": "medium",
-    "key_findings": ["host-native read-only analysis"],
-    "evidence": [f"packet={packet_path.name}", f"head={packet.get('head_sha')}"],
-    "risks": [],
-    "recommended_actions": ["host synthesis"],
-    "open_questions": [],
-    "actual_model": "host-native",
-    "requested_model": packet.get("requested_model"),
+# Invented v1.20.0 flags that must never appear in generated argv.
+FORBIDDEN_INVENTED_FLAGS: frozenset[str] = frozenset(
+    {
+        "--packet",
+        "--readonly",
+        "--session-create",  # reserved; session builders are versioned separately
+    }
+)
+
+# Supported help families used by contract tests (probed, not inferred).
+SUPPORTED_HELP_FAMILIES: dict[str, frozenset[str]] = {
+    "claude-code": frozenset(
+        {
+            "--print",
+            "-p",
+            "--output-format",
+            "--permission-mode",
+            "--model",
+            "--json-schema",
+            "--no-session-persistence",
+        }
+    ),
+    "grok-build": frozenset(
+        {
+            "--prompt-file",
+            "--output-format",
+            "--json-schema",
+            "--model",
+            "--reasoning-effort",
+            "--permission-mode",
+            "--sandbox",
+            "--no-subagents",
+            "--no-memory",
+            "--disable-web-search",
+        }
+    ),
+    "codex-fugu": frozenset(
+        {
+            "exec",
+            "--json",
+            "--sandbox",
+            "--model",
+            "-m",
+            "--cd",
+            "-C",
+            "-",
+        }
+    ),
 }
-print(json.dumps(report))
-"""
 
 
 def builtin_adapter_names() -> tuple[str, ...]:
@@ -158,6 +204,37 @@ def registry_snapshot() -> dict[str, dict[str, object]]:
     return {name: adapter.describe() for name, adapter in sorted(_BUILTIN.items())}
 
 
+def _read_prompt_body(prompt_path: Path, packet_path: Path) -> str:
+    """Compose stdin/prompt body from prompt + packet paths without shell interpolation."""
+    prompt_text = ""
+    packet_text = ""
+    try:
+        if prompt_path.is_file():
+            prompt_text = prompt_path.read_text(encoding="utf-8")
+    except OSError:
+        prompt_text = f"(prompt path: {prompt_path})"
+    try:
+        if packet_path.is_file():
+            packet_text = packet_path.read_text(encoding="utf-8")
+    except OSError:
+        packet_text = f"(packet path: {packet_path})"
+    return (
+        f"{prompt_text.rstrip()}\n\n"
+        f"--- context packet ({packet_path.name}) ---\n"
+        f"{packet_text}\n"
+    )
+
+
+def _assert_no_invented_flags(argv: tuple[str, ...] | list[str]) -> None:
+    for token in argv:
+        if token in FORBIDDEN_INVENTED_FLAGS:
+            raise ValidationIssue(
+                "invented_adapter_flag",
+                f"Generated argv contains forbidden invented flag `{token}`",
+                hint="Use version-aware supported CLI flags only",
+            )
+
+
 def build_readonly_invocation(
     *,
     adapter: str,
@@ -167,11 +244,13 @@ def build_readonly_invocation(
     executable: str | None = None,
     requested_model: str | None = None,
     extra_args: tuple[str, ...] | list[str] = (),
+    cwd: str | None = None,
 ) -> AdapterInvocation:
     """Build an argv-safe read-only command for a known adapter.
 
-    Task text is never interpolated into a shell string. Prompt and packet are
-    delivered as file paths.
+    Task text is never interpolated into a shell string. Prompt content is
+    delivered via ``--prompt-file`` or stdin (``-``), never via invented
+    ``--packet`` / ``--readonly`` flags.
     """
     name = adapter.strip().lower()
     if name not in _BUILTIN and name != "custom-cli":
@@ -186,118 +265,151 @@ def build_readonly_invocation(
 
     meta = _BUILTIN.get(name, _BUILTIN["custom-cli"])
     exe = executable or meta.executable_hint
-    packet_s = str(packet_path)
     prompt_s = str(prompt_path)
     extras = tuple(extra_args)
+    prompt_body = _read_prompt_body(prompt_path, packet_path)
 
     if name == "host-native":
-        py = executable or "python3"
-        argv = (py, "-c", _HOST_NATIVE_READONLY_SCRIPT.strip(), packet_s)
+        # No canned PASS subprocess. Host must inject a real report for a vote.
         return AdapterInvocation(
             adapter="host-native",
-            executable=py,
-            argv=argv,
+            executable="",
+            argv=(),
             read_only=True,
             tool_scope="read-only",
             sandbox_scope="host",
-            notes="stdlib host-native structured report from packet",
+            notes="host-native has no subprocess; requires injected host report",
+            input_mode="none",
+            decoder="json-role-report",
+            unavailable=True,
+            unavailable_reason=(
+                "host_native_requires_injected_report: standalone council cannot "
+                "fabricate a host vote or count host-native toward quorum"
+            ),
         )
 
     if name == "claude-code":
-        # Explicit structural read-only / plan-scoped invocation. Never use permission
-        # bypass flags. Exact CLI flags may vary by version; callers may override via
-        # extra_args or command_override in tests.
-        argv = [
+        # Claude Code 2.1.207: --print, --output-format json, --permission-mode plan.
+        # Prompt via stdin; no --packet invention.
+        argv_list = [
             exe,
-            "-p",
+            "--print",
             "--output-format",
             "json",
             "--permission-mode",
             "plan",
+            "--no-session-persistence",
         ]
         if requested_model:
-            argv.extend(["--model", requested_model])
-        argv.extend(["--packet", packet_s, "--prompt-file", prompt_s])
-        argv.extend(extras)
+            argv_list.extend(["--model", requested_model])
+        argv_list.extend(extras)
+        argv = tuple(argv_list)
+        _assert_no_invented_flags(argv)
         return AdapterInvocation(
             adapter="claude-code",
             executable=exe,
-            argv=tuple(argv),
+            argv=argv,
             read_only=True,
             tool_scope="read-only",
             sandbox_scope="ephemeral",
             notes=(
                 "structural read-only scope via --permission-mode plan; "
-                "no permission-bypass flags"
+                "no permission-bypass flags; prompt on stdin"
             ),
+            stdin_text=prompt_body,
+            input_mode="stdin",
+            decoder="json-role-report",
         )
 
     if name == "grok-build":
-        argv = [
+        # Grok Build 0.2.93: --prompt-file, --output-format json, --permission-mode plan.
+        # No --packet / --readonly inventions.
+        argv_list = [
             exe,
             "--prompt-file",
             prompt_s,
-            "--packet",
-            packet_s,
-            "--readonly",
+            "--output-format",
+            "json",
+            "--permission-mode",
+            "plan",
+            "--no-subagents",
+            "--no-memory",
+            "--disable-web-search",
         ]
         if requested_model:
-            argv.extend(["--model", requested_model])
-        argv.extend(extras)
+            argv_list.extend(["--model", requested_model])
+        argv_list.extend(extras)
+        argv = tuple(argv_list)
+        _assert_no_invented_flags(argv)
         return AdapterInvocation(
             adapter="grok-build",
             executable=exe,
-            argv=tuple(argv),
+            argv=argv,
             read_only=True,
             tool_scope="read-only",
             sandbox_scope="ephemeral",
-            notes="read-only; never use headless worktree-resume as isolation here",
+            notes=(
+                "read-only permission-mode plan; never use headless worktree-resume "
+                "as isolation here"
+            ),
+            input_mode="prompt-file",
+            decoder="json-role-report",
         )
 
     if name == "codex-fugu":
-        argv = [
+        # Codex 0.144.1: codex exec --json --sandbox read-only [-m model] [-C dir] -
+        work_cd = cwd or str(packet_path.parent)
+        argv_list = [
             exe,
             "exec",
             "--json",
             "--sandbox",
             "read-only",
-            "--packet",
-            packet_s,
-            "--prompt-file",
-            prompt_s,
+            "--cd",
+            work_cd,
         ]
         if requested_model:
-            argv.extend(["--model", requested_model])
-        argv.extend(extras)
+            argv_list.extend(["--model", requested_model])
+        argv_list.append("-")  # prompt on stdin
+        argv_list.extend(extras)
+        argv = tuple(argv_list)
+        _assert_no_invented_flags(argv)
         return AdapterInvocation(
             adapter="codex-fugu",
             executable=exe,
-            argv=tuple(argv),
+            argv=argv,
             read_only=True,
             tool_scope="read-only",
             sandbox_scope="read-only",
-            notes="read-only sandbox scope; MCP warnings are not inference failure",
+            notes="read-only sandbox; prompt on stdin via '-'; MCP warnings are not inference failure",
+            stdin_text=prompt_body,
+            input_mode="stdin",
+            decoder="json-role-report",
         )
 
-    # custom-cli
+    # custom-cli — provider-neutral wrapper; prompt-file + optional model.
     if not exe or exe == "(user-defined)":
         raise ValidationIssue(
             "missing_executable",
             f"custom-cli profile `{profile}` requires an executable",
             path=f"profiles.{profile}.executable",
         )
-    argv = [exe, "--packet", packet_s, "--prompt-file", prompt_s, "--readonly"]
+    argv_list = [exe, "--prompt-file", prompt_s]
     if requested_model:
-        argv.extend(["--model", requested_model])
-    argv.extend(extras)
+        argv_list.extend(["--model", requested_model])
+    argv_list.extend(extras)
+    argv = tuple(argv_list)
+    _assert_no_invented_flags(argv)
     return AdapterInvocation(
         adapter="custom-cli",
         executable=exe,
-        argv=tuple(argv),
+        argv=argv,
         read_only=True,
         tool_scope="read-only",
         sandbox_scope="ephemeral",
-        notes="user-defined wrapper; argv only, shell=False",
+        notes="user-defined wrapper; argv only, shell=False; transport envelope expected",
+        input_mode="prompt-file",
+        decoder="json-transport-envelope",
     )
 
 
@@ -335,14 +447,65 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return data
 
 
+def parse_transport_output(stdout: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split adapter transport metadata from model-authored role report body.
+
+    Preferred envelope::
+
+        {
+          "adapter_metadata": {"actual_model": "...", "source": "..."},
+          "role_report": { ... schema fields ... }
+        }
+
+    Flat role-report JSON is accepted for transport parsing but yields empty
+    metadata — model-authored ``actual_model`` is never treated as proof.
+    """
+    data = _extract_json_object(stdout)
+    if isinstance(data.get("role_report"), dict):
+        metadata = data.get("adapter_metadata") or data.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        return dict(metadata), dict(data["role_report"])
+    # Flat report: no authoritative adapter metadata.
+    return {}, dict(data)
+
+
+def extract_authoritative_model(
+    metadata: Mapping[str, Any] | None,
+) -> tuple[str | None, str | None]:
+    """Return (actual_model, evidence_source) from adapter/CLI metadata only.
+
+    Never reads model-authored role-report fields.
+    """
+    if not metadata:
+        return None, None
+    model = metadata.get("actual_model")
+    if model is None:
+        model = metadata.get("model")
+    # Nested shapes used by some CLI JSON envelopes.
+    if model is None and isinstance(metadata.get("result"), dict):
+        nested = metadata["result"]
+        model = nested.get("actual_model") or nested.get("model")
+    source = metadata.get("source") or metadata.get("evidence_source") or "adapter_metadata"
+    if model is None or str(model).strip() == "":
+        return None, str(source)
+    return str(model), str(source)
+
+
 def parse_role_report(
     stdout: str,
     *,
     expected_role: str | None = None,
     requested_model: str | None = None,
 ) -> dict[str, Any]:
-    """Validate bounded role-report schema. Exit code alone is never enough."""
-    data = _extract_json_object(stdout)
+    """Validate bounded role-report schema. Exit code alone is never enough.
+
+    ``requested_model`` is accepted for API compatibility but is **not** used to
+    validate model identity from the model-authored report body. Callers must
+    use :func:`extract_authoritative_model` on transport metadata instead.
+    """
+    _ = requested_model  # intentionally unused for identity (model-authored untrusted)
+    _metadata, data = parse_transport_output(stdout)
     missing = [field for field in ROLE_REPORT_SCHEMA_FIELDS if field not in data]
     if missing:
         raise ValidationIssue(
@@ -357,16 +520,6 @@ def parse_role_report(
             raise ValidationIssue(
                 "role_mismatch",
                 f"Report role `{reported_role}` does not match expected `{expected_role}`",
-            )
-
-    if requested_model is not None:
-        actual = data.get("actual_model") or data.get("model")
-        # Allow reports that omit actual_model only when no requested model was set.
-        if actual is not None and str(actual) != str(requested_model):
-            # Mismatch is a hard validation failure for required lanes; callers decide.
-            raise ValidationIssue(
-                "actual_model_mismatch",
-                f"actual_model `{actual}` does not match requested_model `{requested_model}`",
             )
 
     # Normalize list-ish fields.
@@ -389,6 +542,42 @@ def parse_role_report(
             )
 
     return data
+
+
+def validate_model_evidence(
+    *,
+    requested_model: str | None,
+    metadata: Mapping[str, Any] | None,
+    require_when_requested: bool = True,
+) -> tuple[str | None, str | None]:
+    """Validate authoritative model evidence for an attempt.
+
+    Returns ``(actual_model, evidence_source)``. Raises ValidationIssue on
+    missing/mismatched evidence when a model was requested or exact
+    qualification is required.
+    """
+    actual, source = extract_authoritative_model(metadata)
+    if requested_model is not None and require_when_requested:
+        if actual is None:
+            raise ValidationIssue(
+                "actual_model_missing",
+                (
+                    f"requested_model `{requested_model}` requires authoritative "
+                    "adapter/CLI actual_model metadata; model-authored report fields "
+                    "are not proof"
+                ),
+                hint="Provide adapter_metadata.actual_model outside the role_report body",
+            )
+        if str(actual) != str(requested_model):
+            raise ValidationIssue(
+                "actual_model_mismatch",
+                (
+                    f"authoritative actual_model `{actual}` does not match "
+                    f"requested_model `{requested_model}`"
+                ),
+            )
+    return actual, source
+
 
 
 # --- Exact session create/resume builders (Batch 3) -----------------------
