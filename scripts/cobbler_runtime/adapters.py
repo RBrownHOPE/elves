@@ -204,14 +204,16 @@ def build_readonly_invocation(
         )
 
     if name == "claude-code":
-        # Explicit read-only / print-oriented invocation. Exact CLI flags may vary by
-        # version; callers may override via extra_args or command_override in tests.
+        # Explicit structural read-only / plan-scoped invocation. Never use permission
+        # bypass flags. Exact CLI flags may vary by version; callers may override via
+        # extra_args or command_override in tests.
         argv = [
             exe,
             "-p",
             "--output-format",
             "json",
-            "--dangerously-skip-permissions",
+            "--permission-mode",
+            "plan",
         ]
         if requested_model:
             argv.extend(["--model", requested_model])
@@ -224,7 +226,10 @@ def build_readonly_invocation(
             read_only=True,
             tool_scope="read-only",
             sandbox_scope="ephemeral",
-            notes="read-only print mode; no write tools in dispatch",
+            notes=(
+                "structural read-only scope via --permission-mode plan; "
+                "no permission-bypass flags"
+            ),
         )
 
     if name == "grok-build":
