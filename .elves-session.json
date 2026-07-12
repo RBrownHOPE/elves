@@ -7,7 +7,7 @@
   "branch": "codex/cobbler-runtime-hardening-v1.20.1",
   "owned_worktree": ".",
   "owned_worktree_resolution": "Resolve relative to the repository root containing .elves-session.json and verify the branch with git before use",
-  "owned_tip_expected": "983dd07829c8e33f04af7718e986476534fa21fd",
+  "owned_tip_expected": "c8029f218559382c1955d9317a22b166b6d740d5",
   "base_ref": "origin/main",
   "collision_tripwire": "fca15a9e6175c528079bc7ca87e0925f83b9f9b9",
   "plan_path": "docs/plans/v1.20.1-cobbler-runtime-hardening.md",
@@ -44,7 +44,7 @@
     "stop_allowed": false,
     "checkpoint_is_stop": false,
     "staging_boundary_active": false,
-    "next_required_action": "Resume the qualified persistent Grok Build session with the detailed Batch 1 implementation packet"
+    "next_required_action": "Send the synthesized blocking Batch 1 remediation packet to the same persistent Grok session, then rerun affected focused and closing gates"
   },
   "test_baseline": {
     "passed": 278,
@@ -156,11 +156,11 @@
     },
     {
       "phase": "review",
-      "requested_route": "risk-adjusted per-batch review; exclude Grok implementer and use complementary lenses rather than provider ritual",
-      "actual_route": "Batch 1 full review active on immutable d8024b5..0f6afe7 with two native lenses plus already-started Claude/Fable and Sakana/Fugu Ultra; later batches follow the narrower recorded policy",
+      "requested_route": "fast batch gates: one time-boxed native Codex reviewer in parallel with deterministic host validation; Grok excluded",
+      "actual_route": "Batch 1 sole native reviewer active on immutable d8024b5..0f6afe7; host validation passed; pre-existing Claude/Fable completed at cancellation and Fugu plus redundant native review were stopped",
       "required": true,
-      "required_quorum": 2,
-      "fallback_reason": "Latest Run Control supersedes broad every-provider preference; no current Batch 1 reviewer fallback"
+      "required_quorum": 1,
+      "fallback_reason": "Latest Run Control forbids paid/external and multi-reviewer councils between batches; full review is reserved for final readiness"
     },
     {
       "phase": "validate",
@@ -185,88 +185,91 @@
     }
   ],
   "review_policy": {
-    "scope": "current v1.20.1 run only; no adaptive-review product implementation",
-    "updated_at": "2026-07-12T17:36:29Z",
-    "source": "latest explicit user Run Control adjustment",
+    "name": "fast_batch_gates",
+    "scope": "between-batch gates for current v1.20.1 run; final readiness remains full cumulative review",
+    "updated_at": "2026-07-12T17:42:44Z",
+    "source": "latest explicit user Run Control; supersedes risk-adjusted two-reviewer batch policy",
     "implementer_excluded_from_review": "persistent Grok session 00b682ea-b3df-4c3f-8009-7a0f51dd8f63",
-    "levels": {
-      "batch_1": {
-        "level": "full",
-        "minimum_independent_reviewers": 2,
-        "lenses": ["architecture_and_truthfulness", "adversarial_security_and_test_integrity"]
-      },
-      "batch_2": {
-        "level": "full",
-        "minimum_independent_reviewers": 2,
-        "lenses": ["architecture_and_lifecycle", "adversarial_and_concurrency"],
-        "external_reviewer": "one suitable route when available; not every provider"
-      },
-      "batch_3": {
-        "level": "full",
-        "minimum_independent_reviewers": 2,
-        "lenses": ["git_transaction_and_security", "architecture_and_test_integrity"],
-        "all_deterministic_safety_gates": true,
-        "writer_qualification_required_before_later_use": true
-      },
-      "batch_4": {
-        "level": "standard",
-        "minimum_independent_reviewers": 1,
-        "parallel_host_validation": true,
-        "escalate_to_full_on": [
-          "credentials",
-          "destructive_persistence_or_migration",
-          "filesystem_boundaries",
-          "git_state",
-          "session_identity",
-          "external_writer_behavior",
-          "security_policy",
-          "material_failure_churn_or_contract_deviation"
-        ]
-      },
-      "batch_5": {
-        "level": "split",
-        "docs_versions": "lightweight review plus targeted consistency",
-        "live_matrix": "only required or invalidated provider/host evidence",
-        "landing": "full cumulative main...HEAD review with at least two strong independent reviewers"
-      }
-    },
-    "rules": {
-      "parallel_on_immutable_range": true,
-      "no_silent_downgrade": true,
-      "automatic_escalation_allowed": true,
-      "preserve_dissent": true,
-      "one_fitted_remediation_packet_to_same_grok_session": true,
-      "reuse_requires_unchanged": [
-        "source",
-        "config",
-        "fixtures",
-        "cli_version",
-        "model_route",
-        "affected_invariant"
+    "between_batch": {
+      "reviewers": ["one fast native Codex reviewer"],
+      "external_or_paid_reviewers": "forbidden",
+      "multi_model_council": false,
+      "parallel_host_validation": true,
+      "ordinary_timebox_minutes": "approximately 5-10",
+      "foundational_timebox_minutes": "approximately 15",
+      "scope": "current batch diff plus directly affected foundational interfaces",
+      "gate_question": "Is it safe to build the next batch on this foundation?",
+      "blocking_categories": [
+        "correctness",
+        "security_or_secret_exposure",
+        "data_loss_git_or_worktree_risk",
+        "broken_compatibility",
+        "missing_required_acceptance_behavior",
+        "test_weakening_or_clearly_inadequate_proof",
+        "architectural_defect_likely_to_compound"
       ],
-      "record_metrics": [
-        "duration",
-        "routes_requested_and_used",
-        "fallback_reasons",
-        "findings",
-        "reused_evidence",
-        "invalidated_evidence",
-        "live_call_count"
-      ],
-      "excluded_followup_path": "docs/plans/adaptive-planner-directed-review.md"
+      "defer_to_final": ["style", "naming", "optional_refactoring", "speculative_concern"],
+      "github_bots": "observe asynchronously; wait only on failure or final landing",
+      "remediation": "affected focused tests then mandatory closing gates; no repeat council for straightforward fixes",
+      "evidence_reuse": "reuse only when affected source, config, fixtures, CLI version, model route, and invariant are unchanged",
+      "live_connector_recheck": "only when connector-affecting code changed and the next batch depends on it"
     },
+    "batch_focus": {
+      "batch_1": "route/config, model evidence, credential delegation, artifact identity, fallbacks, subprocess cleanup",
+      "batch_2": "session identity, exact resume, registry safety, cleanup",
+      "batch_3": "Git/worktree isolation, leases, patch integrity, path safety",
+      "batch_4": "setup preservation, configuration safety, Codex/Claude parity",
+      "batch_5": "targeted native review for implementation and docs slices"
+    },
+    "final_readiness": {
+      "review": "full cumulative main...HEAD",
+      "external_review": "Claude/Fable and Fugu Ultra only where useful",
+      "required_live": ["Claude", "Grok", "Sakana"],
+      "required_surfaces": ["Codex/Claude host parity", "all PR comments and CI", "release merge tag and installation verification"]
+    },
+    "excluded_followup_path": "docs/plans/adaptive-planner-directed-review.md",
     "batch_1_observation": {
       "immutable_base": "d8024b58c34a948e0e214d74f35a6fe3b77e458f",
       "immutable_tip": "0f6afe71b08551ed56105294832b04b252712458",
-      "started_at": "2026-07-12T17:28:00Z",
-      "routes_requested": ["native_architecture", "native_adversarial", "claude_fable", "sakana_fugu_ultra"],
-      "routes_started": ["native_architecture", "native_adversarial", "claude_fable", "sakana_fugu_ultra"],
-      "review_calls_started": 4,
-      "external_live_review_calls_started": 2,
+      "native_reviewer": "Turing sole fast reviewer completed the gate at approximately 15 minutes",
+      "redundant_native_reviewer": "stopped at latest control",
       "host_validation": "70 focused and 291 full tests plus deterministic gates passed independently",
+      "external_reviews_started_before_supersession": {
+        "claude_fable": "completed as cancellation was sent; runtime model claude-fable-5; duration 669204 ms; cost_usd 8.325137",
+        "sakana_fugu_ultra": "interrupted without final report; runtime requested model fugu-ultra"
+      },
+      "external_review_processes_active": 0,
       "reused_evidence": [],
-      "findings": "pending synthesis",
-      "invalidated_evidence": "pending remediation decision"
+      "findings": {
+        "gate": "blocked; Batch 2 cannot safely build on first draft",
+        "blocking_count": 15,
+        "categories": [
+          "forgeable model provenance and missing real CLI decoders",
+          "inert input output and capability contracts plus incomplete packet/cwd",
+          "required routing neutralized by CLI default path",
+          "fallback inherits primary credentials",
+          "granted secret values leak into raw artifacts and JSON",
+          "extra args can override read-only safety",
+          "timeout/cancellation process-group cleanup can report false success",
+          "injected host evidence replay can double-count quorum",
+          "zero or invalid quorum accepted",
+          "schema-shaped null report counted",
+          "false model-call and repository-mutation reporting",
+          "lane and profile path escape",
+          "partial profile precedence drops lower fields",
+          "attempt evidence drops effective contract",
+          "named acceptance tests do not prove all required failure classes"
+        ]
+      },
+      "invalidated_evidence": [
+        "adapter decoder and actual-model fixture evidence",
+        "custom wrapper input contract evidence",
+        "secret containment evidence",
+        "process timeout and cancellation evidence",
+        "fallback and capability evidence",
+        "native-only no-mutation evidence",
+        "required route and quorum evidence"
+      ]
     }
   },
   "staging_preflight": {
@@ -335,11 +338,11 @@
     "reasoning_effort": "high",
     "grok_cli_version": "0.2.93 (f00f96316d4b) [stable]",
     "session_id": "00b682ea-b3df-4c3f-8009-7a0f51dd8f63",
-    "session_status": "qualified_idle",
+    "session_status": "batch_1_review_blocked_idle",
     "qualification_turns": 2,
     "qualification_permission_finding": "dontAsk cancelled the first headless inspection; auto completed the same session inside the audited outer boundary",
     "worker_base_head": "d8024b58c34a948e0e214d74f35a6fe3b77e458f",
-    "worker_current_head": "d8024b58c34a948e0e214d74f35a6fe3b77e458f",
+    "worker_current_head": "0f6afe71b08551ed56105294832b04b252712458",
     "worker_detached": true,
     "worker_remotes": [],
     "worker_baseline": {
