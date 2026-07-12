@@ -4,10 +4,12 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
-### E2E chat-to-work / chat-to-land (design + kickoff templates)
+### E2E chat-to-work / chat-to-land (recommended single kickoff)
 
-- Design for single-kickoff flows: multi-planner chat → plan/stage → batch loop → landable PR
-  (**chat-to-work**, no merge) or through reviewed-PR landing (**chat-to-land**, explicit merge).
+- **Default user path:** one kickoff after conceptual agreement (optional multi-planner) —
+  plan + stage + batch loop → landable PR (**chat-to-work**) or through reviewed-PR merge
+  (**chat-to-land**). Fixes the old failure mode where users never staged properly.
+- Agent still stages before coding; does not wait for a second human call once launch-ready.
 - Labor completeness: main driver re-drives lazy work drivers (e.g. partial Grok Build turns).
 - Optional `/goal` (Codex) as continuation seatbelt. Docs:
   [`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md),

@@ -1,12 +1,17 @@
 # E2E chat-to-work and chat-to-land (design)
 
-**Status:** design + kickoff templates (v2.0+). Not the only Elves path; classic
-**stage-then-start** remains the default discipline for large plans.
+**Status:** **recommended default user path (v2.0+)** — design + kickoff templates. Classic
+**two-call stage-then-start** remains optional for huge or unstable plans.
 
 **Product intent:** efficient, intelligent workflows for agentic development and research —
-chat about intent, optionally involve multi-model planners, then fire a full Elves run without
-locking the user into one model ecosystem. Cobbler coordinates; Claude Code or Codex is the main
-driver.
+chat to conceptual agreement (optionally multi-planner), then **one prompt** runs plan + stage +
+batches, without locking the user into one model ecosystem. Cobbler coordinates; Claude Code or
+Codex is the main driver. User chooses **landable PR only** (chat-to-work) or **merge ceremony**
+(chat-to-land).
+
+**Why single kickoff:** requiring a separate human “stage” call often failed — incomplete staging
+meant the overnight run never really started. The agent now owns staging quality; the human owns
+intent and merge policy.
 
 ## Two user-facing prompts
 
@@ -19,8 +24,9 @@ Both modes may start from a **conversation** (not only a pre-written plan file).
 still materializes a plan and full run docs on disk before unattended batches.
 
 Internally, keep **stage then execute** as separate *phases* even when the user sends one message:
-plan/docs/PR first, then batch loop. Collapsing those into one *user* message is fine; collapsing
-them in the agent’s head (coding before launch-ready) is not.
+plan/docs/PR first, then batch loop. One *user* message is the recommended product path; coding
+before launch-ready is still forbidden. After launch-ready in E2E mode, **continue into the batch
+loop without waiting for a second human call.**
 
 ## Flow
 
@@ -115,7 +121,7 @@ Never silently absorb a partial work-driver turn into batch `status: complete`.
 
 | Existing | Relationship |
 | --- | --- |
-| Stage then launch (two calls) | Still recommended for huge plans; E2E is a convenience wrapper |
+| Stage then launch (two calls) | **Legacy / advanced** for huge or unstable plans; E2E is the default product path |
 | Open-ended run | Compatible; chat-to-work often finite-to-Readiness |
 | Reviewed PR landing / `\land-pr` | Used by **chat-to-land** at the end |
 | Lane A implement / OpenCode labor | Optional work drivers under labor completeness |

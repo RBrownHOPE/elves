@@ -27,7 +27,13 @@ work**. If something breaks or you harden a path, **prefer a PR** (or
 
 You write the plan and own the merge decision. The agent does everything in between.
 
-**Running Elves is a two-stage process: first you _stage_ the run, then in a separate call you _start_ it.** Staging lines up the plan, branch, PR, and survival guide, then stops. Launching is a short second prompt that turns the agent loose. Keeping the two calls separate is the single biggest thing that prevents "the elves stopped" failures. See [Stage, then launch](#stage-then-launch).
+**Default (v2.0+): one kickoff after conceptual agreement.** Chat with the main agent (and optional
+planning lenses) until the work is clear, then send a single **chat-to-work** or **chat-to-land**
+prompt: Elves plans, stages (branch/PR/docs/preflight), runs batches, and either leaves a landable
+PR or completes the merge ceremony — your choice in the kickoff. See
+[`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md) and
+[Stage, then launch](#stage-then-launch). (Internally the agent still stages before coding; it does
+not wait for a second human call once launch-ready.)
 
 **This is still early.** The system I use in production at [Aigora](https://aigora.ai) is more elaborate than what you see here. It includes custom review tools, proprietary verification infrastructure, and integration with our internal deployment pipeline. I've extracted the key ideas and patterns into something that works with standard tools (git, GitHub PRs, CI) so it's useful to anyone, not just people with my exact setup. I'll be using this open-source version myself going forward (with my additional tooling bolted on), so it will continue to improve from real production use. But this is scaffolding, not a finished product. It may not work for you out of the box. Your model, your stack, your test infrastructure, and your review setup will all be different from mine. I'm relying on community feedback to make this skill more generalizable. If something doesn't work, [open an issue](https://github.com/aigorahub/elves/issues). Your experience makes this better for everyone.
 
@@ -89,12 +95,12 @@ Native-only runs need none of this. When present, Cobbler may route:
 | **Plan/review lenses** | OpenRouter lens, Gemini CLI, Antigravity (`agy`), Muse Spark | Independent read-only evidence |
 | **Math domain tools** | OpenRouter math roles, Google **AlphaEvolve** (`evolutionary_search`) | Discovery / examples / counterexample *signals* — not proofs |
 | **Writer boundary** | Host-import `worker …` lease | Advanced isolation; not the default overnight path |
-| **E2E kickoffs (v2.0+)** | Chat-to-work / chat-to-land | One prompt: plan→stage→run to landable PR, or through merge; see [`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md) |
+| **E2E kickoffs (recommended v2.0+)** | Chat-to-work / chat-to-land | One prompt after agreement: plan→stage→run to landable PR, or through merge |
 
 Setup: `python3 scripts/cobbler_agents.py onboard …` and recipes in
 [`references/cobbler-setup-recipes.md`](references/cobbler-setup-recipes.md). AlphaEvolve details:
-[`references/math-alphaevolve.md`](references/math-alphaevolve.md). Classic **stage then launch**
-remains the default for huge plans; E2E is the convenience path.
+[`references/math-alphaevolve.md`](references/math-alphaevolve.md). E2E design and prompts:
+[`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md).
 
 ### Reviewed PR landing command
 
@@ -378,23 +384,23 @@ synthesis prompt templates, and
 [`references/council-provider-config.md`](references/council-provider-config.md) for optional
 provider-backed council setup.
 
-### Stage, then launch
+### One kickoff (recommended) vs stage-then-launch (legacy)
 
-Most "the elves stopped" failures come from one mistake: combining a giant plan and the launch
-instructions into a single overloaded message. The plan already lives on disk. The launch prompt
-should not try to carry the whole project again.
+Historically, Elves asked for **two human calls** (stage, then launch). That failed often: people
+skipped or half-did staging, and the overnight run never really started. **v2.0+ recommends a single
+kickoff** once you and the agent (optionally with other planners) agree on the work:
 
-Elves works best as a two-call handoff:
+1. **Chat** to conceptual agreement (scope, non-negotiables, merge or not).
+2. **One prompt** — **chat-to-work** (landable PR, no merge) or **chat-to-land** (through merge
+   ceremony). The agent owns plan materialization, staging, batches, and labor re-drive.
+3. **Optional** `/goal` (Codex) or host continuation as a seatbelt so the main driver keeps going.
 
-1. **Stage the run.** Clean up the plan, refresh the survival guide, learnings file, and execution log, open the
-   branch and PR, run preflight, and stop only when the run is launch-ready.
-2. **Launch the run.** In a fresh call, send a short hard prompt that points at the prepared docs
-   and reinforces behavior: don't stop unless genuinely blocked, use judgment, work in small
-   batches, commit frequently, validate aggressively, read PR comments after every push, and watch
-   for regressions.
+Internally the agent still **stages before coding** (plan on disk, branch, PR, survival guide,
+preflight). It does **not** stop after staging to wait for a second human “go” in E2E mode.
 
-Think of staging as winding the spring. The launch call should feel small because the energy is
-already loaded into the repo artifacts.
+**Legacy two-call handoff** remains available for huge or still-unstable plans: stage until
+launch-ready, stop, then a short launch prompt. Templates:
+[`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md).
 
 ### One run, one branch, one checkout
 

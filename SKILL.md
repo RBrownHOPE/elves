@@ -22,7 +22,21 @@ host-native Claude Code or Codex remains enough to run.
 
 **This skill is scaffolding.** It gives you a framework: the loop, the documents, the gates. But every project is different. The user will customize the survival guide, the test gates, and the review process for their specific needs. Follow the framework, but adapt to what the project actually requires.
 
-**A run happens in two stages, and they are separate calls.** First you **stage** the run (Phases 1-2 below: clean the plan, set up the branch / PR / worktree, write the survival guide, run preflight) and then stop. Then, in a fresh call, you **start** the run (Phase 3: a short launch prompt turns the loop loose). Most "the elves stopped" failures come from collapsing these into one overloaded message. Stage, then start.
+**Default user path (v2.0+): one kickoff.** Prefer **chat-to-work** or **chat-to-land**
+([`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md)): the user chats to conceptual
+agreement (optionally with multi-planner lenses), then one prompt covers plan + stage + full batch
+loop. Merge only if they chose chat-to-land / merge opt-in; otherwise leave a landable PR.
+
+**Agent-internal order still has two phases** (never skip either): (1) **stage** — plan on disk,
+branch/PR, survival guide, learnings, execution log, preflight, launch-ready checklist; (2)
+**execute** — batch loop until Readiness (and landing if opted in). In a single-kickoff E2E run,
+do **not** stop after staging to wait for a second human message — continue into execution once
+launch-ready. Optional `/goal` (Codex) or host continuation is a seatbelt, not a substitute for
+Elves memory.
+
+**Legacy two-call handoff** (stage call, then separate launch call) remains valid for huge or
+unstable plans. The old failure mode was users who never staged properly; single-kickoff E2E puts
+staging ownership on the agent.
 
 ## Reviewed PR Landing Command
 
@@ -461,13 +475,16 @@ Elves starts with planning. The user invokes the skill, and you work together to
 
 There are two ways to plan: **interactive** (default) and **autonomous**.
 
-### Planning failure mode: too much at once
+### Planning failure mode: coding before launch-ready
 
-If the user pastes a giant plan and tries to launch the unattended run in the same message, slow the interaction down on purpose. Say some version of:
+If the plan, branch, PR, or session docs are still unstable, **do not implement batches yet**.
+Finish staging on disk first. In **single-kickoff E2E** mode, once the launch-ready checklist is
+true, **continue into the batch loop in the same run** — do not invent a second human “launch”
+gate. Only use a **stop-and-hand-launch-prompt** flow when the user explicitly wants the legacy
+two-call handoff, or the plan is still too fuzzy to freeze.
 
-> Hang on, we need to get this right. I'm going to stage the run and wait for your final launch command.
-
-Then do staging only. Clean the plan, prepare the session artifacts, line up the branch and PR, run preflight, and stop once the run is launch-ready. **Do not start unattended implementation in the same call that is still changing the plan, the branch, or the session documents.**
+**Do not start unattended implementation while the plan, branch, or session documents are still
+changing.**
 
 ### Interactive planning (default)
 
@@ -517,13 +534,14 @@ By the end of the planning conversation, you should have:
 
 If the survival guide, learnings file, or execution log don't exist yet, generate them from the templates in `references/survival-guide-template.md`, `references/learnings-template.md`, and `references/execution-log-template.md`, filling in details from the planning conversation. See `references/plan-template.md` for plan structure guidance and `references/kickoff-prompt-template.md` for how users start the session.
 
-Once the plan is solid, move to Phase 2: staging. The unattended run itself begins only in Phase 3, after a fresh launch command.
+Once the plan is solid, move to Phase 2: staging. In single-kickoff E2E, Phase 3 follows in the
+same run as soon as launch-ready. In legacy two-call mode, stop after staging and wait for launch.
 
 ## Phase 2: Stage the Run
 
-Staging is the wind-up. This is where you line everything up so the launch call can start with momentum instead of trying to carry the entire plan in working memory.
-
-**The rule:** if the plan is still being edited, clarified, or turned into session artifacts, you are staging, not launching.
+Staging is the wind-up: plan on disk, branch/PR, survival guide, learnings, execution log, preflight.
+**The rule:** if the plan is still being edited or session artifacts are incomplete, you are staging,
+not implementing.
 
 ### Launch readiness checklist
 
@@ -539,18 +557,25 @@ Before unattended execution may begin, all of these must be true:
 
 If any item is false, you are still staging. Fix it before launch.
 
-## Phase 3: Launch
+## Phase 3: Launch (execute)
 
-Execution starts only from a fresh launch call after staging is complete. The launch prompt should be short on purpose. It should point at the prepared files and reinforce how to behave:
+Execution starts when staging is **launch-ready**. In **chat-to-work / chat-to-land**, that is the
+same user turn after staging completes — continue immediately (optionally under `/goal`). In the
+legacy two-call path, the user sends a short launch prompt in a fresh call.
 
-- Do not stop unless genuinely blocked.
+Behavior once executing:
+
+- Do not stop unless genuinely blocked (or Stop Gate allows stop at end).
 - Use judgment and keep moving.
 - Work in small batches and commit frequently.
 - Make commit subjects read like progress reports.
 - Run every relevant validation gate, including E2E or browser checks where they make sense.
 - After every push, re-read the survival guide, run the post-push operator checklist, then read PR comments and checks, fix blockers, and re-check for regressions against earlier verified work.
+- Re-drive incomplete work-driver labor (see `references/e2e-chat-to-land.md`).
 
-On launch, start with the same read order used in Orient: survival guide, `.elves-session.json` if it exists, learnings if it exists, plan, execution log, then `.ai-docs/manifest.md` if present. Confirm the run state and then enter the core loop immediately.
+On launch, use the Orient read order: survival guide, `.elves-session.json` if present, learnings if
+present, plan, execution log, then `.ai-docs/manifest.md` if present. Confirm run state and enter
+the core loop.
 
 ## Preflight (staging)
 
@@ -651,7 +676,8 @@ If a PR already exists on the current branch, detect it and skip this setup.
 
 **You never merge by default — the user merges when they return. The exceptions are an explicit merge-on-green opt-in recorded in Run Control, or the Reviewed PR Landing Command. Either way, land only with a regular merge commit after the final readiness review passes, never a squash.**
 
-When staging is complete, stop and hand the user the launch prompt. The unattended run begins in the next call.
+When staging is complete: in **E2E single-kickoff**, continue into Phase 3 immediately; in **legacy
+two-call**, stop and hand the user a short launch prompt for the next call.
 
 ### Batch Decomposition
 

@@ -1,16 +1,17 @@
 # Kickoff Prompt Template
 
-> Elves works best as a two-call handoff:
+> **Recommended (v2.0+): one kickoff after conceptual agreement.**
 >
-> 1. **Stage the run**
-> 2. **Launch the run**
+> Chat with the main agent (optional multi-planner lenses) until the work is clear, then send
+> **Chat-to-work** (landable PR, no merge) or **Chat-to-land** (through merge) — templates at the
+> bottom of this file. Design: [`e2e-chat-to-land.md`](e2e-chat-to-land.md).
 >
-> Most "the elves stopped" failures come from combining a giant plan and the launch instructions
-> into one overloaded message. The plan already lives on disk. The launch prompt should stay short.
+> The agent plans, stages (branch/PR/docs/preflight), and runs batches in that same run. It does not
+> stop after staging to wait for a second human message. Merge only if you chose chat-to-land.
 >
-> **E2E convenience (v2.0+):** if you want one kickoff that plans, stages, and runs batches from a
-> chat brief, use **Chat-to-work** (landable PR, no merge) or **Chat-to-land** (through merge
-> ceremony) at the bottom of this file. Design: [`e2e-chat-to-land.md`](e2e-chat-to-land.md).
+> **Legacy two-call handoff** (below) is for huge or unstable plans: stage until launch-ready, stop,
+> then a short launch prompt. Most historical "elves stopped" failures were incomplete staging —
+> single-kickoff E2E puts staging on the agent.
 >
 > Think of staging as winding the spring: clean the docs, line up the branch and PR, run
 > preflight, and stop only when the runway is clear. Then use a fresh launch call to start the
@@ -255,11 +256,13 @@ Elves E2E: chat-to-work (no merge).
 
 **Your job (one continuous run after planning is solid):**
 1. Chat only as needed to sharpen intent. Optionally route independent planners (Cobbler / available
-   lenses). Synthesize one plan on disk.
-2. Stage: survival guide, learnings, execution log, branch, PR, preflight, Cobbler session state.
-   Set Run Control: `e2e mode: chat-to-work`, `merge policy: never-merge`, labor re-drive budget 3.
-3. Execute every planned batch: contract → implement → validate → review PR feedback → document →
-   commit/push. Re-read survival guide after every push.
+   lenses). Reach conceptual agreement; synthesize one plan on disk.
+2. Stage fully (you own staging quality): survival guide, learnings, execution log, branch, PR,
+   preflight, Cobbler session state. Set Run Control: `e2e mode: chat-to-work`,
+   `merge policy: never-merge`, labor re-drive budget 3.
+3. **Do not stop for a second human “launch” message.** Once launch-ready, execute every planned
+   batch: contract → implement → validate → review PR feedback → document → commit/push. Re-read
+   survival guide after every push.
 4. If a work driver returns incomplete work (common with Grok Build): gap-packet + re-drive up to
    budget; if still incomplete, host finishes the gap or hard-stop with remaining contract. Never
    mark complete on partial labor.
@@ -295,12 +298,13 @@ Elves E2E: chat-to-land (merge when green).
 **Multi-planner:** [optional host Cobbler only | also use available plan/review lenses]
 
 **Your job (one continuous run after planning is solid):**
-1. Chat only as needed to sharpen intent. Optionally route independent planners. Synthesize one
-   plan on disk.
-2. Stage: survival guide, learnings, execution log, branch, PR, preflight, Cobbler session state.
-   Set Run Control: `e2e mode: chat-to-land`,
+1. Chat only as needed to sharpen intent. Optionally route independent planners. Reach conceptual
+   agreement; synthesize one plan on disk.
+2. Stage fully (you own staging quality): survival guide, learnings, execution log, branch, PR,
+   preflight, Cobbler session state. Set Run Control: `e2e mode: chat-to-land`,
    `merge policy: reviewed-pr-landing-command`, labor re-drive budget 3.
-3. Execute every planned batch end-to-end (same quality bar as a normal Elves run).
+3. **Do not stop for a second human “launch” message.** Once launch-ready, execute every planned
+   batch end-to-end (same quality bar as a normal Elves run).
 4. Labor completeness: after every work-driver return, verify contract + evidence; re-drive gaps
    (budget 3) or host-complete / hard-stop. Never accept partial Grok/OpenCode labor as done.
 5. Final Readiness Gate on the tip. Elves Report for substantial runs.

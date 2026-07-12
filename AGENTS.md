@@ -12,7 +12,16 @@ or Codex is enough for a full overnight run.
 
 **You never merge by default — the user merges when they return. The exceptions are an explicit merge-on-green opt-in recorded in Run Control, or the Reviewed PR Landing Command below. Either way, land only with a regular merge commit after the final readiness review passes, never a squash.**
 
-**A run happens in two stages, and they are separate calls.** First you **stage** the run (Planning + Staging below: clean the plan, set up the branch / PR / worktree, write the survival guide, run preflight) and then stop. Then, in a fresh call, you **start** the run (a short launch prompt turns the loop loose). Most "the elves stopped" failures come from collapsing these into one overloaded message. Stage, then start.
+**Default user path (v2.0+): one kickoff.** Prefer **chat-to-work** or **chat-to-land**
+(`references/e2e-chat-to-land.md`): chat to conceptual agreement (optional multi-planner), then one
+prompt plans, stages, and runs batches. Merge only if chat-to-land / explicit merge opt-in;
+otherwise landable PR only.
+
+**Agent-internal order still has two phases:** stage (plan, branch/PR, run docs, preflight,
+launch-ready) then execute (batch loop). In single-kickoff E2E, do **not** stop after staging for a
+second human message — continue once launch-ready. `/goal` is a continuation seatbelt, not memory.
+
+**Legacy two-call** (stage, then separate launch) remains valid for huge/unstable plans.
 
 ## Reviewed PR Landing Command
 
