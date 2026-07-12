@@ -15,13 +15,15 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .adapters import default_profiles, get_adapter
 from .schema import (
     DEFAULT_ROLES,
     NATIVE_PROFILE_NAME,
     ConfigSource,
+    ContextSharingPolicy,
+    EffectiveAttempt,
     FallbackEntry,
     HarnessProfile,
     ResolvedConfig,
@@ -29,6 +31,7 @@ from .schema import (
     RoleRoute,
     SessionMode,
     ValidationIssue,
+    build_effective_attempts,
     parse_role_name,
 )
 
@@ -123,6 +126,30 @@ def _parse_fallback_chain(raw: Any, *, path: str) -> tuple[FallbackEntry, ...]:
             path=item_path,
         )
     return tuple(entries)
+
+
+def _parse_str_tuple(raw: Any, *, path: str) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if isinstance(raw, str):
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        return tuple(parts)
+    if not isinstance(raw, list):
+        raise ValidationIssue(
+            "invalid_type",
+            f"Expected list or comma-string at `{path}`",
+            path=path,
+        )
+    values: list[str] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, str) or not item.strip():
+            raise ValidationIssue(
+                "invalid_type",
+                f"Expected non-empty string at `{path}[{index}]`",
+                path=f"{path}[{index}]",
+            )
+        values.append(item.strip())
+    return tuple(values)
 
 
 def _parse_role_override(
@@ -234,11 +261,77 @@ def _parse_profiles(
                 path=f"{profile_path}.executable",
             )
         notes = str(body_map.get("notes") or "")
+        enabled = _as_bool(body_map.get("enabled"), path=f"{profile_path}.enabled", default=True)
+        requested_model = body_map.get("requested_model") or body_map.get("model")
+        if requested_model is not None and not isinstance(requested_model, str):
+            raise ValidationIssue(
+                "invalid_type",
+                f"requested_model must be a string at `{profile_path}.requested_model`",
+                path=f"{profile_path}.requested_model",
+            )
+        if isinstance(requested_model, str):
+            requested_model = requested_model.strip() or None
+        extra_args = _parse_str_tuple(
+            body_map.get("extra_args") or body_map.get("args") or body_map.get("extra-args"),
+            path=f"{profile_path}.extra_args",
+        )
+        env_grants = _parse_str_tuple(
+            body_map.get("env_grants")
+            or body_map.get("env")
+            or body_map.get("environment")
+            or body_map.get("named_env"),
+            path=f"{profile_path}.env_grants",
+        )
+        input_contract = str(
+            body_map.get("input_contract") or body_map.get("input") or "prompt-file"
+        ).strip()
+        output_contract = str(
+            body_map.get("output_contract") or body_map.get("output") or "json-role-report"
+        ).strip()
+        capabilities = _parse_str_tuple(
+            body_map.get("capabilities"),
+            path=f"{profile_path}.capabilities",
+        )
+        session_raw = body_map.get("session_mode") or body_map.get("session-mode")
+        if session_raw is None:
+            session_mode = SessionMode.EPHEMERAL
+        else:
+            try:
+                session_mode = SessionMode(str(session_raw).strip().lower().replace("-", "_"))
+            except ValueError as exc:
+                raise ValidationIssue(
+                    "invalid_session_mode",
+                    f"Unknown session mode `{session_raw}`",
+                    path=f"{profile_path}.session_mode",
+                ) from exc
+        sharing_raw = body_map.get("context_sharing") or body_map.get("context-sharing")
+        if sharing_raw is None:
+            context_sharing = ContextSharingPolicy.INDEPENDENT
+        else:
+            try:
+                context_sharing = ContextSharingPolicy(
+                    str(sharing_raw).strip().lower().replace("-", "_")
+                )
+            except ValueError as exc:
+                raise ValidationIssue(
+                    "invalid_context_sharing",
+                    f"Unknown context sharing `{sharing_raw}`",
+                    path=f"{profile_path}.context_sharing",
+                ) from exc
         parsed[name] = HarnessProfile(
             name=name,
             adapter=resolved_adapter,
             executable=executable,
             notes=notes,
+            session_mode=session_mode,
+            context_sharing=context_sharing,
+            enabled=enabled,
+            requested_model=requested_model,
+            extra_args=extra_args,
+            env_grants=env_grants,
+            input_contract=input_contract,
+            output_contract=output_contract,
+            capabilities=capabilities,
         )
     return parsed
 
@@ -444,6 +537,16 @@ def resolve_config(
             if not payload:
                 continue
             resolved.sources_consulted.append(source.value)
+            # Routing enablement: explicit false disables all external launches.
+            routing = payload.get("model-routing") or payload.get("model_routing") or {}
+            if isinstance(routing, Mapping) and "enabled" in routing:
+                enabled_flag = _as_bool(
+                    routing.get("enabled"),
+                    path=f"{label}.model_routing.enabled",
+                    default=True,
+                )
+                # Higher-precedence layers overwrite (layers iterate low→high).
+                resolved.external_routing_enabled = enabled_flag
             layer_roles, layer_profiles = _extract_roles_and_profiles(
                 payload,
                 source=source,
@@ -458,6 +561,22 @@ def resolve_config(
                 resolved.profiles[name] = profile
             for role_name, route in layer_roles.items():
                 roles[role_name] = _merge_route(roles.get(role_name), route)
+
+        if not resolved.external_routing_enabled:
+            # Disabled external routing: every role resolves host-native; no launches.
+            for role in DEFAULT_ROLES:
+                roles[role.value] = RoleRoute(
+                    role=role,
+                    profile=NATIVE_PROFILE_NAME,
+                    required=False,
+                    fallback_chain=(),
+                    source=ConfigSource.NATIVE_DEFAULT,
+                    session_mode=SessionMode.EPHEMERAL,
+                    notes="external routing disabled; host-native only",
+                )
+            resolved.warnings.append(
+                "external_routing_enabled=false; all roles forced to host-native"
+            )
 
         # Validate profiles referenced by routes exist; required unavailable blocks.
         for role_name, route in roles.items():
@@ -572,3 +691,94 @@ def models_toml_is_local_only(repo_root: Path) -> dict[str, Any]:
             "never stage it. Tracked schema lives in references/models.toml.example."
         ),
     }
+
+
+def effective_attempts_for_role(
+    resolved: ResolvedConfig,
+    role_name: str,
+) -> tuple[EffectiveAttempt, ...]:
+    """Return ordered primary+fallback attempts for a resolved role (no field loss)."""
+    route = resolved.roles.get(role_name)
+    if route is None:
+        raise ValidationIssue(
+            "unknown_role",
+            f"Role `{role_name}` is not in the resolved routing table",
+            path=f"roles.{role_name}",
+        )
+    return build_effective_attempts(route, resolved.profiles)
+
+
+def lanes_from_resolved(
+    resolved: ResolvedConfig,
+    *,
+    role_names: Sequence[str] | None = None,
+    timeout_seconds: float = 30.0,
+    use_resolved_routes: bool = True,
+) -> list[Any]:
+    """Build dispatch LaneSpec list from resolved config without field loss.
+
+    When ``use_resolved_routes`` is False, every lens stays host-native (CLI smoke).
+    Host-native still requires injected evidence at execution time for a vote.
+    """
+    # Local import avoids circular dependency at module load.
+    from .dispatch import LaneSpec
+
+    if role_names is None:
+        role_names = [r.value for r in DEFAULT_ROLES if r.value in resolved.roles]
+
+    lanes: list[LaneSpec] = []
+    for index, role in enumerate(role_names):
+        role = role.strip()
+        if not role:
+            continue
+        if not use_resolved_routes or not resolved.external_routing_enabled:
+            lanes.append(
+                LaneSpec(
+                    lane_id=f"{role}-{index}",
+                    role=role,
+                    adapter=NATIVE_PROFILE_NAME,
+                    profile=NATIVE_PROFILE_NAME,
+                    requested_model=None,
+                    timeout_seconds=timeout_seconds,
+                )
+            )
+            continue
+
+        # Prefer an exact role match; fall back to review then planning for free lenses.
+        route = (
+            resolved.roles.get(role)
+            or resolved.roles.get(role.replace("-", "_"))
+            or resolved.roles.get("review")
+            or resolved.roles.get("planning")
+        )
+        if route is None or route.profile not in resolved.profiles:
+            lanes.append(
+                LaneSpec(
+                    lane_id=f"{role}-{index}",
+                    role=role,
+                    adapter=NATIVE_PROFILE_NAME,
+                    profile=NATIVE_PROFILE_NAME,
+                    requested_model=None,
+                    timeout_seconds=timeout_seconds,
+                )
+            )
+            continue
+
+        attempts = build_effective_attempts(route, resolved.profiles)
+        primary = attempts[0]
+        lanes.append(
+            LaneSpec(
+                lane_id=f"{role}-{index}",
+                role=role,
+                adapter=primary.adapter,
+                profile=primary.profile,
+                requested_model=primary.requested_model,
+                executable=primary.executable,
+                required=route.required,
+                timeout_seconds=timeout_seconds,
+                extra_args=primary.extra_args,
+                env_grants=primary.env_grants,
+                attempts=attempts,
+            )
+        )
+    return lanes
