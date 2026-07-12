@@ -7,7 +7,7 @@
   "branch": "codex/cobbler-runtime-hardening-v1.20.1",
   "owned_worktree": ".",
   "owned_worktree_resolution": "Resolve relative to the repository root containing .elves-session.json and verify the branch with git before use",
-  "owned_tip_expected": "d8024b58c34a948e0e214d74f35a6fe3b77e458f",
+  "owned_tip_expected": "983dd07829c8e33f04af7718e986476534fa21fd",
   "base_ref": "origin/main",
   "collision_tripwire": "fca15a9e6175c528079bc7ca87e0925f83b9f9b9",
   "plan_path": "docs/plans/v1.20.1-cobbler-runtime-hardening.md",
@@ -156,11 +156,11 @@
     },
     {
       "phase": "review",
-      "requested_route": "parallel fresh native reviewer plus Claude/Fable and Sakana/Fugu; exclude Grok implementer",
-      "actual_route": "pending execution",
+      "requested_route": "risk-adjusted per-batch review; exclude Grok implementer and use complementary lenses rather than provider ritual",
+      "actual_route": "Batch 1 full review active on immutable d8024b5..0f6afe7 with two native lenses plus already-started Claude/Fable and Sakana/Fugu Ultra; later batches follow the narrower recorded policy",
       "required": true,
       "required_quorum": 2,
-      "fallback_reason": null
+      "fallback_reason": "Latest Run Control supersedes broad every-provider preference; no current Batch 1 reviewer fallback"
     },
     {
       "phase": "validate",
@@ -184,6 +184,91 @@
       "fallback_reason": null
     }
   ],
+  "review_policy": {
+    "scope": "current v1.20.1 run only; no adaptive-review product implementation",
+    "updated_at": "2026-07-12T17:36:29Z",
+    "source": "latest explicit user Run Control adjustment",
+    "implementer_excluded_from_review": "persistent Grok session 00b682ea-b3df-4c3f-8009-7a0f51dd8f63",
+    "levels": {
+      "batch_1": {
+        "level": "full",
+        "minimum_independent_reviewers": 2,
+        "lenses": ["architecture_and_truthfulness", "adversarial_security_and_test_integrity"]
+      },
+      "batch_2": {
+        "level": "full",
+        "minimum_independent_reviewers": 2,
+        "lenses": ["architecture_and_lifecycle", "adversarial_and_concurrency"],
+        "external_reviewer": "one suitable route when available; not every provider"
+      },
+      "batch_3": {
+        "level": "full",
+        "minimum_independent_reviewers": 2,
+        "lenses": ["git_transaction_and_security", "architecture_and_test_integrity"],
+        "all_deterministic_safety_gates": true,
+        "writer_qualification_required_before_later_use": true
+      },
+      "batch_4": {
+        "level": "standard",
+        "minimum_independent_reviewers": 1,
+        "parallel_host_validation": true,
+        "escalate_to_full_on": [
+          "credentials",
+          "destructive_persistence_or_migration",
+          "filesystem_boundaries",
+          "git_state",
+          "session_identity",
+          "external_writer_behavior",
+          "security_policy",
+          "material_failure_churn_or_contract_deviation"
+        ]
+      },
+      "batch_5": {
+        "level": "split",
+        "docs_versions": "lightweight review plus targeted consistency",
+        "live_matrix": "only required or invalidated provider/host evidence",
+        "landing": "full cumulative main...HEAD review with at least two strong independent reviewers"
+      }
+    },
+    "rules": {
+      "parallel_on_immutable_range": true,
+      "no_silent_downgrade": true,
+      "automatic_escalation_allowed": true,
+      "preserve_dissent": true,
+      "one_fitted_remediation_packet_to_same_grok_session": true,
+      "reuse_requires_unchanged": [
+        "source",
+        "config",
+        "fixtures",
+        "cli_version",
+        "model_route",
+        "affected_invariant"
+      ],
+      "record_metrics": [
+        "duration",
+        "routes_requested_and_used",
+        "fallback_reasons",
+        "findings",
+        "reused_evidence",
+        "invalidated_evidence",
+        "live_call_count"
+      ],
+      "excluded_followup_path": "docs/plans/adaptive-planner-directed-review.md"
+    },
+    "batch_1_observation": {
+      "immutable_base": "d8024b58c34a948e0e214d74f35a6fe3b77e458f",
+      "immutable_tip": "0f6afe71b08551ed56105294832b04b252712458",
+      "started_at": "2026-07-12T17:28:00Z",
+      "routes_requested": ["native_architecture", "native_adversarial", "claude_fable", "sakana_fugu_ultra"],
+      "routes_started": ["native_architecture", "native_adversarial", "claude_fable", "sakana_fugu_ultra"],
+      "review_calls_started": 4,
+      "external_live_review_calls_started": 2,
+      "host_validation": "70 focused and 291 full tests plus deterministic gates passed independently",
+      "reused_evidence": [],
+      "findings": "pending synthesis",
+      "invalidated_evidence": "pending remediation decision"
+    }
+  },
   "staging_preflight": {
     "status": "pass_with_expected_advisories",
     "captured_at": "2026-07-12T16:48:43Z",
