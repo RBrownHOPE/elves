@@ -148,6 +148,15 @@ External chats are **not** one-shot throwaways when the same lens plans and late
 4. Review still must load plan + constitution + regression surfaces; session continuity is *context*,
    not a substitute for those documents.
 
+**If there is no session id** (missing, lost after compaction, or one-shot lens): do **not** invent
+`latest`/`continue`. Fall back to **repo documents the agent can read** as the planning context:
+
+- plan file, batch contract / execution log, Survival Guide, constitution (if present),
+  relevant `.ai-docs` / PR body
+
+Session resume is additive. Document visibility is the baseline that always works when tools can
+see the checkout.
+
 Google is consolidating coding-agent surfaces around **Antigravity** (Gemini CLI transitions into
 that family). Treat both as optional **subscription CLIs** when installed and the **host is still
 Claude Code or Codex**.

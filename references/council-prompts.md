@@ -68,7 +68,9 @@ If this role is **review** / **lightweight_review** (or any critique of implemen
 - If a **constitution** exists, check deal-breaker flows/invariants that must still hold even when
   those areas were not the edit focus.
 - If you also helped **plan** in an earlier turn, the host should resume your **exact** session id
-  so you keep planning context; still re-read plan + constitution rather than relying on memory alone.
+  when available. If there is **no session id**, treat plan file, batch contract, execution log,
+  Survival Guide, and constitution (when present) as the planning context — as long as you can
+  read the repo. Still re-read those documents rather than relying on chat memory alone.
 ```
 
 ## Role Selector

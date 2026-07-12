@@ -150,6 +150,9 @@ Pin `requested_model` per tier in ignored `models.toml`. Prefer host-native vali
     after the first planning turn, capture the conversation UUID into the session registry
   - Host stores ids in the Cobbler session registry / Survival Guide route snapshot so compaction
     cannot drop them
+- **No session id?** Do not invent `latest`/`continue`. Rely on **repo documents** the agent can
+  read (plan, batch contract/execution log, Survival Guide, constitution, PR body, `.ai-docs`).
+  Session resume is a bonus; document visibility is the default continuity path.
 - **Review bar for Google (and all) lenses:** completeness vs plan+contract, **constitution**
   deal-breakers, and **regressions** (indirect breakage), not only local correctness of the diff
 
