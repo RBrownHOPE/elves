@@ -24,7 +24,7 @@ Never merge unless the user explicitly opts in after Final Readiness.
 
 ## Loop shape
 
-1. **Planning fan-out (read-only, concurrent):** host + optional Fable/Grok parent/Fugu (or native
+1. **Planning fan-out (read-only, concurrent):** host + optional configured independent reviewers (or native
    fallbacks). Same redacted context packet; no peer reports before synthesis.
 2. **Implementation lease:** one writer, one exact session, one detached worktree, allowed paths only.
 3. **Host audit/import:** binary patches, apply-check, validation, sanitized branch commits, push.
