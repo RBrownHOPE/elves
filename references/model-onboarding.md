@@ -19,19 +19,21 @@ runs the skill, owns the overnight loop, git/PR, gates, and run memory.
 Both supported hosts follow the same operator CLI (`plan` → `apply` → `show` → `probe`) and the
 same host-mediated protocol below. Do not invent different product rules per host.
 
-**Other tools are not Elves hosts.** Gemini CLI, Antigravity CLI, OpenCode, Muse, OpenRouter, Grok
-Build, AlphaEvolve, and similar may be **optional lenses or implement drivers** the host can call
-when installed. They may work; **that has not been our focus.** We do **not** claim Elves works as
-a full overnight system if OpenCode/Antigravity/etc. is the *skill host* (the process that owns
-the skill, PR, and loop).
+### Main driver vs work driver
 
-**Host vs implement driver:** Claude Code or Codex can **drive** an OpenCode (or Grok / Antigravity)
-session for the main coding block—prepare packet → launch headless agent → host validates/reviews.
-That *is* supported as an option. Running the Elves skill *inside* OpenCode as the overnight
-coordinator is not.
+| Term | Meaning | Default |
+| --- | --- | --- |
+| **Main driver** (orchestrator) | Runs Elves: skill, stage/start, Cobbler, git/PR, gates, survival guide, unattended loop | **Claude Code or Codex** only |
+| **Work driver** (laborer) | Does batch coding (and optionally plan/review lenses) under the main driver | host-native, or Grok / OpenCode / Antigravity / … |
 
-Prefer Claude Code or Codex as `host-native` for validate, synthesize, git/PR, and the unattended
-loop.
+**Yes — from inside the main driver you can assign the actual work to another tool.** Example: Claude
+Code is the main driver; OpenCode is the work driver using GLM via OpenRouter
+(`implement = opencode-labor`, `requested_model = openrouter/…/glm-…`). The main driver prepares the
+packet, launches/resumes the exact session, validates, reviews, and lands the PR.
+
+Other tools are **not** main drivers. We do **not** claim Elves works overnight if OpenCode or
+Antigravity is the process that owns the skill and loop. Prefer Claude Code or Codex as
+`host-native` for validate, synthesize, git/PR, and the unattended loop.
 
 ### Testing honesty and contributions
 

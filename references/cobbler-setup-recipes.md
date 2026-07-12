@@ -189,22 +189,30 @@ executable = "gemini"
 [OpenCode](https://opencode.ai) is an open-source terminal coding agent (TUI + `opencode run`
 headless)—Claude Code–like, with **OpenRouter** and 75+ providers (Qwen, GLM, etc.).
 
-### Two different “drivers”
+### Main driver vs work driver
 
-| Role | Who | OpenCode? |
+| Term | Who | OpenCode? |
 | --- | --- | --- |
-| **Elves host / orchestrator** | Runs the skill, Ralph loop, git/PR, gates, survival guide, Cobbler | **No** — still **Claude Code or Codex** only |
-| **Implement driver** | Does the main batch coding work under host control | **Yes** — `opencode-labor` / `implement prepare --adapter opencode-cli` |
+| **Main driver** (orchestrator) | Claude Code or Codex — owns Elves, git/PR, gates, Cobbler | **No** (not the skill host) |
+| **Work driver** (laborer) | Does the batch coding under that session | **Yes** — e.g. GLM 5.x via OpenRouter + OpenCode |
 
-So: you **can** make OpenCode do the bulk of the coding **if** Claude Code or Codex is still the
-session that stages, launches packets, validates, reviews, and lands the PR. That is the supported
-shape—host-driven OpenCode sessions—not “run Elves *inside* OpenCode as the skill host.”
+**Supported shape:** from Claude Code/Codex, set implement to OpenCode and pin an OpenRouter model:
 
 ```text
-Claude Code or Codex (Elves host)
-  → Cobbler / implement prepare|launch
-  → OpenCode run --auto  (main implement block, OpenRouter models)
-  → host gates, review, push, PR
+Main driver: Claude Code or Codex
+  → implement prepare|launch (or onboard implement = opencode-labor)
+  → Work driver: opencode run --auto --model openrouter/…/glm-…
+  → Main driver: validate, review, push, PR
+```
+
+Not supported as product default: running Elves *inside* OpenCode as the overnight main driver.
+
+```bash
+# Example: Codex/Claude Code orchestrates; OpenCode + GLM does the coding
+python3 scripts/cobbler_agents.py onboard apply --json \
+  --validate host-native --synthesize host-native \
+  --implement opencode-labor --force
+# .elves/models.toml → requested_model = "openrouter/<current-glm-slug>"
 ```
 
 ### Install / auth
