@@ -6,14 +6,24 @@ interviews the user; the CLI inventories, stores preferences, and probes.
 
 Native-only remains fully valid. Onboarding is optional.
 
-## Hosts
+## Supported hosts (main drivers)
 
-| Host | How to start |
+**Elves is designed and tested with Claude Code or Codex as the main driver** — the process that
+runs the skill, owns the overnight loop, git/PR, gates, and run memory.
+
+| Host | How to start onboarding |
 | --- | --- |
-| **Claude Code** | `/setup-cobbler` or natural language: “set up my model routes” / “onboard models” |
-| **Codex** | `$elves setup-cobbler` or natural language — **not** a top-level Codex slash command |
+| **Claude Code** (supported main driver) | `/setup-cobbler` or natural language: “set up my model routes” / “onboard models” |
+| **Codex** (supported main driver) | `$elves setup-cobbler` or natural language — **not** a top-level Codex slash command |
 
-Both hosts follow the same four steps. Do not invent different product rules per host.
+Both supported hosts follow the same four steps. Do not invent different product rules per host.
+
+**Other tools are not main drivers.** Gemini CLI, Antigravity CLI, Muse, OpenRouter, Grok Build,
+AlphaEvolve, and similar routes may be **optional lenses or helpers** the host can call when
+installed. They may work; **that has not been our focus.** We do **not** claim Elves works as a
+full overnight system if Antigravity (or another non-Claude/non-Codex product) is the primary host.
+Prefer Claude Code or Codex as `host-native` for validate, synthesize, git/PR, and the unattended
+loop.
 
 ## Operator CLI
 
@@ -57,7 +67,8 @@ Guide. Env var **names** only.
 | Synthesis | host-native | host-native only preferred |
 | Math evolutionary search | off | alphaevolve (when gcloud + project runner exist) |
 
-`host-native` means the **current** agent (Claude Code or Codex) owns that work.
+`host-native` means the **current supported host** (Claude Code or Codex) owns that work — not
+Antigravity, Gemini CLI, or another optional tool.
 
 ### Within-family model tiers (Claude and Codex)
 
@@ -98,7 +109,7 @@ profile = "claude-code-labor"
 
 Same pattern with `codex-fugu-planning` / `codex-fugu-labor`.
 
-### Google subscription CLIs (plan/review, not bulk labor)
+### Google subscription CLIs (optional plan/review only — not main drivers)
 
 | Route | Executable (typical) | Recommended purposes |
 | --- | --- | --- |
@@ -106,11 +117,16 @@ Same pattern with `codex-fugu-planning` / `codex-fugu-labor`.
 | `antigravity-cli` | `antigravity` (fallback `agy`) | planning, review, scout |
 
 Google is consolidating coding-agent surfaces around **Antigravity** (Gemini CLI transitions into
-that family). Treat both as optional **subscription CLIs** when installed.
+that family). Treat both as optional **subscription CLIs** when installed and the **host is still
+Claude Code or Codex**.
 
-**Cost guidance:** these are usually **not** cost-effective as the main overnight implement engine.
-Prefer host-native or labor-tier Claude/Codex (or optional Grok implement) for bulk batch coding;
-use Gemini/Antigravity as independent plan/review lenses when you already pay for the subscription.
+**Not a supported Elves host.** Do not treat Antigravity or Gemini CLI as the main overnight driver.
+Support for them as the primary runtime is not our focus; paths may work as called tools, but they
+are best-effort optional routes.
+
+**Cost guidance:** usually **not** cost-effective as the main overnight implement engine. Prefer
+host-native or labor-tier Claude/Codex (or optional Grok implement) for bulk batch coding; use
+Gemini/Antigravity as independent plan/review lenses when you already pay for the subscription.
 
 ## Host agent protocol
 

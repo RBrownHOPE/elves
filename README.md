@@ -6,13 +6,13 @@
 
 Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default coordinator inside Elves: it decides whether to answer directly, ask independent reviewers, assign scoped worker agents, or record a run decision, then returns one clear recommendation.
 
-**Current release: v1.20.2.** Vanilla path is unchanged: **Claude Code or Codex out of the box**
-with Cobbler coordinating natively — no Grok, OpenRouter, Sakana, or multi-provider council
-required. Optional tools (extra models for plan/review, Grok Build as a batch implementer,
-stricter host-import writer lease) are capability upgrades when you already have them, same idea as
-the math module’s optional providers. Operator helpers live under
-`python3 scripts/cobbler_agents.py` (`implement …` / `worker …`). Built on v1.20.1 Cobbler runtime
-hardening. See [`CHANGELOG.md`](CHANGELOG.md).
+**Current release: v1.20.2.** Vanilla path is unchanged: **Claude Code or Codex as the main
+driver**, out of the box, with Cobbler coordinating natively — no Grok, OpenRouter, Sakana, or
+multi-provider council required. Optional tools (Gemini/Antigravity/Muse/OpenRouter for
+plan/review, Grok implement, AlphaEvolve, host-import writer lease) may help when you already have
+them; **that is not our focus** and is not a claim those products work as the Elves host. Operator
+helpers live under `python3 scripts/cobbler_agents.py`. Built on v1.20.1 Cobbler runtime hardening.
+See [`CHANGELOG.md`](CHANGELOG.md) and [`references/model-onboarding.md`](references/model-onboarding.md).
 
 You write the plan and own the merge decision. The agent does everything in between.
 

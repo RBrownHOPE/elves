@@ -110,8 +110,10 @@ Pin `requested_model` per tier in ignored `models.toml`. Prefer host-native vali
 
 ## Recipe: Google Gemini CLI / Antigravity CLI (plan/review only)
 
+- **Not a supported Elves host.** Claude Code or Codex must still be the main driver (`host-native`
+  for the loop). Paths as optional lenses may work; that has not been our focus.
 - Inventory: `gemini` and/or `antigravity` (fallback `agy`) on PATH
-- **Use for:** planning, independent review, scout
+- **Use for:** planning, independent review, scout (called *by* Claude Code / Codex)
 - **Avoid as default bulk implement** — usually not cost-effective for the main overnight batch
 - Profiles: `gemini-cli`, `antigravity-cli`
 - Fallback: `host-native`

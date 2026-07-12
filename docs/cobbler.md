@@ -165,8 +165,10 @@ and `/elves-council`. Codex supports `$elves council: <task>` and natural Counci
 
 ## External-agent setup and model onboarding
 
-Setup is optional. Native-only Elves needs no external tools or keys. **Claude Code and Codex**
-share one onboarding protocol (`references/model-onboarding.md`):
+Setup is optional. Native-only Elves needs no external tools or keys. **Supported main drivers are
+Claude Code and Codex** — they run Elves. Other CLIs (Antigravity, Gemini, etc.) are optional
+routes only; running Elves with those as the primary host is not our focus.
+**Claude Code and Codex** share one onboarding protocol (`references/model-onboarding.md`):
 
 ```bash
 python3 scripts/cobbler_agents.py onboard plan --json    # interview packet

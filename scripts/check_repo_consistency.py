@@ -1733,6 +1733,7 @@ IMPLEMENTATION_LANES_PHRASES = {
 SETUP_COBBLER_PHRASES = {
     "SKILL.md": [
         "### External-agent setup and model onboarding",
+        "Supported main drivers are Claude Code and Codex only",
         "/setup-cobbler",
         "/setup-council",
         "$elves setup-cobbler",
@@ -1746,6 +1747,7 @@ SETUP_COBBLER_PHRASES = {
     ],
     "AGENTS.md": [
         "### External-agent setup and model onboarding",
+        "Supported main drivers are Claude Code and Codex only",
         "/setup-cobbler",
         "/setup-council",
         "$elves setup-cobbler",
@@ -1793,6 +1795,8 @@ SETUP_COBBLER_PHRASES = {
     "references/model-onboarding.md": [
         "Model Onboarding",
         "Claude Code + Codex",
+        "Supported hosts (main drivers)",
+        "not been our focus",
         "onboard plan",
         "onboard apply",
         "onboard probe",
