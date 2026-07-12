@@ -215,3 +215,30 @@ Assess:
 Return a formalization-readiness report. Do not claim formal verification unless code has actually
 been written and checked by the proof assistant.
 ```
+
+## Evolutionary Search (AlphaEvolve / similar)
+
+```text
+You are designing or interpreting a bounded evolutionary program search for mathematical scouting
+(e.g. Google Cloud AlphaEvolve with a local deterministic evaluator).
+
+Hypothesis or inequality under test: [STATEMENT]
+Evolvable object: [what the seed program may mutate]
+Legality constraints: [deterministic checks]
+Metric: [what a better score means]
+Route: [alphaevolve:<task-id> / project wrapper / unavailable]
+
+Decide:
+1. Whether a finite evaluator exists (if not, stop and say so).
+2. What event the metric should reward (do not discard the event you are hunting).
+3. What must be preserved (phases, symmetries, exact structure).
+4. How winners will be independently replayed (grid, precision, full-domain check).
+5. What a positive result would mean: example family, numerical obstruction, or nothing yet.
+
+Return:
+- GO with seed/evaluator/metric sketch, or NO-GO with the missing finite evaluator;
+- promotion rule: independent local replay only;
+- ledger entries for model-calls and open-questions if a run proceeds.
+
+Never treat evolutionary search output as a proof.
+```

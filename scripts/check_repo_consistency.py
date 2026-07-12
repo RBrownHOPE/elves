@@ -461,6 +461,8 @@ MATH_MODULE_PHRASES = {
         "Discovery Sprint",
         "Native host subagents or direct analysis are the default",
         "useful optional math role preset",
+        "Google Cloud AlphaEvolve",
+        "math-alphaevolve.md",
         "Never treat model output",
     ],
     "AGENTS.md": [
@@ -469,6 +471,8 @@ MATH_MODULE_PHRASES = {
         "Discovery Sprint",
         "Native host subagents or direct analysis are the default",
         "useful optional math role preset",
+        "Google Cloud AlphaEvolve",
+        "math-alphaevolve.md",
         "Never treat model output",
     ],
     "README.md": [
@@ -477,6 +481,7 @@ MATH_MODULE_PHRASES = {
         "Discovery Sprint",
         "references/math-workflow.md",
         "references/math-provider-config.md",
+        "references/math-alphaevolve.md",
         "references/math-artifact-ledgers.md",
     ],
     "references/survival-guide-template.md": [
@@ -504,11 +509,14 @@ MATH_MODULE_PHRASES = {
         "## Cross-Pollination",
         "## Claim Lifecycle",
         "math-artifact-ledgers.md",
+        "math-alphaevolve.md",
+        "Evolutionary example search",
     ],
     "references/math-plan-template.md": [
         "## Batch 1: Discovery Sprint",
         "algebraic/combinatorial analogs",
         "Every `quick_win` item has a plausible proof path",
+        "evolutionary_search: alphaevolve",
     ],
     "references/math-provider-config.md": [
         "Cobbler-managed domain-workflow setting",
@@ -517,12 +525,23 @@ MATH_MODULE_PHRASES = {
         "native-first-with-optional-external-routes",
         "OPENROUTER_API_KEY",
         "record-before-switching-provider",
+        "evolutionary_search",
+        "math-alphaevolve.md",
+    ],
+    "references/math-alphaevolve.md": [
+        "Google Cloud **AlphaEvolve**",
+        "not a proof engine",
+        "evolutionary_search",
+        "independent-local-replay-only",
+        "gcloud-impersonation",
+        "deterministic local evaluator",
     ],
     "references/math-review-prompts.md": [
         "## Subfield Scout",
         "## Proof Critic",
         "## Source Auditor",
         "## Formalization Scout",
+        "## Evolutionary Search (AlphaEvolve / similar)",
     ],
     "references/math-artifact-ledgers.md": [
         "domain evidence ledgers",
@@ -530,6 +549,7 @@ MATH_MODULE_PHRASES = {
         "## Source Ledger",
         "## Model-Call Ledger",
         "## Human-Verification Ledger",
+        "alphaevolve:<task-id>",
     ],
     "config.json.example": [
         '"math"',
@@ -537,6 +557,8 @@ MATH_MODULE_PHRASES = {
         '"provider_policy": "native-first-with-optional-external-routes"',
         '"required_env": []',
         '"subfield_scout"',
+        '"evolutionary_search"',
+        '"alphaevolve"',
         '"fallback_policy": "record-before-switching-provider"',
     ],
 }

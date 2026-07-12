@@ -20,7 +20,8 @@ Map the general Cobbler loop onto math work like this:
 - **Intent:** classify the request as discovery, source grounding, theorem drafting, proof attack,
   derivation check, manuscript work, or final packet review.
 - **Capability scan:** inspect available sources, math ledgers, host subagents, configured role
-  routes, search tools, formalization tools, and user verification requirements.
+  routes, search tools, formalization tools, optional evolutionary search (e.g. AlphaEvolve when
+  configured), and user verification requirements.
 - **Route and medium selection:** choose scout lanes, critic roles, source-audit passes, direct
   derivation checks, or manuscript editing, then decide whether the output belongs in chat, a proof
   note, a ledger, a PR comment, or a handoff packet.
@@ -84,6 +85,11 @@ are:
   shadows, extremal constructions.
 - **Numerical experimentation:** asymptotics, model examples, counterexample search, symbolic
   simplification.
+- **Evolutionary example search (optional):** when configured, Google Cloud AlphaEvolve (or a
+  similar evolutionary-programming tool) with a deterministic local evaluator to hunt high-quality
+  examples, extremal families, and counterexample *signals*. See
+  [`math-alphaevolve.md`](math-alphaevolve.md). Not a proof engine; promote only after independent
+  local replay.
 - **Formalization prospects:** theorem statement hygiene, reusable lemmas, possible Lean/Coq/Isabelle
   entry points.
 
@@ -180,6 +186,7 @@ A math run is review-ready only when:
 - unresolved risks are explicit;
 - all retained mathematical claims have human-verification status, or are clearly marked as draft.
 
-Use [`math-artifact-ledgers.md`](math-artifact-ledgers.md) for ledger formats and
+Use [`math-artifact-ledgers.md`](math-artifact-ledgers.md) for ledger formats,
 [`math-review-prompts.md`](math-review-prompts.md) for reusable scout, critic, audit, and
-manuscript-review prompts.
+manuscript-review prompts, and [`math-alphaevolve.md`](math-alphaevolve.md) when evolutionary
+example / counterexample search is in scope.

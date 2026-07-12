@@ -261,13 +261,25 @@
       "derivation_checker": "native-subagent",
       "source_auditor": "native-subagent",
       "exposition_editor": "native-subagent",
-      "formalization_scout": "native-subagent"
+      "formalization_scout": "native-subagent",
+      "evolutionary_search": "off"
     },
+    "optional_tools": [
+      "alphaevolve"
+    ],
     "external_route_examples": {
       "subfield_scout": "openrouter:<model-id>",
-      "proof_critic": "openrouter:<model-id>"
+      "proof_critic": "openrouter:<model-id>",
+      "evolutionary_search": "alphaevolve:<task-id>"
+    },
+    "alphaevolve": {
+      "enabled": false,
+      "auth": "gcloud-impersonation",
+      "artifact_dir": "alphaevolve_runs",
+      "promote_policy": "independent-local-replay-only",
+      "notes": "Optional Google Cloud AlphaEvolve for numerical examples/counterexample signals; not a proof engine. Prefer short-lived gcloud impersonation; never store service-account keys in the repo."
     },
     "fallback_policy": "record-before-switching-provider",
-    "_comment": "Optional math research workflow configuration. Math is a Cobbler-managed domain workflow. Configure role slots in your project survival guide; do not hardcode private keys or provider secrets. OPENROUTER_API_KEY is optional unless a project survival guide explicitly requires it."
+    "_comment": "Optional math research workflow configuration. Math is a Cobbler-managed domain workflow. Configure role slots in your project survival guide; do not hardcode private keys or provider secrets. OPENROUTER_API_KEY and AlphaEvolve are optional unless a project survival guide explicitly requires them."
   }
 }

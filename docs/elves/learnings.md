@@ -106,6 +106,10 @@ silently deleting it.
   **`muse-spark-1.1`**, preset e.g. `meta-muse-spark11`. Independent read-only lanes only; pin the
   Meta catalog id (not assumed aliases); native fallback when key/wrapper missing; never sole
   authority. Recipes: `references/cobbler-setup-recipes.md`, `references/council-provider-config.md`.
+- [2026-07-12] Google Cloud AlphaEvolve is an optional math-module evolutionary-search lane for
+  numerical examples / counterexample signals: managed mutation + local deterministic evaluator,
+  gcloud impersonation (no SA keys), independent replay before promotion. Role
+  `evolutionary_search`. Not a proof engine. Guide: `references/math-alphaevolve.md`.
 - [2026-07-12] When the user *does* have Grok Build and wants it, prefer
   `implementation_lane: fast` with one whole-batch launch
   (`--prompt-file <packet> --yolo --effort medium`, session create/resume, sensible `--max-turns`)

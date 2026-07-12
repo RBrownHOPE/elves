@@ -23,6 +23,17 @@ All notable changes to the Elves skill are documented here.
   authority. Recipes in `references/cobbler-setup-recipes.md` and
   `references/council-provider-config.md`.
 
+### Docs: Google AlphaEvolve in the math module
+
+- Added optional math role `evolutionary_search` and
+  [`references/math-alphaevolve.md`](references/math-alphaevolve.md) for Google Cloud AlphaEvolve:
+  managed program mutation + **deterministic local evaluator** for high-quality examples and
+  counterexample *signals* (not proofs).
+- Pattern from production math runs: gcloud impersonation (no long-lived keys), sandbox candidates,
+  independent local replay before promotion, artifacts under `alphaevolve_runs/`.
+- Wired into math workflow, provider config, plan/survival templates, ledgers, review prompts, and
+  setup recipes. Still optional; missing AlphaEvolve never blocks native Discovery Sprint.
+
 ## [1.20.2] - 2026-07-12
 
 ### Optional external batch implementer

@@ -96,10 +96,13 @@ verification burden, and likely value to a human mathematician.
 The math workflow is configurable. Native host subagents or direct analysis are the default
 fallback. OpenRouter is a useful optional math role preset because it gives broad model access
 through one key; native Gemini, Claude, xAI, OpenAI, Exa, or local tools can also be configured as
-role-specific upgrades. Missing optional provider access never blocks ordinary Cobbler use or a math
-Discovery Sprint; note the fallback and confidence change in the ledgers. Never treat model output
-as mathematical authority: models may propose ideas, critique derivations, audit sources, and
-improve exposition, but claims remain unverified until a human records the proof and source checks.
+role-specific upgrades. Google Cloud AlphaEvolve is an optional evolutionary-search tool for
+high-quality numerical examples and counterexample signals when a project runner and deterministic
+evaluator exist (`references/math-alphaevolve.md`); it is not a proof engine and is never required.
+Missing optional provider access never blocks ordinary Cobbler use or a math Discovery Sprint; note
+the fallback and confidence change in the ledgers. Never treat model output as mathematical
+authority: models may propose ideas, critique derivations, audit sources, and improve exposition,
+but claims remain unverified until a human records the proof and source checks.
 
 ## Cobbler
 

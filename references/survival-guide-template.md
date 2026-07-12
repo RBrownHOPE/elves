@@ -532,17 +532,28 @@ math-role-models:
   source_auditor: native-subagent
   exposition_editor: native-subagent
   formalization_scout: native-subagent
+  evolutionary_search: off
+math-optional-tools:
+  # - alphaevolve
 math-external-route-examples:
   # subfield_scout: openrouter:<model-id>
   # proof_critic: openrouter:<model-id>
+  # evolutionary_search: alphaevolve:<task-id>
+math-alphaevolve:
+  enabled: false
+  auth: gcloud-impersonation
+  artifact_dir: alphaevolve_runs
+  promote_policy: independent-local-replay-only
 math-fallback-policy: record-before-switching-provider
 math-ledger-dir: docs/math
 ```
 
 OpenRouter is a useful optional math role preset for broad model diversity, but do not make
 `OPENROUTER_API_KEY` required unless the user explicitly sets that requirement for this math run.
-If provider routes are missing, use host-native subagents or direct analysis and record the
-fallback in the model-call ledger.
+Google Cloud AlphaEvolve is an optional evolutionary-search tool for numerical examples and
+counterexample signals when a project runner exists (`references/math-alphaevolve.md`); it is never
+required and never a proof engine. If provider routes are missing, use host-native subagents or
+direct analysis and record the fallback in the model-call ledger.
 
 ### Cobbler Coordination Defaults
 

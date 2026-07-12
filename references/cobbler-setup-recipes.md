@@ -181,6 +181,19 @@ fallback_chain = [
 ]
 ```
 
+## Recipe: Google Cloud AlphaEvolve (math evolutionary search; experimental)
+
+Optional **math-module** tool for generating high-quality numerical examples and counterexample
+signals. Not a chat lane and not a proof engine. Full operating rules:
+[`math-alphaevolve.md`](math-alphaevolve.md).
+
+- Requires project-owned runner + deterministic local evaluator (geometry-exploration shape:
+  `tools/alphaevolve_<task>.py` + independent replay)
+- Auth: short-lived **gcloud service-account impersonation**; no service-account keys in the repo
+- Role slot: `evolutionary_search` / route `alphaevolve:<task-id>`
+- Promote only after independent local replay; ledger as numerical signal
+- Missing GCP / runner → skip; never block native math Discovery Sprint
+
 ## Recipe: future Google / Antigravity tools (custom)
 
 - Add a `custom-cli` profile with your executable
