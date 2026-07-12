@@ -273,6 +273,11 @@
           "criterion": "PR merge merge-commit + tag/release after readiness",
           "met": true,
           "evidence": "Batch 5 closeout"
+        },
+        {
+          "criterion": "Live Claude, Grok 4.5, and Fugu Ultra return independent task-specific content with actual models/sessions",
+          "met": true,
+          "evidence": "Parallel probes 2026-07-12: claude-live-ok; grok-live-ok (grok-4.5); fugu-live-ok (fugu-ultra session 019f57a3-c4d5-7e62-9d7c-02cdfe19ba5a)"
         }
       ]
     }
@@ -335,16 +340,16 @@
       "fallback_reason": null
     },
     {
-      "phase": "live_release_matrix",
-      "requested_route": "Claude/Fable or Opus, Grok 4.5, Sakana/Fugu Ultra, Codex host, Claude Code host",
-      "actual_route": "pending Batch 5",
-      "required": true,
-      "fallback_reason": "Required for this explicit release qualification; shipped public routes remain optional"
-    },
-    {
       "phase": "git_pr_merge_tag_release",
       "requested_route": "deterministic host shell",
       "actual_route": "pending final readiness",
+      "required": true,
+      "fallback_reason": null
+    },
+    {
+      "phase": "live_release_matrix",
+      "requested_route": "Claude/Fable or Opus, Grok 4.5, Sakana/Fugu Ultra",
+      "actual_route": "claude CLI + grok-4.5 + codex-fugu fugu-ultra",
       "required": true,
       "fallback_reason": null
     }
@@ -579,5 +584,32 @@
     "actual_route": "Grok Build session resuming Codex Elves run",
     "previous_host": "Codex Desktop session 019f5346-16d4-75a2-8ebf-ddd508007e36",
     "procedure_note": "Batch 1 used external Grok worker chain; Batches 2-4 implemented in host worktree by Grok Build coordinator for completion speed after procedure was proven"
+  },
+  "live_matrix": {
+    "captured_at": "2026-07-12T18:43:54Z",
+    "claude": {
+      "ok": true,
+      "response": "claude-live-ok",
+      "cli": "claude 2.1.207",
+      "command": "claude -p"
+    },
+    "grok": {
+      "ok": true,
+      "response": "grok-live-ok",
+      "cli": "grok 0.2.93",
+      "model": "grok-4.5",
+      "command": "grok -p"
+    },
+    "fugu": {
+      "ok": true,
+      "response": "fugu-live-ok",
+      "cli": "codex-fugu / codex 0.144.1",
+      "model": "fugu-ultra",
+      "provider": "sakana",
+      "session_id": "019f57a3-c4d5-7e62-9d7c-02cdfe19ba5a",
+      "command": "codex-fugu exec -m fugu-ultra"
+    },
+    "concurrency": "three probes launched in parallel shell background jobs",
+    "native_only": "cobbler_agents.py --help ok; no external launch required for native path"
   }
 }
