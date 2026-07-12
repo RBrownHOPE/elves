@@ -1,8 +1,8 @@
 """Cobbler external-agent runtime foundations.
 
 Typed contracts, config resolution, capability records, read-only adapter
-builders, context redaction, parallel council dispatch, and exact session
-registry/usage ledger. Writer leases land in a later batch.
+builders, context redaction, parallel council dispatch, exact session
+registry/usage ledger, and single external writer lease/audit.
 """
 
 from .schema import (

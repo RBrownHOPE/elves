@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -631,4 +631,135 @@ def build_session_resume_invocation(
         notes="custom exact session resume",
     )
     assert_no_ambiguous_session_flags(inv.argv)
+    return inv
+
+
+# --- Write-capable profiles (Batch 4) -------------------------------------
+
+GROK_WRITE_FORBIDDEN_ARGV_TOKENS: tuple[str, ...] = (
+    "--dangerously-skip-permissions",
+    "bypassPermissions",
+    "--yolo",
+    "--always-approve",
+)
+
+
+@dataclass(frozen=True)
+class WriteCapabilityProfile:
+    """Versioned write capability profile for an adapter."""
+
+    adapter: str
+    profile_name: str
+    version: str | None
+    qualified: bool
+    detached_commits_permitted: bool
+    require_detached_worktree: bool
+    require_cwd_verification: bool
+    require_worktree_registration: bool
+    forbid_headless_worktree_resume: bool
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def grok_write_profile(version: str | None = "0.2.93") -> WriteCapabilityProfile:
+    """Qualified Grok write profile with fail-closed isolation rules."""
+    broken = version in {"0.2.93"} or version is None
+    return WriteCapabilityProfile(
+        adapter="grok-build",
+        profile_name="grok-build-write",
+        version=version,
+        qualified=True,
+        detached_commits_permitted=True,
+        require_detached_worktree=True,
+        require_cwd_verification=True,
+        require_worktree_registration=True,
+        forbid_headless_worktree_resume=broken or True,  # always forbid as isolation claim
+        notes=(
+            "Never use headless --worktree --resume as isolation for Grok Build 0.2.93; "
+            "discover child session id and resume from registered detached worktree. "
+            "Detached commits are untrusted handoff boundaries only."
+        ),
+    )
+
+
+def workspace_sandbox_write_profile() -> WriteCapabilityProfile:
+    """Negative fixture: workspace sandbox is not assumed commit-capable."""
+    return WriteCapabilityProfile(
+        adapter="grok-build",
+        profile_name="grok-build-workspace-sandbox",
+        version="0.2.93",
+        qualified=False,
+        detached_commits_permitted=False,
+        require_detached_worktree=True,
+        require_cwd_verification=True,
+        require_worktree_registration=True,
+        forbid_headless_worktree_resume=True,
+        notes=(
+            "workspace sandbox linked worktree cannot be assumed commit-capable; "
+            "use devbox (or equivalent) for detached commit handoff"
+        ),
+    )
+
+
+def build_write_resume_invocation(
+    *,
+    adapter: str,
+    session_id: str,
+    cwd: str,
+    version: str | None = None,
+    executable: str | None = None,
+    requested_model: str | None = None,
+    use_headless_worktree_resume: bool = False,
+) -> AdapterInvocation:
+    """Build a write-role resume argv with structural deny rules."""
+    if adapter != "grok-build":
+        # Reuse exact resume for other adapters; write qualification is lease-side.
+        return build_session_resume_invocation(
+            adapter=adapter,
+            profile=adapter,
+            session_id=session_id,
+            executable=executable,
+            requested_model=requested_model,
+            cwd=cwd,
+        )
+
+    profile = grok_write_profile(version)
+    if use_headless_worktree_resume and profile.forbid_headless_worktree_resume:
+        raise ValidationIssue(
+            "grok_headless_worktree_resume_forbidden",
+            (
+                f"Grok write profile forbids headless --worktree --resume as isolation "
+                f"(version={version or 'unknown'})"
+            ),
+            hint="Resume exact child id from the registered worktree CWD only",
+        )
+    if not cwd or not str(cwd).strip():
+        raise ValidationIssue(
+            "write_cwd_required",
+            "Write resume requires verified worker CWD/worktree path",
+        )
+
+    inv = build_session_resume_invocation(
+        adapter="grok-build",
+        profile=profile.profile_name,
+        session_id=session_id,
+        executable=executable,
+        requested_model=requested_model,
+        cwd=cwd,
+    )
+    joined = " ".join(inv.argv)
+    for token in GROK_WRITE_FORBIDDEN_ARGV_TOKENS:
+        if token in inv.argv or token in joined:
+            raise ValidationIssue(
+                "write_permission_bypass_forbidden",
+                f"Write invocation contains forbidden token `{token}`",
+            )
+    # Explicitly reject worktree+resume combo in argv for isolation claims.
+    if "--worktree" in inv.argv and "--resume" in inv.argv:
+        raise ValidationIssue(
+            "grok_headless_worktree_resume_forbidden",
+            "Combined --worktree and --resume is not permitted as isolation",
+        )
     return inv

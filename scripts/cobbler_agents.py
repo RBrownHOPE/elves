@@ -8,9 +8,10 @@ Commands:
   lightweight-review [--json]
                              Single bounded utility review (not a council vote)
   session list|probe|resume  Exact persistent session registry helpers
+  worker prepare|audit|export|refresh
+                             Single external writer lease lifecycle (host-owned)
 
-Writer leases land in later batches. This entry point stays thin; implementation
-lives under scripts/cobbler_runtime/.
+This entry point stays thin; implementation lives under scripts/cobbler_runtime/.
 """
 
 from __future__ import annotations
@@ -27,7 +28,16 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from cobbler_runtime.adapters import (  # noqa: E402
     build_session_resume_invocation,
+    build_write_resume_invocation,
+    grok_write_profile,
     registry_snapshot,
+    workspace_sandbox_write_profile,
+)
+from cobbler_runtime.audit import (  # noqa: E402
+    audit_lease_turn,
+    export_binary_patches,
+    host_apply_check,
+    pre_turn_snapshots,
 )
 from cobbler_runtime.capabilities import (  # noqa: E402
     doctor_inventory,
@@ -42,6 +52,7 @@ from cobbler_runtime.dispatch import (  # noqa: E402
     run_council_sync,
     run_lightweight_review_sync,
 )
+from cobbler_runtime.leases import LeaseStore, build_write_task_packet  # noqa: E402
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.sessions import SessionRegistry  # noqa: E402
 
@@ -240,6 +251,149 @@ def cmd_session(args: argparse.Namespace) -> int:
         return 0
 
     print(f"unknown session action: {action}", file=sys.stderr)
+    return 2
+
+
+def cmd_worker(args: argparse.Namespace) -> int:
+    """Writer lease prepare/audit/export/refresh — host-owned lifecycle."""
+    repo_root = _repo_root_from_args(args)
+    store = LeaseStore(repo_root)
+    action = args.worker_action
+
+    try:
+        if action == "prepare":
+            profile = grok_write_profile(args.grok_version)
+            if args.sandbox_profile == "workspace":
+                profile = workspace_sandbox_write_profile()
+            lease = store.prepare(
+                lease_id=args.lease_id,
+                host_checkout=Path(args.host_checkout),
+                worker_checkout=Path(args.worker_checkout),
+                session_id=args.session_id,
+                base_head=args.base_head,
+                adapter=args.adapter,
+                profile=args.profile,
+                allowed_paths=list(args.allowed_path or []),
+                sandbox_profile=args.sandbox_profile,
+                detached_commits_permitted=profile.detached_commits_permitted,
+                write_profile_qualified=profile.qualified and not args.unqualified,
+                grok_version=args.grok_version,
+            )
+            store.activate(lease.lease_id)
+            # Capture pre-turn snapshots beside lease record for later audit.
+            snaps = pre_turn_snapshots(Path(lease.worker_checkout))
+            snap_path = Path(repo_root) / ".elves" / "runtime" / "leases" / f"{lease.lease_id}.pre.json"
+            snap_path.write_text(json.dumps(snaps, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            inv = None
+            if args.adapter == "grok-build":
+                inv = build_write_resume_invocation(
+                    adapter="grok-build",
+                    session_id=args.session_id,
+                    cwd=args.worker_checkout,
+                    version=args.grok_version,
+                ).to_dict()
+            payload = {
+                "ok": True,
+                "lease": store.get(lease.lease_id).to_dict(),
+                "write_resume_invocation": inv,
+                "pre_snapshots": snaps,
+                "mutated_repo": False,
+            }
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(f"worker prepare: {lease.lease_id} ACTIVE")
+            return 0
+
+        if action == "audit":
+            lease = store.get(args.lease_id)
+            store.mark_auditing(lease.lease_id)
+            pre_path = (
+                Path(repo_root) / ".elves" / "runtime" / "leases" / f"{args.lease_id}.pre.json"
+            )
+            pre = {}
+            if pre_path.is_file():
+                pre = json.loads(pre_path.read_text(encoding="utf-8"))
+            result = audit_lease_turn(
+                store.get(args.lease_id),
+                pre_refs_digest=pre.get("refs_digest"),
+                pre_remotes=pre.get("remotes"),
+                pre_config=pre.get("config"),
+                pre_hooks=pre.get("hooks"),
+                observed_commands=list(args.observed_command or []),
+            )
+            if not result.ok:
+                store.reject(args.lease_id, "; ".join(result.reasons))
+            payload = {"ok": result.ok, "audit": result.to_dict(), "mutated_repo": False}
+            if args.json:
+                return _emit_json(payload, exit_code=0 if result.ok else 1)
+            print(f"worker audit: {'OK' if result.ok else 'FAILED'}")
+            for reason in result.reasons:
+                print(f"  - {reason}")
+            return 0 if result.ok else 1
+
+        if action == "export":
+            lease = store.get(args.lease_id)
+            out = Path(args.output_dir)
+            audit = audit_lease_turn(lease)
+            if not audit.ok:
+                store.reject(args.lease_id, "; ".join(audit.reasons))
+                payload = {"ok": False, "audit": audit.to_dict()}
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print("worker export: FAILED audit", file=sys.stderr)
+                return 1
+            patches = export_binary_patches(
+                lease,
+                output_dir=out,
+                chain=audit.commit_chain,
+            )
+            store.mark_exported(args.lease_id, str(out))
+            apply_result = None
+            if args.host_apply_check:
+                apply_result = host_apply_check(
+                    Path(lease.host_checkout),
+                    patches,
+                    base_head=lease.base_head,
+                )
+            payload = {
+                "ok": True,
+                "patches": [str(p) for p in patches],
+                "audit": audit.to_dict(),
+                "host_apply_check": apply_result,
+                "mutated_repo": False,
+                "note": "Host creates sanitized branch commits after apply-check",
+            }
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(f"worker export: {len(patches)} patch(es) -> {out}")
+            return 0
+
+        if action == "refresh":
+            store.mark_integrated(args.lease_id)
+            result = store.refresh_worker_to_tip(args.lease_id, new_tip=args.new_tip)
+            store.close(args.lease_id)
+            payload = {"ok": True, "refresh": result, "mutated_repo": False}
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(f"worker refresh: tip={result['worker_tip']}")
+            return 0
+
+        if action == "packet":
+            lease = store.get(args.lease_id)
+            packet = build_write_task_packet(lease, task=args.task)
+            if args.json:
+                return _emit_json({"ok": True, "packet": packet}, exit_code=0)
+            print(json.dumps(packet, indent=2, sort_keys=True))
+            return 0
+
+    except ValidationIssue as issue:
+        payload = {"ok": False, "issues": [issue.to_dict()]}
+        if args.json:
+            return _emit_json(payload, exit_code=1)
+        print(f"worker {action}: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+        return 1
+
+    print(f"unknown worker action: {action}", file=sys.stderr)
     return 2
 
 
@@ -445,6 +599,74 @@ def build_parser() -> argparse.ArgumentParser:
     session_resume.add_argument("--model", default=None, help="Requested model")
     session_resume.add_argument("--cwd", default=None, help="Verified CWD/worktree path")
     session_resume.set_defaults(func=cmd_session)
+
+    worker = sub.add_parser(
+        "worker",
+        help="Single external writer lease lifecycle (host-owned import)",
+    )
+    worker_sub = worker.add_subparsers(dest="worker_action", required=True)
+
+    w_prepare = worker_sub.add_parser("prepare", help="Create exclusive writer lease after preflight")
+    _add_common_flags(w_prepare)
+    w_prepare.add_argument("--lease-id", required=True)
+    w_prepare.add_argument("--host-checkout", required=True)
+    w_prepare.add_argument("--worker-checkout", required=True)
+    w_prepare.add_argument("--session-id", required=True)
+    w_prepare.add_argument("--base-head", required=True)
+    w_prepare.add_argument("--adapter", default="grok-build")
+    w_prepare.add_argument("--profile", default="grok-build-write")
+    w_prepare.add_argument("--sandbox-profile", default="devbox")
+    w_prepare.add_argument("--allowed-path", action="append", default=[])
+    w_prepare.add_argument("--grok-version", default="0.2.93")
+    w_prepare.add_argument(
+        "--unqualified",
+        action="store_true",
+        help="Mark write profile unqualified (should fail)",
+    )
+    w_prepare.set_defaults(func=cmd_worker)
+
+    w_audit = worker_sub.add_parser("audit", help="Post-turn audit of worker checkout")
+    _add_common_flags(w_audit)
+    w_audit.add_argument("--lease-id", required=True)
+    w_audit.add_argument(
+        "--observed-command",
+        action="append",
+        default=[],
+        help="Command observed during the turn (repeatable)",
+    )
+    w_audit.set_defaults(func=cmd_worker)
+
+    w_export = worker_sub.add_parser(
+        "export",
+        help="Export binary patches and optional host apply --check",
+    )
+    _add_common_flags(w_export)
+    w_export.add_argument("--lease-id", required=True)
+    w_export.add_argument("--output-dir", required=True)
+    w_export.add_argument(
+        "--host-apply-check",
+        action="store_true",
+        help="Run git apply --check --index on host checkout",
+    )
+    w_export.set_defaults(func=cmd_worker)
+
+    w_refresh = worker_sub.add_parser(
+        "refresh",
+        help="After integration, move clean detached worker to new host tip",
+    )
+    _add_common_flags(w_refresh)
+    w_refresh.add_argument("--lease-id", required=True)
+    w_refresh.add_argument("--new-tip", required=True)
+    w_refresh.set_defaults(func=cmd_worker)
+
+    w_packet = worker_sub.add_parser(
+        "packet",
+        help="Emit write-task packet JSON for an existing lease",
+    )
+    _add_common_flags(w_packet)
+    w_packet.add_argument("--lease-id", required=True)
+    w_packet.add_argument("--task", required=True)
+    w_packet.set_defaults(func=cmd_worker)
 
     return parser
 
