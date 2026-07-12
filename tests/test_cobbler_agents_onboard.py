@@ -352,6 +352,83 @@ class ApplyAndProbeTests(unittest.TestCase):
             self.assertEqual(review_probes[0]["status"], "pass")
             self.assertIn("fake-muse-wrapper", review_probes[0]["detail"])
 
+    def test_probe_resolves_relative_executable_against_repo_root(self) -> None:
+        """Relative profile executables must probe against repo_root, not process cwd."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            wrapper = scripts / "relative-lens.py"
+            wrapper.write_text(
+                "#!/bin/sh\necho 'relative lens help'\nexit 0\n",
+                encoding="utf-8",
+            )
+            wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR)
+            elves = root / ".elves"
+            elves.mkdir()
+            (elves / "models.toml").write_text(
+                textwrap.dedent(
+                    """\
+                    sharing_policy = "local-only"
+                    document_owner = "host-coordinator"
+                    session_mode_default = "ephemeral"
+
+                    [profiles.openrouter-lens]
+                    adapter = "custom-cli"
+                    executable = "scripts/relative-lens.py"
+
+                    [profiles.host-native]
+                    adapter = "host-native"
+
+                    [roles.review]
+                    profile = "openrouter-lens"
+                    required = false
+
+                    [roles.planning]
+                    profile = "host-native"
+                    required = false
+
+                    [roles.implement]
+                    profile = "host-native"
+                    required = false
+
+                    [roles.lightweight_review]
+                    profile = "host-native"
+                    required = false
+
+                    [roles.validate]
+                    profile = "host-native"
+                    required = false
+
+                    [roles.synthesize]
+                    profile = "host-native"
+                    required = false
+
+                    [roles.scout]
+                    profile = "host-native"
+                    required = false
+                    """
+                ),
+                encoding="utf-8",
+            )
+            # cwd outside repo root: which() alone would miss scripts/relative-lens.py
+            outside = Path(tmp).parent
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(outside)
+                probe = probe_routes(root)
+            finally:
+                os.chdir(old_cwd)
+            self.assertTrue(probe["ok"], probe)
+            review_probes = [
+                p
+                for p in probe["probes"]
+                if p.get("purpose") == "review" and p["route"] == "openrouter-lens"
+            ]
+            self.assertEqual(len(review_probes), 1, probe)
+            self.assertEqual(review_probes[0]["status"], "pass", review_probes[0])
+            self.assertIn("relative-lens", review_probes[0]["detail"])
+
     def test_corrupt_toml_surfaces_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

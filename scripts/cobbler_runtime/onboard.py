@@ -627,7 +627,35 @@ def apply_onboarding(
     return payload
 
 
-def _probe_executable(name: str | None, *, route: str | None = None) -> ProbeResult:
+def _resolve_executable_for_probe(
+    name: str,
+    *,
+    repo_root: Path | None = None,
+) -> str | None:
+    """Locate an executable for structural probe.
+
+    Prefer an absolute path when ``name`` is absolute and exists. For relative
+    recipe/profile paths (e.g. ``scripts/openrouter_lens.py``), resolve against
+    ``repo_root`` so probe matches adapter dispatch even when the operator's cwd
+    is not the checkout root. Bare basenames fall back to ``PATH`` via
+    ``shutil.which``.
+    """
+    candidate = Path(name)
+    if candidate.is_absolute():
+        return str(candidate) if candidate.is_file() else None
+    if repo_root is not None:
+        under_root = Path(repo_root) / name
+        if under_root.is_file():
+            return str(under_root.resolve())
+    return shutil.which(name)
+
+
+def _probe_executable(
+    name: str | None,
+    *,
+    route: str | None = None,
+    repo_root: Path | None = None,
+) -> ProbeResult:
     label = route or name or "unknown"
     if not name:
         return ProbeResult(
@@ -636,13 +664,13 @@ def _probe_executable(name: str | None, *, route: str | None = None) -> ProbeRes
             status="skip",
             detail="No executable name",
         )
-    path = shutil.which(name)
+    path = _resolve_executable_for_probe(name, repo_root=repo_root)
     if not path:
         return ProbeResult(
             route=label,
             purpose=None,
             status="fail",
-            detail=f"Executable `{name}` not found on PATH",
+            detail=f"Executable `{name}` not found on PATH or under repo root",
         )
     try:
         proc = subprocess.run(
@@ -716,7 +744,8 @@ def probe_routes(
 ) -> dict[str, Any]:
     """Structural probes for configured routes; optional live smoke.
 
-    Structural: executable on PATH + --help, env *names* present for API routes.
+    Structural: executable on PATH (or under ``repo_root`` for relative paths) +
+    --help, env *names* present for API routes.
     Live smoke: only when live_smoke and smoke_executor provided (never invents responses).
     """
     state = load_models_toml_state(repo_root)
@@ -811,7 +840,7 @@ def probe_routes(
             )
             continue
 
-        pr = _probe_executable(exe, route=profile)
+        pr = _probe_executable(exe, route=profile, repo_root=repo_root)
         pr.purpose = role
         if pr.status == "pass":
             pr.detail = f"{pr.detail} ({exe_source})"

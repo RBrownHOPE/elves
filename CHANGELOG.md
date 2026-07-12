@@ -60,6 +60,8 @@ All notable changes to the Elves skill are documented here.
   - `--required` resolves tier profiles to underlying adapters (e.g. `claude-code-planning` →
     `claude-code`).
   - Probe reads `[profiles.*].executable` (custom wrappers, antigravity `agy` fallback).
+  - Probe resolves **relative** recipe/profile executables (e.g. `scripts/openrouter_lens.py`)
+    against the repo root so `onboard probe` matches adapter dispatch when cwd ≠ checkout.
   - Env **name** presence also scans ignored `.env.local` (values never returned).
   - Plan/review-only profiles on implement emit a warning; corrupt models.toml surfaces warnings
     instead of silent host-native pass.

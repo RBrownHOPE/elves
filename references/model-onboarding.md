@@ -245,7 +245,7 @@ When the user asks to onboard, reconfigure models, or “which model should do w
 
 | Kind | What |
 | --- | --- |
-| **Structural** | host-native always; configured role profiles → resolved executable (from `models.toml` `[profiles.*]`, recipe, or inventory) on PATH + `--help`; env **names** for OpenRouter/Meta (process or `.env.local` name scan); gcloud for AlphaEvolve hint |
+| **Structural** | host-native always; configured role profiles → resolved executable (from `models.toml` `[profiles.*]`, recipe, or inventory) on PATH **or, for relative paths like `scripts/openrouter_lens.py`, under the repo root** + `--help`; env **names** for OpenRouter/Meta (process or `.env.local` name scan); gcloud for AlphaEvolve hint |
 | **Live smoke** | Opt-in; requires host-provided real model response; empty/fake smoke does not count |
 
 Probe never invents remaining quota and never prints secrets.
