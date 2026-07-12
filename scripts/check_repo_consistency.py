@@ -1648,6 +1648,54 @@ FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS = {
     for label in FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES
 }
 
+# Implementation lanes (Lane A fast implementer + Lane B untrusted worker).
+IMPLEMENTATION_LANES_PHRASES = {
+    "SKILL.md": [
+        "### Implementation lanes",
+        "implementation_lane: fast | untrusted",
+        "default for “have Grok run it”",
+        "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
+        "references/grok-implementer-launch-prompt.md",
+        "not** use as the default overnight path",
+        "cobbler_agents.py worker",
+        "Do not invent top-level Codex slash commands",
+    ],
+    "AGENTS.md": [
+        "### Implementation lanes",
+        "implementation_lane: fast | untrusted",
+        "default for “have Grok run it”",
+        "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
+        "references/grok-implementer-launch-prompt.md",
+        "not** use as the default overnight path",
+        "cobbler_agents.py worker",
+        "Do not invent top-level Codex slash commands",
+    ],
+    "README.md": [
+        "implementation_lane: fast",
+        "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
+        "grok-implementer-launch-prompt.md",
+        "not the default overnight path",
+    ],
+    "CHANGELOG.md": [
+        "### Lane A fast implementer",
+        "implementation_lane: fast | untrusted",
+        "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
+        "references/grok-implementer-launch-prompt.md",
+        "not the default overnight path",
+    ],
+    "references/grok-implementer-launch-prompt.md": [
+        "implementation_lane: fast | untrusted",
+        "cobbler_agents.py implement prepare",
+        "not** use Lane B as the default overnight path",
+    ],
+    "references/councilelves-launch-prompt.md": [
+        "implementation_lane: fast | untrusted",
+        "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
+        "not** use the untrusted lease path as the default overnight",
+        "cobbler_agents.py worker",
+    ],
+}
+
 # External-agent setup (v1.20.0 Batch 5).
 SETUP_COBBLER_PHRASES = {
     "SKILL.md": [
@@ -2324,6 +2372,17 @@ def main() -> int:
             full_run_routing_texts,
             FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS,
             "full-run model routing",
+        )
+    )
+
+    implementation_lanes_texts = {
+        label: read_text(REPO_ROOT / label) for label in IMPLEMENTATION_LANES_PHRASES
+    }
+    errors.extend(
+        find_missing_phrases(
+            implementation_lanes_texts,
+            IMPLEMENTATION_LANES_PHRASES,
+            "implementation lanes",
         )
     )
 
