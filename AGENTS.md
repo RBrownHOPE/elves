@@ -1,5 +1,5 @@
 ---
-version: "1.20.2"
+version: "2.0.0"
 ---
 
 # Elves: Autonomous Development Agent (Codex)

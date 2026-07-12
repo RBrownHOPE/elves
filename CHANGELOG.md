@@ -4,12 +4,17 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
-### Multi-agent tooling expansion (native-first)
+## [2.0.0] - 2026-07-12
 
-This unreleased work is a **large multi-agent tooling update**, not a copy-only docs pass.
-**Vanilla Cobbler is host-native** (Claude Code or Codex out of the box). Everything below is
-optional capacity Cobbler can route when tools, keys, and project wrappers already exist —
-missing optional tools never block an ordinary overnight run.
+### Multi-model orchestration under Cobbler (major)
+
+**Elves 2.0** names what the system has become: an overnight execution skill whose default
+coordinator (**Cobbler**) can route **multiple agents and models** for plan, implement, review,
+and math-domain work — while **vanilla Cobbler remains host-native** (Claude Code or Codex out of
+the box). Optional tools never block an ordinary overnight run.
+
+This is a major product release (orchestration surface + multi-agent tooling), not only a docs
+pass. Host-native runs stay fully valid without any external provider.
 
 | Layer | What landed (summary) |
 | --- | --- |

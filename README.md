@@ -6,9 +6,8 @@
 
 Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default coordinator inside Elves: it decides whether to answer directly, ask independent reviewers, assign scoped worker agents, or record a run decision, then returns one clear recommendation.
 
-**Current release: v1.20.2** (optional external batch implementer). On this branch / unreleased
-work, Elves is getting a **multi-agent tooling expansion** under a **native-first** rule:
-**Claude Code or Codex as the main driver** (orchestrator), with Cobbler coordinating natively —
+**Current release: v2.0.0** — Cobbler-managed **multi-model orchestration** under a **native-first**
+rule. **Claude Code or Codex is the main driver** (orchestrator); Cobbler coordinates natively —
 no Grok, OpenRouter, or multi-provider setup required to run overnight. Optional **work drivers**,
 **plan/review lenses**, and **math-domain tools** (OpenCode, Grok Build, Antigravity, Gemini CLI,
 OpenRouter models, Muse Spark, Google AlphaEvolve, …) may help for labor, review, or evolutionary
@@ -16,7 +15,7 @@ search when you already have them. That matrix is **not fully tested**; OpenCode
 the **main driver** (Elves skill host) is exotic and **may or may not work**. If something breaks or
 you harden a path, **prefer a PR** (or [file an issue](https://github.com/aigorahub/elves/issues),
 no secrets). Operator helpers: `python3 scripts/cobbler_agents.py`. See
-[`CHANGELOG.md`](CHANGELOG.md) (`[Unreleased]`),
+[`CHANGELOG.md`](CHANGELOG.md) (`[2.0.0]`),
 [`references/model-onboarding.md`](references/model-onboarding.md), and
 [`references/math-alphaevolve.md`](references/math-alphaevolve.md).
 
@@ -585,7 +584,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Constitution and legality check**: human-authored deal-breaker behaviors (`docs/constitution.md`) verified by a read-only judge after each batch. Three quality layers: correctness (tests), plan compliance (review), legality (judge). Success criteria the agent didn't author.
 - **PR Loop**: poll PR comments, inline reviews, and check status after every push, not just at batch boundaries
 - **Readiness Gate**: branch-level checklist before declaring review-ready (plan Acceptance with proof, `elves_landing_check.py` clean, local proof on current tip, preview proof on exact runtime tip, final cumulative review, PR comments polled, legality check clean, strategic forgetting complete, git status clean, execution log current). Green CI + `status: complete` alone is not landable.
-- **Acceptance evidence (v1.19+/v1.20+)**: each complete batch records `acceptance: [{criterion, met, evidence}]` in `.elves-session.json`; god-file splits cannot close on structure/regex locks alone; prefer one batch per close commit. v1.20 adds optional external-agent orchestration under Cobbler; v1.20.1 hardens that runtime so green tests and schema-shaped reports cannot stand in for real model/session/write evidence.
+- **Acceptance evidence (v1.19+/v2.0+)**: each complete batch records `acceptance: [{criterion, met, evidence}]` in `.elves-session.json`; god-file splits cannot close on structure/regex locks alone; prefer one batch per close commit. v1.20 added optional external-agent orchestration under Cobbler; v1.20.1 hardened that runtime so green tests cannot stand in for real model/session/write evidence; **v2.0.0** is Cobbler-managed multi-model orchestration (native-first hosts + optional work drivers, lenses, and math tools such as AlphaEvolve).
 - **Structured session data** in `.elves-session.json` for tooling, dashboards, and analytics
 - **Install doctor and update advisory**: startup can flag newer published releases and explain
   when a project-local install differs from the global one that you thought you were using
