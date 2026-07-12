@@ -57,6 +57,16 @@ silently deleting it.
 
 ## Validation and Tooling
 
+- [2026-07-12] Never update an accepted session context digest before rehydration proof. Store
+  pending digests/heads on expected canonical drift and promote only after an exact resume matches
+  the pending packet; otherwise a later resume silently erases the rehydration obligation.
+- [2026-07-12] Do not normalize repo-relative paths with `str.lstrip("./")`. That API strips a set of
+  characters, turning `.elves/...` into `elves/...` and breaking forbidden-prefix checks. Strip only
+  explicit `./` segments.
+- [2026-07-12] Setup `smoked=true` requires a real model response from an explicit smoke executor.
+  Opt-in acknowledgment alone is not qualification.
+
+
 - [2026-07-12] External-harness capabilities must be qualified behaviorally and versioned. CLI
   flags, installed executables, authentication state, actual model identity, persistent-session
   behavior, and safe-write behavior are separate facts; do not infer one from another.

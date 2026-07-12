@@ -45,6 +45,7 @@ from cobbler_runtime.capabilities import (  # noqa: E402
     summarize_capabilities,
 )
 from cobbler_runtime.config import (  # noqa: E402
+    lanes_from_resolved,
     models_toml_is_local_only,
     resolve_from_repo,
 )
@@ -377,6 +378,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
                 pre_remotes=pre.get("remotes"),
                 pre_config=pre.get("config"),
                 pre_hooks=pre.get("hooks"),
+                pre_common_config=pre.get("common_config"),
+                pre_common_hooks=pre.get("common_hooks"),
                 observed_commands=list(args.observed_command or []),
             )
             if not result.ok:
@@ -473,29 +476,39 @@ def cmd_council(args: argparse.Namespace) -> int:
     repo_root = _repo_root_from_args(args)
     resolved = resolve_from_repo(repo_root)
 
-    # Default lanes: host-native only unless profiles map planning/review externally.
-    # Deterministic and network-free unless executables exist for mapped adapters.
-    role_names = [name.strip() for name in (args.roles or "architect,skeptic,tester").split(",") if name.strip()]
-    lanes: list[LaneSpec] = []
-    for index, role in enumerate(role_names):
-        # Prefer host-native for CLI smoke so no paid providers are required.
-        profile_name = "host-native"
-        adapter_name = "host-native"
-        route = resolved.roles.get("review") or resolved.roles.get("planning")
-        if route and route.profile in resolved.profiles and args.use_resolved_routes:
-            profile = resolved.profiles[route.profile]
-            profile_name = profile.name
-            adapter_name = profile.adapter
-        lanes.append(
-            LaneSpec(
-                lane_id=f"{role}-{index}",
-                role=role,
-                adapter=adapter_name,
-                profile=profile_name,
-                requested_model=None,
-                timeout_seconds=float(args.timeout),
-            )
-        )
+    if not resolved.ok:
+        payload = {
+            "ok": False,
+            "blocked": True,
+            "council_verified": False,
+            "issues": [issue.to_dict() for issue in resolved.issues],
+            "warnings": list(resolved.warnings),
+            "model_calls_made": False,
+            "mutated_repo": False,
+            "host_synthesis_only": True,
+            "external_routing_enabled": resolved.external_routing_enabled,
+            "notes": ["resolved config is not ok; refusing council launch"],
+        }
+        if args.json:
+            return _emit_json(payload, exit_code=1)
+        print("council: FAILED (resolved config not ok)", file=sys.stderr)
+        for issue in resolved.issues:
+            print(f"  [{issue.code}] {issue.message}", file=sys.stderr)
+        return 1
+
+    # Build lanes from each resolved role/profile without dropping fields.
+    # Survival-guide required routes remain even when --use-resolved-routes is off.
+    role_names = [
+        name.strip()
+        for name in (args.roles or "architect,skeptic,tester").split(",")
+        if name.strip()
+    ]
+    lanes: list[LaneSpec] = lanes_from_resolved(
+        resolved,
+        role_names=role_names,
+        timeout_seconds=float(args.timeout),
+        use_resolved_routes=bool(args.use_resolved_routes),
+    )
 
     target = args.target_quorum
     required = args.required_quorum
@@ -512,11 +525,11 @@ def cmd_council(args: argparse.Namespace) -> int:
         head_sha=args.head,
     )
     payload = result.to_dict()
-    payload["model_calls_made"] = any(
-        lane.adapter != "host-native" for lane in result.lane_results
-    )
-    payload["mutated_repo"] = False
+    # Prefer runtime-truthful counters from dispatch.
+    payload["model_calls_made"] = bool(result.model_calls_made)
+    payload["mutated_repo"] = bool(result.mutated_repo)
     payload["host_synthesis_only"] = True
+    payload["external_routing_enabled"] = resolved.external_routing_enabled
     if args.json:
         return _emit_json(payload, exit_code=0 if result.ok and not result.blocked else 1)
 
@@ -526,6 +539,8 @@ def cmd_council(args: argparse.Namespace) -> int:
     print(f"  blocked: {result.blocked}")
     print(f"  confidence: {result.confidence}")
     print(f"  successful_reports: {len(result.successful_reports)}")
+    print(f"  model_calls_made: {result.model_calls_made}")
+    print(f"  mutated_repo: {result.mutated_repo}")
     for note in result.notes:
         print(f"  note: {note}")
     return 0 if result.ok and not result.blocked else 1
@@ -547,7 +562,11 @@ def cmd_lightweight_review(args: argparse.Namespace) -> int:
     payload = result.to_dict()
     payload["not_a_council_vote"] = True
     payload["cannot_close_high_risk_review"] = True
-    payload["mutated_repo"] = False
+    # Explicit lane-level truth from dispatch (not path-substring inference).
+    payload["mutated_repo"] = bool(result.mutated_repo)
+    payload["model_calls_made"] = bool(result.model_call_made) or any(
+        a.model_call_made for a in (result.attempts or [])
+    )
     if args.json:
         return _emit_json(payload, exit_code=0 if result.ok else 1)
     print(f"lightweight-review: {'OK' if result.ok else 'FAILED'}")

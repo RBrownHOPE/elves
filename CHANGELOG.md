@@ -4,6 +4,21 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.20.1] - 2026-07-12
+
+### Cobbler runtime truthfulness and safety
+
+- Effective routes preserve executable, model, argv contracts, required policy, and ordered
+  fallbacks; canned host-native reports cannot satisfy quorum without injected host evidence.
+- Adapter builders use version-aware Claude/Grok/Codex flags with fixture-backed help probes.
+- Process-group cancellation reaps descendants; run IDs are collision-resistant; named credentials
+  are scoped and redacted from artifacts.
+- Session rehydration freezes active digests until exact resume proves the pending packet; registry
+  writes are atomic and malformed records fail closed.
+- Writer path allowlists no longer use unsafe `lstrip("./")`; empty allowlists fail closed; lease
+  lifecycle includes `audited_pass` and `apply_checked`; audits prefer common-dir config/hooks.
+- Setup smoke is true only after a real smoke executor model response; dry-run writes nothing.
+
 ## [1.20.0] - 2026-07-12
 
 ### Cobbler external-agent orchestration

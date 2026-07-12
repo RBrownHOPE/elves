@@ -140,6 +140,35 @@ def git_dir_for(cwd: Path) -> Path:
     return path
 
 
+def git_common_dir_for(cwd: Path) -> Path:
+    """Return the shared git common directory (hooks/config/refs root for linked worktrees)."""
+    out = run_git(cwd, ["rev-parse", "--git-common-dir"]).stdout.strip()
+    path = Path(out)
+    if not path.is_absolute():
+        path = (cwd / path).resolve()
+    return path
+
+
+def snapshot_common_repo_surfaces(cwd: Path) -> dict[str, str | None]:
+    """Snapshot worktree-local and common-dir git surfaces for linked-worktree audits."""
+    git_dir = git_dir_for(cwd)
+    common = git_common_dir_for(cwd)
+    return {
+        "git_dir": str(git_dir),
+        "git_common_dir": str(common),
+        "worktree_config": snapshot_config(git_dir),
+        "common_config": snapshot_config(common),
+        "worktree_hooks": hashlib.sha256(
+            json.dumps(snapshot_hooks(git_dir), sort_keys=True).encode("utf-8")
+        ).hexdigest(),
+        "common_hooks": hashlib.sha256(
+            json.dumps(snapshot_hooks(common), sort_keys=True).encode("utf-8")
+        ).hexdigest(),
+        "refs_digest": refs_digest(cwd),
+        "remotes_digest": snapshot_remotes(cwd),
+    }
+
+
 def list_commit_chain(cwd: Path, base_head: str, tip: str) -> list[CommitInfo]:
     """Return direct-descendant commits from base (exclusive) to tip (inclusive)."""
     if base_head == tip:
@@ -237,6 +266,8 @@ def audit_lease_turn(
     pre_remotes: str | None = None,
     pre_config: str | None = None,
     pre_hooks: dict[str, str] | None = None,
+    pre_common_config: str | None = None,
+    pre_common_hooks: dict[str, str] | None = None,
 ) -> AuditResult:
     """Post-turn audit of the worker checkout against the lease contract."""
     worker = Path(lease.worker_checkout)
@@ -315,21 +346,32 @@ def audit_lease_turn(
         result.reasons.append("refs digest changed (new branch/tag/ref mutation)")
 
     gdir = git_dir_for(worker)
+    common = git_common_dir_for(worker)
     after_remotes = snapshot_remotes(worker)
     if pre_remotes is not None and after_remotes != pre_remotes:
         result.remotes_changed = True
         result.ok = False
         result.reasons.append("git remotes changed during lease")
-    after_config = snapshot_config(gdir)
-    if pre_config is not None and after_config != pre_config:
+    after_config_wt = snapshot_config(gdir)
+    after_config_common = snapshot_config(common)
+    if pre_config is not None and after_config_wt != pre_config:
         result.config_changed = True
         result.ok = False
         result.reasons.append("git config changed during lease")
-    after_hooks = snapshot_hooks(gdir)
-    if pre_hooks is not None and after_hooks != pre_hooks:
+    if pre_common_config is not None and after_config_common != pre_common_config:
+        result.config_changed = True
+        result.ok = False
+        result.reasons.append("common-dir git config changed during lease")
+    after_hooks_wt = snapshot_hooks(gdir)
+    after_hooks_common = snapshot_hooks(common)
+    if pre_hooks is not None and after_hooks_wt != pre_hooks:
         result.hooks_changed = True
         result.ok = False
         result.reasons.append("git hooks changed during lease")
+    if pre_common_hooks is not None and after_hooks_common != pre_common_hooks:
+        result.hooks_changed = True
+        result.ok = False
+        result.reasons.append("common-dir git hooks changed during lease")
 
     # Observed commands classification
     for command in observed_commands or []:
@@ -461,14 +503,19 @@ def host_apply_check(
 
 
 def pre_turn_snapshots(worker_checkout: Path) -> dict[str, Any]:
-    """Capture pre-turn digests for post comparison."""
+    """Capture pre-turn digests for post comparison (worktree + common-dir)."""
     worker = Path(worker_checkout)
     gdir = git_dir_for(worker)
+    common = git_common_dir_for(worker)
     return {
         "refs_digest": refs_digest(worker),
         "remotes": snapshot_remotes(worker),
         "config": snapshot_config(gdir),
         "hooks": snapshot_hooks(gdir),
+        "common_config": snapshot_config(common),
+        "common_hooks": snapshot_hooks(common),
+        "git_dir": str(gdir),
+        "git_common_dir": str(common),
         "head": _git_head(worker),
         "status_porcelain": _git_status_porcelain(worker),
     }

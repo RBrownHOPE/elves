@@ -417,13 +417,17 @@ def run_setup(
     write_toml: bool = True,
     force_toml: bool = False,
     run_smoke: bool = False,
+    smoke_executor: Any | None = None,
+    dry_run: bool = False,
     fake_presence: Mapping[str, bool] | None = None,
     fake_versions: Mapping[str, str | None] | None = None,
     fake_auth: Mapping[str, str] | None = None,
 ) -> SetupResult:
     """Run setup inventory + optional local models.toml generation.
 
-    Never prints credentials. Smoke is opt-in and still does not print secrets.
+    Never prints credentials. ``run_smoke`` is opt-in and sets ``smoke_ran`` only
+    when ``smoke_executor`` returns a valid non-empty model response. Dry-run and
+    default paths write nothing unless ``write_toml`` is True and not dry-run.
     """
     root = Path(repo_root)
     inventory = inventory_tools(
@@ -448,12 +452,44 @@ def run_setup(
     )
 
     if run_smoke:
-        # Explicit opt-in only: still no paid provider network calls in this implementation.
-        result.smoke_ran = True
-        result.warnings.append(
-            "Smoke opt-in acknowledged; this setup path does not launch paid model turns "
-            "(use live qualification separately when needed)."
-        )
+        if smoke_executor is None:
+            result.warnings.append(
+                "Smoke requested but no smoke_executor was provided; smoked=false "
+                "(acknowledgment alone is not a model response)"
+            )
+        else:
+            try:
+                smoke_result = smoke_executor(inventory=inventory, preferences=prefs)
+            except Exception as exc:  # noqa: BLE001 — surface as setup issue, not crash
+                result.ok = False
+                result.issues.append(
+                    {
+                        "code": "smoke_failed",
+                        "message": f"Smoke executor failed: {type(exc).__name__}: {exc}",
+                    }
+                )
+                smoke_result = None
+            if isinstance(smoke_result, Mapping):
+                text = str(
+                    smoke_result.get("text")
+                    or smoke_result.get("content")
+                    or smoke_result.get("message")
+                    or ""
+                ).strip()
+                model = smoke_result.get("actual_model") or smoke_result.get("model")
+                if text and model:
+                    result.smoke_ran = True
+                    result.notes.append(
+                        f"Smoke succeeded with actual_model={model} (credentials not printed)"
+                    )
+                else:
+                    result.warnings.append(
+                        "Smoke executor returned no valid model response; smoked=false"
+                    )
+            elif smoke_result:
+                result.warnings.append(
+                    "Smoke executor returned a non-mapping result; smoked=false"
+                )
 
     # Validate required roles against inventory presence.
     present = {item.adapter for item in inventory if item.present}
@@ -474,7 +510,10 @@ def run_setup(
     result.models_toml_ignored = bool(meta.get("ignored_by_gitignore", True))
     result.models_toml_path = str(root / ".elves" / "models.toml")
 
-    if write_toml and result.ok:
+    should_write = write_toml and result.ok and not dry_run
+    if dry_run:
+        result.notes.append("Dry-run: no files written")
+    if should_write:
         try:
             text = render_models_toml(prefs)
             path, written = write_models_toml(root, text, force=force_toml)

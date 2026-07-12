@@ -131,7 +131,12 @@ class ValidationIssue(Exception):
 
 @dataclass(frozen=True)
 class HarnessProfile:
-    """Named harness profile without hardcoding prestige models."""
+    """Named harness profile without hardcoding prestige models.
+
+    Additive fields default so existing callers remain compatible. Secret values
+    never appear here — only environment variable *names* may be listed in
+    ``env_grants``.
+    """
 
     name: str
     adapter: str
@@ -139,9 +144,29 @@ class HarnessProfile:
     notes: str = ""
     session_mode: SessionMode = SessionMode.EPHEMERAL
     context_sharing: ContextSharingPolicy = ContextSharingPolicy.INDEPENDENT
+    enabled: bool = True
+    requested_model: str | None = None
+    extra_args: tuple[str, ...] = ()
+    env_grants: tuple[str, ...] = ()
+    input_contract: str = "prompt-file"
+    output_contract: str = "json-role-report"
+    capabilities: tuple[str, ...] = ()
+    # Trusted qualified capability names (never self-certified from preference text).
+    qualified_capabilities: tuple[str, ...] = ()
+    # Fields explicitly present in the defining config layer (for field-wise merge).
+    provided_fields: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        # Enums -> values for stable JSON.
+        payload["session_mode"] = self.session_mode.value
+        payload["context_sharing"] = self.context_sharing.value
+        payload["extra_args"] = list(self.extra_args)
+        payload["env_grants"] = list(self.env_grants)
+        payload["capabilities"] = list(self.capabilities)
+        payload["qualified_capabilities"] = list(self.qualified_capabilities)
+        payload["provided_fields"] = list(self.provided_fields)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -198,6 +223,54 @@ class RoleRoute:
 
 
 @dataclass(frozen=True)
+class EffectiveAttempt:
+    """One ordered attempt (primary or fallback) with full profile fields.
+
+    Serializable without secret values — ``env_grants`` carries names only.
+    """
+
+    profile: str
+    adapter: str
+    executable: str | None = None
+    requested_model: str | None = None
+    extra_args: tuple[str, ...] = ()
+    env_grants: tuple[str, ...] = ()
+    enabled: bool = True
+    required: bool = False
+    source: str = ConfigSource.NATIVE_DEFAULT.value
+    session_mode: str = SessionMode.EPHEMERAL.value
+    context_sharing: str = ContextSharingPolicy.INDEPENDENT.value
+    # Empty means "use adapter default pair" at dispatch time.
+    input_contract: str = ""
+    output_contract: str = ""
+    capabilities: tuple[str, ...] = ()
+    qualified_capabilities: tuple[str, ...] = ()
+    reason: str = "primary"
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "profile": self.profile,
+            "adapter": self.adapter,
+            "executable": self.executable,
+            "requested_model": self.requested_model,
+            "extra_args": list(self.extra_args),
+            "env_grants": list(self.env_grants),
+            "enabled": self.enabled,
+            "required": self.required,
+            "source": self.source,
+            "session_mode": self.session_mode,
+            "context_sharing": self.context_sharing,
+            "input_contract": self.input_contract,
+            "output_contract": self.output_contract,
+            "capabilities": list(self.capabilities),
+            "qualified_capabilities": list(self.qualified_capabilities),
+            "reason": self.reason,
+            "notes": self.notes,
+        }
+
+
+@dataclass(frozen=True)
 class UsageRecord:
     """Observed usage with honest unknown remaining quota."""
 
@@ -228,6 +301,7 @@ class ResolvedConfig:
     issues: list[ValidationIssue] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     sources_consulted: list[str] = field(default_factory=list)
+    external_routing_enabled: bool = True
 
     @property
     def ok(self) -> bool:
@@ -236,6 +310,7 @@ class ResolvedConfig:
     def to_dict(self) -> dict[str, Any]:
         return {
             "ok": self.ok,
+            "external_routing_enabled": self.external_routing_enabled,
             "roles": {name: route.to_dict() for name, route in self.roles.items()},
             "profiles": {name: profile.to_dict() for name, profile in self.profiles.items()},
             "issues": [issue.to_dict() for issue in self.issues],
@@ -264,3 +339,81 @@ def is_non_model_operation(operation: str) -> bool:
         return True
     head = token.split()[0] if token else ""
     return head in NON_MODEL_OPERATIONS
+
+
+def attempt_from_profile(
+    profile: HarnessProfile,
+    *,
+    required: bool = False,
+    source: ConfigSource | str = ConfigSource.NATIVE_DEFAULT,
+    reason: str = "primary",
+    route_session_mode: SessionMode | None = None,
+) -> EffectiveAttempt:
+    """Build one effective attempt from a fully resolved profile (no field loss)."""
+    src = source.value if isinstance(source, ConfigSource) else str(source)
+    session = (route_session_mode or profile.session_mode).value
+    return EffectiveAttempt(
+        profile=profile.name,
+        adapter=profile.adapter,
+        executable=profile.executable,
+        requested_model=profile.requested_model,
+        extra_args=tuple(profile.extra_args),
+        env_grants=tuple(profile.env_grants),
+        enabled=profile.enabled,
+        required=required,
+        source=src,
+        session_mode=session,
+        context_sharing=profile.context_sharing.value,
+        input_contract=profile.input_contract,
+        output_contract=profile.output_contract,
+        capabilities=tuple(profile.capabilities),
+        qualified_capabilities=tuple(profile.qualified_capabilities),
+        reason=reason,
+        notes=profile.notes,
+    )
+
+
+def build_effective_attempts(
+    route: RoleRoute,
+    profiles: dict[str, HarnessProfile],
+) -> tuple[EffectiveAttempt, ...]:
+    """Expand a role route into ordered primary + fallback attempts.
+
+    Each fallback carries that profile's own executable/model/args/env fields,
+    not only the profile name.
+    """
+    attempts: list[EffectiveAttempt] = []
+    primary = profiles.get(route.profile)
+    if primary is None:
+        raise ValidationIssue(
+            "unknown_profile",
+            f"Cannot build attempts: unknown profile `{route.profile}`",
+            path=f"roles.{route.role.value}.profile",
+        )
+    attempts.append(
+        attempt_from_profile(
+            primary,
+            required=route.required,
+            source=route.source,
+            reason="primary",
+            route_session_mode=route.session_mode,
+        )
+    )
+    for entry in route.fallback_chain:
+        fb_profile = profiles.get(entry.profile)
+        if fb_profile is None:
+            raise ValidationIssue(
+                "unknown_fallback_profile",
+                f"Cannot build fallback attempt: unknown profile `{entry.profile}`",
+                path=f"roles.{route.role.value}.fallback_chain",
+            )
+        attempts.append(
+            attempt_from_profile(
+                fb_profile,
+                required=route.required,
+                source=route.source,
+                reason=entry.reason or f"fallback:{entry.profile}",
+                route_session_mode=route.session_mode,
+            )
+        )
+    return tuple(attempts)

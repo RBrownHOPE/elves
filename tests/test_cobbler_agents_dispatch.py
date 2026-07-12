@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
+import signal
 import stat
 import sys
 import tempfile
@@ -27,13 +27,24 @@ _ensure_import_path()
 from cobbler_runtime import context as context_mod  # noqa: E402
 from cobbler_runtime import dispatch as dispatch_mod  # noqa: E402
 from cobbler_runtime.adapters import (  # noqa: E402
+    FORBIDDEN_INVENTED_FLAGS,
     build_readonly_invocation,
+    decode_adapter_output,
     parse_role_report,
+    validate_extra_args,
+)
+from cobbler_runtime.dispatch import host_evidence_binding  # noqa: E402
+from cobbler_runtime.config import (  # noqa: E402
+    effective_attempts_for_role,
+    lanes_from_resolved,
+    resolve_config,
 )
 from cobbler_runtime.context import (  # noqa: E402
     build_context_packet,
     council_artifact_root,
+    create_exclusive_artifact_root,
     ensure_private_dir,
+    new_run_id,
     redact_text,
     scrub_environment,
     write_json_artifact,
@@ -41,10 +52,14 @@ from cobbler_runtime.context import (  # noqa: E402
 from cobbler_runtime.dispatch import (  # noqa: E402
     LaneSpec,
     evaluate_quorum,
+    host_evidence_binding,
     run_council_sync,
     run_lightweight_review_sync,
 )
-from cobbler_runtime.schema import ValidationIssue  # noqa: E402
+from cobbler_runtime.schema import (  # noqa: E402
+    EffectiveAttempt,
+    ValidationIssue,
+)
 
 
 def _write_fake_lane_script(
@@ -57,8 +72,19 @@ def _write_fake_lane_script(
     malformed: bool = False,
     stderr_warning: str | None = None,
     hang_s: float | None = None,
+    omit_metadata: bool = False,
+    metadata_model: str | None = None,
+    body_actual_model: str | None = None,
+    spawn_descendant: bool = False,
+    descendant_marker: Path | None = None,
 ) -> Path:
-    """Create an argv-safe fake lane executable that emits a role report."""
+    """Create an argv-safe fake lane executable that emits a transport envelope.
+
+    Authoritative actual_model lives in adapter_metadata only. The role_report
+    body may echo a model string, but dispatch must ignore body claims for identity.
+    """
+    meta_model = actual_model if metadata_model is None else metadata_model
+    body_model = actual_model if body_actual_model is None else body_actual_model
     report = {
         "role": role,
         "verdict": "pass",
@@ -68,32 +94,94 @@ def _write_fake_lane_script(
         "risks": [],
         "recommended_actions": ["host synthesis"],
         "open_questions": [],
-        "actual_model": actual_model,
+        # Model-authored echo — must not be treated as proof.
+        "actual_model": body_model,
     }
-    body = textwrap.dedent(
-        f"""\
-        #!/usr/bin/env python3
-        import json, sys, time
-        sleep_s = {sleep_s!r}
-        hang_s = {hang_s!r}
-        if hang_s is not None:
-            time.sleep(float(hang_s))
-        else:
-            time.sleep(float(sleep_s))
-        stderr_warning = {stderr_warning!r}
-        if stderr_warning:
-            print(stderr_warning, file=sys.stderr)
-        malformed = {malformed!r}
-        if malformed:
-            print("not-json-at-all")
-            sys.exit({exit_code})
-        print(json.dumps({report!r}))
-        sys.exit({exit_code})
-        """
+    if omit_metadata:
+        # Bare report or untrusted model-authored adapter_metadata (not transport).
+        envelope_expr = repr(report)
+    else:
+        # Custom wrapper transport: outer actual_model is wrapper-authored.
+        envelope = {
+            "actual_model": meta_model,
+            "role_report": report,
+        }
+        envelope_expr = repr(envelope)
+
+    lines = [
+        "#!/usr/bin/env python3",
+        "import json, sys, time",
+    ]
+    if spawn_descendant:
+        marker = str(descendant_marker or (path.parent / "descendant.pid"))
+        lines.extend(
+            [
+                "import os, subprocess, pathlib",
+                f"marker = pathlib.Path({marker!r})",
+                "child = subprocess.Popen(",
+                '    [sys.executable, "-c", "import time; time.sleep(30)"],',
+                "    start_new_session=False,",
+                ")",
+                'marker.write_text(str(child.pid), encoding="utf-8")',
+            ]
+        )
+    lines.extend(
+        [
+            f"sleep_s = {sleep_s!r}",
+            f"hang_s = {hang_s!r}",
+            "if hang_s is not None:",
+            "    time.sleep(float(hang_s))",
+            "else:",
+            "    time.sleep(float(sleep_s))",
+            f"stderr_warning = {stderr_warning!r}",
+            "if stderr_warning:",
+            "    print(stderr_warning, file=sys.stderr)",
+            f"malformed = {malformed!r}",
+            "if malformed:",
+            '    print("not-json-at-all")',
+            f"    sys.exit({exit_code})",
+            f"print(json.dumps({envelope_expr}))",
+            f"sys.exit({exit_code})",
+            "",
+        ]
     )
-    path.write_text(body, encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
     return path
+
+
+def _host_executor(
+    role: str = "architect",
+    actual_model: str = "host-native",
+    *,
+    call_log: list | None = None,
+):
+    """Return a trusted host_executor callback that echoes the runtime challenge."""
+
+    def _exec(challenge: dict) -> dict:
+        if call_log is not None:
+            call_log.append(dict(challenge))
+        return {
+            "executor_id": "test-host-executor-1",
+            "actual_model": actual_model,
+            "adapter_metadata": {
+                "actual_model": actual_model,
+                "source": "host-executor",
+                "executor_id": "test-host-executor-1",
+            },
+            "role_report": {
+                "role": role,
+                "verdict": "pass",
+                "confidence": "medium",
+                "key_findings": ["injected host analysis"],
+                "evidence": ["host-executor"],
+                "risks": [],
+                "recommended_actions": ["host synthesis"],
+                "open_questions": [],
+            },
+        }
+
+    return _exec
 
 
 class ContextRedactionTests(unittest.TestCase):
@@ -156,6 +244,24 @@ class ContextRedactionTests(unittest.TestCase):
         self.assertNotIn("OPENAI_API_KEY", result.env)
         self.assertIn("OPENAI_API_KEY", result.stripped_names)
 
+    def test_named_secret_grant_allows_only_explicit_names(self) -> None:
+        sentinel = "SAKANA_SENTINEL_VALUE_9f3a2c1b"
+        parent = {
+            "PATH": "/usr/bin",
+            "SAKANA_API_KEY": sentinel,
+            "XAI_API_KEY": "xai-should-not-pass",
+            "ANTHROPIC_API_KEY": "anth-should-not-pass",
+        }
+        result = scrub_environment(parent, secret_grants={"SAKANA_API_KEY"})
+        self.assertIn("SAKANA_API_KEY", result.env)
+        self.assertEqual(result.env["SAKANA_API_KEY"], sentinel)
+        self.assertNotIn("XAI_API_KEY", result.env)
+        self.assertNotIn("ANTHROPIC_API_KEY", result.env)
+        meta = json.dumps(result.to_dict())
+        self.assertNotIn(sentinel, meta)
+        self.assertNotIn("xai-should-not-pass", meta)
+        self.assertIn("SAKANA_API_KEY", result.kept_names)
+
     def test_artifact_paths_are_under_ignored_runtime_tree(self) -> None:
         root = council_artifact_root(REPO_ROOT, "run-test")
         self.assertTrue(str(root).endswith(".elves/runtime/council/run-test"))
@@ -170,6 +276,19 @@ class ContextRedactionTests(unittest.TestCase):
             # On POSIX, expect 0o600; some CI filesystems may broaden — assert owner bits.
             self.assertTrue(mode & stat.S_IRUSR)
             self.assertFalse(mode & stat.S_IROTH)
+
+    def test_run_ids_collision_resistant_same_second(self) -> None:
+        ids = [new_run_id("council") for _ in range(200)]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_exclusive_artifact_root_refuses_reuse(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = create_exclusive_artifact_root(root, "rid-exclusive-1")
+            self.assertTrue(first.is_dir())
+            with self.assertRaises(ValidationIssue) as ctx:
+                create_exclusive_artifact_root(root, "rid-exclusive-1")
+            self.assertEqual(ctx.exception.code, "artifact_root_exists")
 
 
 class QuorumPolicyTests(unittest.TestCase):
@@ -370,6 +489,67 @@ class ParallelDispatchTests(unittest.TestCase):
         self.assertFalse(result.lane_results[0].ok)
         self.assertIn("timeout", result.lane_results[0].error or "")
 
+    def test_timeout_kills_spawned_descendant_process_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            marker = root / "descendant.pid"
+            hang = _write_fake_lane_script(
+                root / "hang_desc.py",
+                role="architect",
+                hang_s=5.0,
+                sleep_s=0.0,
+                actual_model="slow",
+                spawn_descendant=True,
+                descendant_marker=marker,
+            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    requested_model="slow",
+                    command_override=(sys.executable, str(hang)),
+                    timeout_seconds=0.6,
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="timeout descendants",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+            self.assertTrue(result.lane_results[0].timeout)
+            # Marker is written at the absolute path before the hang sleep; allow a brief
+            # window for filesystem visibility after the group is reaped.
+            deadline_marker = time.time() + 1.0
+            while time.time() < deadline_marker and not marker.is_file():
+                time.sleep(0.02)
+            self.assertTrue(marker.is_file(), "descendant pid marker should have been written")
+            child_pid = int(marker.read_text(encoding="utf-8").strip())
+            # Give the kernel a moment after group kill.
+            deadline = time.time() + 2.0
+            alive = True
+            while time.time() < deadline:
+                try:
+                    os.kill(child_pid, 0)
+                    time.sleep(0.05)
+                except ProcessLookupError:
+                    alive = False
+                    break
+                except PermissionError:
+                    # Process table entry may linger briefly; treat as not freely alive.
+                    alive = False
+                    break
+            self.assertFalse(alive, f"descendant pid {child_pid} still alive after timeout cleanup")
+            # Direct child attempt cleanup evidence recorded.
+            attempts = result.lane_results[0].attempts
+            self.assertTrue(attempts)
+            cleanup = attempts[0].cleanup
+            self.assertTrue(
+                cleanup.get("sigterm_sent") or cleanup.get("sigkill_sent") or cleanup.get("reaped")
+            )
+
     def test_malformed_json_fails_lane_not_exit_code_alone(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -461,6 +641,67 @@ class ParallelDispatchTests(unittest.TestCase):
         self.assertFalse(result.lane_results[0].ok)
         self.assertIn("actual_model", result.lane_results[0].error or "")
 
+    def test_missing_transport_model_metadata_fails_exact_route(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = _write_fake_lane_script(
+                root / "nometa.py",
+                role="architect",
+                actual_model="echoed-only",
+                omit_metadata=True,
+                sleep_s=0.02,
+            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    requested_model="echoed-only",
+                    command_override=(sys.executable, str(script)),
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="missing metadata",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+        self.assertFalse(result.lane_results[0].ok)
+        self.assertEqual(result.lane_results[0].failure_class, "model_evidence")
+        err = (result.lane_results[0].error or "").lower()
+        self.assertTrue("authoritative" in err or "actual_model" in err)
+
+    def test_body_actual_model_echo_is_not_proof(self) -> None:
+        """Model-authored actual_model cannot override missing adapter metadata."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = _write_fake_lane_script(
+                root / "echo.py",
+                role="architect",
+                actual_model="requested-model",
+                omit_metadata=True,
+                body_actual_model="requested-model",
+                sleep_s=0.02,
+            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    requested_model="requested-model",
+                    command_override=(sys.executable, str(script)),
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="body echo not proof",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+        self.assertFalse(result.lane_results[0].ok)
+
     def test_stderr_warning_with_successful_inference(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -507,27 +748,31 @@ class ParallelDispatchTests(unittest.TestCase):
                     ]
                     if secret_names or leaked_values:
                         print(json.dumps({
-                            "role": "architect",
-                            "verdict": "fail",
-                            "confidence": "low",
-                            "key_findings": ["leak"],
-                            "evidence": [str(secret_names), str(leaked_values)],
-                            "risks": ["env_leak"],
-                            "recommended_actions": [],
-                            "open_questions": [],
                             "actual_model": "probe",
+                            "role_report": {
+                                "role": "architect",
+                                "verdict": "fail",
+                                "confidence": "low",
+                                "key_findings": ["leak"],
+                                "evidence": [str(secret_names), str(leaked_values)],
+                                "risks": ["env_leak"],
+                                "recommended_actions": [],
+                                "open_questions": [],
+                            },
                         }))
                         sys.exit(2)
                     print(json.dumps({
-                        "role": "architect",
-                        "verdict": "pass",
-                        "confidence": "high",
-                        "key_findings": ["clean-env"],
-                        "evidence": [f"keys={len(os.environ)}"],
-                        "risks": [],
-                        "recommended_actions": [],
-                        "open_questions": [],
                         "actual_model": "probe",
+                        "role_report": {
+                            "role": "architect",
+                            "verdict": "pass",
+                            "confidence": "high",
+                            "key_findings": ["clean-env"],
+                            "evidence": [f"keys={len(os.environ)}"],
+                            "risks": [],
+                            "recommended_actions": [],
+                            "open_questions": [],
+                        },
                     }))
                     """
                 ),
@@ -566,7 +811,71 @@ class ParallelDispatchTests(unittest.TestCase):
         self.assertNotIn("ghp_leaked", blob)
         self.assertNotIn("super-secret-token", blob)
 
-    def test_native_only_host_lane_without_external_tools(self) -> None:
+    def test_api_wrapper_receives_only_named_credential_grants(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sentinel = "SAKANA_SENTINEL_7c4e91aa"
+            probe = root / "wrapper.py"
+            probe.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/usr/bin/env python3
+                    import json, os, sys
+                    expected = {sentinel!r}
+                    got = os.environ.get("SAKANA_API_KEY")
+                    others = [n for n in ("XAI_API_KEY", "ANTHROPIC_API_KEY") if n in os.environ]
+                    ok = got == expected and not others
+                    print(json.dumps({{
+                        "actual_model": "wrapper-model",
+                        "role_report": {{
+                            "role": "architect",
+                            "verdict": "pass" if ok else "fail",
+                            "confidence": "high",
+                            "key_findings": ["grant-check"],
+                            "evidence": [f"got_present={{got is not None}}", f"others={{others}}"],
+                            "risks": [],
+                            "recommended_actions": [],
+                            "open_questions": [],
+                        }},
+                    }}))
+                    sys.exit(0 if ok else 2)
+                    """
+                ),
+                encoding="utf-8",
+            )
+            probe.chmod(probe.stat().st_mode | stat.S_IXUSR)
+            parent = {
+                "PATH": os.environ.get("PATH", "/usr/bin"),
+                "HOME": str(root),
+                "SAKANA_API_KEY": sentinel,
+                "XAI_API_KEY": "xai-must-not-pass",
+                "ANTHROPIC_API_KEY": "anth-must-not-pass",
+            }
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="api-wrapper",
+                    requested_model="wrapper-model",
+                    command_override=(sys.executable, str(probe)),
+                    env_grants=("SAKANA_API_KEY",),
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="named grant",
+                parent_env=parent,
+            )
+        self.assertTrue(result.lane_results[0].ok, result.lane_results[0].error)
+        self.assertIn("SAKANA_API_KEY", result.lane_results[0].granted_env_names)
+        blob = json.dumps(result.to_dict())
+        self.assertNotIn(sentinel, blob)
+        self.assertNotIn("xai-must-not-pass", blob)
+        self.assertNotIn("anth-must-not-pass", blob)
+
+    def test_host_native_without_injected_report_cannot_satisfy_quorum(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             lanes = [
@@ -582,17 +891,46 @@ class ParallelDispatchTests(unittest.TestCase):
             result = run_council_sync(
                 lanes,
                 repo_root=root,
-                task="native only",
+                task="native only without injection",
                 target_quorum=1,
                 parent_env={"PATH": os.environ.get("PATH", "/usr/bin"), "HOME": str(root)},
             )
-        self.assertTrue(result.ok)
+        self.assertEqual(len(result.successful_reports), 0)
+        self.assertFalse(result.council_verified)
+        self.assertFalse(result.lane_results[0].ok)
+        self.assertIn("injected", (result.lane_results[0].error or "").lower())
+
+    def test_host_native_with_injected_report_can_vote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_id = "council-test-host-vote-1"
+            task = "injected host"
+            lanes = [
+                LaneSpec(
+                    lane_id="host",
+                    role="architect",
+                    adapter="host-native",
+                    profile="host-native",
+                    host_executor=_host_executor("architect"),
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task=task,
+                run_id=run_id,
+                target_quorum=1,
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin"), "HOME": str(root)},
+            )
+        self.assertTrue(result.ok, result.lane_results[0].error if result.lane_results else result.notes)
+        self.assertTrue(result.council_verified)
         self.assertEqual(len(result.successful_reports), 1)
-        self.assertEqual(result.successful_reports[0]["actual_model"], "host-native")
 
     def test_required_quorum_met_with_host_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            run_id = "council-test-req-quorum-1"
+            task = "required quorum"
             a = _write_fake_lane_script(
                 root / "a.py", role="architect", actual_model="m1", sleep_s=0.02
             )
@@ -610,19 +948,289 @@ class ParallelDispatchTests(unittest.TestCase):
                     role="tester",
                     adapter="host-native",
                     profile="host-native",
+                    host_executor=_host_executor("tester"),
                 ),
             ]
             result = run_council_sync(
                 lanes,
                 repo_root=root,
-                task="required quorum",
+                task=task,
+                run_id=run_id,
                 phase_required=True,
                 required_quorum=2,
                 parent_env={"PATH": os.environ.get("PATH", "/usr/bin"), "HOME": str(root)},
             )
-        self.assertTrue(result.ok)
+        self.assertTrue(result.ok, getattr(result.lane_results[-1], 'error', None))
         self.assertTrue(result.council_verified)
         self.assertFalse(result.blocked)
+
+    def test_ordered_fallback_runs_after_each_failure_class(self) -> None:
+        """Every named failure class executes in order (table of small chains)."""
+        cases = [
+            ("disabled", "unavailable"),
+            ("launch_error", "launch_error"),
+            ("timeout", "timeout"),
+            ("malformed_output", "malformed_output"),
+            ("missing_model", "model_evidence"),
+            ("mismatched_model", "model_evidence"),
+            ("capability", "capability"),
+            ("unsafe_args", "unsafe_arguments"),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good = _write_fake_lane_script(
+                root / "good.py", role="architect", actual_model="final-model", sleep_s=0.01
+            )
+            hang = _write_fake_lane_script(
+                root / "hang.py",
+                role="architect",
+                hang_s=5.0,
+                actual_model="final-model",
+                sleep_s=0.0,
+            )
+            bad_json = _write_fake_lane_script(
+                root / "bad_json.py",
+                role="architect",
+                malformed=True,
+                actual_model="final-model",
+                sleep_s=0.01,
+            )
+            wrong = _write_fake_lane_script(
+                root / "wrong.py",
+                role="architect",
+                actual_model="wrong-model",
+                sleep_s=0.01,
+            )
+            bare = _write_fake_lane_script(
+                root / "bare.py",
+                role="architect",
+                actual_model="final-model",
+                omit_metadata=True,
+                sleep_s=0.01,
+            )
+            for name, target in (
+                ("wrap_good", good),
+                ("wrap_hang", hang),
+                ("wrap_json", bad_json),
+                ("wrap_wrong", wrong),
+                ("wrap_bare", bare),
+            ):
+                wrap = root / name
+                wrap.write_text(
+                    textwrap.dedent(
+                        f"""\
+                        #!/usr/bin/env python3
+                        import runpy, sys
+                        sys.argv = [sys.argv[0]]
+                        runpy.run_path({str(target)!r}, run_name="__main__")
+                        """
+                    ),
+                    encoding="utf-8",
+                )
+                wrap.chmod(wrap.stat().st_mode | stat.S_IXUSR)
+
+            primary_builders = {
+                "disabled": lambda: EffectiveAttempt(
+                    profile="p-disabled",
+                    adapter="custom-cli",
+                    executable=str(root / "wrap_good"),
+                    requested_model="final-model",
+                    enabled=False,
+                    reason="primary",
+                ),
+                "launch_error": lambda: EffectiveAttempt(
+                    profile="p-launch",
+                    adapter="custom-cli",
+                    executable=str(root / "missing-binary"),
+                    requested_model="final-model",
+                    reason="primary",
+                ),
+                "timeout": lambda: EffectiveAttempt(
+                    profile="p-timeout",
+                    adapter="custom-cli",
+                    executable=str(root / "wrap_hang"),
+                    requested_model="final-model",
+                    reason="primary",
+                ),
+                "malformed_output": lambda: EffectiveAttempt(
+                    profile="p-malformed",
+                    adapter="custom-cli",
+                    executable=str(root / "wrap_json"),
+                    requested_model="final-model",
+                    reason="primary",
+                ),
+                "missing_model": lambda: EffectiveAttempt(
+                    profile="p-missing-model",
+                    adapter="custom-cli",
+                    executable=str(root / "wrap_bare"),
+                    requested_model="final-model",
+                    reason="primary",
+                ),
+                "mismatched_model": lambda: EffectiveAttempt(
+                    profile="p-mismatch",
+                    adapter="custom-cli",
+                    executable=str(root / "wrap_wrong"),
+                    requested_model="final-model",
+                    reason="primary",
+                ),
+                "capability": lambda: EffectiveAttempt(
+                    profile="p-cap",
+                    adapter="custom-cli",
+                    executable=str(root / "wrap_good"),
+                    requested_model="final-model",
+                    capabilities=("read_only_repo",),
+                    qualified_capabilities=(),
+                    reason="primary",
+                ),
+                "unsafe_args": lambda: EffectiveAttempt(
+                    profile="p-unsafe",
+                    adapter="claude-code",
+                    executable=str(root / "wrap_good"),
+                    requested_model="final-model",
+                    extra_args=("--model", "hijack"),
+                    reason="primary",
+                ),
+            }
+            success = EffectiveAttempt(
+                profile="p-success",
+                adapter="custom-cli",
+                executable=str(root / "wrap_good"),
+                requested_model="final-model",
+                env_grants=(),
+                reason="after-failure",
+            )
+            observed_classes: list[str] = []
+            for key, expected_class in cases:
+                attempts = (primary_builders[key](), success)
+                result = run_council_sync(
+                    [
+                        LaneSpec(
+                            lane_id=f"architect-{key}",
+                            role="architect",
+                            adapter="custom-cli",
+                            profile=attempts[0].profile,
+                            requested_model="final-model",
+                            attempts=attempts,
+                            timeout_seconds=0.25 if key == "timeout" else 5.0,
+                            env_grants=("PRIMARY_SECRET",),
+                        )
+                    ],
+                    repo_root=root,
+                    task=f"ordered-{key}",
+                    parent_env={
+                        "PATH": os.environ.get("PATH", "/usr/bin"),
+                        "PRIMARY_SECRET": "PRIMARY_ONLY_SECRET_VALUE_zz9",
+                    },
+                )
+                lane = result.lane_results[0]
+                self.assertTrue(lane.ok, f"{key}: {lane.error}")
+                self.assertEqual(len(lane.attempts), 2, key)
+                self.assertFalse(lane.attempts[0].ok, key)
+                self.assertEqual(lane.attempts[0].failure_class, expected_class, key)
+                self.assertTrue(lane.attempts[1].ok, key)
+                self.assertEqual(lane.fallback_used, "p-success", key)
+                self.assertEqual(lane.actual_model, "final-model", key)
+                # Success attempt must not inherit primary secret grants.
+                self.assertEqual(list(lane.attempts[1].effective_contract.get("env_grant_names") or []), [])
+                # Model-call accounting: process launches count; disabled/unsafe pre-launch do not.
+                if key in {"disabled", "unsafe_args", "capability"}:
+                    self.assertFalse(lane.attempts[0].model_call_made, key)
+                elif key in {
+                    "launch_error",
+                    "timeout",
+                    "malformed_output",
+                    "missing_model",
+                    "mismatched_model",
+                }:
+                    # launch_error may or may not launch (missing binary = no process)
+                    if key == "launch_error":
+                        self.assertFalse(lane.attempts[0].process_launched, key)
+                    else:
+                        self.assertTrue(lane.attempts[0].model_call_made, key)
+                self.assertTrue(lane.attempts[1].model_call_made, key)
+                observed_classes.append(lane.attempts[0].failure_class or "")
+            self.assertEqual(
+                observed_classes,
+                [c for _, c in cases],
+            )
+
+
+    def test_resolved_lane_preserves_executable_model_args_required_and_fallbacks(self) -> None:
+        resolved = resolve_config(
+            models_toml={
+                "profiles": {
+                    "primary": {
+                        "adapter": "custom-cli",
+                        "executable": "/usr/bin/primary-agent",
+                        "requested_model": "model-a",
+                        "extra_args": ["--flag", "one"],
+                        "env_grants": ["SAKANA_API_KEY"],
+                        "enabled": True,
+                    },
+                    "secondary": {
+                        "adapter": "claude-code",
+                        "executable": "claude",
+                        "model": "model-b",
+                        # Benign extra only — reserved control flags rejected.
+                        "extra_args": ["--append-system-prompt", "x"],
+                    },
+                },
+                "roles": {
+                    "review": {
+                        "profile": "primary",
+                        "fallback_chain": [
+                            {"profile": "secondary", "reason": "primary-unavailable"},
+                            {"profile": "host-native", "reason": "last-resort"},
+                        ],
+                    }
+                },
+            },
+            # required:true is only honored from Survival Guide provenance.
+            survival_guide={
+                "model_routing": {
+                    "phases": {
+                        "review": {
+                            "profile": "primary",
+                            "required": True,
+                            "fallback_chain": [
+                                {"profile": "secondary", "reason": "primary-unavailable"},
+                                {"profile": "host-native", "reason": "last-resort"},
+                            ],
+                        }
+                    }
+                }
+            },
+        )
+        self.assertTrue(resolved.ok)
+        attempts = effective_attempts_for_role(resolved, "review")
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual(attempts[0].executable, "/usr/bin/primary-agent")
+        self.assertEqual(attempts[0].requested_model, "model-a")
+        self.assertEqual(list(attempts[0].extra_args), ["--flag", "one"])
+        self.assertEqual(list(attempts[0].env_grants), ["SAKANA_API_KEY"])
+        self.assertTrue(attempts[0].required)
+        self.assertEqual(attempts[1].adapter, "claude-code")
+        self.assertEqual(attempts[1].requested_model, "model-b")
+        self.assertEqual(attempts[1].reason, "primary-unavailable")
+        self.assertEqual(attempts[2].adapter, "host-native")
+
+        lanes = lanes_from_resolved(
+            resolved,
+            role_names=["review"],
+            use_resolved_routes=True,
+        )
+        self.assertEqual(len(lanes), 1)
+        lane = lanes[0]
+        self.assertEqual(lane.executable, "/usr/bin/primary-agent")
+        self.assertEqual(lane.requested_model, "model-a")
+        self.assertEqual(list(lane.extra_args), ["--flag", "one"])
+        self.assertEqual(list(lane.env_grants), ["SAKANA_API_KEY"])
+        self.assertTrue(lane.required)
+        self.assertEqual(len(lane.attempts), 3)
+        # Serialization never includes secret values (names only).
+        blob = json.dumps(attempts[0].to_dict())
+        self.assertIn("SAKANA_API_KEY", blob)
+        self.assertNotIn("sk-", blob)
 
 
 class LightweightReviewTests(unittest.TestCase):
@@ -678,10 +1286,13 @@ class CliCouncilTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
+        # Standalone CLI without injected host reports: no fabricated votes.
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["host_synthesis_only"])
         self.assertFalse(payload["mutated_repo"])
-        self.assertEqual(payload["successful_count"], 2)
+        self.assertEqual(payload["successful_count"], 0)
+        self.assertFalse(payload["council_verified"])
+        self.assertFalse(payload["model_calls_made"])
 
     def test_lightweight_review_cli_json(self) -> None:
         cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
@@ -703,9 +1314,10 @@ class CliCouncilTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        # host-native without injection is not ok; still not a council vote.
+        self.assertNotEqual(result.returncode, 0)
         payload = json.loads(result.stdout)
-        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["ok"])
         self.assertTrue(payload["not_a_council_vote"])
         self.assertTrue(payload["cannot_close_high_risk_review"])
 
@@ -719,54 +1331,125 @@ class AdapterBuilderTests(unittest.TestCase):
     )
 
     def test_readonly_builders_use_argv_not_shell_strings(self) -> None:
-        packet = Path("/tmp/packet.json")
-        prompt = Path("/tmp/prompt.txt")
-        for adapter in ("claude-code", "grok-build", "codex-fugu", "host-native"):
-            inv = build_readonly_invocation(
-                adapter=adapter,
-                profile=adapter,
-                packet_path=packet,
-                prompt_path=prompt,
-                requested_model="example-model" if adapter != "host-native" else None,
-            )
-            self.assertTrue(inv.read_only)
-            self.assertIsInstance(inv.argv, tuple)
-            self.assertTrue(all(isinstance(part, str) for part in inv.argv))
-            # No shell interpolation of task text.
-            joined = " ".join(inv.argv)
-            self.assertNotIn("$(", joined)
-            self.assertNotIn("`", joined)
-
-    def test_readonly_invocations_never_use_permission_bypass_tokens(self) -> None:
-        packet = Path("/tmp/packet.json")
-        prompt = Path("/tmp/prompt.txt")
-        cases = [
-            ("claude-code", "claude-code", None),
-            ("grok-build", "grok-build", None),
-            ("codex-fugu", "codex-fugu", None),
-            ("host-native", "host-native", None),
-            ("custom-cli", "worker", "my-agent"),
-        ]
-        for adapter, profile, executable in cases:
-            with self.subTest(adapter=adapter):
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "packet.json"
+            prompt = Path(tmp) / "prompt.txt"
+            packet.write_text("{}", encoding="utf-8")
+            prompt.write_text("hello", encoding="utf-8")
+            for adapter in ("claude-code", "grok-build", "codex-fugu"):
                 inv = build_readonly_invocation(
                     adapter=adapter,
-                    profile=profile,
+                    profile=adapter,
                     packet_path=packet,
                     prompt_path=prompt,
-                    executable=executable,
-                    requested_model="example-model" if adapter != "host-native" else None,
+                    requested_model="example-model",
                 )
-                argv_text = " ".join(inv.argv)
-                for token in self.PERMISSION_BYPASS_TOKENS:
-                    self.assertNotIn(token, inv.argv)
-                    self.assertNotIn(token, argv_text)
-                if adapter == "claude-code":
-                    self.assertIn("--permission-mode", inv.argv)
-                    mode_idx = inv.argv.index("--permission-mode")
-                    self.assertEqual(inv.argv[mode_idx + 1], "plan")
-                    self.assertIn("permission-mode plan", inv.notes)
-                    self.assertIn("no permission-bypass", inv.notes)
+                self.assertTrue(inv.read_only)
+                self.assertIsInstance(inv.argv, tuple)
+                self.assertTrue(all(isinstance(part, str) for part in inv.argv))
+                # No shell interpolation of task text.
+                joined = " ".join(inv.argv)
+                self.assertNotIn("$(", joined)
+                self.assertNotIn("`", joined)
+                for bad in FORBIDDEN_INVENTED_FLAGS:
+                    self.assertNotIn(bad, inv.argv)
+            # host-native is unavailable (no canned subprocess).
+            inv_host = build_readonly_invocation(
+                adapter="host-native",
+                profile="host-native",
+                packet_path=packet,
+                prompt_path=prompt,
+            )
+            self.assertTrue(inv_host.unavailable)
+            self.assertEqual(inv_host.argv, ())
+
+    def test_readonly_invocations_never_use_permission_bypass_tokens(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "packet.json"
+            prompt = Path(tmp) / "prompt.txt"
+            packet.write_text("{}", encoding="utf-8")
+            prompt.write_text("hello", encoding="utf-8")
+            cases = [
+                ("claude-code", "claude-code", None),
+                ("grok-build", "grok-build", None),
+                ("codex-fugu", "codex-fugu", None),
+                ("custom-cli", "worker", "my-agent"),
+            ]
+            for adapter, profile, executable in cases:
+                with self.subTest(adapter=adapter):
+                    inv = build_readonly_invocation(
+                        adapter=adapter,
+                        profile=profile,
+                        packet_path=packet,
+                        prompt_path=prompt,
+                        executable=executable,
+                        requested_model="example-model",
+                    )
+                    argv_text = " ".join(inv.argv)
+                    for token in self.PERMISSION_BYPASS_TOKENS:
+                        self.assertNotIn(token, inv.argv)
+                        self.assertNotIn(token, argv_text)
+                    if adapter == "claude-code":
+                        self.assertIn("--permission-mode", inv.argv)
+                        mode_idx = inv.argv.index("--permission-mode")
+                        self.assertEqual(inv.argv[mode_idx + 1], "plan")
+                        self.assertIn("permission-mode plan", inv.notes)
+                        self.assertIn("no permission-bypass", inv.notes)
+                        self.assertIn("--print", inv.argv)
+                        self.assertNotIn("--packet", inv.argv)
+                    if adapter == "grok-build":
+                        self.assertIn("--prompt-file", inv.argv)
+                        self.assertIn("--output-format", inv.argv)
+                        self.assertNotIn("--packet", inv.argv)
+                        self.assertNotIn("--readonly", inv.argv)
+                    if adapter == "codex-fugu":
+                        self.assertIn("exec", inv.argv)
+                        self.assertIn("--json", inv.argv)
+                        self.assertIn("--sandbox", inv.argv)
+                        self.assertIn("read-only", inv.argv)
+                        self.assertIn("-", inv.argv)
+                        self.assertNotIn("--packet", inv.argv)
+
+    def test_generated_argv_flags_subset_of_captured_help_fixtures(self) -> None:
+        """Compare builders to independent captured --help flag lists, not builder constants."""
+        fixtures = REPO_ROOT / "tests" / "fixtures"
+        mapping = {
+            "claude-code": fixtures / "claude-2.1.207-help-flags.txt",
+            "grok-build": fixtures / "grok-0.2.93-help-flags.txt",
+            "codex-fugu": fixtures / "codex-0.144.1-exec-help-flags.txt",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "packet.json"
+            prompt = Path(tmp) / "prompt.txt"
+            packet.write_text("{}", encoding="utf-8")
+            prompt.write_text("task", encoding="utf-8")
+            for adapter, flag_file in mapping.items():
+                family = {
+                    line.strip()
+                    for line in flag_file.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                }
+                # Codex help uses --cd; builder emits --cd. Also allow bare '-' stdin sentinel
+                # and subcommand token 'exec' which appears in usage, not as a flag line.
+                family |= {"-", "exec", "read-only"}
+                inv = build_readonly_invocation(
+                    adapter=adapter,
+                    profile=adapter,
+                    packet_path=packet,
+                    prompt_path=prompt,
+                    requested_model="m",
+                    repo_root=Path(tmp),
+                    task="task",
+                    role="architect",
+                )
+                for token in inv.argv[1:]:
+                    if token.startswith("-") and token not in {"-"}:
+                        if token.startswith("--") or token in {"-p", "-m", "-C", "-s"}:
+                            base = token.split("=", 1)[0]
+                            self.assertTrue(
+                                base in family or token in family,
+                                f"{adapter}: unexpected flag {token}; fixture has {sorted(family)[:20]}...",
+                            )
 
     def test_custom_cli_requires_executable(self) -> None:
         with self.assertRaises(ValidationIssue) as ctx:
@@ -781,23 +1464,60 @@ class AdapterBuilderTests(unittest.TestCase):
     def test_parse_role_report_success_and_malformed(self) -> None:
         good = json.dumps(
             {
-                "role": "architect",
-                "verdict": "pass",
-                "confidence": "high",
-                "key_findings": ["x"],
-                "evidence": ["y"],
-                "risks": [],
-                "recommended_actions": [],
-                "open_questions": [],
                 "actual_model": "m",
+                "role_report": {
+                    "role": "architect",
+                    "verdict": "pass",
+                    "confidence": "high",
+                    "key_findings": ["x"],
+                    "evidence": ["y"],
+                    "risks": [],
+                    "recommended_actions": [],
+                    "open_questions": [],
+                },
             }
         )
-        report = parse_role_report(good, expected_role="architect", requested_model="m")
+        decoded = decode_adapter_output(
+            good,
+            decoder="custom-json-envelope",
+            expected_role="architect",
+            requested_model="m",
+            require_model=True,
+        )
+        self.assertEqual(decoded.role_report["verdict"], "pass")
+        self.assertEqual(decoded.actual_model, "m")
+        report = parse_role_report(good, expected_role="architect")
         self.assertEqual(report["verdict"], "pass")
 
         with self.assertRaises(ValidationIssue) as ctx:
             parse_role_report("not json", expected_role="architect")
-        self.assertEqual(ctx.exception.code, "malformed_json")
+        self.assertIn(ctx.exception.code, {"malformed_json", "empty_output"})
+
+        # Model-authored adapter_metadata is not authority.
+        untrusted = json.dumps(
+            {
+                "adapter_metadata": {"actual_model": "m", "source": "model"},
+                "role_report": {
+                    "role": "architect",
+                    "verdict": "pass",
+                    "confidence": "high",
+                    "key_findings": [],
+                    "evidence": [],
+                    "risks": [],
+                    "recommended_actions": [],
+                    "open_questions": [],
+                },
+            }
+        )
+        with self.assertRaises(ValidationIssue) as ctx2:
+            decode_adapter_output(
+                untrusted,
+                decoder="custom-json-envelope",
+                expected_role="architect",
+                requested_model="m",
+                require_model=True,
+            )
+        self.assertEqual(ctx2.exception.code, "untrusted_model_authored_metadata")
 
     def test_context_module_exports_expected_symbols(self) -> None:
         for name in (
@@ -806,10 +1526,865 @@ class AdapterBuilderTests(unittest.TestCase):
             "redact_text",
             "council_artifact_root",
             "ensure_private_dir",
+            "new_run_id",
+            "create_exclusive_artifact_root",
         ):
             self.assertTrue(hasattr(context_mod, name))
         self.assertTrue(hasattr(dispatch_mod, "run_council"))
         self.assertTrue(hasattr(dispatch_mod, "run_lightweight_review"))
+
+
+class DisabledRoutingTests(unittest.TestCase):
+    def test_disabled_external_routing_launches_no_provider_and_no_elves_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resolved = resolve_config(
+                survival_guide={
+                    "model_routing": {
+                        "enabled": False,
+                        "phases": {
+                            "review": {"profile": "grok-build", "required": False},
+                        },
+                    }
+                }
+            )
+            self.assertFalse(resolved.external_routing_enabled)
+            for route in resolved.roles.values():
+                self.assertEqual(route.profile, "host-native")
+            lanes = lanes_from_resolved(
+                resolved,
+                role_names=["architect"],
+                use_resolved_routes=True,
+            )
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="disabled routing",
+                target_quorum=1,
+                parent_env={"PATH": "/usr/bin", "HOME": str(root)},
+            )
+            # No successful fabricated votes.
+            self.assertEqual(result.successful_count if hasattr(result, "successful_count") else len(result.successful_reports), 0)
+            self.assertFalse(result.council_verified)
+            for lane in result.lane_results:
+                self.assertEqual(lane.adapter, "host-native")
+                self.assertFalse(lane.ok)
+                # No provider argv launched.
+                self.assertEqual(lane.command, [])
+            # Native-only / no external process: dispatch must not create .elves.
+            elves = root / ".elves"
+            self.assertFalse(elves.exists(), ".elves must not be created for native-only council")
+            self.assertFalse(result.mutated_repo)
+            self.assertFalse(result.model_calls_made)
+
+
+
+
+class RemediationBlockerTests(unittest.TestCase):
+    def test_invalid_quorum_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = run_council_sync(
+                [LaneSpec(lane_id="a", role="architect", adapter="host-native", profile="host-native")],
+                repo_root=root,
+                task="q",
+                target_quorum=0,
+            )
+        self.assertTrue(result.blocked)
+        self.assertFalse(result.council_verified)
+
+    def test_oversized_quorum_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = run_council_sync(
+                [LaneSpec(lane_id="a", role="architect", adapter="host-native", profile="host-native")],
+                repo_root=root,
+                task="q",
+                target_quorum=5,
+            )
+        self.assertTrue(result.blocked)
+
+    def test_host_evidence_replay_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_id = "council-replay-1"
+            task = "replay"
+            # Same executor object invoked twice is fine (different lanes).
+            # Duplicate lane IDs are rejected before launch.
+            lanes = [
+                LaneSpec(
+                    lane_id="host-a",
+                    role="architect",
+                    adapter="host-native",
+                    profile="host-native",
+                    host_executor=_host_executor("architect"),
+                ),
+                LaneSpec(
+                    lane_id="host-a",
+                    role="skeptic",
+                    adapter="host-native",
+                    profile="host-native",
+                    host_executor=_host_executor("skeptic"),
+                ),
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task=task,
+                run_id=run_id,
+                target_quorum=2,
+            )
+        self.assertTrue(result.blocked)
+        self.assertTrue(any("duplicate_lane_id" in n for n in result.notes))
+
+    def test_static_host_evidence_without_executor_is_not_a_vote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_id = "council-static-1"
+            task = "static"
+            static = {
+                "executor_id": "forged",
+                "execution_id": "forged-exec",
+                "bound_lane_id": "host",
+                "bound_run_id": run_id,
+                "binding": host_evidence_binding(
+                    run_id=run_id, lane_id="host", role="architect", task=task
+                ),
+                "role_report": {
+                    "role": "architect",
+                    "verdict": "pass",
+                    "confidence": "high",
+                    "key_findings": [],
+                    "evidence": [],
+                    "risks": [],
+                    "recommended_actions": [],
+                    "open_questions": [],
+                },
+            }
+            result = run_council_sync(
+                [
+                    LaneSpec(
+                        lane_id="host",
+                        role="architect",
+                        adapter="host-native",
+                        profile="host-native",
+                        injected_host_evidence=static,
+                    )
+                ],
+                repo_root=root,
+                task=task,
+                run_id=run_id,
+                target_quorum=1,
+            )
+        self.assertFalse(result.lane_results[0].ok)
+        self.assertIn("executor", (result.lane_results[0].error or "").lower())
+
+
+    def test_unsafe_extra_args_fail_attempt(self) -> None:
+        with self.assertRaises(ValidationIssue) as ctx:
+            validate_extra_args("grok-build", ["--permission-mode", "bypassPermissions"])
+        self.assertEqual(ctx.exception.code, "unsafe_extra_args")
+
+    def test_path_escape_lane_id_contained(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = _write_fake_lane_script(root / "ok.py", role="architect", actual_model="m", sleep_s=0.01)
+            lanes = [
+                LaneSpec(
+                    lane_id="../escape",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    requested_model="m",
+                    command_override=(sys.executable, str(script)),
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="path",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+        # Encoded path component; must not escape root.
+        self.assertTrue(result.lane_results)
+        art = result.lane_results[0].artifact_dir
+        if art:
+            self.assertIn(str(root.resolve()), str(Path(art).resolve()))
+            self.assertNotIn("/../", art.replace("\\", "/"))
+
+    def test_fallback_env_grants_do_not_inherit_primary_secrets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sentinel = "PRIMARY_ONLY_SECRET_VALUE_zz9"
+            # Primary fails launch; fallback should not see primary grant.
+            missing = root / "missing-primary"
+            good = root / "fb.py"
+            good.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/usr/bin/env python3
+                    import json, os, sys
+                    leaked = os.environ.get("PRIMARY_SECRET")
+                    print(json.dumps({{
+                        "actual_model": "fb-model",
+                        "role_report": {{
+                            "role": "architect",
+                            "verdict": "pass",
+                            "confidence": "high",
+                            "key_findings": [f"leaked={{leaked is not None}}"],
+                            "evidence": [],
+                            "risks": [],
+                            "recommended_actions": [],
+                            "open_questions": [],
+                        }},
+                    }}))
+                    sys.exit(0 if leaked is None else 2)
+                    """
+                ),
+                encoding="utf-8",
+            )
+            good.chmod(good.stat().st_mode | stat.S_IXUSR)
+            attempts = (
+                EffectiveAttempt(
+                    profile="primary",
+                    adapter="custom-cli",
+                    executable=str(missing),
+                    requested_model="fb-model",
+                    env_grants=("PRIMARY_SECRET",),
+                    reason="primary",
+                ),
+                EffectiveAttempt(
+                    profile="fallback",
+                    adapter="custom-cli",
+                    executable=str(good),
+                    requested_model="fb-model",
+                    env_grants=(),  # empty: must not inherit
+                    reason="after-launch-error",
+                ),
+            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="primary",
+                    requested_model="fb-model",
+                    attempts=attempts,
+                    env_grants=("PRIMARY_SECRET",),
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="grant-isolation",
+                parent_env={
+                    "PATH": os.environ.get("PATH", "/usr/bin"),
+                    "PRIMARY_SECRET": sentinel,
+                },
+            )
+        self.assertTrue(result.lane_results[0].ok, result.lane_results[0].error)
+        blob = json.dumps(result.to_dict())
+        self.assertNotIn(sentinel, blob)
+
+    def test_partial_profile_merge_preserves_untouched_fields(self) -> None:
+        resolved = resolve_config(
+            user_config={
+                "profiles": {
+                    "worker": {
+                        "adapter": "claude-code",
+                        "executable": "/bin/claude-custom",
+                        "enabled": False,
+                        "requested_model": "model-base",
+                        "env_grants": ["SAKANA_API_KEY"],
+                        "extra_args": ["--flag", "keep"],
+                        "input_contract": "stdin",
+                        "output_contract": "claude-json",
+                    }
+                },
+                "model_routing": {
+                    "phases": {"review": {"profile": "worker"}}
+                },
+            },
+            models_toml={
+                "profiles": {
+                    # Partial: only change model; preserve adapter/executable/disabled/contracts.
+                    "worker": {
+                        "model": "model-overlay",
+                    }
+                }
+            },
+        )
+        profile = resolved.profiles["worker"]
+        self.assertEqual(profile.requested_model, "model-overlay")
+        self.assertEqual(profile.adapter, "claude-code")
+        self.assertEqual(profile.executable, "/bin/claude-custom")
+        self.assertFalse(profile.enabled)
+        self.assertEqual(list(profile.env_grants), ["SAKANA_API_KEY"])
+        self.assertEqual(list(profile.extra_args), ["--flag", "keep"])
+        self.assertEqual(profile.input_contract, "stdin")
+        self.assertEqual(profile.output_contract, "claude-json")
+
+    def test_partial_profile_explicit_empty_list_clears_and_enum_reset(self) -> None:
+        resolved = resolve_config(
+            user_config={
+                "profiles": {
+                    "worker": {
+                        "adapter": "custom-cli",
+                        "executable": "/bin/w",
+                        "extra_args": ["--keep"],
+                        "env_grants": ["X"],
+                        "session_mode": "persistent",
+                    }
+                }
+            },
+            models_toml={
+                "profiles": {
+                    "worker": {
+                        "adapter": "custom-cli",
+                        "extra_args": [],
+                        "env_grants": [],
+                        "session_mode": "ephemeral",
+                    }
+                }
+            },
+        )
+        profile = resolved.profiles["worker"]
+        self.assertEqual(list(profile.extra_args), [])
+        self.assertEqual(list(profile.env_grants), [])
+        self.assertEqual(profile.session_mode.value, "ephemeral")
+
+    def test_decoder_claude_and_grok_and_codex_fixtures(self) -> None:
+        report = {
+            "role": "architect",
+            "verdict": "pass",
+            "confidence": "high",
+            "key_findings": ["k"],
+            "evidence": [],
+            "risks": [],
+            "recommended_actions": [],
+            "open_questions": [],
+        }
+        claude = json.dumps(
+            {"result": json.dumps(report), "modelUsage": {"claude-opus": {"in": 1}}}
+        )
+        decoded = decode_adapter_output(
+            claude,
+            decoder="claude-json",
+            expected_role="architect",
+            requested_model="claude-opus",
+            require_model=True,
+        )
+        self.assertEqual(decoded.actual_model, "claude-opus")
+
+        grok = json.dumps({"text": json.dumps(report), "stopReason": "end_turn", "sessionId": "abc"})
+        decoded_g = decode_adapter_output(
+            grok, decoder="grok-json", expected_role="architect", require_model=False
+        )
+        self.assertIsNone(decoded_g.actual_model)
+        with self.assertRaises(ValidationIssue):
+            decode_adapter_output(
+                grok,
+                decoder="grok-json",
+                expected_role="architect",
+                requested_model="any",
+                require_model=True,
+            )
+
+        codex = "\n".join(
+            [
+                json.dumps({"type": "thread.started"}),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "agent_message", "text": json.dumps(report)},
+                    }
+                ),
+            ]
+        )
+        decoded_c = decode_adapter_output(
+            codex, decoder="codex-jsonl", expected_role="architect", require_model=False
+        )
+        self.assertEqual(decoded_c.role_report["verdict"], "pass")
+
+
+
+
+class HostAuditAmendmentTests(unittest.TestCase):
+    def test_asyncio_task_cancellation_cleans_process_group(self) -> None:
+        import asyncio as aio
+
+        async def _run() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                marker = root / "desc.pid"
+                hang = _write_fake_lane_script(
+                    root / "hang.py",
+                    role="architect",
+                    hang_s=5.0,
+                    actual_model="slow",
+                    spawn_descendant=True,
+                    descendant_marker=marker,
+                )
+                lanes = [
+                    LaneSpec(
+                        lane_id="architect",
+                        role="architect",
+                        adapter="custom-cli",
+                        profile="a",
+                        requested_model="slow",
+                        command_override=(sys.executable, str(hang)),
+                        timeout_seconds=30.0,
+                    )
+                ]
+                task = aio.create_task(
+                    dispatch_mod.run_council(
+                        lanes,
+                        repo_root=root,
+                        task="cancel-me",
+                        parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+                    )
+                )
+                # Require descendant marker before cancelling (bounded wait).
+                deadline_marker = time.time() + 2.0
+                while time.time() < deadline_marker and not marker.is_file():
+                    await aio.sleep(0.02)
+                self.assertTrue(
+                    marker.is_file(),
+                    "descendant marker must exist before cancellation",
+                )
+                pid = int(marker.read_text().strip())
+                task.cancel()
+                with self.assertRaises(aio.CancelledError):
+                    await task
+                # Prove the descendant PID disappears.
+                deadline = time.time() + 2
+                alive = True
+                while time.time() < deadline:
+                    try:
+                        os.kill(pid, 0)
+                        await aio.sleep(0.05)
+                    except ProcessLookupError:
+                        alive = False
+                        break
+                    except PermissionError:
+                        alive = False
+                        break
+                self.assertFalse(alive, f"descendant pid {pid} still alive after cancel")
+
+        aio.run(_run())
+
+    def test_sigterm_resistant_descendant_is_hard_killed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            marker = root / "stubborn.pid"
+            script = root / "stubborn.py"
+            script.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/usr/bin/env python3
+                    import os, signal, time, pathlib, subprocess, sys
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                    child = subprocess.Popen(
+                        [sys.executable, "-c",
+                         "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)"],
+                        start_new_session=False,
+                    )
+                    pathlib.Path({str(marker)!r}).write_text(str(child.pid), encoding="utf-8")
+                    time.sleep(30)
+                    """
+                ),
+                encoding="utf-8",
+            )
+            script.chmod(script.stat().st_mode | stat.S_IXUSR)
+            result = run_council_sync(
+                [
+                    LaneSpec(
+                        lane_id="architect",
+                        role="architect",
+                        adapter="custom-cli",
+                        profile="a",
+                        command_override=(sys.executable, str(script)),
+                        timeout_seconds=0.4,
+                    )
+                ],
+                repo_root=root,
+                task="stubborn",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+            self.assertTrue(result.lane_results[0].timeout)
+            self.assertTrue(marker.is_file())
+            pid = int(marker.read_text().strip())
+            deadline = time.time() + 2
+            alive = True
+            while time.time() < deadline:
+                try:
+                    os.kill(pid, 0)
+                    time.sleep(0.05)
+                except ProcessLookupError:
+                    alive = False
+                    break
+                except PermissionError:
+                    alive = False
+                    break
+            self.assertFalse(alive, f"stubborn descendant {pid} still alive")
+
+    def test_leader_success_with_orphan_descendant_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            marker = root / "orphan.pid"
+            script = root / "orphan_leader.py"
+            report = {
+                "role": "architect",
+                "verdict": "pass",
+                "confidence": "high",
+                "key_findings": ["ok"],
+                "evidence": [],
+                "risks": [],
+                "recommended_actions": [],
+                "open_questions": [],
+            }
+            script.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/usr/bin/env python3
+                    import json, os, subprocess, sys, pathlib, time
+                    child = subprocess.Popen(
+                        [sys.executable, "-c", "import time; time.sleep(30)"],
+                        start_new_session=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    pathlib.Path({str(marker)!r}).write_text(str(child.pid), encoding="utf-8")
+                    print(json.dumps({{
+                        "actual_model": "m",
+                        "role_report": {report!r},
+                    }}))
+                    # exit successfully while child still lives in same process group
+                    sys.exit(0)
+                    """
+                ),
+                encoding="utf-8",
+            )
+            script.chmod(script.stat().st_mode | stat.S_IXUSR)
+            result = run_council_sync(
+                [
+                    LaneSpec(
+                        lane_id="architect",
+                        role="architect",
+                        adapter="custom-cli",
+                        profile="a",
+                        requested_model="m",
+                        command_override=(sys.executable, str(script)),
+                        timeout_seconds=5.0,
+                    )
+                ],
+                repo_root=root,
+                task="orphan-leader",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+            lane = result.lane_results[0]
+            # Must fail because descendant remained after leader exit.
+            self.assertFalse(lane.ok)
+            self.assertIn("descendant", (lane.error or "").lower())
+            if marker.is_file():
+                pid = int(marker.read_text().strip())
+                deadline = time.time() + 2
+                alive = True
+                while time.time() < deadline:
+                    try:
+                        os.kill(pid, 0)
+                        time.sleep(0.05)
+                    except ProcessLookupError:
+                        alive = False
+                        break
+                    except PermissionError:
+                        alive = False
+                        break
+                self.assertFalse(alive)
+
+    def test_malicious_wrapper_secret_echo_redacted_everywhere(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sentinel = "ZZZ_NOT_SHAPE_SECRET_991177"
+            script = root / "echo_secret.py"
+            script.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/usr/bin/env python3
+                    import json, sys
+                    raw = sys.stdin.read()
+                    print("stderr-" + {sentinel!r}, file=sys.stderr)
+                    print(json.dumps({{
+                        "actual_model": {sentinel!r},
+                        "role_report": {{
+                            "role": "architect",
+                            "verdict": "pass",
+                            "confidence": "high",
+                            "key_findings": [{sentinel!r}],
+                            "evidence": [{sentinel!r}],
+                            "risks": [{sentinel!r}],
+                            "recommended_actions": [{sentinel!r}],
+                            "open_questions": [{sentinel!r}],
+                        }},
+                    }}))
+                    """
+                ),
+                encoding="utf-8",
+            )
+            script.chmod(script.stat().st_mode | stat.S_IXUSR)
+            result = run_council_sync(
+                [
+                    LaneSpec(
+                        lane_id="architect",
+                        role="architect",
+                        adapter="custom-cli",
+                        profile="a",
+                        requested_model=sentinel,
+                        command_override=(sys.executable, str(script)),
+                        env_grants=("ECHO_SECRET",),
+                    )
+                ],
+                repo_root=root,
+                task=f"please use {sentinel} carefully",
+                parent_env={
+                    "PATH": os.environ.get("PATH", "/usr/bin"),
+                    "ECHO_SECRET": sentinel,
+                },
+            )
+            blob = json.dumps(result.to_dict())
+            self.assertNotIn(sentinel, blob)
+            # Scan artifact tree
+            art_root = result.artifact_root
+            if art_root:
+                for p in Path(art_root).rglob("*"):
+                    if p.is_file():
+                        data = p.read_text(encoding="utf-8", errors="replace")
+                        self.assertNotIn(sentinel, data, f"leak in {p}")
+
+    def test_qualified_capability_launches_unqualified_falls_back(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good = _write_fake_lane_script(
+                root / "good.py", role="architect", actual_model="m", sleep_s=0.01
+            )
+            attempts = (
+                EffectiveAttempt(
+                    profile="need-cap",
+                    adapter="custom-cli",
+                    executable=str(good),
+                    requested_model="m",
+                    capabilities=("read_only_repo",),
+                    qualified_capabilities=(),  # not qualified
+                    reason="primary",
+                ),
+                EffectiveAttempt(
+                    profile="ok",
+                    adapter="custom-cli",
+                    executable=str(good),
+                    requested_model="m",
+                    capabilities=("read_only_repo",),
+                    qualified_capabilities=("read_only_repo",),
+                    reason="after-capability",
+                ),
+            )
+            result = run_council_sync(
+                [
+                    LaneSpec(
+                        lane_id="architect",
+                        role="architect",
+                        adapter="custom-cli",
+                        profile="need-cap",
+                        requested_model="m",
+                        attempts=attempts,
+                    )
+                ],
+                repo_root=root,
+                task="caps",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+            lane = result.lane_results[0]
+            self.assertTrue(lane.ok)
+            self.assertEqual(lane.attempts[0].failure_class, "capability")
+            self.assertTrue(lane.attempts[1].ok)
+            self.assertEqual(lane.fallback_used, "ok")
+
+    def test_symlink_elves_escape_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+            elves = root / ".elves"
+            elves.symlink_to(outside)
+            with self.assertRaises(Exception) as ctx:
+                from cobbler_runtime.context import create_exclusive_artifact_root
+
+                create_exclusive_artifact_root(root, "run-symlink-1")
+            # ValidationIssue or OSError depending on path
+            self.assertTrue(
+                "symlink" in str(ctx.exception).lower()
+                or "escape" in str(ctx.exception).lower()
+                or getattr(ctx.exception, "code", "") == "artifact_root_symlink_escape"
+            )
+
+    def test_incompatible_adapter_contract_fails_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good = _write_fake_lane_script(
+                root / "g.py", role="architect", actual_model="m", sleep_s=0.01
+            )
+            attempts = (
+                EffectiveAttempt(
+                    profile="bad-io",
+                    adapter="claude-code",
+                    executable=str(good),
+                    requested_model="m",
+                    input_contract="prompt-file",  # wrong for claude
+                    output_contract="grok-json",
+                    reason="primary",
+                ),
+                EffectiveAttempt(
+                    profile="ok",
+                    adapter="custom-cli",
+                    executable=str(good),
+                    requested_model="m",
+                    reason="fallback",
+                ),
+            )
+            result = run_council_sync(
+                [
+                    LaneSpec(
+                        lane_id="architect",
+                        role="architect",
+                        adapter="claude-code",
+                        profile="bad-io",
+                        requested_model="m",
+                        attempts=attempts,
+                    )
+                ],
+                repo_root=root,
+                task="io",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+            lane = result.lane_results[0]
+            self.assertTrue(lane.ok)
+            self.assertIn("contract", (lane.attempts[0].reason or "").lower() + lane.attempts[0].failure_class)
+
+
+
+
+class HostExecutorCallAccountingTests(unittest.TestCase):
+    def test_host_executor_counts_as_model_call_sync_and_async(self) -> None:
+        import asyncio as aio
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_id = "council-host-call-1"
+            log: list = []
+
+            def sync_exec(challenge: dict) -> dict:
+                log.append("sync")
+                return _host_executor("architect")(challenge)
+
+            async def async_exec(challenge: dict) -> dict:
+                log.append("async")
+                await aio.sleep(0)
+                return _host_executor("skeptic")(challenge)
+
+            result = run_council_sync(
+                [
+                    LaneSpec(
+                        lane_id="host-sync",
+                        role="architect",
+                        adapter="host-native",
+                        profile="host-native",
+                        host_executor=sync_exec,
+                    ),
+                    LaneSpec(
+                        lane_id="host-async",
+                        role="skeptic",
+                        adapter="host-native",
+                        profile="host-native",
+                        host_executor=async_exec,
+                    ),
+                ],
+                repo_root=root,
+                task="host-calls",
+                run_id=run_id,
+                target_quorum=2,
+            )
+            self.assertTrue(result.ok)
+            self.assertTrue(result.model_calls_made)
+            self.assertTrue(all(lane.model_call_made for lane in result.lane_results))
+            self.assertEqual(set(log), {"sync", "async"})
+            self.assertFalse(result.mutated_repo)
+
+    def test_failed_host_executor_still_counts_call(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def boom(challenge: dict) -> dict:
+                raise RuntimeError("executor boom")
+
+            result = run_council_sync(
+                [
+                    LaneSpec(
+                        lane_id="host",
+                        role="architect",
+                        adapter="host-native",
+                        profile="host-native",
+                        host_executor=boom,
+                    )
+                ],
+                repo_root=root,
+                task="boom",
+                run_id="council-host-boom-1",
+            )
+            self.assertFalse(result.lane_results[0].ok)
+            self.assertTrue(result.lane_results[0].model_call_made)
+            self.assertTrue(result.model_calls_made)
+
+    def test_native_without_executor_is_not_a_model_call(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = run_council_sync(
+                [
+                    LaneSpec(
+                        lane_id="host",
+                        role="architect",
+                        adapter="host-native",
+                        profile="host-native",
+                    )
+                ],
+                repo_root=root,
+                task="no-exec",
+            )
+            self.assertFalse(result.lane_results[0].ok)
+            self.assertFalse(result.lane_results[0].model_call_made)
+            self.assertFalse(result.model_calls_made)
+            self.assertFalse(result.mutated_repo)
+
+    def test_lightweight_external_marks_mutation_and_call(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = _write_fake_lane_script(
+                root / "lw.py",
+                role="lightweight_review",
+                actual_model="m",
+                sleep_s=0.01,
+            )
+            result = run_lightweight_review_sync(
+                repo_root=root,
+                task="lw-external",
+                adapter="custom-cli",
+                profile="c",
+                requested_model="m",
+                command_override=(sys.executable, str(script)),
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+            self.assertTrue(result.ok)
+            self.assertTrue(result.model_call_made)
+            self.assertTrue(result.mutated_repo)
 
 
 if __name__ == "__main__":

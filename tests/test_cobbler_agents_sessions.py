@@ -226,6 +226,8 @@ class RegistryLifecycleTests(unittest.TestCase):
                 plan_path=plan,
             )
             reg.activate("s-rehyd")
+            original = reg.get("s-rehyd")
+            original_digest = original.context_digest
             plan.write_text("v2\n", encoding="utf-8")
             rec, drift = reg.resume_exact(
                 "s-rehyd",
@@ -236,6 +238,121 @@ class RegistryLifecycleTests(unittest.TestCase):
             )
             self.assertTrue(drift.expected_change)
             self.assertEqual(rec.lifecycle, SessionLifecycle.REHYDRATION_REQUIRED)
+            # Active digest must stay frozen until rehydration proof.
+            self.assertEqual(rec.context_digest, original_digest)
+            self.assertIsNotNone(rec.pending_context_digest)
+            self.assertNotEqual(rec.pending_context_digest, original_digest)
+
+    def test_resume_cannot_activate_until_rehydration_proof_matches_pending_digest(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            reg = SessionRegistry(Path(tmp))
+            plan = Path(tmp) / "plan.md"
+            plan.write_text("v1\n", encoding="utf-8")
+            reg.create(
+                session_id="proof-1",
+                harness="claude-code",
+                profile="claude-code",
+                role="review",
+                actual_model="m",
+                cwd=str(tmp),
+                source_head="h1",
+                plan_path=plan,
+            )
+            reg.activate("proof-1")
+            before = reg.get("proof-1")
+            plan.write_text("v2\n", encoding="utf-8")
+            rec, drift = reg.resume_exact(
+                "proof-1",
+                observed_model="m",
+                observed_cwd=str(tmp),
+                observed_head="h1",
+                plan_path=plan,
+            )
+            self.assertEqual(rec.lifecycle, SessionLifecycle.REHYDRATION_REQUIRED)
+            self.assertEqual(rec.context_digest, before.context_digest)
+            pending = rec.pending_context_digest
+            self.assertTrue(pending)
+            self.assertNotEqual(pending, before.context_digest)
+
+            # Wrong model while rehydration is pending blocks write reuse.
+            rec_bad, drift_bad = reg.resume_exact(
+                "proof-1",
+                observed_model="wrong-model",
+                observed_cwd=str(tmp),
+                observed_head="h1",
+                plan_path=plan,
+            )
+            self.assertTrue(drift_bad.write_reuse_blocked)
+            self.assertEqual(rec_bad.lifecycle, SessionLifecycle.DRIFTED)
+            self.assertEqual(rec_bad.context_digest, before.context_digest)
+
+            # Fresh session for the successful proof path.
+            plan.write_text("v1\n", encoding="utf-8")
+            reg.create(
+                session_id="proof-2",
+                harness="claude-code",
+                profile="claude-code",
+                role="review",
+                actual_model="m",
+                cwd=str(tmp),
+                source_head="h1",
+                plan_path=plan,
+            )
+            reg.activate("proof-2")
+            plan.write_text("v2\n", encoding="utf-8")
+            rec2, _ = reg.resume_exact(
+                "proof-2",
+                observed_model="m",
+                observed_cwd=str(tmp),
+                observed_head="h1",
+                plan_path=plan,
+            )
+            pending2 = rec2.pending_context_digest
+            self.assertEqual(rec2.lifecycle, SessionLifecycle.REHYDRATION_REQUIRED)
+            # Second exact resume with matching pending digest promotes to active.
+            rec3, drift3 = reg.resume_exact(
+                "proof-2",
+                observed_model="m",
+                observed_cwd=str(tmp),
+                observed_head="h1",
+                plan_path=plan,
+            )
+            self.assertTrue(drift3.ok or drift3.expected_change)
+            self.assertEqual(rec3.lifecycle, SessionLifecycle.ACTIVE)
+            self.assertEqual(rec3.context_digest, pending2)
+            self.assertIsNone(rec3.pending_context_digest)
+            self.assertEqual(rec3.resume_method, "exact_id_rehydrated")
+
+    def test_readonly_list_does_not_create_runtime_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reg = SessionRegistry.open_readonly(root)
+            sessions = reg.list_sessions()
+            self.assertEqual(sessions, [])
+            self.assertFalse((root / ".elves" / "runtime" / "sessions").exists())
+
+    def test_malformed_session_record_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            reg = SessionRegistry(Path(tmp))
+            reg.create(
+                session_id="good",
+                harness="claude-code",
+                profile="claude-code",
+                role="review",
+                actual_model="m",
+                cwd=str(tmp),
+                source_head="h",
+            )
+            bad = reg.root / "broken.json"
+            bad.write_text("{not-json", encoding="utf-8")
+            records = reg.list_sessions()
+            self.assertEqual(len(records), 1)
+            self.assertEqual(len(reg.malformed_records), 1)
+            with self.assertRaises(ValidationIssue) as ctx:
+                reg.list_sessions_strict()
+            self.assertEqual(ctx.exception.code, "session_record_malformed")
 
     def test_parent_child_validation_on_drift(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

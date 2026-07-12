@@ -6,7 +6,7 @@
 
 Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default coordinator inside Elves: it decides whether to answer directly, ask independent reviewers, assign scoped worker agents, or record a run decision, then returns one clear recommendation.
 
-**Current release: v1.20.0.** This release adds Cobbler external-agent orchestration: a standard-library
+**Current release: v1.20.1.** This release adds Cobbler external-agent orchestration: a standard-library
 runtime for optional parallel planning/review councils, exact persistent sessions, a single audited
 external writer lease with host-owned binary-patch integration, setup helpers, and a master
 CouncilElves launch prompt—while native-only Elves remains complete with zero external tools or keys.

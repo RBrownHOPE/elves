@@ -392,41 +392,22 @@ class CliSkeletonTests(unittest.TestCase):
         self.assertIn("host-native", payload["adapters"])
 
     def test_required_unavailable_profile_exits_nonzero(self) -> None:
-        cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
-        if not cli.is_file():
-            self.skipTest("CLI not created yet")
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            elves = root / ".elves"
-            elves.mkdir()
-            # Only write TOML when tomllib is available.
-            if config_mod.tomllib is not None:
-                (elves / "models.toml").write_text(
-                    """
-[roles.implement]
-profile = "missing-required"
-required = true
-""".strip()
-                    + "\n",
-                    encoding="utf-8",
-                )
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        str(cli),
-                        "validate-config",
-                        "--json",
-                        "--repo-root",
-                        str(root),
-                    ],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertNotEqual(result.returncode, 0)
-                payload = json.loads(result.stdout)
-                self.assertFalse(payload["ok"])
-                self.assertTrue(any(issue["code"] == "unknown_profile" for issue in payload["issues"]))
+        # required:true is only honored from Survival Guide provenance.
+        resolved = config_mod.resolve_config(
+            survival_guide={
+                "model_routing": {
+                    "phases": {
+                        "implement": {
+                            "profile": "missing-required",
+                            "required": True,
+                        }
+                    }
+                }
+            }
+        )
+        self.assertFalse(resolved.ok)
+        self.assertTrue(any(issue.code == "unknown_profile" for issue in resolved.issues))
+        self.assertTrue(resolved.roles["implement"].required)
 
 
 class ExampleAndIgnoreTests(unittest.TestCase):
@@ -442,6 +423,101 @@ class ExampleAndIgnoreTests(unittest.TestCase):
         self.assertIn("Survival Guide", text)
         self.assertIn("native", text.lower())
         self.assertIn("[roles.", text)
+
+
+
+
+class FinalHostAuditConfigTests(unittest.TestCase):
+    def test_qualified_capabilities_ignored_from_all_config_sources(self) -> None:
+        for source_kwargs, label in (
+            (
+                {
+                    "user_config": {
+                        "profiles": {
+                            "w": {
+                                "adapter": "custom-cli",
+                                "executable": "/bin/w",
+                                "capabilities": ["read_only_repo"],
+                                "qualified_capabilities": ["read_only_repo"],
+                            }
+                        }
+                    }
+                },
+                "user",
+            ),
+            (
+                {
+                    "models_toml": {
+                        "profiles": {
+                            "w": {
+                                "adapter": "custom-cli",
+                                "executable": "/bin/w",
+                                "qualified": ["read_only_repo"],
+                            }
+                        }
+                    }
+                },
+                "local",
+            ),
+            (
+                {
+                    "survival_guide": {
+                        "model_routing": {
+                            "profiles": {
+                                "w": {
+                                    "adapter": "custom-cli",
+                                    "executable": "/bin/w",
+                                    "qualified_capabilities": ["read_only_repo"],
+                                }
+                            }
+                        }
+                    }
+                },
+                "survival",
+            ),
+        ):
+            resolved = config_mod.resolve_config(**source_kwargs)
+            profile = resolved.profiles["w"]
+            self.assertEqual(
+                list(profile.qualified_capabilities),
+                [],
+                f"{label} must not self-certify qualification",
+            )
+            self.assertTrue(
+                any("qualified_capabilities" in w for w in resolved.warnings),
+                f"{label} should warn: {resolved.warnings}",
+            )
+
+    def test_named_profile_defaults_to_adapter_contract_pair(self) -> None:
+        resolved = config_mod.resolve_config(
+            models_toml={
+                "profiles": {
+                    "my-claude": {"adapter": "claude-code", "executable": "claude"},
+                    "my-grok": {"adapter": "grok-build", "executable": "grok"},
+                    "my-fugu": {"adapter": "codex-fugu", "executable": "codex"},
+                    "my-custom": {"adapter": "custom-cli", "executable": "/bin/wrap"},
+                    "bad-claude": {
+                        "adapter": "claude-code",
+                        "executable": "claude",
+                        "input_contract": "prompt-file",
+                        "output_contract": "grok-json",
+                    },
+                }
+            }
+        )
+        self.assertEqual(resolved.profiles["my-claude"].input_contract, "stdin")
+        self.assertEqual(resolved.profiles["my-claude"].output_contract, "claude-json")
+        self.assertEqual(resolved.profiles["my-grok"].input_contract, "prompt-file")
+        self.assertEqual(resolved.profiles["my-grok"].output_contract, "grok-json")
+        self.assertEqual(resolved.profiles["my-fugu"].input_contract, "stdin")
+        self.assertEqual(resolved.profiles["my-fugu"].output_contract, "codex-jsonl")
+        self.assertEqual(resolved.profiles["my-custom"].input_contract, "json-stdio")
+        self.assertEqual(
+            resolved.profiles["my-custom"].output_contract, "custom-json-envelope"
+        )
+        # Explicit incompatible values preserved for later fail-closed dispatch.
+        self.assertEqual(resolved.profiles["bad-claude"].input_contract, "prompt-file")
+        self.assertEqual(resolved.profiles["bad-claude"].output_contract, "grok-json")
 
 
 if __name__ == "__main__":

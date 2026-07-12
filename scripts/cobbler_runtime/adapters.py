@@ -1,17 +1,18 @@
-"""Adapter protocol, registry stubs, and read-only command builders.
+"""Adapter protocol, version-aware command builders, and transport decoders.
 
-Provider command construction lives here — not in the dispatcher. Batch 2 adds
-read-only builders and structured-output parsing. Live paid smoke is not required;
-fake executables are the deterministic gate.
+Command construction and transport decoding live here — not in the dispatcher.
+Model-authored report text never certifies transport identity. Built-in CLI
+contracts match Claude Code 2.1.207, Grok Build 0.2.93, and Codex 0.144.1 help.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol, Sequence
 
 from .context import ROLE_REPORT_SCHEMA_FIELDS
 from .schema import BUILTIN_ADAPTER_NAMES, HarnessProfile, NATIVE_PROFILE_NAME, ValidationIssue
@@ -57,6 +58,13 @@ class AdapterInvocation:
     tool_scope: str = "read-only"
     sandbox_scope: str = "ephemeral"
     notes: str = ""
+    stdin_text: str | None = None
+    input_mode: str = "none"  # none | stdin | prompt-file | json-stdio
+    decoder: str = "none"
+    unavailable: bool = False
+    unavailable_reason: str = ""
+    cwd: str | None = None
+    prompt_file_body: str | None = None  # full body when writing prompt-file
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -67,6 +75,33 @@ class AdapterInvocation:
             "tool_scope": self.tool_scope,
             "sandbox_scope": self.sandbox_scope,
             "notes": self.notes,
+            "input_mode": self.input_mode,
+            "decoder": self.decoder,
+            "unavailable": self.unavailable,
+            "unavailable_reason": self.unavailable_reason,
+            "cwd": self.cwd,
+            "has_stdin": bool(self.stdin_text),
+            "argv_digest": hashlib.sha256("\0".join(self.argv).encode()).hexdigest()[:16],
+        }
+
+
+@dataclass(frozen=True)
+class TransportDecodeResult:
+    """Decoded transport evidence separate from model-authored report body."""
+
+    role_report: dict[str, Any]
+    actual_model: str | None
+    model_evidence_source: str | None
+    session_id: str | None = None
+    transport_notes: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "role_report": dict(self.role_report),
+            "actual_model": self.actual_model,
+            "model_evidence_source": self.model_evidence_source,
+            "session_id": self.session_id,
+            "transport_notes": list(self.transport_notes),
         }
 
 
@@ -103,26 +138,98 @@ _BUILTIN: dict[str, StubAdapter] = {
     ),
 }
 
-# Host-native read-only lane emits a structured report from the packet without
-# external provider CLIs. Implemented as `python3 -c <script>` with argv only.
-_HOST_NATIVE_READONLY_SCRIPT = r"""
-import json, pathlib, sys
-packet_path = pathlib.Path(sys.argv[1])
-packet = json.loads(packet_path.read_text(encoding="utf-8"))
-report = {
-    "role": packet.get("role") or "host-native",
-    "verdict": "pass",
-    "confidence": "medium",
-    "key_findings": ["host-native read-only analysis"],
-    "evidence": [f"packet={packet_path.name}", f"head={packet.get('head_sha')}"],
-    "risks": [],
-    "recommended_actions": ["host synthesis"],
-    "open_questions": [],
-    "actual_model": "host-native",
-    "requested_model": packet.get("requested_model"),
+FORBIDDEN_INVENTED_FLAGS: frozenset[str] = frozenset(
+    {
+        "--packet",
+        "--readonly",
+    }
+)
+
+# Reserved control options that profile extra_args may not override.
+_RESERVED_CONTROL_FLAGS: dict[str, frozenset[str]] = {
+    "claude-code": frozenset(
+        {
+            "--print",
+            "-p",
+            "--output-format",
+            "--permission-mode",
+            "--model",
+            "--json-schema",
+            "--no-session-persistence",
+            "--dangerously-skip-permissions",
+            "--allow-dangerously-skip-permissions",
+            "--cwd",
+            "--resume",
+            "--session-id",
+            "--input-format",
+        }
+    ),
+    "grok-build": frozenset(
+        {
+            "--prompt-file",
+            "--prompt-json",
+            "--output-format",
+            "--json-schema",
+            "--model",
+            "-m",
+            "--permission-mode",
+            "--sandbox",
+            "--cwd",
+            "--resume",
+            "--session-id",
+            "--always-approve",
+            "--no-subagents",
+            "--no-memory",
+            "--disable-web-search",
+        }
+    ),
+    "codex-fugu": frozenset(
+        {
+            "--json",
+            "--sandbox",
+            "-s",
+            "--model",
+            "-m",
+            "--cd",
+            "-C",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "-",
+        }
+    ),
+    "custom-cli": frozenset(),
 }
-print(json.dumps(report))
-"""
+
+ALLOWED_INPUT_CONTRACTS: frozenset[str] = frozenset(
+    {
+        "stdin",
+        "prompt-file",
+        "json-stdio",
+        "none",
+        "host-injected",
+    }
+)
+ALLOWED_OUTPUT_CONTRACTS: frozenset[str] = frozenset(
+    {
+        "claude-json",
+        "grok-json",
+        "codex-jsonl",
+        "custom-json-envelope",
+        "host-injected",
+        "json-role-report",  # legacy alias -> custom envelope for wrappers
+        "none",
+    }
+)
+
+ALLOWED_VERDICTS: frozenset[str] = frozenset(
+    {"pass", "fail", "warn", "abstain", "info", "blocked"}
+)
+CONFIDENCE_ALIASES: dict[str, float] = {
+    "high": 0.9,
+    "medium": 0.6,
+    "low": 0.3,
+    "blocked": 0.0,
+    "reduced": 0.45,
+}
 
 
 def builtin_adapter_names() -> tuple[str, ...]:
@@ -145,17 +252,141 @@ def default_profiles() -> dict[str, HarnessProfile]:
     """Return built-in profiles without personal model defaults."""
     profiles: dict[str, HarnessProfile] = {}
     for name, adapter in _BUILTIN.items():
+        if name == "claude-code":
+            input_c, output_c = "stdin", "claude-json"
+        elif name == "grok-build":
+            input_c, output_c = "prompt-file", "grok-json"
+        elif name == "codex-fugu":
+            input_c, output_c = "stdin", "codex-jsonl"
+        elif name == "custom-cli":
+            input_c, output_c = "json-stdio", "custom-json-envelope"
+        else:
+            input_c, output_c = "host-injected", "host-injected"
         profiles[name] = HarnessProfile(
             name=name,
             adapter=adapter.name,
             executable=None if name == NATIVE_PROFILE_NAME else adapter.executable_hint,
             notes=f"Built-in {adapter.name} profile",
+            input_contract=input_c,
+            output_contract=output_c,
         )
     return profiles
 
 
 def registry_snapshot() -> dict[str, dict[str, object]]:
     return {name: adapter.describe() for name, adapter in sorted(_BUILTIN.items())}
+
+
+def default_decoder_for_adapter(adapter: str) -> str:
+    name = adapter.strip().lower()
+    return {
+        "claude-code": "claude-json",
+        "grok-build": "grok-json",
+        "codex-fugu": "codex-jsonl",
+        "custom-cli": "custom-json-envelope",
+        "host-native": "host-injected",
+    }.get(name, "custom-json-envelope")
+
+
+def compose_full_prompt(*, packet: Mapping[str, Any], task: str, role: str) -> str:
+    """Full task + redacted packet for prompt-file / stdin (never a fragment)."""
+    packet_json = json.dumps(dict(packet), indent=2, sort_keys=True)
+    return (
+        f"Role: {role}\n"
+        f"Task:\n{task}\n\n"
+        f"--- context packet (JSON) ---\n"
+        f"{packet_json}\n"
+        f"--- end context packet ---\n"
+        f"Return a structured role report for the requested transport contract.\n"
+    )
+
+
+def _normalize_flag_token(token: str) -> str:
+    if token.startswith("--") and "=" in token:
+        return token.split("=", 1)[0]
+    return token
+
+
+def validate_extra_args(
+    adapter: str,
+    extra_args: Sequence[str],
+) -> None:
+    """Fail when extra_args attempt to override reserved control options."""
+    reserved = _RESERVED_CONTROL_FLAGS.get(adapter.strip().lower(), frozenset())
+    if not reserved and not extra_args:
+        return
+    seen: set[str] = set()
+    for raw in extra_args:
+        token = _normalize_flag_token(str(raw))
+        if not token.startswith("-"):
+            continue
+        if token in reserved or token in FORBIDDEN_INVENTED_FLAGS:
+            raise ValidationIssue(
+                "unsafe_extra_args",
+                f"extra_args may not override reserved control option `{token}` for `{adapter}`",
+                path=f"adapters.{adapter}.extra_args",
+                hint="Remove the override or use an ordered fallback profile",
+            )
+        if token in seen:
+            raise ValidationIssue(
+                "duplicate_extra_args",
+                f"Duplicate extra_args flag `{token}` for `{adapter}`",
+                path=f"adapters.{adapter}.extra_args",
+            )
+        seen.add(token)
+
+
+# Built-in adapters accept only their supported IO pair (not any global enum value).
+ADAPTER_CONTRACT_PAIRS: dict[str, tuple[str, str]] = {
+    "claude-code": ("stdin", "claude-json"),
+    "grok-build": ("prompt-file", "grok-json"),
+    "codex-fugu": ("stdin", "codex-jsonl"),
+    "custom-cli": ("json-stdio", "custom-json-envelope"),
+    "host-native": ("host-injected", "host-injected"),
+}
+
+
+def validate_contracts(*, input_contract: str, output_contract: str) -> None:
+    ic = (input_contract or "").strip()
+    oc = (output_contract or "").strip()
+    if ic not in ALLOWED_INPUT_CONTRACTS:
+        raise ValidationIssue(
+            "unsupported_input_contract",
+            f"Unsupported input_contract `{ic}`",
+            hint=f"Allowed: {', '.join(sorted(ALLOWED_INPUT_CONTRACTS))}",
+        )
+    if oc not in ALLOWED_OUTPUT_CONTRACTS:
+        raise ValidationIssue(
+            "unsupported_output_contract",
+            f"Unsupported output_contract `{oc}`",
+            hint=f"Allowed: {', '.join(sorted(ALLOWED_OUTPUT_CONTRACTS))}",
+        )
+
+
+def validate_adapter_contract_pair(
+    adapter: str,
+    *,
+    input_contract: str,
+    output_contract: str,
+) -> tuple[str, str]:
+    """Require the supported pair for built-ins; fail incompatible declarations."""
+    name = adapter.strip().lower()
+    ic = (input_contract or "").strip()
+    oc = (output_contract or "").strip()
+    if oc == "json-role-report":
+        oc = "custom-json-envelope"
+    validate_contracts(input_contract=ic, output_contract=oc)
+    expected = ADAPTER_CONTRACT_PAIRS.get(name)
+    if expected is not None and (ic, oc) != expected:
+        raise ValidationIssue(
+            "incompatible_adapter_contract",
+            (
+                f"Adapter `{name}` requires input/output contract "
+                f"{expected[0]}/{expected[1]}, got {ic}/{oc}"
+            ),
+            path=f"adapters.{name}.contracts",
+        )
+    return ic, oc
 
 
 def build_readonly_invocation(
@@ -167,15 +398,17 @@ def build_readonly_invocation(
     executable: str | None = None,
     requested_model: str | None = None,
     extra_args: tuple[str, ...] | list[str] = (),
+    cwd: str | None = None,
+    packet: Mapping[str, Any] | None = None,
+    task: str = "",
+    role: str = "",
+    input_contract: str | None = None,
+    output_contract: str | None = None,
+    repo_root: Path | str | None = None,
 ) -> AdapterInvocation:
-    """Build an argv-safe read-only command for a known adapter.
-
-    Task text is never interpolated into a shell string. Prompt and packet are
-    delivered as file paths.
-    """
+    """Build an argv-safe read-only command for a known adapter."""
     name = adapter.strip().lower()
     if name not in _BUILTIN and name != "custom-cli":
-        # Unknown adapter names are treated as custom-cli wrappers when executable is set.
         if not executable:
             raise ValidationIssue(
                 "unknown_adapter",
@@ -186,153 +419,295 @@ def build_readonly_invocation(
 
     meta = _BUILTIN.get(name, _BUILTIN["custom-cli"])
     exe = executable or meta.executable_hint
-    packet_s = str(packet_path)
-    prompt_s = str(prompt_path)
     extras = tuple(extra_args)
+    validate_extra_args(name, extras)
+
+    default_in, default_out = ADAPTER_CONTRACT_PAIRS.get(
+        name, ("json-stdio", "custom-json-envelope")
+    )
+    in_c = (input_contract or default_in).strip()
+    out_c = (output_contract or default_out).strip()
+    if out_c == "json-role-report":
+        out_c = "custom-json-envelope"
+    in_c, out_c = validate_adapter_contract_pair(
+        name, input_contract=in_c, output_contract=out_c
+    )
+
+    work_cwd = str(repo_root) if repo_root is not None else (cwd or None)
+    packet_obj = dict(packet or {})
+    full_prompt = compose_full_prompt(packet=packet_obj, task=task, role=role or profile)
 
     if name == "host-native":
-        py = executable or "python3"
-        argv = (py, "-c", _HOST_NATIVE_READONLY_SCRIPT.strip(), packet_s)
         return AdapterInvocation(
             adapter="host-native",
-            executable=py,
-            argv=argv,
+            executable="",
+            argv=(),
             read_only=True,
             tool_scope="read-only",
             sandbox_scope="host",
-            notes="stdlib host-native structured report from packet",
+            notes="host-native has no subprocess; requires bound injected host evidence",
+            input_mode="none",
+            decoder="host-injected",
+            unavailable=True,
+            unavailable_reason=(
+                "host_native_requires_injected_report: standalone council cannot "
+                "fabricate a host vote or count host-native toward quorum"
+            ),
+            cwd=work_cwd,
         )
 
     if name == "claude-code":
-        # Explicit structural read-only / plan-scoped invocation. Never use permission
-        # bypass flags. Exact CLI flags may vary by version; callers may override via
-        # extra_args or command_override in tests.
-        argv = [
+        argv_list = [
             exe,
-            "-p",
+            "--print",
             "--output-format",
             "json",
             "--permission-mode",
             "plan",
+            "--no-session-persistence",
         ]
         if requested_model:
-            argv.extend(["--model", requested_model])
-        argv.extend(["--packet", packet_s, "--prompt-file", prompt_s])
-        argv.extend(extras)
+            argv_list.extend(["--model", requested_model])
+        # Benign extras only — reserved already validated.
+        argv_list.extend(extras)
         return AdapterInvocation(
             adapter="claude-code",
             executable=exe,
-            argv=tuple(argv),
+            argv=tuple(argv_list),
             read_only=True,
             tool_scope="read-only",
             sandbox_scope="ephemeral",
             notes=(
-                "structural read-only scope via --permission-mode plan; "
-                "no permission-bypass flags"
+                "structural read-only scope via permission-mode plan; "
+                "no permission-bypass flags; prompt on stdin; decoder claude-json"
             ),
+            stdin_text=full_prompt,
+            input_mode="stdin",
+            decoder="claude-json",
+            cwd=work_cwd,
         )
 
     if name == "grok-build":
-        argv = [
+        # Full packet/task written to prompt_path by dispatcher; argv references path.
+        argv_list = [
             exe,
             "--prompt-file",
-            prompt_s,
-            "--packet",
-            packet_s,
-            "--readonly",
+            str(prompt_path),
+            "--output-format",
+            "json",
+            "--permission-mode",
+            "plan",
+            "--no-subagents",
+            "--no-memory",
+            "--disable-web-search",
         ]
         if requested_model:
-            argv.extend(["--model", requested_model])
-        argv.extend(extras)
+            argv_list.extend(["--model", requested_model])
+        argv_list.extend(extras)
         return AdapterInvocation(
             adapter="grok-build",
             executable=exe,
-            argv=tuple(argv),
+            argv=tuple(argv_list),
             read_only=True,
             tool_scope="read-only",
             sandbox_scope="ephemeral",
-            notes="read-only; never use headless worktree-resume as isolation here",
+            notes="full prompt-file body; actual_model not claimed from stdout alone",
+            input_mode="prompt-file",
+            decoder="grok-json",
+            cwd=work_cwd,
+            prompt_file_body=full_prompt,
         )
 
     if name == "codex-fugu":
-        argv = [
+        if work_cwd is None:
+            work_cwd = str(packet_path.parent)
+        argv_list = [
             exe,
             "exec",
             "--json",
             "--sandbox",
             "read-only",
-            "--packet",
-            packet_s,
-            "--prompt-file",
-            prompt_s,
+            "--cd",
+            work_cwd,
         ]
         if requested_model:
-            argv.extend(["--model", requested_model])
-        argv.extend(extras)
+            argv_list.extend(["--model", requested_model])
+        # Benign extras before the final stdin sentinel so '-' remains last.
+        argv_list.extend(extras)
+        argv_list.append("-")
         return AdapterInvocation(
             adapter="codex-fugu",
             executable=exe,
-            argv=tuple(argv),
+            argv=tuple(argv_list),
             read_only=True,
             tool_scope="read-only",
             sandbox_scope="read-only",
-            notes="read-only sandbox scope; MCP warnings are not inference failure",
+            notes="codex exec JSONL; prompt on stdin; cwd is repository root",
+            stdin_text=full_prompt,
+            input_mode="stdin",
+            decoder="codex-jsonl",
+            cwd=work_cwd,
         )
 
-    # custom-cli
+    # custom-cli: provider-neutral JSON-over-stdio envelope on stdin.
     if not exe or exe == "(user-defined)":
         raise ValidationIssue(
             "missing_executable",
             f"custom-cli profile `{profile}` requires an executable",
             path=f"profiles.{profile}.executable",
         )
-    argv = [exe, "--packet", packet_s, "--prompt-file", prompt_s, "--readonly"]
-    if requested_model:
-        argv.extend(["--model", requested_model])
-    argv.extend(extras)
+    envelope = {
+        "role": role or profile,
+        "task": task,
+        "requested_model": requested_model,
+        "profile": profile,
+        "packet": packet_obj,
+        "packet_path": str(packet_path),
+        "execution_identity": packet_obj.get("execution_identity"),
+        "output_contract": "custom-json-envelope",
+    }
+    argv_list = [exe, *extras]
     return AdapterInvocation(
         adapter="custom-cli",
         executable=exe,
-        argv=tuple(argv),
+        argv=tuple(argv_list),
         read_only=True,
         tool_scope="read-only",
         sandbox_scope="ephemeral",
-        notes="user-defined wrapper; argv only, shell=False",
+        notes="JSON-stdio wrapper envelope; transport fields outer, report nested",
+        stdin_text=json.dumps(envelope, sort_keys=True) + "\n",
+        input_mode="json-stdio",
+        decoder="custom-json-envelope",
+        cwd=work_cwd,
     )
 
 
-def _extract_json_object(text: str) -> dict[str, Any]:
-    """Parse a JSON object from stdout (raw or fenced)."""
-    stripped = text.strip()
-    if not stripped:
+# --- Role report validation -------------------------------------------------
+
+
+def normalize_confidence(raw: Any) -> float:
+    if isinstance(raw, bool):
         raise ValidationIssue(
-            "empty_output",
-            "Adapter produced empty stdout; structured report required",
+            "invalid_confidence",
+            "confidence must not be a boolean",
         )
-    # Fenced ```json ... ```
-    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, re.S)
-    if fence:
-        stripped = fence.group(1)
-    else:
-        # Prefer the last JSON object-looking span.
-        start = stripped.find("{")
-        end = stripped.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            stripped = stripped[start : end + 1]
-    try:
-        data = json.loads(stripped)
-    except json.JSONDecodeError as exc:
+    if isinstance(raw, (int, float)):
+        value = float(raw)
+        if value != value or value in (float("inf"), float("-inf")):
+            raise ValidationIssue(
+                "invalid_confidence",
+                "confidence must be a finite number",
+            )
+        if value < 0.0 or value > 1.0:
+            raise ValidationIssue(
+                "invalid_confidence",
+                f"confidence {value} outside accepted range [0, 1]",
+            )
+        return value
+    if isinstance(raw, str):
+        key = raw.strip().lower()
+        if key in CONFIDENCE_ALIASES:
+            return CONFIDENCE_ALIASES[key]
         raise ValidationIssue(
-            "malformed_json",
-            f"Adapter stdout is not valid JSON: {exc.msg}",
-            hint="role reports must be a single JSON object",
-        ) from exc
-    if not isinstance(data, dict):
-        raise ValidationIssue(
-            "invalid_report_type",
-            "Role report JSON root must be an object",
+            "invalid_confidence",
+            f"Unknown confidence alias `{raw}`",
         )
-    return data
+    raise ValidationIssue(
+        "invalid_confidence",
+        f"Unsupported confidence type `{type(raw).__name__}`",
+    )
+
+
+def validate_role_report(
+    data: Mapping[str, Any],
+    *,
+    expected_role: str | None = None,
+) -> dict[str, Any]:
+    """Strict role-report validation. Model identity fields are never authoritative."""
+    if not isinstance(data, Mapping):
+        raise ValidationIssue("invalid_report_type", "Role report must be an object")
+    report = dict(data)
+    missing = [field for field in ROLE_REPORT_SCHEMA_FIELDS if field not in report]
+    if missing:
+        raise ValidationIssue(
+            "missing_report_fields",
+            "Role report missing required fields: " + ", ".join(missing),
+            hint=f"required fields: {', '.join(ROLE_REPORT_SCHEMA_FIELDS)}",
+        )
+
+    role = report.get("role")
+    if not isinstance(role, str) or not role.strip():
+        raise ValidationIssue(
+            "invalid_report_role",
+            "Role report role must be a non-empty string",
+        )
+    role = role.strip()
+    if expected_role is not None and role != expected_role:
+        raise ValidationIssue(
+            "role_mismatch",
+            f"Report role `{role}` does not match expected `{expected_role}`",
+        )
+    report["role"] = role
+
+    verdict = report.get("verdict")
+    if not isinstance(verdict, str) or not verdict.strip():
+        raise ValidationIssue(
+            "invalid_verdict",
+            "Role report verdict must be a non-empty string",
+        )
+    verdict_n = verdict.strip().lower()
+    if verdict_n not in ALLOWED_VERDICTS:
+        raise ValidationIssue(
+            "invalid_verdict",
+            f"Verdict `{verdict}` not in allowed set",
+        )
+    report["verdict"] = verdict_n
+
+    report["confidence"] = normalize_confidence(report.get("confidence"))
+
+    allowed_keys = set(ROLE_REPORT_SCHEMA_FIELDS) | {
+        "actual_model",
+        "model",
+        "requested_model",
+    }
+    unexpected = sorted(str(k) for k in report.keys() if k not in allowed_keys)
+    if unexpected:
+        raise ValidationIssue(
+            "unexpected_report_fields",
+            "Role report contains unexpected fields: " + ", ".join(unexpected),
+        )
+
+    for key in (
+        "key_findings",
+        "evidence",
+        "risks",
+        "recommended_actions",
+        "open_questions",
+    ):
+        value = report.get(key)
+        if value is None:
+            raise ValidationIssue(
+                "invalid_report_field_type",
+                f"Role report field `{key}` must be a list of strings, not null",
+            )
+        if isinstance(value, str):
+            report[key] = [value]
+            continue
+        if not isinstance(value, list):
+            raise ValidationIssue(
+                "invalid_report_field_type",
+                f"Role report field `{key}` must be a list of strings",
+            )
+        cleaned: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                raise ValidationIssue(
+                    "invalid_report_field_type",
+                    f"Role report field `{key}` members must be strings",
+                )
+            cleaned.append(item)
+        report[key] = cleaned
+    return report
 
 
 def parse_role_report(
@@ -341,76 +716,381 @@ def parse_role_report(
     expected_role: str | None = None,
     requested_model: str | None = None,
 ) -> dict[str, Any]:
-    """Validate bounded role-report schema. Exit code alone is never enough."""
-    data = _extract_json_object(stdout)
-    missing = [field for field in ROLE_REPORT_SCHEMA_FIELDS if field not in data]
-    if missing:
-        raise ValidationIssue(
-            "missing_report_fields",
-            "Role report missing required fields: " + ", ".join(missing),
-            hint=f"required fields: {', '.join(ROLE_REPORT_SCHEMA_FIELDS)}",
-        )
+    """Backward-compatible entry: decode custom envelope or bare report.
 
-    if expected_role is not None:
-        reported_role = str(data.get("role") or "")
-        if reported_role and reported_role != expected_role:
+    ``requested_model`` is ignored for identity (model-authored untrusted).
+    Prefer :func:`decode_adapter_output` with an explicit decoder.
+    """
+    _ = requested_model
+    result = decode_adapter_output(
+        stdout,
+        decoder="custom-json-envelope",
+        expected_role=expected_role,
+        requested_model=None,
+        require_model=False,
+    )
+    return result.role_report
+
+
+# --- Adapter-specific transport decoders -----------------------------------
+
+
+def _parse_json_object(text: str) -> dict[str, Any]:
+    stripped = text.strip()
+    if not stripped:
+        raise ValidationIssue("empty_output", "Adapter produced empty stdout")
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, re.S)
+    if fence:
+        stripped = fence.group(1)
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        # Try last object span.
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                data = json.loads(stripped[start : end + 1])
+            except json.JSONDecodeError as exc2:
+                raise ValidationIssue(
+                    "malformed_json",
+                    f"Adapter stdout is not valid JSON: {exc2.msg}",
+                ) from exc2
+        else:
             raise ValidationIssue(
-                "role_mismatch",
-                f"Report role `{reported_role}` does not match expected `{expected_role}`",
-            )
-
-    if requested_model is not None:
-        actual = data.get("actual_model") or data.get("model")
-        # Allow reports that omit actual_model only when no requested model was set.
-        if actual is not None and str(actual) != str(requested_model):
-            # Mismatch is a hard validation failure for required lanes; callers decide.
-            raise ValidationIssue(
-                "actual_model_mismatch",
-                f"actual_model `{actual}` does not match requested_model `{requested_model}`",
-            )
-
-    # Normalize list-ish fields.
-    for key in (
-        "key_findings",
-        "evidence",
-        "risks",
-        "recommended_actions",
-        "open_questions",
-    ):
-        value = data.get(key)
-        if value is None:
-            data[key] = []
-        elif isinstance(value, str):
-            data[key] = [value]
-        elif not isinstance(value, list):
-            raise ValidationIssue(
-                "invalid_report_field_type",
-                f"Role report field `{key}` must be a list or string",
-            )
-
+                "malformed_json",
+                f"Adapter stdout is not valid JSON: {exc.msg}",
+            ) from exc
+    if not isinstance(data, dict):
+        raise ValidationIssue("invalid_report_type", "JSON root must be an object")
     return data
 
 
-# --- Exact session create/resume builders (Batch 3) -----------------------
+def _report_from_text_blob(blob: Any, *, expected_role: str | None) -> dict[str, Any]:
+    if isinstance(blob, dict):
+        # If nested role_report present, use it; else treat as report.
+        if isinstance(blob.get("role_report"), dict):
+            return validate_role_report(blob["role_report"], expected_role=expected_role)
+        if all(field in blob for field in ("role", "verdict", "confidence")):
+            return validate_role_report(blob, expected_role=expected_role)
+        raise ValidationIssue(
+            "malformed_output",
+            "Transport content object is not a role report",
+        )
+    if not isinstance(blob, str) or not blob.strip():
+        raise ValidationIssue(
+            "malformed_output",
+            "Transport content must be a role-report object or JSON string",
+        )
+    inner = _parse_json_object(blob)
+    if isinstance(inner.get("role_report"), dict):
+        return validate_role_report(inner["role_report"], expected_role=expected_role)
+    return validate_role_report(inner, expected_role=expected_role)
 
-# Ambiguous session-selection forms that must never appear in generated argv.
+
+def decode_claude_json(
+    stdout: str,
+    *,
+    expected_role: str | None = None,
+) -> TransportDecodeResult:
+    """Claude Code 2.1.207: outer object with result + modelUsage."""
+    data = _parse_json_object(stdout)
+    # modelUsage is machine metadata; never trust model-authored nested metadata.
+    actual: str | None = None
+    source: str | None = None
+    usage = data.get("modelUsage")
+    top_model = data.get("model") if isinstance(data.get("model"), str) else None
+    if isinstance(usage, dict) and usage:
+        keys = [str(k) for k in usage.keys() if str(k).strip()]
+        if len(keys) == 1:
+            actual = keys[0]
+            source = "claude.modelUsage"
+        elif len(keys) > 1:
+            # Multiple models are ambiguous unless top-level model disambiguates.
+            if top_model and top_model.strip() in keys:
+                actual = top_model.strip()
+                source = "claude.model+modelUsage"
+            else:
+                raise ValidationIssue(
+                    "ambiguous_model_usage",
+                    "Claude modelUsage contains multiple models without disambiguating model field",
+                )
+    elif top_model and top_model.strip():
+        actual = top_model.strip()
+        source = "claude.model"
+    content = data.get("result")
+    if content is None:
+        raise ValidationIssue(
+            "malformed_output",
+            "Claude JSON missing transport field `result`",
+        )
+    report = _report_from_text_blob(content, expected_role=expected_role)
+    return TransportDecodeResult(
+        role_report=report,
+        actual_model=actual,
+        model_evidence_source=source,
+        session_id=str(data["session_id"]) if data.get("session_id") else None,
+        transport_notes=("claude-json",),
+    )
+
+
+def decode_grok_json(
+    stdout: str,
+    *,
+    expected_role: str | None = None,
+) -> TransportDecodeResult:
+    """Grok Build 0.2.93: outer text/stopReason/sessionId; no actual_model."""
+    data = _parse_json_object(stdout)
+    if "text" not in data:
+        raise ValidationIssue(
+            "malformed_output",
+            "Grok JSON missing transport field `text`",
+        )
+    report = _report_from_text_blob(data.get("text"), expected_role=expected_role)
+    session_id = data.get("sessionId") or data.get("session_id")
+    return TransportDecodeResult(
+        role_report=report,
+        actual_model=None,
+        model_evidence_source=None,
+        session_id=str(session_id) if session_id else None,
+        transport_notes=(
+            "grok-json",
+            "actual_model_unknown_from_stdout",
+            f"stopReason={data.get('stopReason')}",
+        ),
+    )
+
+
+def decode_codex_jsonl(
+    stdout: str,
+    *,
+    expected_role: str | None = None,
+) -> TransportDecodeResult:
+    """Codex exec --json: JSONL event stream; final agent message is the report."""
+    lines = [ln.strip() for ln in stdout.splitlines() if ln.strip()]
+    if not lines:
+        raise ValidationIssue("empty_output", "Codex JSONL stdout is empty")
+    messages: list[str] = []
+    actual: str | None = None
+    source: str | None = None
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValidationIssue(
+                "malformed_json",
+                f"Codex JSONL line is not valid JSON: {exc.msg}",
+            ) from exc
+        if not isinstance(event, dict):
+            continue
+        # Capture model from machine event fields only (not message content).
+        for key in ("model", "actual_model"):
+            if isinstance(event.get(key), str) and event[key].strip():
+                actual = event[key].strip()
+                source = f"codex.event.{key}"
+        item = event.get("item")
+        if isinstance(item, dict):
+            for key in ("model", "actual_model"):
+                if isinstance(item.get(key), str) and item[key].strip():
+                    actual = item[key].strip()
+                    source = f"codex.item.{key}"
+            text = item.get("text") or item.get("content")
+            if isinstance(text, str) and text.strip():
+                if item.get("type") in {None, "agent_message", "message", "agent_message_content"}:
+                    messages.append(text)
+        if event.get("type") in {"agent_message", "message"} and isinstance(event.get("text"), str):
+            messages.append(event["text"])
+    if not messages:
+        raise ValidationIssue(
+            "malformed_output",
+            "Codex JSONL stream contained no agent message text",
+        )
+    report = _report_from_text_blob(messages[-1], expected_role=expected_role)
+    return TransportDecodeResult(
+        role_report=report,
+        actual_model=actual,
+        model_evidence_source=source,
+        transport_notes=("codex-jsonl",),
+    )
+
+
+def decode_custom_json_envelope(
+    stdout: str,
+    *,
+    expected_role: str | None = None,
+) -> TransportDecodeResult:
+    """Provider-neutral wrapper: outer transport fields + nested report.
+
+    Outer ``actual_model`` / ``session_id`` are wrapper-authored transport fields.
+    Nested report text cannot supply adapter_metadata as authority.
+    """
+    data = _parse_json_object(stdout)
+    # Reject model-authored lookalike authority path.
+    if "adapter_metadata" in data and "role_report" in data:
+        # Only accept adapter_metadata if marked as wrapper_transport by the wrapper.
+        meta = data.get("adapter_metadata")
+        if isinstance(meta, dict) and meta.get("source") == "wrapper-transport":
+            actual = meta.get("actual_model")
+            source = "custom.wrapper-transport"
+            report = validate_role_report(data["role_report"], expected_role=expected_role)
+            return TransportDecodeResult(
+                role_report=report,
+                actual_model=str(actual) if actual else None,
+                model_evidence_source=source if actual else None,
+                session_id=str(meta["session_id"]) if meta.get("session_id") else None,
+                transport_notes=("custom-json-envelope", "wrapper-transport"),
+            )
+        raise ValidationIssue(
+            "untrusted_model_authored_metadata",
+            "Model-authored adapter_metadata/role_report envelope is not transport authority",
+            hint="Wrapper must set outer actual_model with source=wrapper-transport",
+        )
+
+    actual = data.get("actual_model")
+    if actual is not None and not isinstance(actual, str):
+        raise ValidationIssue(
+            "invalid_transport_field",
+            "Outer actual_model must be a string when present",
+        )
+    session_id = data.get("session_id")
+    if "role_report" in data:
+        report = validate_role_report(data["role_report"], expected_role=expected_role)
+    elif "content" in data:
+        report = _report_from_text_blob(data.get("content"), expected_role=expected_role)
+    elif all(field in data for field in ("role", "verdict", "confidence")):
+        # Bare report only — no transport model evidence.
+        report = validate_role_report(data, expected_role=expected_role)
+        return TransportDecodeResult(
+            role_report=report,
+            actual_model=None,
+            model_evidence_source=None,
+            transport_notes=("custom-json-envelope", "bare-report-no-transport-model"),
+        )
+    else:
+        raise ValidationIssue(
+            "malformed_output",
+            "Custom envelope missing role_report/content",
+        )
+    return TransportDecodeResult(
+        role_report=report,
+        actual_model=actual.strip() if isinstance(actual, str) and actual.strip() else None,
+        model_evidence_source="custom.outer.actual_model" if actual else None,
+        session_id=str(session_id) if session_id else None,
+        transport_notes=("custom-json-envelope",),
+    )
+
+
+def decode_adapter_output(
+    stdout: str,
+    *,
+    decoder: str,
+    expected_role: str | None = None,
+    requested_model: str | None = None,
+    require_model: bool = False,
+) -> TransportDecodeResult:
+    """Decode stdout with a strict adapter-specific decoder."""
+    name = (decoder or "").strip()
+    if name in {"claude-json"}:
+        result = decode_claude_json(stdout, expected_role=expected_role)
+    elif name in {"grok-json"}:
+        result = decode_grok_json(stdout, expected_role=expected_role)
+    elif name in {"codex-jsonl"}:
+        result = decode_codex_jsonl(stdout, expected_role=expected_role)
+    elif name in {"custom-json-envelope", "json-role-report", "json-transport-envelope"}:
+        result = decode_custom_json_envelope(stdout, expected_role=expected_role)
+    else:
+        raise ValidationIssue(
+            "unsupported_output_contract",
+            f"No decoder for output contract `{decoder}`",
+        )
+
+    if require_model or requested_model is not None:
+        if result.actual_model is None:
+            raise ValidationIssue(
+                "actual_model_missing",
+                (
+                    f"requested_model `{requested_model}` requires authoritative "
+                    "transport actual_model; model-authored report fields are not proof"
+                ),
+            )
+        if requested_model is not None and str(result.actual_model) != str(requested_model):
+            raise ValidationIssue(
+                "actual_model_mismatch",
+                (
+                    f"authoritative actual_model `{result.actual_model}` does not match "
+                    f"requested_model `{requested_model}`"
+                ),
+            )
+    return result
+
+
+# Compatibility aliases used by older call sites / tests.
+def parse_transport_output(stdout: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Deprecated shape: never treat nested adapter_metadata as authority."""
+    try:
+        data = _parse_json_object(stdout)
+    except ValidationIssue:
+        return {}, {}
+    if isinstance(data.get("role_report"), dict):
+        # Do not return model-authored metadata as authoritative.
+        return {}, dict(data["role_report"])
+    return {}, dict(data)
+
+
+def extract_authoritative_model(
+    metadata: Mapping[str, Any] | None,
+) -> tuple[str | None, str | None]:
+    """Only honor explicitly wrapper-marked transport metadata."""
+    if not metadata:
+        return None, None
+    if metadata.get("source") != "wrapper-transport":
+        return None, None
+    model = metadata.get("actual_model")
+    if model is None or str(model).strip() == "":
+        return None, "wrapper-transport"
+    return str(model), "wrapper-transport"
+
+
+def validate_model_evidence(
+    *,
+    requested_model: str | None,
+    metadata: Mapping[str, Any] | None,
+    require_when_requested: bool = True,
+) -> tuple[str | None, str | None]:
+    actual, source = extract_authoritative_model(metadata)
+    if requested_model is not None and require_when_requested:
+        if actual is None:
+            raise ValidationIssue(
+                "actual_model_missing",
+                (
+                    f"requested_model `{requested_model}` requires authoritative "
+                    "transport actual_model; model-authored report fields are not proof"
+                ),
+            )
+        if str(actual) != str(requested_model):
+            raise ValidationIssue(
+                "actual_model_mismatch",
+                (
+                    f"authoritative actual_model `{actual}` does not match "
+                    f"requested_model `{requested_model}`"
+                ),
+            )
+    return actual, source
+
+
+# --- Exact session create/resume builders (Batch 2/3 surfaces; keep stable) ---
+
 AMBIGUOUS_SESSION_FLAG_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(^|\s)--continue(\s|$)"),
     re.compile(r"(^|\s)--last(\s|$)"),
-    re.compile(r"(^|\s)--resume(\s|$)"),  # bare --resume without following ID
-    re.compile(r"(^|\s)-c(\s|$)"),  # bare continue shorthand where used as session selector
+    re.compile(r"(^|\s)--resume(\s|$)"),
+    re.compile(r"(^|\s)-c(\s|$)"),
 )
 
 
 def assert_no_ambiguous_session_flags(argv: tuple[str, ...] | list[str]) -> None:
-    """Fail if argv uses ambiguous session selection.
-
-    Bare ``--resume`` without a following non-flag token is forbidden. Exact
-    forms like ``--resume <session-id>`` or ``--session-id <id>`` are required.
-    """
     tokens = list(argv)
     joined = " ".join(tokens)
-    # Detect bare --resume / --continue / --last as standalone tokens without value.
     for index, token in enumerate(tokens):
         if token in {"--continue", "--last"}:
             raise ValidationIssue(
@@ -426,10 +1106,9 @@ def assert_no_ambiguous_session_flags(argv: tuple[str, ...] | list[str]) -> None
                     "Bare `--resume` without an exact session id is forbidden",
                     hint="Use --resume <exact-session-id> or --session-id <id>",
                 )
-    # Extra pattern sweep on joined string for --continue/--last.
     for pattern in AMBIGUOUS_SESSION_FLAG_PATTERNS:
         if pattern.pattern.startswith(r"(^|\s)--resume"):
-            continue  # handled above with value check
+            continue
         if pattern.search(joined):
             raise ValidationIssue(
                 "ambiguous_session_flag",
@@ -445,18 +1124,15 @@ def build_session_create_invocation(
     requested_model: str | None = None,
     extra_args: tuple[str, ...] | list[str] = (),
 ) -> AdapterInvocation:
-    """Build argv for creating a new exact session (no ambiguous selectors)."""
     name = adapter.strip().lower()
     meta = _BUILTIN.get(name, _BUILTIN["custom-cli"])
     exe = executable or meta.executable_hint
     extras = tuple(extra_args)
-
     if name == "host-native":
         raise ValidationIssue(
             "host_native_no_external_session",
             "host-native does not create external provider sessions",
         )
-
     if name == "claude-code":
         argv = [exe or "claude", "--print", "--output-format", "json"]
         if requested_model:
@@ -472,7 +1148,6 @@ def build_session_create_invocation(
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
-
     if name == "grok-build":
         argv = [exe or "grok", "--new-session"]
         if requested_model:
@@ -487,7 +1162,6 @@ def build_session_create_invocation(
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
-
     if name == "codex-fugu":
         argv = [exe or "codex", "exec", "--json", "--session-create"]
         if requested_model:
@@ -502,8 +1176,6 @@ def build_session_create_invocation(
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
-
-    # custom-cli
     if not exe or exe == "(user-defined)":
         raise ValidationIssue(
             "missing_executable",
@@ -535,7 +1207,6 @@ def build_session_resume_invocation(
     cwd: str | None = None,
     extra_args: tuple[str, ...] | list[str] = (),
 ) -> AdapterInvocation:
-    """Build argv that resumes an exact session ID (never bare --resume/--continue/--last)."""
     sid = (session_id or "").strip()
     if not sid:
         raise ValidationIssue(
@@ -543,18 +1214,15 @@ def build_session_resume_invocation(
             "Exact session_id is required for resume",
             hint="Never omit the id or use last/continue selection",
         )
-
     name = adapter.strip().lower()
     meta = _BUILTIN.get(name, _BUILTIN["custom-cli"])
     exe = executable or meta.executable_hint
     extras = tuple(extra_args)
-
     if name == "host-native":
         raise ValidationIssue(
             "host_native_no_external_session",
             "host-native does not resume external provider sessions",
         )
-
     if name == "claude-code":
         argv = [exe or "claude", "--print", "--output-format", "json", "--resume", sid]
         if requested_model:
@@ -571,10 +1239,7 @@ def build_session_resume_invocation(
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
-
     if name == "grok-build":
-        # Exact child resume from verified worktree CWD. Never headless
-        # --worktree --resume as isolation for broken versions.
         argv = [exe or "grok", "--resume", sid]
         if requested_model:
             argv.extend(["--model", requested_model])
@@ -586,14 +1251,10 @@ def build_session_resume_invocation(
             executable=argv[0],
             argv=tuple(argv),
             read_only=True,
-            notes=(
-                "exact child resume; verify CWD/worktree registration; "
-                "do not use headless worktree-resume as isolation on 0.2.93"
-            ),
+            notes="exact child resume; verify CWD/worktree registration",
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
-
     if name == "codex-fugu":
         argv = [exe or "codex", "exec", "--json", "--session-id", sid]
         if requested_model:
@@ -610,7 +1271,6 @@ def build_session_resume_invocation(
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
-
     if not exe or exe == "(user-defined)":
         raise ValidationIssue(
             "missing_executable",
@@ -634,8 +1294,6 @@ def build_session_resume_invocation(
     return inv
 
 
-# --- Write-capable profiles (Batch 4) -------------------------------------
-
 GROK_WRITE_FORBIDDEN_ARGV_TOKENS: tuple[str, ...] = (
     "--dangerously-skip-permissions",
     "bypassPermissions",
@@ -646,8 +1304,6 @@ GROK_WRITE_FORBIDDEN_ARGV_TOKENS: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class WriteCapabilityProfile:
-    """Versioned write capability profile for an adapter."""
-
     adapter: str
     profile_name: str
     version: str | None
@@ -664,7 +1320,6 @@ class WriteCapabilityProfile:
 
 
 def grok_write_profile(version: str | None = "0.2.93") -> WriteCapabilityProfile:
-    """Qualified Grok write profile with fail-closed isolation rules."""
     broken = version in {"0.2.93"} or version is None
     return WriteCapabilityProfile(
         adapter="grok-build",
@@ -675,17 +1330,15 @@ def grok_write_profile(version: str | None = "0.2.93") -> WriteCapabilityProfile
         require_detached_worktree=True,
         require_cwd_verification=True,
         require_worktree_registration=True,
-        forbid_headless_worktree_resume=broken or True,  # always forbid as isolation claim
+        forbid_headless_worktree_resume=broken or True,
         notes=(
             "Never use headless --worktree --resume as isolation for Grok Build 0.2.93; "
-            "discover child session id and resume from registered detached worktree. "
-            "Detached commits are untrusted handoff boundaries only."
+            "discover child session id and resume from registered detached worktree."
         ),
     )
 
 
 def workspace_sandbox_write_profile() -> WriteCapabilityProfile:
-    """Negative fixture: workspace sandbox is not assumed commit-capable."""
     return WriteCapabilityProfile(
         adapter="grok-build",
         profile_name="grok-build-workspace-sandbox",
@@ -696,10 +1349,7 @@ def workspace_sandbox_write_profile() -> WriteCapabilityProfile:
         require_cwd_verification=True,
         require_worktree_registration=True,
         forbid_headless_worktree_resume=True,
-        notes=(
-            "workspace sandbox linked worktree cannot be assumed commit-capable; "
-            "use devbox (or equivalent) for detached commit handoff"
-        ),
+        notes="workspace sandbox linked worktree cannot be assumed commit-capable",
     )
 
 
@@ -713,9 +1363,7 @@ def build_write_resume_invocation(
     requested_model: str | None = None,
     use_headless_worktree_resume: bool = False,
 ) -> AdapterInvocation:
-    """Build a write-role resume argv with structural deny rules."""
     if adapter != "grok-build":
-        # Reuse exact resume for other adapters; write qualification is lease-side.
         return build_session_resume_invocation(
             adapter=adapter,
             profile=adapter,
@@ -724,7 +1372,6 @@ def build_write_resume_invocation(
             requested_model=requested_model,
             cwd=cwd,
         )
-
     profile = grok_write_profile(version)
     if use_headless_worktree_resume and profile.forbid_headless_worktree_resume:
         raise ValidationIssue(
@@ -740,7 +1387,6 @@ def build_write_resume_invocation(
             "write_cwd_required",
             "Write resume requires verified worker CWD/worktree path",
         )
-
     inv = build_session_resume_invocation(
         adapter="grok-build",
         profile=profile.profile_name,
@@ -756,7 +1402,6 @@ def build_write_resume_invocation(
                 "write_permission_bypass_forbidden",
                 f"Write invocation contains forbidden token `{token}`",
             )
-    # Explicitly reject worktree+resume combo in argv for isolation claims.
     if "--worktree" in inv.argv and "--resume" in inv.argv:
         raise ValidationIssue(
             "grok_headless_worktree_resume_forbidden",
