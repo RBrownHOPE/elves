@@ -198,26 +198,28 @@ Promotion flow: execution log -> learnings -> `.ai-docs/*`.
 - [x] Preflight and all baseline gates pass in the staging worktree; the sole expected warning is
       that this script/docs repository has no package-manager project marker
 - [x] `.elves-session.json` validates and records Cobbler, routes, sessions, test baseline, and guard
-- [ ] Stop Gate initialized with `Stop allowed right now: no` in the fresh launch call; staging uses
-      an explicit `yes` boundary so this preparation call can hand off cleanly
-- [ ] Clean Grok successor worktree/session recorded and aligned to final staged tip
+- [x] Fresh-call requirement recorded: Stop Gate initialized with `Stop allowed right now: no`
+      before Batch 1; this staging call itself remains explicitly `yes`, as required to hand off
+- [x] Clean Grok successor is recorded and aligned to pushed tip `52a7fb6`; after the final staging
+      `Close` commit the host must realign it to that exact SHA before push and post proof on PR #59
 - [x] No active paid/long-running process remains ambiguous
 - [x] Short next-call launch prompt prepared below and in the execution log
 
 ## Current Phase
 
-**Status:** Staging
+**Status:** Staged and launch-ready; final metadata commit/alignment/push transaction in progress
 
 **Active batch:** Batch 0: qualification and run scaffolding
 
 **What was just finished:** All connector, host-parity, persistent-lineage, detached-commit, and
-independent-review qualification gates passed. Fable found no routing blocker; Fugu agreed with the
-design and identified only the mechanical staging-close fields now being resolved. Full consistency,
+independent-review qualification gates passed. Exact persistent Fable and Fugu closure reviews both
+returned PASS with no blocker after the mechanical staging fields were corrected. Full consistency,
 170 tests, compile, shell, JSON/duplicate-key, Survival Guide, release, plan-hash, whitespace,
-credential, and preflight gates pass.
+credential, preflight, PR-review, and pushed-check gates pass.
 
-**Single next action:** commit/push validated Batch 0 state, answer PR comments, commit final launch
-metadata, align the clean Grok successor to that exact final tip before push, and obtain Fugu closure.
+**Single next action:** create the Batch 0 `Close` commit recording Fable/Fugu PASS, realign the clean
+Grok successor to that exact resulting SHA before push, poll final PR checks, post parity proof, and
+hand the user the fresh-call launch prompt.
 
 ## Active Compute
 

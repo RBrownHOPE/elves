@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
   "session_id": "elves-external-agent-orchestration-20260712",
-  "status": "staging",
+  "status": "staged",
   "created_at": "2026-07-12T12:39:00Z",
-  "updated_at": "2026-07-12T13:51:00Z",
+  "updated_at": "2026-07-12T13:59:20Z",
   "run_mode": "finite",
   "execution_budget_hours": 8,
   "checkpoint": {
@@ -93,10 +93,10 @@
     "mode": "strict",
     "branch": "codex/external-agent-orchestration",
     "start_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
-    "allowed_head_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
+    "allowed_head_tip": "52a7fb6297ed129e53f45aacd5d49a6de6e3573d",
     "remote_ref": "origin/codex/external-agent-orchestration",
-    "expected_remote_tip": "1baf3ae4e94b0ac61b2c5e6d546c0c14f63613cc",
-    "last_pushed_tip": "1baf3ae4e94b0ac61b2c5e6d546c0c14f63613cc",
+    "expected_remote_tip": "52a7fb6297ed129e53f45aacd5d49a6de6e3573d",
+    "last_pushed_tip": "52a7fb6297ed129e53f45aacd5d49a6de6e3573d",
     "external_writer_enforcement": "manual host audit until the mechanical lease guard ships in Batch 4"
   },
   "test_baseline": {
@@ -211,8 +211,9 @@
   },
   "final_routing_review": {
     "canary": "FINAL-ROUTING-REVIEW-20260712-J",
-    "status": "pending_closure_after_staging_metadata",
+    "status": "pass",
     "started_at": "2026-07-12T13:43:00Z",
+    "completed_at": "2026-07-12T13:59:10Z",
     "lanes": [
       {
         "harness": "claude-code",
@@ -232,7 +233,7 @@
         "requested_model": "fugu-ultra",
         "actual_model": "fugu-ultra",
         "session_id": "019f5627-e61e-72a3-af3f-ae6e51a348b5",
-        "verdict": "fail_pending_mechanical_staging_closure",
+        "verdict": "pass_after_mechanical_staging_corrections",
         "initial_invocation_error": "model_provider override omitted; Codex attempted ChatGPT routing and inference did not start",
         "corrected_invocation": "model_provider=sakana",
         "findings": [
@@ -241,16 +242,17 @@
           "preflight, final worker alignment, and launch prompt still pending"
         ],
         "observed_usage": {
-          "input_tokens": 8089503,
+          "input_tokens": 8261054,
           "cached_input_tokens": 7261441,
-          "output_tokens": 49139,
-          "reasoning_output_tokens": 17030,
+          "output_tokens": 53138,
+          "reasoning_output_tokens": 19445,
           "remaining_quota": "unknown"
-        }
+        },
+        "closure_dissent": "Align the detached worker to the final metadata commit before push; any failure in that window blocks launch readiness."
       }
     ],
     "architecture_blockers": [],
-    "next_action": "Complete deterministic validation, metadata, worker alignment, push, then obtain exact-session Fugu closure verdict."
+    "next_action": "Create final staging Close commit, align the clean detached worker to its exact SHA before push, post parity proof, and wait for final checks."
   },
   "external_sessions": {
     "claude_fable": {
@@ -288,7 +290,7 @@
       "parent_session_id": "159e611b-6c48-4376-8695-5134b9803b7e",
       "worktree_id": "2026-07-12-e8fa7ada-e1507717b9a587a4",
       "worktree_path": "${HOME}/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada",
-      "worktree_head": "74c52d88868e39a9d4c5cca6dee46919011d2127",
+      "worktree_head": "52a7fb6297ed129e53f45aacd5d49a6de6e3573d",
       "worktree_state": "clean_detached",
       "roles": [
         "qualification_provenance"
@@ -308,7 +310,7 @@
       "parent_session_id": null,
       "worktree_id": "2026-07-12-e8fa7ada-e1507717b9a587a4",
       "worktree_path": "${HOME}/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada",
-      "worktree_head": "74c52d88868e39a9d4c5cca6dee46919011d2127",
+      "worktree_head": "52a7fb6297ed129e53f45aacd5d49a6de6e3573d",
       "worktree_state": "clean_detached",
       "sandbox_profile": "devbox",
       "roles": [
@@ -443,7 +445,7 @@
     "worker_may_join_independent_review": false,
     "integration_owner": "host-coordinator",
     "integration_method": "audit per-commit binary patches; no bare cherry-pick; host creates sanitized branch commits recording worker SHAs",
-    "next_action": "Align clean detached successor worktree to the final staged tip under host control after staging commits are complete."
+    "next_action": "At launch, reverify the clean detached successor equals current owned HEAD before issuing the Batch 1 lease; current pushed alignment is 52a7fb6297ed129e53f45aacd5d49a6de6e3573d."
   },
   "staging_preflight": {
     "status": "pass",
@@ -548,28 +550,37 @@
     {
       "id": 3566349251,
       "surface": "Survival Guide typecheck gate",
-      "status": "addressed_pending_push",
+      "status": "addressed_replied_in_52a7fb6",
       "resolution": "use python3 -m compileall -q scripts tests without shell glob expansion"
     },
     {
       "id": 3566349254,
       "surface": ".elves-session.json repository paths",
-      "status": "addressed_pending_push",
+      "status": "addressed_replied_in_52a7fb6",
       "resolution": "use repository-relative locators plus explicit canonicalization policy"
     },
     {
       "id": 3566349255,
       "surface": ".elves-session.json owned worktree",
-      "status": "addressed_pending_push",
+      "status": "addressed_replied_in_52a7fb6",
       "resolution": "use dot relative to the session-file repository root"
     },
     {
       "id": 3566349260,
       "surface": ".elves-session.json Grok worktree",
-      "status": "addressed_pending_push",
+      "status": "addressed_replied_in_52a7fb6",
       "resolution": "use ${HOME} locator then canonicalize and verify git worktree registration"
     }
   ],
+  "staging_close": {
+    "current_pushed_tip": "52a7fb6297ed129e53f45aacd5d49a6de6e3573d",
+    "pr_checks_at_tip": "all green: Repo Consistency, CodeQL actions/python, CodeQL aggregate, Socket alerts/report",
+    "review_comments": "four Gemini portability comments addressed and replied with fixing commit 52a7fb6",
+    "worker_alignment": "clean detached Grok successor at 52a7fb6297ed129e53f45aacd5d49a6de6e3573d; this metadata-only Close commit must be aligned before push and exact final parity posted to PR",
+    "final_routing_review": "PASS from Fable and Fugu Ultra; no remaining blocker",
+    "product_implementation_started": false,
+    "merge_authorized": false
+  },
   "active_compute": [],
   "continuation_guard": {
     "remaining_batches": 6,

@@ -5,8 +5,8 @@ control in the Survival Guide; promote stable lessons to `docs/elves/learnings.m
 
 ## Run Digest
 
-- **Last updated:** 2026-07-12 09:29 EDT
-- **Current phase:** Staging
+- **Last updated:** 2026-07-12 09:59 EDT
+- **Current phase:** Staged and launch-ready; transactional final Close in progress
 - **Active batch:** Batch 0: qualification and run scaffolding
 - **Last completed batch:** none; implementation has not started
 - **Next exact batch:** Batch 1: Contracts, configuration, and implementer clarity
@@ -29,7 +29,19 @@ Sakana provider, reported actual `fugu-ultra` and session
 listed only three staging-close facts still pending at review time: refresh the plan digest, record
 draft PR #59 in structured/live memory, and complete preflight + final Grok alignment + launch prompt.
 The plan digest and PR metadata are now corrected; deterministic validation/alignment/launch closure
-will be completed before asking the same Fugu session for a no-tools closure verdict.
+is now complete. All 170 tests and deterministic gates pass; preflight passes with only the expected
+no-package-marker warning; all PR checks are green at `52a7fb6`; all four inline comments are answered;
+and the clean Grok successor is detached at exact pushed tip
+`52a7fb6297ed129e53f45aacd5d49a6de6e3573d`. The same Fugu session will now receive a no-tools
+closure request. The final `Close` commit will record the verdict, then the worker will be realigned
+to that exact final SHA before push.
+
+**Closure:** the same corrected Sakana-backed exact Fugu session returned
+`FINAL ROUTING REVIEW: PASS`, actual model `fugu-ultra`, exact session
+`019f5627-e61e-72a3-af3f-ae6e51a348b5`, and no remaining blocker. Its strongest dissent is the
+transactional parity window: this final metadata-only `Close` commit must be followed by a successful
+clean detached worker alignment to the new SHA before push. Fable and Fugu therefore both pass; the
+host will fail closed if the alignment, push, parity proof, or final checks do not complete.
 
 Observed usage is recorded in `.elves-session.json`. Fable reported 3,694 output tokens and $4.682979;
 Fugu reported 8,089,503 input tokens (7,261,441 cached), 49,139 output tokens, and 17,030 reasoning
