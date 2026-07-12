@@ -4,6 +4,8 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.20.2] - 2026-07-12
+
 ### Lane A fast implementer
 
 - Documented `implementation_lane: fast | untrusted` on skill surfaces (`SKILL.md`, `AGENTS.md`) with

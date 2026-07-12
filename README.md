@@ -6,12 +6,12 @@
 
 Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default coordinator inside Elves: it decides whether to answer directly, ask independent reviewers, assign scoped worker agents, or record a run decision, then returns one clear recommendation.
 
-**Current release: v1.20.1.** This is a corrective patch on top of v1.20.0 Cobbler external-agent
-orchestration. It makes council/dispatch, session rehydration, writer path/lease audits, and setup
-smoke **truthful and fail-closed** (no canned host quorum, no digest promotion before rehydration
-proof, no `.elves` path escapes via unsafe path stripping, no smoke-without-a-model-response), while
-native-only Elves stays complete with zero external tools or keys. See [`CHANGELOG.md`](CHANGELOG.md)
-and [`references/councilelves-launch-prompt.md`](references/councilelves-launch-prompt.md).
+**Current release: v1.20.2.** Adds the **Lane A fast implementer**: smart plan on the host, then
+`python3 scripts/cobbler_agents.py implement prepare|launch|gate` so Grok (or another CLI) runs a
+whole batch headlessly with `--prompt-file --yolo --effort medium`. Skill surfaces document
+`implementation_lane: fast | untrusted`; the untrusted writer lease stays advanced/opt-in. Built on
+v1.20.1 Cobbler runtime hardening. See [`CHANGELOG.md`](CHANGELOG.md) and
+[`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
 
 You write the plan and own the merge decision. The agent does everything in between.
 
