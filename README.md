@@ -69,8 +69,9 @@ The architecture is intentionally simple:
 - **Domain workflows** are Cobbler-managed packs for specialized work.
 - **Math** is the first domain workflow, with scouts, critics, source auditors, ledgers, and
   human-verification gates.
-- **Providers / optional tools** are role routes and work drivers. They add perspective or labor
-  when configured; they are not the orchestration layer.
+- **Providers** are optional role routes. They add perspective when configured; they are not the
+  orchestration layer. Optional work drivers and domain tools (Grok, OpenCode, AlphaEvolve, …)
+  extend the same idea without replacing Cobbler.
 
 ### Optional multi-agent tooling (when you already have the tools)
 

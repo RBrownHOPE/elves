@@ -208,7 +208,9 @@ native overnight run:
   CLI as **independent read-only** planner/reviewer/scout lanes. Fall back to native if missing.
   Never treat them as sole authority. See `references/council-provider-config.md` and
   `references/cobbler-setup-recipes.md`.
-- **Work drivers (batch labor)** — Grok Build via
+- **Work drivers (batch labor)** — only when the user has the CLI and wants it. Record
+  `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
+  `.elves-session.json`). Grok Build via
   `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status` (Lane A;
   optional `--model fast|deep`, `--check`) and OpenCode via `--adapter opencode-cli` / labor
   profiles. Host owns packets, gates, and merge. Launch recipe:
