@@ -120,13 +120,35 @@ def load_state(repo_root: Path) -> ImplementState | None:
     path = state_path(repo_root)
     if not path.is_file():
         return None
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except OSError as exc:
+        raise ValidationIssue(
+            "implement_state_read_error",
+            f"Unable to read implement state {path}: {exc}",
+            path=str(path),
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise ValidationIssue(
+            "implement_state_invalid",
+            f"Implement state is not valid JSON: {path} ({exc})",
+            path=str(path),
+        ) from exc
     if not isinstance(data, dict):
         raise ValidationIssue(
             "implement_state_invalid",
             f"Implement state is not a JSON object: {path}",
+            path=str(path),
         )
-    return ImplementState.from_dict(data)
+    try:
+        return ImplementState.from_dict(data)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ValidationIssue(
+            "implement_state_invalid",
+            f"Implement state has invalid fields: {path} ({exc})",
+            path=str(path),
+        ) from exc
 
 
 def save_state(repo_root: Path, state: ImplementState) -> Path:
@@ -391,7 +413,16 @@ def launch_payload(
 
     if exec_process:
         # Optional operator convenience; not the default host path.
-        proc = subprocess.run(argv, cwd=str(Path(worktree).expanduser().resolve()))
+        try:
+            proc = subprocess.run(
+                argv, cwd=str(Path(worktree).expanduser().resolve())
+            )
+        except OSError as exc:
+            raise ValidationIssue(
+                "implement_launch_spawn_failed",
+                f"Unable to spawn implementer argv {argv!r}: {exc}",
+                path=str(worktree),
+            ) from exc
         payload["launched"] = True
         payload["model_calls_made"] = True
         payload["exit_code"] = int(proc.returncode)
@@ -511,12 +542,19 @@ def run_gate(
     else:
         cmd = [sys.executable, "-m", "unittest", "discover", "-s", "tests"]
 
-    proc = subprocess.run(
-        cmd,
-        cwd=str(work_cwd),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(work_cwd),
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise ValidationIssue(
+            "implement_gate_spawn_failed",
+            f"Unable to run gate command {cmd!r} in {work_cwd}: {exc}",
+            path=str(work_cwd),
+        ) from exc
     combined = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
     counts = parse_unittest_output(combined)
     tip = _git_rev_parse(work_cwd)
