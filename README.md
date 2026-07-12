@@ -267,7 +267,7 @@ python3 scripts/cobbler_agents.py council --json \
 python3 scripts/cobbler_agents.py lightweight-review --json \
   --task "quick utility check"
 
-# Exact session registry helpers (no paid launch on resume argv build)
+**Exact session registry helpers** (no paid launch on resume argv build)
 python3 scripts/cobbler_agents.py session list --json
 python3 scripts/cobbler_agents.py session probe --json --session-id <exact-id>
 python3 scripts/cobbler_agents.py session resume --json \
