@@ -196,10 +196,24 @@ class SetupScenarioTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".gitignore").write_text(".elves/\n", encoding="utf-8")
+            # Acknowledgment without an executor is not a smoke.
+            bare = run_setup(
+                root,
+                write_toml=False,
+                run_smoke=True,
+                fake_presence={"claude-code": True},
+            )
+            self.assertFalse(bare.smoke_ran)
+            self.assertFalse(bare.credentials_printed)
+
+            def _executor(**_kwargs):
+                return {"text": "ok", "actual_model": "claude-fable-5"}
+
             result = run_setup(
                 root,
                 write_toml=False,
                 run_smoke=True,
+                smoke_executor=_executor,
                 fake_presence={"claude-code": True},
             )
             self.assertTrue(result.smoke_ran)
