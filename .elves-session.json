@@ -1,0 +1,341 @@
+{
+  "schema_version": 2,
+  "session_id": "elves-external-agent-orchestration-20260712",
+  "status": "staging",
+  "created_at": "2026-07-12T12:39:00Z",
+  "updated_at": "2026-07-12T12:57:34Z",
+  "run_mode": "finite",
+  "execution_budget_hours": 8,
+  "checkpoint": {
+    "due_at": null,
+    "semantics": "none",
+    "may_continue_after": true
+  },
+  "repository": {
+    "path": "/Users/john/aigora/dev/elves-external-agent-orchestration",
+    "source_repository": "/Users/john/aigora/dev/elves",
+    "default_branch": "main",
+    "branch": "codex/external-agent-orchestration",
+    "base_ref": "origin/main",
+    "start_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
+    "owned_worktree": "/Users/john/aigora/dev/elves-external-agent-orchestration",
+    "pr_number": null,
+    "pr_url": null,
+    "pr_draft": true,
+    "merge_policy": "user-merges"
+  },
+  "plan_path": "docs/plans/v1.20.0-cobbler-external-agent-orchestration.md",
+  "plan_sha256": "af80812a93172582ff4c62bd5c09bc6bde49bd4ddd93669231bdc62eafa2b97e",
+  "survival_guide_path": "docs/elves/external-agent-orchestration-survival-guide.md",
+  "learnings_path": "docs/elves/learnings.md",
+  "execution_log_path": "docs/elves/external-agent-orchestration-execution-log.md",
+  "evidence_root": ".elves/evidence",
+  "cobbler": {
+    "default_for_session": true,
+    "activated_by": "explicit Elves invocation and user council request",
+    "mode": "run-cobbler",
+    "scope": "current Elves run",
+    "document_owner": "host-coordinator",
+    "exit_phrases": [
+      "Cobbler Mode: off",
+      "leave Cobbler Mode",
+      "stop using Cobbler by default"
+    ]
+  },
+  "coordinator_contract": {
+    "canonical_run_documents_owner": "host-coordinator",
+    "git_pr_validation_acceptance_owner": "host-coordinator",
+    "implementation_worker_assumption": "potentially less capable and context-poor",
+    "required_handoff_fields": [
+      "intent",
+      "rationale",
+      "build_on",
+      "owned_surfaces",
+      "forbidden_surfaces",
+      "acceptance_evidence",
+      "failure_modes",
+      "likely_pitfalls",
+      "head_and_context_digest",
+      "route_model_session_identity"
+    ]
+  },
+  "configuration_ownership": {
+    "installed_user_config_json": "machine defaults; not setup-owned project state",
+    "local_models_toml": ".elves/models.toml; intentionally ignored and never staged",
+    "tracked_schema_example": "references/models.toml.example",
+    "active_run_snapshot": "docs/elves/external-agent-orchestration-survival-guide.md",
+    "source_control_team_preferences": "not inferred; requires separate explicit project policy",
+    "toml_feature_floor": "Python 3.11; older Python remains usable when no local TOML is present"
+  },
+  "workspace_guard": {
+    "enabled": true,
+    "mode": "strict",
+    "branch": "codex/external-agent-orchestration",
+    "start_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
+    "allowed_head_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
+    "remote_ref": "origin/codex/external-agent-orchestration",
+    "expected_remote_tip": null,
+    "last_pushed_tip": null,
+    "external_writer_enforcement": "manual host audit until the mechanical lease guard ships in Batch 4"
+  },
+  "test_baseline": {
+    "command": "python3 -m unittest discover -s tests -v",
+    "total": 170,
+    "passed": 170,
+    "failed": 0,
+    "skipped": 0,
+    "captured_at": "2026-07-12T12:03:00Z"
+  },
+  "qualification": {
+    "status": "pass",
+    "completed_at": "2026-07-12T12:27:18Z",
+    "source_head": "74c52d88868e39a9d4c5cca6dee46919011d2127",
+    "pre_and_post_ref_sha256": "191b747db719d476c6ba75aeb3fe7478154b5cca95e0de9d0564d2b0f57d2f0c",
+    "source_worktree_clean": true,
+    "grok_child_worktree_clean": true,
+    "gates": {
+      "parallel_exact_session_resume": "pass",
+      "claude_host_delegation_to_grok_and_fugu": "pass",
+      "grok_parent_to_worktree_child_lineage": "pass",
+      "grok_exact_child_resume": "pass",
+      "grok_allowed_write": "pass",
+      "grok_commit_deny": "pass",
+      "grok_run_memory_edit_deny": "pass",
+      "host_head_ref_path_audit": "pass",
+      "fable_independent_review": "pass",
+      "fugu_ultra_independent_review": "pass"
+    },
+    "known_incompatibilities": [
+      "Grok Build 0.2.93 headless --worktree with --resume silently retained the source checkout.",
+      "A narrow Grok tools list can remove terminal background-support tools and fail agent construction.",
+      "Grok CLI dontAsk is not a sufficient hard boundary by itself.",
+      "Grok child-process network restriction is a no-op on macOS.",
+      "Fugu may emit unrelated inherited MCP OAuth warnings while Sakana inference succeeds."
+    ]
+  },
+  "staging_review": {
+    "status": "pass",
+    "canary": "STAGING-PLAN-REVIEW-20260712-I",
+    "completed_at": "2026-07-12T12:57:34Z",
+    "initial_blockers": [
+      ".elves/models.toml ownership conflicted with its ignored status and config.json precedence",
+      "optional-lane fallback semantics conflicted with required review quorum"
+    ],
+    "resolved": true,
+    "closure_lanes": [
+      {
+        "harness": "claude-code",
+        "actual_model": "claude-fable-5",
+        "session_id": "02bb9552-fbbd-423f-abbe-acbaa580c918",
+        "verdict": "pass"
+      },
+      {
+        "harness": "grok-build",
+        "actual_model": "grok-4.5",
+        "session_id": "019f5644-93d5-7a02-827d-caa8b30a2825",
+        "verdict": "pass",
+        "note": "first narrow closure attempt ended Cancelled before verdict; exact-session retry ended EndTurn"
+      },
+      {
+        "harness": "codex-fugu",
+        "actual_model": "fugu-ultra",
+        "session_id": "019f5627-e61e-72a3-af3f-ae6e51a348b5",
+        "verdict": "pass",
+        "note": "inherited optional MCP OAuth warnings did not interrupt model inference"
+      }
+    ],
+    "strongest_dissent": "Batch 4 must mechanically enforce and audit the writer lease; prompt policy or unchanged HEAD is insufficient."
+  },
+  "external_sessions": {
+    "claude_fable": {
+      "harness": "claude-code",
+      "cli_version": "2.1.207",
+      "requested_model": "fable",
+      "actual_model": "claude-fable-5",
+      "session_id": "02bb9552-fbbd-423f-abbe-acbaa580c918",
+      "roles": [
+        "planning",
+        "read_only_review",
+        "external_agent_coordinator"
+      ],
+      "status": "qualified_idle",
+      "remaining_quota": "unknown"
+    },
+    "grok_parent": {
+      "harness": "grok-build",
+      "cli_version": "0.2.93",
+      "requested_model": "grok-4.5",
+      "actual_model": "grok-4.5",
+      "session_id": "159e611b-6c48-4376-8695-5134b9803b7e",
+      "roles": [
+        "planning"
+      ],
+      "status": "qualified_idle",
+      "remaining_quota": "unknown"
+    },
+    "grok_child": {
+      "harness": "grok-build",
+      "cli_version": "0.2.93",
+      "requested_model": "grok-4.5",
+      "actual_model": "grok-4.5",
+      "session_id": "019f5644-93d5-7a02-827d-caa8b30a2825",
+      "parent_session_id": "159e611b-6c48-4376-8695-5134b9803b7e",
+      "worktree_id": "2026-07-12-e8fa7ada-e1507717b9a587a4",
+      "worktree_path": "/Users/john/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada",
+      "worktree_head": "74c52d88868e39a9d4c5cca6dee46919011d2127",
+      "worktree_state": "clean_detached",
+      "roles": [
+        "implementation"
+      ],
+      "status": "qualified_idle",
+      "remaining_quota": "unknown"
+    },
+    "sakana_fugu_ultra": {
+      "harness": "codex-fugu",
+      "codex_version": "0.144.1",
+      "requested_model": "fugu-ultra",
+      "actual_model": "fugu-ultra",
+      "session_id": "019f5627-e61e-72a3-af3f-ae6e51a348b5",
+      "roles": [
+        "planning",
+        "read_only_review",
+        "multi_agent_orchestration"
+      ],
+      "status": "qualified_idle",
+      "remaining_quota": "unknown",
+      "optional_mcp_health": "stale OAuth warnings observed; model inference healthy"
+    }
+  },
+  "model_routes": [
+    {
+      "phase": "planning",
+      "requested_route": "parallel host + Fable + Grok parent + Fugu Ultra",
+      "actual_route": "qualified; execution pending launch",
+      "required": false,
+      "fallback_reason": null
+    },
+    {
+      "phase": "implement",
+      "requested_route": "grok-build:grok-4.5 child 019f5644-93d5-7a02-827d-caa8b30a2825",
+      "actual_route": "qualified; execution pending launch",
+      "required": true,
+      "fallback_chain": [
+        "claude-code:opus",
+        "host-coordinator"
+      ],
+      "fallback_reason": null
+    },
+    {
+      "phase": "validate",
+      "requested_route": "host-coordinator",
+      "actual_route": "host-coordinator",
+      "required": true,
+      "fallback_reason": null
+    },
+    {
+      "phase": "review",
+      "requested_route": "parallel fresh host + Fable + Fugu Ultra; exclude Grok implementer",
+      "actual_route": "qualified; execution pending launch",
+      "required": true,
+      "required_quorum": 2,
+      "quorum_policy": "fresh host counts; individual optional lane loss is tolerated only while two independent reports remain after fallback; otherwise block",
+      "fallback_reason": null
+    },
+    {
+      "phase": "synthesize_and_document",
+      "requested_route": "host-coordinator",
+      "actual_route": "host-coordinator",
+      "required": true,
+      "fallback_reason": null
+    }
+  ],
+  "external_writer": {
+    "status": "qualified_idle",
+    "active_lease": null,
+    "maximum_concurrent_leases": 1,
+    "worker_may_commit": false,
+    "worker_may_push": false,
+    "worker_may_edit_run_memory": false,
+    "worker_may_join_independent_review": false,
+    "integration_owner": "host-coordinator",
+    "next_action": "Align clean detached child worktree to the final staged tip under host control after staging commits are complete."
+  },
+  "api_surface_snapshot": {
+    "enabled": "auto",
+    "required": false,
+    "baseline_path": ".elves/api-surface/baseline.json",
+    "current_path": ".elves/api-surface/current.json",
+    "diff_path": ".elves/api-surface/diff.md"
+  },
+  "batches": [
+    {
+      "id": 1,
+      "name": "Contracts, configuration, and implementer clarity",
+      "status": "pending",
+      "commit": null,
+      "rollback_tag": null,
+      "started_at": null,
+      "completed_at": null,
+      "acceptance": []
+    },
+    {
+      "id": 2,
+      "name": "Parallel read-only council dispatcher",
+      "status": "pending",
+      "commit": null,
+      "rollback_tag": null,
+      "started_at": null,
+      "completed_at": null,
+      "acceptance": []
+    },
+    {
+      "id": 3,
+      "name": "Exact persistent sessions, model discovery, and usage ledger",
+      "status": "pending",
+      "commit": null,
+      "rollback_tag": null,
+      "started_at": null,
+      "completed_at": null,
+      "acceptance": []
+    },
+    {
+      "id": 4,
+      "name": "Single external writer lease and Grok implementation adapter",
+      "status": "pending",
+      "commit": null,
+      "rollback_tag": null,
+      "started_at": null,
+      "completed_at": null,
+      "acceptance": []
+    },
+    {
+      "id": 5,
+      "name": "Setup action, preferences, host parity, and custom recipes",
+      "status": "pending",
+      "commit": null,
+      "rollback_tag": null,
+      "started_at": null,
+      "completed_at": null,
+      "acceptance": []
+    },
+    {
+      "id": 6,
+      "name": "End-to-end CouncilElves qualification, release, and handoff",
+      "status": "pending",
+      "commit": null,
+      "rollback_tag": null,
+      "started_at": null,
+      "completed_at": null,
+      "acceptance": []
+    }
+  ],
+  "review_comments": [],
+  "active_compute": [],
+  "continuation_guard": {
+    "remaining_batches": 6,
+    "stop_allowed": true,
+    "staging_stop": true,
+    "checkpoint_is_stop": false,
+    "next_required_action": "Finish staging, then wait for a fresh user launch call before Batch 1."
+  }
+}

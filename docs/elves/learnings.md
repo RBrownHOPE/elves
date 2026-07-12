@@ -20,6 +20,11 @@ silently deleting it.
 
 ## Repo Conventions
 
+- [2026-07-12] The host coordinator owns canonical run documents, git, PRs, validation,
+  acceptance evidence, and final synthesis. Write every batch contract/context packet for a
+  potentially less-capable, context-poor implementer: include intent, rationale, existing Build On
+  targets, owned/forbidden surfaces, acceptance evidence, failure modes, and pitfalls without
+  prescribing brittle line-by-line code.
 - [2026-07-08] Batch `status: complete` must carry plan Acceptance proof in session JSON
   (`acceptance: [{criterion, met, evidence}]`). Green CI alone is not landable. Structure/regex
   characterization tests may lock god-file splits but must not alone complete them unless the plan
@@ -47,6 +52,12 @@ silently deleting it.
 
 ## Validation and Tooling
 
+- [2026-07-12] External-harness capabilities must be qualified behaviorally and versioned. CLI
+  flags, installed executables, authentication state, actual model identity, persistent-session
+  behavior, and safe-write behavior are separate facts; do not infer one from another.
+- [2026-07-12] Subscription harnesses may expose observed token/cost usage without exposing
+  remaining quota. Preserve `remaining_quota: unknown`; never invent a limit or treat unknown as
+  zero.
 - [2026-04-11] `./scripts/preflight.sh` is the repo's best built-in environment check. It is useful
   for git/auth/setup validation even though this repo has no package-managed build/test pipeline.
 - [2026-04-14] If a run uses paid compute, remote jobs, or long-lived local servers, track them in
@@ -63,6 +74,12 @@ silently deleting it.
 
 ## Product and Domain Invariants
 
+- [2026-07-12] Native-only Cobbler remains the zero-config default. External Claude/Grok/Sakana,
+  OpenRouter, API-only models, and future custom tools are optional role routes; only an explicit
+  project Survival Guide may make one required.
+- [2026-07-12] External implementation is an untrusted-patch workflow: one detached writer lease,
+  no worker commit/push/PR/run-memory ownership, pre/post HEAD+ref+path audit, and host-only import,
+  validation, commit, and push. The implementer is excluded from independent review quorum.
 - [2026-04-11] Elves is intentionally lightweight. Borrow architectural ideas from richer systems,
   but avoid pulling in hydration, skeleton generation, or opaque automation unless the repo
   genuinely needs them.
@@ -71,6 +88,20 @@ silently deleting it.
 
 ## Known Traps
 
+- [2026-07-12] Grok Build 0.2.93 headless `--worktree --resume` can silently retain the source
+  checkout. Interactive worktree resume creates a discoverable child session with the full parent
+  transcript. Verify actual CWD, registered detached worktree, parent/child identity, and HEAD; never
+  treat the flag itself or an unchanged requested session ID as isolation proof.
+- [2026-07-12] Narrow Grok `--tools` allowlists can remove terminal background-support tools and
+  make agent construction fail. Treat a harness toolset as a behaviorally qualified bundle rather
+  than composing individual advertised capabilities ad hoc.
+- [2026-07-12] Grok's CLI `dontAsk` behavior is documented as incompletely wired, and child-process
+  network restrictions are a no-op on macOS. Prompt rules and mode names are not hard boundaries;
+  combine explicit policy, hard hooks/custom sandbox where available, credential/environment
+  isolation, and mechanical post-turn audit.
+- [2026-07-12] Fugu may inherit unrelated Codex MCP servers. An optional MCP OAuth `invalid_grant`
+  warning is not evidence that Sakana inference failed; report model health and MCP health
+  separately.
 - [2026-04-11] Repo-level changes can look complete after updating one skill file, but `SKILL.md`,
   `AGENTS.md`, templates, README, and CHANGELOG often drift unless they are reviewed as a set.
 - [2026-04-11] If `.elves-session.json` is intentionally committed during a live Elves run, do not
