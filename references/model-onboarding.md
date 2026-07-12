@@ -60,8 +60,7 @@ Adapters and recipes exist so people can try them. Expect rough edges, version d
 What we design and dogfood against: **Claude Code or Codex as main driver**, mostly **host-native**
 labor, with selective checks on a few optional paths when credentials allow. Optional and exotic
 routes (OpenCode, Antigravity CLI, Gemini CLI, OpenRouter panels, Muse, AlphaEvolve, work-driver
-matrices) are documented so people can try them, but they **have not been our focus**, and **many
-have not been heavily** tested — including cases without maintainer subscriptions or installs.
+matrices) are documented so people can try them, but they **have not been our focus**, and **many have not been heavily** tested — including cases without maintainer subscriptions or installs.
 
 We are **not** thinking hard about every exotic main-driver or work-driver matrix right now.
 **Contributions welcome** — that is how the project gets more robust.
