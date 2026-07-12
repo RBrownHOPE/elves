@@ -301,7 +301,11 @@ are forbidden. Grok worktree children get a new UUID — resume the child from i
 worktree, and do not treat headless worktree-resume on Grok 0.2.93 as isolation. Remaining
 subscription quota is `unknown` unless a harness explicitly exposes it.
 
-**Writer lease (host-owned):**
+**Fast implementer (Lane A, default for “have Grok run it”):** record `implementation_lane: fast`
+and use `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
+See [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
+
+**Writer lease (host-owned, Lane B / untrusted — advanced, not the default overnight path):**
 
 ```bash
 python3 scripts/cobbler_agents.py worker prepare --json \
