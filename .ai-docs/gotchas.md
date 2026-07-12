@@ -67,3 +67,13 @@
   from token counts, and never treat unknown as zero.
 - Unexpected model/CWD/parent/worktree drift blocks write reuse; expected HEAD/plan digest change
   yields rehydration, not silent continuation on stale assumptions.
+- Only one external writer lease may be live. Dirty, branch-attached (when detached required), HEAD
+  mismatch, or unregistered worktrees fail closed at prepare.
+- Never bare-cherry-pick worker commits. Export binary patches, `git apply --check --index` on the
+  host, then create sanitized host commits that record source worker SHAs.
+- Grok write profile forbids headless `--worktree --resume` as isolation (especially 0.2.93). Resume
+  the exact child from a registered detached worktree CWD under a `devbox` (or equivalent) sandbox.
+- A `workspace` sandbox linked worktree must not be assumed commit-capable; leases force
+  `detached_commits_permitted=false` for that profile.
+- Ref/remote/config/hook mutations, out-of-scope paths (including `.elves/` and run docs), symlink
+  escapes, push attempts, and process leaks fail the post-turn audit even when the file diff looks right.

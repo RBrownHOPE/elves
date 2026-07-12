@@ -284,6 +284,22 @@ are forbidden. Grok worktree children get a new UUID — resume the child from i
 worktree, and do not treat headless worktree-resume on Grok 0.2.93 as isolation. Remaining
 subscription quota is `unknown` unless a harness explicitly exposes it.
 
+**Writer lease (host-owned):**
+
+```bash
+python3 scripts/cobbler_agents.py worker prepare --json \
+  --lease-id lease-1 --host-checkout . --worker-checkout /path/to/detached \
+  --session-id <exact-child> --base-head <sha> --adapter grok-build \
+  --allowed-path scripts/ --allowed-path tests/
+python3 scripts/cobbler_agents.py worker audit --json --lease-id lease-1
+python3 scripts/cobbler_agents.py worker export --json --lease-id lease-1 \
+  --output-dir /tmp/lease-1-patches --host-apply-check
+python3 scripts/cobbler_agents.py worker refresh --json --lease-id lease-1 --new-tip <host-sha>
+```
+
+Only one live lease is allowed. Worker detached commits are untrusted; the host applies binary
+patches with `git apply --check --index` and owns branch commits/push/PR/run-memory.
+
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
 model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
 synthesis prompt templates, and

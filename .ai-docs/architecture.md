@@ -35,11 +35,14 @@ managed inside the Elves run, not a separate Council or Cobbler memory system.
 - `dispatch.py`: parallel read-only council fan-out, quorum policy, lightweight-review utility
 - `sessions.py`: exact session registry, lifecycle transitions, context digests, usage ledger,
   Grok parent→child lineage helpers
+- `leases.py`: exclusive one-writer lease, worker preflight, write packets, refresh-after-import
+- `audit.py`: pre/post refs/path/process audit, binary format-patch export, host `git apply --check`
 
 The thin CLI is `scripts/cobbler_agents.py` (`validate-config`, `doctor`, `council`,
-`lightweight-review`, `session list|probe|resume`). Private runtime state belongs under ignored
-`.elves/runtime/` (`council/<run-id>/`, `sessions/`). Writer leases land in a later batch; external
-lanes remain untrusted until host audit/import.
+`lightweight-review`, `session …`, `worker prepare|audit|export|refresh`). Private runtime state
+belongs under ignored `.elves/runtime/` (`council/`, `sessions/`, `leases/`). Worker detached
+commits are untrusted handoff boundaries; the host alone creates branch commits, pushes, PRs, and
+run-memory updates after binary patch audit/import.
 
 The survival guide remains the home for live run control, checkpoint semantics, active compute, next exact batch, and operator constraints; the Cobbler session state extends that live layer.
 

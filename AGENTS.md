@@ -261,6 +261,9 @@ Rules:
 - Push after each independently reviewable host-owned slice; re-read the Survival Guide after every push.
 - Forbid vague subjects such as `Updates`, `progress`, `WIP`, or bare `fixes`.
 - Qualified external workers may create only audited detached handoff commits inside a lease.
+- Exactly one external writer lease is live at a time; dirty/unregistered/branch-attached (when
+  detached is required)/HEAD-mismatched/unqualified write profiles fail closed. Host imports via
+  binary patch export and `git apply --check --index` — never bare cherry-pick.
 - External workers never own refs, remotes, push, PRs, or canonical run memory.
 - Reserve the `Close` phase for acceptance-backed batch completion with non-empty
   `acceptance: [{criterion, met, evidence}]` rows.
