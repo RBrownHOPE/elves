@@ -1557,7 +1557,8 @@ class AdapterBuilderTests(unittest.TestCase):
                 repo_root=Path(tmp),
             )
             self.assertEqual(oc.argv[0], "opencode")
-            self.assertIn("run", oc.argv)
+            self.assertEqual(oc.argv[1], "run")
+            self.assertIn("plan the batch", oc.argv[2])
             self.assertIn("--session", oc.argv)
             self.assertIn("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", oc.argv)
             self.assertIn("--model", oc.argv)

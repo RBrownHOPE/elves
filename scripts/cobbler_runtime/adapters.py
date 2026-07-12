@@ -710,14 +710,15 @@ def build_readonly_invocation(
             exe = "opencode"
         # Prefer plan agent for read-only council/review when available.
         agent = "plan"
-        argv_list = [exe, "run", "--format", "default", "--agent", agent]
+        # Both the positional message and --file are array-valued in OpenCode's
+        # yargs parser. Keep the message immediately after `run` so any file
+        # options added by a caller or future builder cannot consume the prompt.
+        argv_list = [exe, "run", full_prompt, "--format", "default", "--agent", agent]
         if exact_session:
             argv_list.extend(["--session", exact_session])
         if requested_model:
             argv_list.extend(["--model", str(requested_model)])
         argv_list.extend(extras)
-        # Prompt as trailing message (no bare stdin contract).
-        argv_list.append(full_prompt)
         return AdapterInvocation(
             adapter=name,
             executable=exe,

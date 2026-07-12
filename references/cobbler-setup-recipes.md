@@ -233,13 +233,16 @@ working directory and put the positional message immediately after `run`:
 ```bash
 opencode run "Review the attached packet; read-only." \
   --dir /tmp/elves-review \
+  --agent plan \
   --model openrouter/qwen/qwen3-max \
   -f stat.txt -f commits.txt -f core.diff
 ```
 
 Without the matching `--dir`, OpenCode may auto-reject external-file access yet still exit zero
 after emitting only a preamble. Treat a missing substantive result as failure even when the
-process exit code is zero. Implement labor already uses `--dir`, places the message before
+process exit code is zero. Both OpenCode's positional message and `--file` accept multiple values,
+so keep the message immediately after `run`; otherwise a trailing message can be parsed as another
+file. Implement labor already uses `--dir`, places the message before
 `--file`, and adds `--auto` only on the explicitly write-capable path.
 
 ### Elves profiles
