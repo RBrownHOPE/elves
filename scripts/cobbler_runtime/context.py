@@ -11,10 +11,13 @@ import json
 import os
 import re
 import stat
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
+
+from .schema import ValidationIssue
 
 
 # Names (not values) that must be stripped from child environments by default.
@@ -46,7 +49,7 @@ _SECRET_NAME_MARKERS: tuple[str, ...] = (
 )
 
 # Minimal runtime discovery allowlist. extra_allowlist may add non-secret names
-# only; secret-looking names are always stripped even if listed there.
+# only. Secret-looking names require an explicit profile secret_grants entry.
 DEFAULT_ENV_ALLOWLIST: frozenset[str] = frozenset(
     {
         "PATH",
@@ -194,21 +197,29 @@ def scrub_environment(
     *,
     allowlist: frozenset[str] | None = None,
     extra_allowlist: frozenset[str] | set[str] | None = None,
+    secret_grants: frozenset[str] | set[str] | tuple[str, ...] | None = None,
 ) -> EnvScrubResult:
     """Build a minimal child env. Report stripped *names*, never values.
 
     ``extra_allowlist`` may add non-secret discovery names. Secret-looking names
-    are always stripped even when listed on the allowlist.
+    remain stripped even when listed on ``extra_allowlist``. Only names listed
+    in ``secret_grants`` (profile-declared) may enter the child environment when
+    present in the parent. Values are never serialized in EnvScrubResult.
     """
     source = dict(parent_env if parent_env is not None else os.environ)
     allowed = set(allowlist if allowlist is not None else DEFAULT_ENV_ALLOWLIST)
     if extra_allowlist:
         allowed |= {name for name in extra_allowlist}
+    grants = {name for name in (secret_grants or ()) if name}
 
     kept: dict[str, str] = {}
     stripped: list[str] = []
     for name, value in source.items():
-        # Always strip secrets even if listed on an allowlist by mistake.
+        if name in grants:
+            # Explicit profile grant — name only is recorded in metadata.
+            kept[name] = value
+            continue
+        # Always strip secrets unless explicitly granted above.
         if is_secret_env_name(name) or name not in allowed:
             stripped.append(name)
             continue
@@ -316,6 +327,48 @@ def ensure_private_dir(path: Path) -> Path:
     return path
 
 
+def create_exclusive_artifact_root(repo_root: Path, run_id: str) -> Path:
+    """Create a council artifact root atomically; refuse reuse of an existing id.
+
+    Fails closed if ``run_id`` already has a directory so stale evidence cannot
+    be silently overwritten or shared across concurrent runs.
+    """
+    rid = (run_id or "").strip()
+    if not rid or "/" in rid or "\\" in rid or rid in {".", ".."}:
+        raise ValidationIssue(
+            "invalid_run_id",
+            f"Invalid run_id for artifact root: {run_id!r}",
+        )
+    root = council_artifact_root(repo_root, rid)
+    parent = root.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    try:
+        parent.chmod(stat.S_IRWXU)
+    except OSError:
+        pass
+    try:
+        # Exclusive create: raises FileExistsError if the path already exists.
+        os.mkdir(root, mode=0o700)
+    except FileExistsError as exc:
+        raise ValidationIssue(
+            "artifact_root_exists",
+            f"Council artifact root already exists for run_id `{rid}`; refuse reuse",
+            path=str(root),
+            hint="Allocate a fresh collision-resistant run_id",
+        ) from exc
+    except OSError as exc:
+        raise ValidationIssue(
+            "artifact_root_create_failed",
+            f"Unable to create exclusive artifact root for run_id `{rid}`: {exc}",
+            path=str(root),
+        ) from exc
+    try:
+        root.chmod(stat.S_IRWXU)
+    except OSError:
+        pass
+    return root
+
+
 def write_json_artifact(path: Path, payload: Mapping[str, Any]) -> Path:
     """Write JSON with restrictive file permissions (owner read/write)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -339,5 +392,8 @@ def write_text_artifact(path: Path, text: str) -> Path:
 
 
 def new_run_id(prefix: str = "council") -> str:
+    """Return a collision-resistant run id (timestamp + uuid4 fragment)."""
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return f"{prefix}-{stamp}"
+    unique = uuid.uuid4().hex
+    safe_prefix = (prefix or "council").replace("/", "-").replace(" ", "-")
+    return f"{safe_prefix}-{stamp}-{unique}"

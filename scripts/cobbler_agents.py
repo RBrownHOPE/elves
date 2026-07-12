@@ -45,6 +45,7 @@ from cobbler_runtime.capabilities import (  # noqa: E402
     summarize_capabilities,
 )
 from cobbler_runtime.config import (  # noqa: E402
+    lanes_from_resolved,
     models_toml_is_local_only,
     resolve_from_repo,
 )
@@ -473,29 +474,20 @@ def cmd_council(args: argparse.Namespace) -> int:
     repo_root = _repo_root_from_args(args)
     resolved = resolve_from_repo(repo_root)
 
-    # Default lanes: host-native only unless profiles map planning/review externally.
-    # Deterministic and network-free unless executables exist for mapped adapters.
-    role_names = [name.strip() for name in (args.roles or "architect,skeptic,tester").split(",") if name.strip()]
-    lanes: list[LaneSpec] = []
-    for index, role in enumerate(role_names):
-        # Prefer host-native for CLI smoke so no paid providers are required.
-        profile_name = "host-native"
-        adapter_name = "host-native"
-        route = resolved.roles.get("review") or resolved.roles.get("planning")
-        if route and route.profile in resolved.profiles and args.use_resolved_routes:
-            profile = resolved.profiles[route.profile]
-            profile_name = profile.name
-            adapter_name = profile.adapter
-        lanes.append(
-            LaneSpec(
-                lane_id=f"{role}-{index}",
-                role=role,
-                adapter=adapter_name,
-                profile=profile_name,
-                requested_model=None,
-                timeout_seconds=float(args.timeout),
-            )
-        )
+    # Build lanes from each resolved role/profile without dropping fields.
+    # Default (no --use-resolved-routes): host-native lenses only — host skill
+    # synthesizes without fabricating council votes.
+    role_names = [
+        name.strip()
+        for name in (args.roles or "architect,skeptic,tester").split(",")
+        if name.strip()
+    ]
+    lanes: list[LaneSpec] = lanes_from_resolved(
+        resolved,
+        role_names=role_names,
+        timeout_seconds=float(args.timeout),
+        use_resolved_routes=bool(args.use_resolved_routes),
+    )
 
     target = args.target_quorum
     required = args.required_quorum
@@ -513,10 +505,12 @@ def cmd_council(args: argparse.Namespace) -> int:
     )
     payload = result.to_dict()
     payload["model_calls_made"] = any(
-        lane.adapter != "host-native" for lane in result.lane_results
+        lane.adapter != "host-native" and lane.ok for lane in result.lane_results
     )
     payload["mutated_repo"] = False
     payload["host_synthesis_only"] = True
+    payload["external_routing_enabled"] = resolved.external_routing_enabled
+    # Standalone CLI without injected host reports cannot claim independent votes.
     if args.json:
         return _emit_json(payload, exit_code=0 if result.ok and not result.blocked else 1)
 
