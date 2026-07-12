@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
@@ -128,6 +129,18 @@ _BUILTIN: dict[str, StubAdapter] = {
         name="codex-fugu",
         executable_hint="codex",
         supports_persistent_sessions=True,
+        supports_isolated_write=False,
+    ),
+    "gemini-cli": StubAdapter(
+        name="gemini-cli",
+        executable_hint="gemini",
+        supports_persistent_sessions=False,
+        supports_isolated_write=False,
+    ),
+    "antigravity-cli": StubAdapter(
+        name="antigravity-cli",
+        executable_hint="antigravity",
+        supports_persistent_sessions=False,
         supports_isolated_write=False,
     ),
     "custom-cli": StubAdapter(
@@ -258,6 +271,8 @@ def default_profiles() -> dict[str, HarnessProfile]:
             input_c, output_c = "prompt-file", "grok-json"
         elif name == "codex-fugu":
             input_c, output_c = "stdin", "codex-jsonl"
+        elif name in {"gemini-cli", "antigravity-cli"}:
+            input_c, output_c = "stdin", "custom-json-envelope"
         elif name == "custom-cli":
             input_c, output_c = "json-stdio", "custom-json-envelope"
         else:
@@ -341,6 +356,9 @@ ADAPTER_CONTRACT_PAIRS: dict[str, tuple[str, str]] = {
     "claude-code": ("stdin", "claude-json"),
     "grok-build": ("prompt-file", "grok-json"),
     "codex-fugu": ("stdin", "codex-jsonl"),
+    # Google subscription CLIs: treat as generic prompt wrappers until version-locked.
+    "gemini-cli": ("stdin", "custom-json-envelope"),
+    "antigravity-cli": ("stdin", "custom-json-envelope"),
     "custom-cli": ("json-stdio", "custom-json-envelope"),
     "host-native": ("host-injected", "host-injected"),
 }
@@ -546,6 +564,35 @@ def build_readonly_invocation(
             stdin_text=full_prompt,
             input_mode="stdin",
             decoder="codex-jsonl",
+            cwd=work_cwd,
+        )
+
+    if name in {"gemini-cli", "antigravity-cli"}:
+        # Google subscription CLIs (Gemini CLI / Antigravity CLI). Prefer plan/review;
+        # flags vary by version — requested_model + extra_args carry project-local opts.
+        if name == "antigravity-cli":
+            if not exe or shutil.which(exe) is None:
+                alt = shutil.which("agy")
+                if alt:
+                    exe = alt
+        argv_list = [exe]
+        if requested_model:
+            argv_list.extend(["--model", requested_model])
+        argv_list.extend(extras)
+        return AdapterInvocation(
+            adapter=name,
+            executable=exe,
+            argv=tuple(argv_list),
+            read_only=True,
+            tool_scope="read-only",
+            sandbox_scope="ephemeral",
+            notes=(
+                "Google subscription CLI for plan/review lenses; "
+                "not recommended as default bulk implement labor; prompt on stdin"
+            ),
+            stdin_text=full_prompt,
+            input_mode="stdin",
+            decoder="custom-json-envelope",
             cwd=work_cwd,
         )
 

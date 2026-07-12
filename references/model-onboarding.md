@@ -48,16 +48,69 @@ Guide. Env var **names** only.
 
 | Purpose | Default | Typical optional routes |
 | --- | --- | --- |
-| Planning / design | host-native | claude-code, codex-fugu |
-| Implementation | host-native | grok-build (optional external batch implementer) |
-| Independent review | host-native | claude-code, codex-fugu, openrouter, meta-muse |
-| Lightweight review | host-native | claude-code, codex-fugu |
-| Scout / discovery | host-native | openrouter, meta-muse, claude-code |
+| Planning / design | host-native | `claude-code-planning`, `codex-fugu-planning`, Gemini CLI, Antigravity CLI |
+| Implementation (labor) | host-native | `claude-code-labor`, `codex-fugu-labor`, grok-build |
+| Independent review | host-native | planning-tier Claude/Codex, Gemini CLI, Antigravity CLI, OpenRouter, Muse |
+| Lightweight review | host-native | labor-tier Claude/Codex, Gemini CLI |
+| Scout / discovery | host-native | Gemini CLI, Antigravity CLI, OpenRouter, Muse |
 | Validation ownership | host-native | host-native only preferred |
 | Synthesis | host-native | host-native only preferred |
 | Math evolutionary search | off | alphaevolve (when gcloud + project runner exist) |
 
 `host-native` means the **current** agent (Claude Code or Codex) owns that work.
+
+### Within-family model tiers (Claude and Codex)
+
+You can use a **stronger model for planning/review** and a **cheaper/faster model for implement
+labor** without switching product families:
+
+| Profile | Adapter | Typical use |
+| --- | --- | --- |
+| `claude-code-planning` | claude-code | Plan + independent review |
+| `claude-code-labor` | claude-code | Batch implement volume |
+| `codex-fugu-planning` | codex-fugu | Plan + independent review |
+| `codex-fugu-labor` | codex-fugu | Batch implement volume |
+
+After `onboard apply`, edit ignored `.elves/models.toml` and set `requested_model` on each tier
+profile to the model ids **your** Claude/Codex install supports. Elves does not ship prestige
+model ids as public defaults.
+
+Example shape (machine-local only):
+
+```toml
+[profiles.claude-code-planning]
+adapter = "claude-code"
+# requested_model = "…"   # high-quality plan/review
+
+[profiles.claude-code-labor]
+adapter = "claude-code"
+# requested_model = "…"   # labor implement
+
+[roles.planning]
+profile = "claude-code-planning"
+
+[roles.review]
+profile = "claude-code-planning"
+
+[roles.implement]
+profile = "claude-code-labor"
+```
+
+Same pattern with `codex-fugu-planning` / `codex-fugu-labor`.
+
+### Google subscription CLIs (plan/review, not bulk labor)
+
+| Route | Executable (typical) | Recommended purposes |
+| --- | --- | --- |
+| `gemini-cli` | `gemini` | planning, review, scout |
+| `antigravity-cli` | `antigravity` (fallback `agy`) | planning, review, scout |
+
+Google is consolidating coding-agent surfaces around **Antigravity** (Gemini CLI transitions into
+that family). Treat both as optional **subscription CLIs** when installed.
+
+**Cost guidance:** these are usually **not** cost-effective as the main overnight implement engine.
+Prefer host-native or labor-tier Claude/Codex (or optional Grok implement) for bulk batch coding;
+use Gemini/Antigravity as independent plan/review lenses when you already pay for the subscription.
 
 ## Host agent protocol
 

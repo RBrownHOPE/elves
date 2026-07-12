@@ -29,6 +29,7 @@ from cobbler_runtime.setup import (  # noqa: E402
     render_models_toml,
     run_setup,
     write_models_toml,
+    PROFILE_RECIPES,
 )
 
 
@@ -114,6 +115,32 @@ class TomlGenerationTests(unittest.TestCase):
             [e.profile for e in resolved.roles["implement"].fallback_chain],
             ["host-native"],
         )
+
+    def test_tier_and_google_profiles_render(self) -> None:
+        prefs = preferences_from_flags(
+            planning="claude-code-planning",
+            review="gemini-cli",
+            implement="claude-code-labor",
+        )
+        text = render_models_toml(prefs)
+        self.assertIn("[profiles.claude-code-planning]", text)
+        self.assertIn("[profiles.claude-code-labor]", text)
+        self.assertIn("[profiles.gemini-cli]", text)
+        self.assertIn('adapter = "gemini-cli"', text)
+        self.assertIn("requested_model", text)
+        self.assertIn("claude-code-planning", PROFILE_RECIPES)
+        self.assertIn("antigravity-cli", PROFILE_RECIPES)
+        self.assertTrue(PROFILE_RECIPES["gemini-cli"].get("plan_review_only"))
+        try:
+            import tomllib
+
+            parsed = tomllib.loads(text)
+            self.assertEqual(parsed["roles"]["planning"]["profile"], "claude-code-planning")
+            self.assertEqual(parsed["roles"]["implement"]["profile"], "claude-code-labor")
+            self.assertEqual(parsed["profiles"]["gemini-cli"]["adapter"], "gemini-cli")
+            self.assertEqual(parsed["profiles"]["claude-code-planning"]["adapter"], "claude-code")
+        except ModuleNotFoundError:
+            self.assertIn('profile = "claude-code-labor"', text)
 
     def test_secret_patterns_rejected(self) -> None:
         with self.assertRaises(ValidationIssue):

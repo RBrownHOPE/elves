@@ -63,9 +63,25 @@ snapshots effective routes into the Survival Guide for reviewable provenance.
 
 ## Recipe: Claude-only (verified shape)
 
-- planning/review: `claude-code`
-- implement/validate/synthesize: `host-native` (or Claude when your host is Claude Code)
+- planning/review: `claude-code` or tier `claude-code-planning`
+- implement: `host-native`, same Claude install, or labor tier `claude-code-labor`
+- validate/synthesize: `host-native` (or Claude when your host is Claude Code)
 - fallback: `host-native`
+- Pin high vs labor model ids with `requested_model` on each profile in ignored `models.toml`
+
+## Recipe: Claude high-plan / labor-implement (recommended split)
+
+```bash
+python3 scripts/cobbler_agents.py onboard apply --json \
+  --planning claude-code-planning \
+  --review claude-code-planning \
+  --implement claude-code-labor \
+  --force
+```
+
+Then set `requested_model` on each profile to the high-quality vs volume model your Claude install
+exposes. Same idea works when the **host** is Claude Code (`host-native` implement) and only
+review uses an external high model.
 
 ## Recipe: Grok-only (experimental write; verified isolation rules)
 
@@ -76,15 +92,45 @@ snapshots effective routes into the Survival Guide for reviewable provenance.
 
 ## Recipe: Sakana / codex-fugu only (experimental)
 
-- planning/review: `codex-fugu`
-- implement: `host-native` unless a qualified write wrapper exists
+- planning/review: `codex-fugu` or `codex-fugu-planning`
+- implement: `host-native` or labor tier `codex-fugu-labor`
 - Treat MCP OAuth warnings as optional-tool health, not inference failure
+
+## Recipe: Codex high-plan / labor-implement
+
+```bash
+python3 scripts/cobbler_agents.py onboard apply --json \
+  --planning codex-fugu-planning \
+  --review codex-fugu-planning \
+  --implement codex-fugu-labor \
+  --force
+```
+
+Pin `requested_model` per tier in ignored `models.toml`. Prefer host-native validate/synthesize.
+
+## Recipe: Google Gemini CLI / Antigravity CLI (plan/review only)
+
+- Inventory: `gemini` and/or `antigravity` (fallback `agy`) on PATH
+- **Use for:** planning, independent review, scout
+- **Avoid as default bulk implement** — usually not cost-effective for the main overnight batch
+- Profiles: `gemini-cli`, `antigravity-cli`
+- Fallback: `host-native`
+- Gemini CLI is transitioning into the Antigravity family; either executable is fine when present
+
+```bash
+python3 scripts/cobbler_agents.py onboard apply --json \
+  --planning antigravity-cli \
+  --review gemini-cli \
+  --implement host-native \
+  --force
+```
 
 ## Recipe: all three subscription CLIs (experimental mix)
 
 - planning: independent mix of host + claude-code + codex-fugu (read-only council)
-- implement: grok-build child under one writer lease
-- review: fresh host + claude-code + codex-fugu; **exclude** the implementer from independent quorum
+- implement: grok-build child under one writer lease **or** labor-tier Claude/Codex
+- review: fresh host + claude-code + codex-fugu (+ optional Gemini/Antigravity); **exclude** the
+  implementer from independent quorum
 - validate/synthesize/document owner: host coordinator
 
 Dated personal presets may name current models in a **project Survival Guide**, never as shipped

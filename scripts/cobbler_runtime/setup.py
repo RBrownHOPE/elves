@@ -15,7 +15,7 @@ import stat
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence  # Any used by PROFILE_RECIPES
 
 from .adapters import default_profiles
 from .capabilities import doctor_inventory
@@ -133,6 +133,48 @@ def which_executable(name: str | None) -> str | None:
     return shutil.which(name)
 
 
+# Named profiles beyond bare adapter names: planning-quality vs labor tiers, Google plan/review.
+PROFILE_RECIPES: dict[str, dict[str, Any]] = {
+    NATIVE_PROFILE_NAME: {"adapter": NATIVE_PROFILE_NAME},
+    "claude-code": {"adapter": "claude-code"},
+    "claude-code-planning": {
+        "adapter": "claude-code",
+        "notes": "High-quality Claude for planning/review (set requested_model in TOML if desired)",
+        "tier": "planning",
+    },
+    "claude-code-labor": {
+        "adapter": "claude-code",
+        "notes": "Volume Claude for implement labor (cheaper/faster model via requested_model)",
+        "tier": "labor",
+    },
+    "grok-build": {"adapter": "grok-build"},
+    "codex-fugu": {"adapter": "codex-fugu"},
+    "codex-fugu-planning": {
+        "adapter": "codex-fugu",
+        "notes": "High-quality Codex for planning/review (set requested_model in TOML if desired)",
+        "tier": "planning",
+    },
+    "codex-fugu-labor": {
+        "adapter": "codex-fugu",
+        "notes": "Volume Codex for implement labor (cheaper/faster model via requested_model)",
+        "tier": "labor",
+    },
+    "gemini-cli": {
+        "adapter": "gemini-cli",
+        "executable": "gemini",
+        "notes": "Google Gemini CLI — plan/review only; not recommended for bulk implement",
+        "plan_review_only": True,
+    },
+    "antigravity-cli": {
+        "adapter": "antigravity-cli",
+        "executable": "antigravity",
+        "notes": "Google Antigravity CLI — plan/review only; not recommended for bulk implement",
+        "plan_review_only": True,
+    },
+    "custom-cli": {"adapter": "custom-cli"},
+}
+
+
 def inventory_tools(
     *,
     fake_presence: Mapping[str, bool] | None = None,
@@ -164,6 +206,10 @@ def inventory_tools(
             present = bool(fake_presence[name])
         else:
             present = which_executable(exe) is not None
+            if name == "antigravity-cli" and not present:
+                present = which_executable("agy") is not None
+                if present:
+                    exe = "agy"
         version = fake_versions.get(name)
         auth = fake_auth.get(name, "unknown" if present else "missing")
         # Never infer auth from env var *presence of values* — only name existence as hint.
@@ -176,6 +222,8 @@ def inventory_tools(
             notes = "Headless worktree-resume broken on 0.2.93; use exact child + registered worktree"
         if name == "custom-cli":
             notes = "User-defined wrapper; qualify capabilities before write roles"
+        if name in {"gemini-cli", "antigravity-cli"}:
+            notes = "Google subscription CLI — prefer planning/review; avoid bulk implement cost"
         items.append(
             ToolInventoryItem(
                 adapter=name,
@@ -198,11 +246,13 @@ def recommend_routes(inventory: Sequence[ToolInventoryItem]) -> list[str]:
         f"Generated {_utc_now()}: prefer host-native for validate/synthesize by default.",
         "Setup is optional; native-only Elves needs no external tools or keys.",
         "Commit/push/PR are host operations, not model roles.",
+        "Within a family, prefer a high-quality model for plan/review and a labor model for implement.",
     ]
     if "claude-code" in present:
         recs.append(
-            "claude-code present: suitable for planning/review lenses when authenticated; "
-            "do not hardcode a specific model id as a public default."
+            "claude-code present: use claude-code-planning for plan/review and "
+            "claude-code-labor for implement volume when you want a tier split; "
+            "set requested_model on each profile in models.toml (no public prestige defaults)."
         )
     if "grok-build" in present:
         recs.append(
@@ -211,8 +261,13 @@ def recommend_routes(inventory: Sequence[ToolInventoryItem]) -> list[str]:
         )
     if "codex-fugu" in present:
         recs.append(
-            "codex-fugu present: candidate for independent review/planning lenses; "
-            "MCP OAuth warnings are not inference failures."
+            "codex-fugu present: use codex-fugu-planning vs codex-fugu-labor for plan/review vs "
+            "implement volume; MCP OAuth warnings are not inference failures."
+        )
+    if "gemini-cli" in present or "antigravity-cli" in present:
+        recs.append(
+            "Google Gemini CLI / Antigravity CLI present: good optional plan/review lenses; "
+            "usually not cost-effective for the main implement batch."
         )
     if present <= {NATIVE_PROFILE_NAME}:
         recs.append("No external CLIs detected: stay fully native-host for all roles.")
@@ -264,20 +319,36 @@ def render_models_toml(preferences: SetupPreferences) -> str:
         profiles_needed.update(chain)
     profiles_needed.discard("")
 
-    adapter_for = {
-        NATIVE_PROFILE_NAME: NATIVE_PROFILE_NAME,
-        "claude-code": "claude-code",
-        "grok-build": "grok-build",
-        "codex-fugu": "codex-fugu",
-        "custom-cli": "custom-cli",
-    }
     for profile_name in sorted(profiles_needed):
-        adapter = adapter_for.get(profile_name, "custom-cli")
+        recipe = PROFILE_RECIPES.get(profile_name)
+        if recipe is None:
+            adapter = "custom-cli"
+            executable = None
+            notes = "Unknown profile name; treat as custom-cli and set executable"
+        else:
+            adapter = str(recipe.get("adapter") or "custom-cli")
+            executable = recipe.get("executable")
+            notes = recipe.get("notes")
         lines.append(f"[profiles.{profile_name}]")
         lines.append(f'adapter = "{adapter}"')
-        if adapter == "custom-cli" and profile_name != "custom-cli":
+        if executable:
+            lines.append(f'executable = "{executable}"')
+        if adapter == "custom-cli" and profile_name != "custom-cli" and not executable:
             lines.append('executable = "my-coding-agent"')
-            lines.append('notes = "Replace executable for your wrapper"')
+            notes = notes or "Replace executable for your wrapper"
+        if notes:
+            # Escape quotes in notes for TOML single-line strings
+            safe = str(notes).replace('"', "'")
+            lines.append(f'notes = "{safe}"')
+        # Tier profiles: leave requested_model commented for the user to pin a local model id.
+        if recipe and recipe.get("tier") in {"planning", "labor"}:
+            lines.append(
+                f'# requested_model = "…"  # optional: pin high-quality vs labor model for this tier'
+            )
+        if recipe and recipe.get("plan_review_only"):
+            lines.append(
+                '# Prefer this profile on planning/review/scout roles only — not bulk implement.'
+            )
         lines.append("")
 
     for role in SETUP_ROLE_SLOTS:

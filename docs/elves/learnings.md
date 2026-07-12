@@ -113,6 +113,9 @@ silently deleting it.
 - [2026-07-12] Model onboarding is host-mediated on both Claude Code and Codex: `onboard
   plan → interview → apply → probe`. Preferences in ignored `.elves/models.toml`; structural probe
   by default; live smoke opt-in; never print secrets. Protocol: `references/model-onboarding.md`.
+- [2026-07-12] Prefer high-quality Claude/Codex for plan+review and a labor model for implement
+  (`*-planning` / `*-labor` profiles + local `requested_model`). Google Gemini CLI / Antigravity
+  CLI are optional plan/review lenses, usually not cost-effective for the main implement batch.
 - [2026-07-12] When the user *does* have Grok Build and wants it, prefer
   `implementation_lane: fast` with one whole-batch launch
   (`--prompt-file <packet> --yolo --effort medium`, session create/resume, sensible `--max-turns`)

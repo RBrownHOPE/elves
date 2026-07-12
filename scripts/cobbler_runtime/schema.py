@@ -72,6 +72,8 @@ BUILTIN_ADAPTER_NAMES: tuple[str, ...] = (
     "claude-code",
     "grok-build",
     "codex-fugu",
+    "gemini-cli",
+    "antigravity-cli",
     "custom-cli",
     "host-native",
 )

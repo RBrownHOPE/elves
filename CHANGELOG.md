@@ -44,6 +44,11 @@ All notable changes to the Elves skill are documented here.
   live smoke remains opt-in and never prints secrets.
 - Protocol: [`references/model-onboarding.md`](references/model-onboarding.md); wired into
   `/setup-cobbler`, skill surfaces, and setup recipes for both Claude Code and Codex.
+- **Within-family tiers:** `claude-code-planning` / `claude-code-labor` and
+  `codex-fugu-planning` / `codex-fugu-labor` so plan/review can use a high-quality model and
+  implement can use a labor model (pin `requested_model` locally).
+- **Google subscription CLIs:** `gemini-cli` and `antigravity-cli` as optional **plan/review/scout**
+  routes (usually not cost-effective for bulk implement).
 
 ## [1.20.2] - 2026-07-12
 

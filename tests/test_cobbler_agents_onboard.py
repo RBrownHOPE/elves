@@ -46,7 +46,13 @@ class OnboardPacketTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             packet = build_onboarding_packet(
                 Path(tmp),
-                fake_presence={"claude-code": True, "grok-build": False, "codex-fugu": False},
+                fake_presence={
+                    "claude-code": True,
+                    "grok-build": False,
+                    "codex-fugu": False,
+                    "gemini-cli": True,
+                    "antigravity-cli": False,
+                },
                 environ={"OPENROUTER_API_KEY": "x"},
             )
             self.assertGreaterEqual(len(packet.questions), 5)
@@ -61,6 +67,24 @@ class OnboardPacketTests(unittest.TestCase):
                 if o["route"] == "openrouter"
             ]
             self.assertTrue(openrouter_opts[0]["available_hint"])
+            # Google routes offered for review; gemini available when inventory says so
+            gemini_opts = [
+                o
+                for q in packet.questions
+                if q["purpose_id"] == "review"
+                for o in q["options"]
+                if o["route"] == "gemini-cli"
+            ]
+            self.assertTrue(gemini_opts[0]["available_hint"])
+            # Implement should not push gemini as a default labor route
+            implement = next(q for q in packet.questions if q["purpose_id"] == "implement")
+            implement_routes = {o["route"] for o in implement["options"]}
+            self.assertNotIn("gemini-cli", implement_routes)
+            self.assertIn("claude-code-labor", implement_routes)
+            planning = next(q for q in packet.questions if q["purpose_id"] == "planning")
+            planning_routes = {o["route"] for o in planning["options"]}
+            self.assertIn("claude-code-planning", planning_routes)
+            self.assertIn("antigravity-cli", planning_routes)
 
 
 class ApplyAndProbeTests(unittest.TestCase):

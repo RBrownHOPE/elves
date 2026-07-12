@@ -27,32 +27,62 @@ from .setup import (
 
 
 # Purposes the user assigns tools to. Core map to setup role slots.
+# Google subscription CLIs are plan/review-oriented (usually not cost-effective for bulk implement).
+# Claude/Codex support planning vs labor profile tiers within the same family.
 PURPOSE_CATALOG: tuple[dict[str, Any], ...] = (
     {
         "id": "planning",
         "role_slot": "planning",
         "label": "Planning / design",
-        "description": "Contracts, batch design, architecture choices",
+        "description": "Contracts, batch design, architecture choices (prefer high-quality model)",
         "default_route": "host-native",
-        "suggested_routes": ("host-native", "claude-code", "codex-fugu"),
+        "suggested_routes": (
+            "host-native",
+            "claude-code-planning",
+            "codex-fugu-planning",
+            "claude-code",
+            "codex-fugu",
+            "gemini-cli",
+            "antigravity-cli",
+        ),
         "required": False,
     },
     {
         "id": "implement",
         "role_slot": "implement",
-        "label": "Implementation",
-        "description": "Writing code for a batch (host-native default; optional external CLI)",
+        "label": "Implementation (labor)",
+        "description": (
+            "Writing code for a batch — prefer host-native, labor-tier Claude/Codex, or Grok; "
+            "Google Gemini/Antigravity CLIs are usually not cost-effective for the main batch"
+        ),
         "default_route": "host-native",
-        "suggested_routes": ("host-native", "grok-build", "claude-code", "codex-fugu"),
+        "suggested_routes": (
+            "host-native",
+            "claude-code-labor",
+            "codex-fugu-labor",
+            "grok-build",
+            "claude-code",
+            "codex-fugu",
+        ),
         "required": False,
     },
     {
         "id": "review",
         "role_slot": "review",
         "label": "Independent review",
-        "description": "Read-only critique of code or math claims",
+        "description": "Read-only critique (prefer high-quality model / optional Google lenses)",
         "default_route": "host-native",
-        "suggested_routes": ("host-native", "claude-code", "codex-fugu", "openrouter", "meta-muse"),
+        "suggested_routes": (
+            "host-native",
+            "claude-code-planning",
+            "codex-fugu-planning",
+            "claude-code",
+            "codex-fugu",
+            "gemini-cli",
+            "antigravity-cli",
+            "openrouter",
+            "meta-muse",
+        ),
         "required": False,
     },
     {
@@ -61,7 +91,14 @@ PURPOSE_CATALOG: tuple[dict[str, Any], ...] = (
         "label": "Quick utility review",
         "description": "Fast single-lens checks",
         "default_route": "host-native",
-        "suggested_routes": ("host-native", "claude-code", "codex-fugu"),
+        "suggested_routes": (
+            "host-native",
+            "claude-code-labor",
+            "codex-fugu-labor",
+            "claude-code",
+            "codex-fugu",
+            "gemini-cli",
+        ),
         "required": False,
     },
     {
@@ -70,7 +107,14 @@ PURPOSE_CATALOG: tuple[dict[str, Any], ...] = (
         "label": "Scouting / discovery",
         "description": "Breadth search, math Discovery Sprint lanes",
         "default_route": "host-native",
-        "suggested_routes": ("host-native", "claude-code", "openrouter", "meta-muse"),
+        "suggested_routes": (
+            "host-native",
+            "claude-code",
+            "gemini-cli",
+            "antigravity-cli",
+            "openrouter",
+            "meta-muse",
+        ),
         "required": False,
     },
     {
@@ -117,14 +161,34 @@ ONBOARD_ENV_NAMES: tuple[str, ...] = tuple(
 
 ROUTE_HELP: dict[str, str] = {
     "host-native": "Current host agent (Claude Code or Codex) — default, always available",
-    "claude-code": "Claude Code CLI as an independent lens/worker when installed",
+    "claude-code": "Claude Code CLI (default model for the install)",
+    "claude-code-planning": "Claude Code high-quality tier for plan/review (pin requested_model in TOML)",
+    "claude-code-labor": "Claude Code labor tier for implement volume (pin requested_model in TOML)",
     "grok-build": "Grok Build CLI for optional external implement batches",
-    "codex-fugu": "Codex/Fugu CLI as planning/review lens when installed",
+    "codex-fugu": "Codex/Fugu CLI (default model for the install)",
+    "codex-fugu-planning": "Codex high-quality tier for plan/review (pin requested_model in TOML)",
+    "codex-fugu-labor": "Codex labor tier for implement volume (pin requested_model in TOML)",
+    "gemini-cli": "Google Gemini CLI — plan/review/scout; usually not cost-effective for bulk implement",
+    "antigravity-cli": "Google Antigravity CLI — plan/review; usually not cost-effective for bulk implement",
     "openrouter": "OpenRouter models via project wrapper + OPENROUTER_API_KEY (read-only breadth)",
     "meta-muse": "Meta Muse Spark 1.1 via project wrapper + META_API_KEY (read-only plan/review)",
     "alphaevolve": "Google Cloud AlphaEvolve for evolutionary example search (math module)",
     "off": "Disabled for this purpose",
     "custom-cli": "User wrapper executable (qualify before write roles)",
+}
+
+# Map onboard route labels → inventory adapter / presence check.
+_ROUTE_PRESENCE_ADAPTER: dict[str, str] = {
+    "claude-code": "claude-code",
+    "claude-code-planning": "claude-code",
+    "claude-code-labor": "claude-code",
+    "grok-build": "grok-build",
+    "codex-fugu": "codex-fugu",
+    "codex-fugu-planning": "codex-fugu",
+    "codex-fugu-labor": "codex-fugu",
+    "gemini-cli": "gemini-cli",
+    "antigravity-cli": "antigravity-cli",
+    "custom-cli": "custom-cli",
 }
 
 
@@ -212,8 +276,9 @@ def build_onboarding_packet(
         options = []
         for route in purpose["suggested_routes"]:
             available = True
-            if route in {"claude-code", "grok-build", "codex-fugu", "custom-cli"}:
-                available = route in present_adapters or route == "host-native"
+            adapter_key = _ROUTE_PRESENCE_ADAPTER.get(route)
+            if adapter_key:
+                available = adapter_key in present_adapters
             if route == "openrouter":
                 available = env_present.get("OPENROUTER_API_KEY", False)
             if route == "meta-muse":
@@ -222,6 +287,8 @@ def build_onboarding_packet(
                 )
             if route == "alphaevolve":
                 available = shutil.which("gcloud") is not None
+            if route == "host-native":
+                available = True
             options.append(
                 {
                     "route": route,
@@ -253,6 +320,9 @@ def build_onboarding_packet(
         "After apply, run `onboard probe` (and optional `--smoke`) to verify routes.",
         "Update anytime: re-run onboarding or `onboard apply` with new flags.",
         "Claude Code: /setup-cobbler or natural language. Codex: $elves setup-cobbler / natural language.",
+        "Tier split: high-quality Claude/Codex for plan+review, labor model for implement "
+        "(claude-code-planning / claude-code-labor, codex-fugu-planning / codex-fugu-labor).",
+        "Google Gemini CLI / Antigravity CLI: good for plan/review; usually not for bulk implement.",
     ]
     if env_present.get("OPENROUTER_API_KEY"):
         notes.append("OPENROUTER_API_KEY is set: OpenRouter models can be offered for review/scout.")
@@ -427,7 +497,9 @@ def probe_routes(
                 )
             )
             continue
-        item = by_adapter.get(profile)
+        # Tier profiles share an underlying adapter (e.g. claude-code-planning → claude-code).
+        adapter_key = _ROUTE_PRESENCE_ADAPTER.get(profile, profile)
+        item = by_adapter.get(adapter_key) or by_adapter.get(profile)
         if item is None:
             # custom or unknown profile name — try as executable
             probes.append(_probe_executable(profile))
@@ -439,11 +511,13 @@ def probe_routes(
                     route=profile,
                     purpose=role,
                     status="fail",
-                    detail=f"Adapter `{profile}` not present on PATH",
+                    detail=f"Adapter `{adapter_key}` not present on PATH (profile `{profile}`)",
                 )
             )
             continue
-        exe = item.executable or (profiles.get(profile).executable if profile in profiles else None)
+        exe = item.executable or (
+            profiles.get(adapter_key).executable if adapter_key in profiles else None
+        )
         pr = _probe_executable(exe)
         pr.purpose = role
         pr.route = profile

@@ -16,7 +16,11 @@
 # - required = true is valid only as an explicit project choice (usually mirrored
 #   into the Survival Guide); public defaults stay native-first
 # - Profile names are harness/capability labels, not prestige model IDs
-# - Built-in adapters: claude-code, grok-build, codex-fugu, custom-cli, host-native
+# - Built-in adapters: claude-code, grok-build, codex-fugu, gemini-cli,
+#   antigravity-cli, custom-cli, host-native
+# - Optional tier profiles: claude-code-planning / claude-code-labor,
+#   codex-fugu-planning / codex-fugu-labor (set requested_model per tier locally)
+# - Google gemini-cli / antigravity-cli: prefer planning/review, not bulk implement
 #
 # Python 3.11+ is required to parse a local models.toml (stdlib tomllib).
 # Older Python continues through Survival Guide / JSON / native when this file
@@ -30,6 +34,26 @@ notes = "Example custom wrapper; replace executable for your environment"
 [profiles.review_lens]
 adapter = "claude-code"
 # executable defaults to the adapter hint when omitted
+
+# Example: high-quality Claude for plan/review, labor Claude for implement volume
+# [profiles.claude-code-planning]
+# adapter = "claude-code"
+# # requested_model = "…"
+# notes = "High-quality plan/review"
+#
+# [profiles.claude-code-labor]
+# adapter = "claude-code"
+# # requested_model = "…"
+# notes = "Volume implement labor"
+#
+# Google subscription CLIs (plan/review; usually not bulk implement):
+# [profiles.gemini-cli]
+# adapter = "gemini-cli"
+# executable = "gemini"
+#
+# [profiles.antigravity-cli]
+# adapter = "antigravity-cli"
+# executable = "antigravity"
 
 [roles.planning]
 profile = "host-native"

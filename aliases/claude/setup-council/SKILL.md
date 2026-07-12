@@ -12,8 +12,9 @@ This is an Elves-managed Claude Code compatibility alias for `/setup-council`.
 
 It delegates to the same Cobbler **model onboarding / setup** contract as `/setup-cobbler`,
 `references/model-onboarding.md`, and
-`python3 scripts/cobbler_agents.py onboard plan|show|apply|probe` (plus `setup`). Council is a
-compatibility gathering name; Cobbler is the coordinator.
+`python3 scripts/cobbler_agents.py onboard plan|show|apply|probe` and
+`python3 scripts/cobbler_agents.py setup`. Council is a compatibility gathering name; Cobbler is the
+coordinator.
 
 Rules:
 
