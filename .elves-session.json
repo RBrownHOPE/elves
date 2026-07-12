@@ -2,13 +2,16 @@
   "session_id": "elves-2026-07-12-cobbler-runtime-hardening-v1-20-1",
   "version": "1.20.0",
   "target_version": "1.20.1",
-  "status": "staging_ready",
+  "status": "in_progress",
   "run_mode": "finite",
   "branch": "codex/cobbler-runtime-hardening-v1.20.1",
-  "owned_worktree": "/Users/john/aigora/dev/elves-v1.20.1-hardening",
+  "owned_worktree": ".",
+  "owned_worktree_resolution": "Resolve relative to the repository root containing .elves-session.json and verify the branch with git before use",
+  "owned_tip_expected": "2aca0bf907633fdc6dfe1bc1ab46b44a035699b0",
   "base_ref": "origin/main",
   "collision_tripwire": "fca15a9e6175c528079bc7ca87e0925f83b9f9b9",
   "plan_path": "docs/plans/v1.20.1-cobbler-runtime-hardening.md",
+  "active_plan_hash": "02ac6a226ba8265218e5abc28b4a56331efcc8f899a1a1e66808ef1755675b67",
   "survival_guide_path": "docs/elves/v1.20.1-cobbler-runtime-hardening-survival-guide.md",
   "learnings_path": "docs/elves/learnings.md",
   "execution_log_path": "docs/elves/v1.20.1-cobbler-runtime-hardening-execution-log.md",
@@ -38,33 +41,33 @@
   },
   "continuation_guard": {
     "remaining_batches": 5,
-    "stop_allowed": true,
+    "stop_allowed": false,
     "checkpoint_is_stop": false,
-    "staging_boundary_active": true,
-    "next_required_action": "User sends the PR #60 fresh launch prompt; launch flips stop_allowed to false and starts Batch 1"
+    "staging_boundary_active": false,
+    "next_required_action": "Qualify the isolated persistent Grok Build worker and execute the Batch 1 contract"
   },
   "test_baseline": {
     "passed": 278,
     "total": 278,
     "skipped": 0,
     "status": "captured",
-    "captured_at": "2026-07-12T16:30:54Z",
+    "captured_at": "2026-07-12T17:00:12Z",
     "command": "python3 -m unittest discover -s tests",
     "reason": null
   },
   "current_batch": {
-    "id": 0,
-    "name": "Staging",
-    "status": "complete"
+    "id": 1,
+    "name": "Effective configuration and truthful read-only dispatch",
+    "status": "in_progress"
   },
   "batches": [
     {
       "id": 1,
       "name": "Effective configuration and truthful read-only dispatch",
-      "status": "pending",
+      "status": "in_progress",
       "commit": null,
       "rollback_tag": "elves/v1.20.1-pre-batch-1",
-      "started_at": null,
+      "started_at": "2026-07-12T17:00:12Z",
       "completed_at": null,
       "acceptance": []
     },
@@ -139,17 +142,17 @@
     },
     {
       "phase": "implement_batches_1_to_3",
-      "requested_route": "native Codex workers or direct host",
-      "actual_route": "pending fresh launch",
+      "requested_route": "one persistent Grok Build grok-4.5 worker, one substantial batch per exact-resume turn",
+      "actual_route": "manual outer isolation pending qualification in an independent credential-scrubbed clone",
       "required": true,
-      "fallback_reason": "v1.20.0 external writer boundary is under repair and cannot safely bootstrap itself"
+      "fallback_reason": "Latest user instruction explicitly makes the procedure test the objective; host bypass is not an acceptable silent substitute"
     },
     {
       "phase": "implement_after_batch_3",
-      "requested_route": "qualified persistent Grok 4.5 for one substantial batch/canary",
-      "actual_route": "pending Batch 3 qualification",
-      "required": false,
-      "fallback_reason": "Product edits may fall back native; the real writer qualification remains a required Batch 5 release gate"
+      "requested_route": "the same exact persistent Grok Build grok-4.5 session",
+      "actual_route": "pending earlier batch completion and exact resume",
+      "required": true,
+      "fallback_reason": "No automatic implementation fallback; diagnose the procedure before changing routes"
     },
     {
       "phase": "review",
@@ -214,7 +217,7 @@
     "pr_draft": true,
     "pr_mergeable_at_observation": true,
     "checks_at_observation": "Socket checks green; CodeQL actions/python in progress; no failure",
-    "final_staging_tip": "this staging-close commit; verify with git after push"
+    "final_staging_tip": "2aca0bf907633fdc6dfe1bc1ab46b44a035699b0"
   },
   "release_state_at_staging": {
     "latest_local_tag": "v1.20.0",
@@ -224,11 +227,34 @@
     "claude_installed_version": "1.19.0",
     "installed_sync_deferred_until_green": true
   },
-  "review_comments": [],
+  "review_comments": [
+    {
+      "id": 3566717640,
+      "type": "review_comment",
+      "source": "gemini-code-assist",
+      "batch": 1,
+      "cycle": 0,
+      "summary": "Committed session state used a maintainer-specific absolute owned_worktree path",
+      "disposition": "fixed_pending_push",
+      "resolution": "Use repository-relative dot plus an explicit canonicalization and branch-verification policy"
+    }
+  ],
+  "procedure_test": {
+    "objective": "Exercise persistent Grok implementation through detailed host packet, isolated detached commits, host audit/import, independent review, remediation, and repeat",
+    "worker_locator": "../elves-v1.20.1-grok-worker",
+    "worker_repository_kind": "independent local clone with no remote",
+    "requested_model": "grok-4.5",
+    "session_id": null,
+    "session_status": "pending qualification",
+    "worker_may_edit_run_memory": false,
+    "worker_may_move_host_refs_or_push": false,
+    "host_owns_pr_and_landing": true
+  },
   "active_compute": [],
   "launch_prompt": {
     "prepared": true,
     "execution_must_start_in_fresh_user_call": true,
+    "consumed_at": "2026-07-12T17:00:12Z",
     "pr_number": 60,
     "surfaces": [
       "docs/elves/v1.20.1-cobbler-runtime-hardening-survival-guide.md#fresh-call-launch-prompt",
