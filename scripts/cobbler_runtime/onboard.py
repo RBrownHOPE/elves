@@ -58,7 +58,7 @@ PURPOSE_CATALOG: tuple[dict[str, Any], ...] = (
         "label": "Implementation (labor)",
         "description": (
             "Writing code for a batch — prefer host-native, labor-tier Claude/Codex, or Grok; "
-            "Google Gemini/Antigravity CLIs are usually not cost-effective for the main batch"
+            "optional experimental antigravity-labor (Gemini Flash-class) is not Lane A"
         ),
         "default_route": "host-native",
         "suggested_routes": (
@@ -68,6 +68,7 @@ PURPOSE_CATALOG: tuple[dict[str, Any], ...] = (
             "grok-build",
             "claude-code",
             "codex-fugu",
+            "antigravity-labor",
         ),
         "required": False,
     },
@@ -178,8 +179,18 @@ ROUTE_HELP: dict[str, str] = {
     "codex-fugu": "Codex/Fugu CLI (default model for the install)",
     "codex-fugu-planning": "Codex high-quality tier for plan/review (pin requested_model in TOML)",
     "codex-fugu-labor": "Codex labor tier for implement volume (pin requested_model in TOML)",
-    "gemini-cli": "Google Gemini CLI — plan/review/scout; usually not cost-effective for bulk implement",
-    "antigravity-cli": "Google Antigravity CLI — plan/review; usually not cost-effective for bulk implement",
+    "gemini-cli": (
+        "Google Gemini CLI (API key) — plan/review/scout; pin latest Gemini model; "
+        "headless needs --skip-trust; not bulk implement"
+    ),
+    "antigravity-cli": (
+        "Google Antigravity CLI (agy) — plan/review; pin latest Gemini "
+        "(e.g. 3.1 Pro High); OAuth/GCP; not the main Elves host"
+    ),
+    "antigravity-labor": (
+        "Experimental Antigravity labor (agy + Flash-class model) — optional volume "
+        "implement; not Lane A / not write-lease qualified; pin e.g. Gemini 3.5 Flash"
+    ),
     "openrouter": (
         "OpenRouter (API key) — not a bare CLI. Configure a custom-cli wrapper profile "
         "(cobbler-setup-recipes.md); bare `onboard apply --review openrouter` is rejected"

@@ -135,12 +135,16 @@ _BUILTIN: dict[str, StubAdapter] = {
         name="gemini-cli",
         executable_hint="gemini",
         supports_persistent_sessions=False,
+        # API-key Gemini CLI is a plan/review lens; not an isolated write implementer.
         supports_isolated_write=False,
     ),
     "antigravity-cli": StubAdapter(
         name="antigravity-cli",
-        executable_hint="antigravity",
+        # Prefer binary name `agy` (Antigravity CLI); `antigravity` is a fallback alias.
+        executable_hint="agy",
         supports_persistent_sessions=False,
+        # Not host-import write-lease qualified. Experimental labor is host-launched
+        # headless `agy -p` with model pin (e.g. Gemini 3.5 Flash), not Lane A/Grok.
         supports_isolated_write=False,
     ),
     "custom-cli": StubAdapter(
@@ -209,6 +213,49 @@ _RESERVED_CONTROL_FLAGS: dict[str, frozenset[str]] = {
             "-",
         }
     ),
+    "gemini-cli": frozenset(
+        {
+            "-p",
+            "--prompt",
+            "-i",
+            "--prompt-interactive",
+            "-m",
+            "--model",
+            "-o",
+            "--output-format",
+            "--skip-trust",
+            "--approval-mode",
+            "-y",
+            "--yolo",
+            "--acp",
+            "--experimental-acp",
+            "--session-id",
+            "--session-file",
+            "-r",
+            "--resume",
+        }
+    ),
+    "antigravity-cli": frozenset(
+        {
+            "-p",
+            "--print",
+            "--prompt",
+            "-i",
+            "--prompt-interactive",
+            "--model",
+            "--mode",
+            "--sandbox",
+            "--dangerously-skip-permissions",
+            "--conversation",
+            "--continue",
+            "-c",
+            "--project",
+            "--new-project",
+            "--agent",
+            "--add-dir",
+            "--print-timeout",
+        }
+    ),
     "custom-cli": frozenset(),
 }
 
@@ -272,7 +319,7 @@ def default_profiles() -> dict[str, HarnessProfile]:
         elif name == "codex-fugu":
             input_c, output_c = "stdin", "codex-jsonl"
         elif name in {"gemini-cli", "antigravity-cli"}:
-            input_c, output_c = "stdin", "custom-json-envelope"
+            input_c, output_c = "none", "custom-json-envelope"
         elif name == "custom-cli":
             input_c, output_c = "json-stdio", "custom-json-envelope"
         else:
@@ -356,9 +403,10 @@ ADAPTER_CONTRACT_PAIRS: dict[str, tuple[str, str]] = {
     "claude-code": ("stdin", "claude-json"),
     "grok-build": ("prompt-file", "grok-json"),
     "codex-fugu": ("stdin", "codex-jsonl"),
-    # Google subscription CLIs: treat as generic prompt wrappers until version-locked.
-    "gemini-cli": ("stdin", "custom-json-envelope"),
-    "antigravity-cli": ("stdin", "custom-json-envelope"),
+    # Google CLIs: prompt via -p/--print (not bare stdin). stdout is freeform text that
+    # should contain a JSON role report (fenced JSON ok); decode as custom envelope.
+    "gemini-cli": ("none", "custom-json-envelope"),
+    "antigravity-cli": ("none", "custom-json-envelope"),
     "custom-cli": ("json-stdio", "custom-json-envelope"),
     "host-native": ("host-injected", "host-injected"),
 }
@@ -568,16 +616,70 @@ def build_readonly_invocation(
         )
 
     if name in {"gemini-cli", "antigravity-cli"}:
-        # Google subscription CLIs (Gemini CLI / Antigravity CLI). Prefer plan/review;
-        # flags vary by version — requested_model + extra_args carry project-local opts.
+        # Dogfood (2026-07): Gemini CLI 0.50 + Antigravity CLI (agy) 1.1.
+        # Prefer latest Gemini models in models.toml (e.g. Gemini 3.1 Pro for plan/review,
+        # Gemini 3.5 Flash for optional experimental labor). Headless uses -p/--print;
+        # bare stdin without -p does not run a one-shot turn.
         if name == "antigravity-cli":
-            if not exe or shutil.which(exe) is None:
-                alt = shutil.which("agy")
-                if alt:
-                    exe = alt
-        argv_list = [exe]
+            # Resolve executable: prefer agy, then antigravity, then configured name.
+            candidates: list[str] = []
+            for cand in (exe, "agy", "antigravity"):
+                if cand and cand not in candidates and cand != "(user-defined)":
+                    candidates.append(str(cand))
+            resolved = None
+            for cand in candidates:
+                # Prefer basename if on PATH so argv[0] stays short and portable.
+                base = Path(cand).name if "/" in cand or cand.startswith(".") else cand
+                if shutil.which(base):
+                    resolved = base
+                    break
+                if shutil.which(cand):
+                    resolved = cand
+                    break
+            if resolved:
+                exe = resolved
+            elif not exe:
+                exe = "agy"
+            argv_list = [exe, "--print", full_prompt]
+            # plan mode is read-only oriented when the CLI supports --mode.
+            argv_list.extend(["--mode", "plan"])
+            if requested_model:
+                argv_list.extend(["--model", str(requested_model)])
+            argv_list.extend(extras)
+            return AdapterInvocation(
+                adapter=name,
+                executable=exe,
+                argv=tuple(argv_list),
+                read_only=True,
+                tool_scope="read-only",
+                sandbox_scope="ephemeral",
+                notes=(
+                    "Antigravity CLI (agy) headless --print; pin latest Gemini model "
+                    "(3.1 Pro plan/review, 3.5 Flash optional labor). Not Lane A / not "
+                    "host-import write-lease qualified. Experimental implement: host "
+                    "launches agy with --dangerously-skip-permissions separately."
+                ),
+                stdin_text=None,
+                input_mode="none",
+                decoder="custom-json-envelope",
+                cwd=work_cwd,
+            )
+
+        # gemini-cli
+        if not exe:
+            exe = "gemini"
+        argv_list = [
+            exe,
+            "--skip-trust",
+            "--approval-mode",
+            "plan",
+            "-o",
+            "text",
+            "-p",
+            full_prompt,
+        ]
         if requested_model:
-            argv_list.extend(["--model", requested_model])
+            argv_list.extend(["-m", str(requested_model)])
         argv_list.extend(extras)
         return AdapterInvocation(
             adapter=name,
@@ -587,11 +689,12 @@ def build_readonly_invocation(
             tool_scope="read-only",
             sandbox_scope="ephemeral",
             notes=(
-                "Google subscription CLI for plan/review lenses; "
-                "not recommended as default bulk implement labor; prompt on stdin"
+                "Gemini CLI headless -p + --skip-trust + plan approval; pin a current "
+                "Gemini model id via requested_model. Prefer plan/review; API-key path "
+                "is not a substitute for Antigravity OAuth sessions."
             ),
-            stdin_text=full_prompt,
-            input_mode="stdin",
+            stdin_text=None,
+            input_mode="none",
             decoder="custom-json-envelope",
             cwd=work_cwd,
         )
@@ -1223,6 +1326,17 @@ def build_session_create_invocation(
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
+    if name in {"gemini-cli", "antigravity-cli"}:
+        raise ValidationIssue(
+            "google_cli_no_persistent_session",
+            (
+                f"Adapter `{name}` is headless one-shot only in Elves "
+                f"(no exact session create/resume). Use build_readonly_invocation "
+                f"for plan/review, or run `agy`/`gemini` interactively outside Cobbler."
+            ),
+            path=f"adapters.{name}.session",
+            hint="Do not use session create/resume for Google CLIs",
+        )
     if not exe or exe == "(user-defined)":
         raise ValidationIssue(
             "missing_executable",
@@ -1318,6 +1432,16 @@ def build_session_resume_invocation(
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
+    if name in {"gemini-cli", "antigravity-cli"}:
+        raise ValidationIssue(
+            "google_cli_no_persistent_session",
+            (
+                f"Adapter `{name}` is headless one-shot only in Elves "
+                f"(no exact session create/resume)."
+            ),
+            path=f"adapters.{name}.session",
+            hint="Use read-only one-shot invocations for Google CLIs",
+        )
     if not exe or exe == "(user-defined)":
         raise ValidationIssue(
             "missing_executable",

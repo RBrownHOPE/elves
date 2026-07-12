@@ -114,24 +114,65 @@ python3 scripts/cobbler_agents.py onboard apply --json \
 
 Pin `requested_model` per tier in ignored `models.toml`. Prefer host-native validate/synthesize.
 
-## Recipe: Google Gemini CLI / Antigravity CLI (plan/review only)
+## Recipe: Google Gemini CLI / Antigravity CLI (plan/review; optional labor)
 
 - **Not a supported Elves host.** Claude Code or Codex must still be the main driver (`host-native`
-  for the loop). Optional-lens paths are **lightly tested / community-validated** (Antigravity in
-  particular is not dogfooded without a subscription). Prefer PRs when flags or behavior drift.
-- Inventory: `gemini` and/or `antigravity` (fallback `agy`) on PATH
+  for the loop). Optional-lens paths are **lightly tested / community-validated**. Prefer PRs when
+  flags or behavior drift.
+- Inventory: `agy` (Antigravity CLI; fallback `antigravity`) and/or `gemini` on PATH
+- **Auth:**
+  - `agy`: Google OAuth or GCP project (e.g. `aigora-explorations`); run `agy models` to verify
+  - `gemini`: `GEMINI_API_KEY` (or Vertex/GCA env); headless needs `--skip-trust` or a trusted folder
 - **Use for:** planning, independent review, scout (called *by* Claude Code / Codex)
-- **Avoid as default bulk implement** — usually not cost-effective for the main overnight batch
-- Profiles: `gemini-cli`, `antigravity-cli`
+- **Models — pin current Gemini generations.** Do not hardcode prestige names as public defaults, but
+  **do** pin a *current* model in ignored `models.toml` when using Google routes. As of dogfood
+  (2026-07): prefer **Gemini 3.1 Pro (High)** (or newer Pro) for plan/review; **Gemini 3.5 Flash**
+  (High/Medium) for optional volume. Older 1.5/2.0 pins are stale — re-check `agy models` /
+  Gemini CLI `-m` catalog after upgrades.
+- **Profiles:**
+  - `antigravity-cli` — preferred Google plan/review lens (`agy`)
+  - `gemini-cli` — API-key plan/review lens
+  - `antigravity-labor` — **experimental** implement labor via `agy` + Flash-class model
+- **Implement with Antigravity (experimental, not Lane A):**
+  - Lane A (`cobbler_agents implement prepare|launch|…`) remains **Grok Build–oriented**
+  - You *may* set `implement = antigravity-labor` in local `models.toml` for role routing / one-shot
+    packets, or host-launch:  
+    `agy --model "Gemini 3.5 Flash (High)" --dangerously-skip-permissions -p "…"`  
+  - Not host-import write-lease qualified; qualify tools/cost yourself; keep `host-native` validate
 - Fallback: `host-native`
-- Gemini CLI is transitioning into the Antigravity family; either executable is fine when present
+- Gemini CLI is transitioning into the Antigravity family; Elves adapters use headless
+  `-p`/`--print` (not bare stdin)
 
 ```bash
+# Plan/review with Antigravity + current Pro model pin (edit models.toml after apply)
 python3 scripts/cobbler_agents.py onboard apply --json \
   --planning antigravity-cli \
   --review gemini-cli \
   --implement host-native \
   --force
+
+# Optional experimental labor (not default overnight):
+# python3 scripts/cobbler_agents.py onboard apply --json \
+#   --implement antigravity-labor --force
+```
+
+In ignored `.elves/models.toml`, pin models explicitly, for example:
+
+```toml
+[profiles.antigravity-cli]
+adapter = "antigravity-cli"
+executable = "agy"
+# requested_model = "Gemini 3.1 Pro (High)"   # plan/review — re-check agy models
+
+[profiles.antigravity-labor]
+adapter = "antigravity-cli"
+executable = "agy"
+# requested_model = "Gemini 3.5 Flash (High)" # experimental labor
+
+[profiles.gemini-cli]
+adapter = "gemini-cli"
+executable = "gemini"
+# requested_model = "gemini-2.5-pro"          # or current Gemini CLI model id
 ```
 
 ## Recipe: all three subscription CLIs (experimental mix)

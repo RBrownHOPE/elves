@@ -132,8 +132,9 @@ Same pattern with `codex-fugu-planning` / `codex-fugu-labor`.
 
 | Route | Executable (typical) | Recommended purposes |
 | --- | --- | --- |
-| `gemini-cli` | `gemini` | planning, review, scout |
-| `antigravity-cli` | `antigravity` (fallback `agy`) | planning, review, scout |
+| `gemini-cli` | `gemini` (API key; `--skip-trust` headless) | planning, review, scout |
+| `antigravity-cli` | `agy` (fallback `antigravity`) | planning, review, scout — pin latest Gemini (e.g. 3.1 Pro) |
+| `antigravity-labor` | `agy` | **experimental** implement labor — pin Flash-class (e.g. 3.5 Flash); not Lane A |
 
 Google is consolidating coding-agent surfaces around **Antigravity** (Gemini CLI transitions into
 that family). Treat both as optional **subscription CLIs** when installed and the **host is still

@@ -162,15 +162,39 @@ PROFILE_RECIPES: dict[str, dict[str, Any]] = {
     "gemini-cli": {
         "adapter": "gemini-cli",
         "executable": "gemini",
-        "notes": "Google Gemini CLI — plan/review only; not recommended for bulk implement",
+        "notes": (
+            "Google Gemini CLI (API key / GEMINI_API_KEY) — plan/review lens. "
+            "Pin a current model via requested_model (prefer latest Gemini, e.g. "
+            "gemini-2.5-pro or newer when available). Headless needs --skip-trust. "
+            "Not recommended for bulk implement."
+        ),
         "plan_review_only": True,
     },
     "antigravity-cli": {
         "adapter": "antigravity-cli",
-        "executable": "antigravity",
-        "notes": "Google Antigravity CLI — plan/review only; not recommended for bulk implement",
+        "executable": "agy",
+        "notes": (
+            "Google Antigravity CLI (agy) — preferred Google plan/review lens. "
+            "Pin latest Gemini via requested_model (e.g. 'Gemini 3.1 Pro (High)' for "
+            "plan/review). OAuth or GCP project; not a main Elves host."
+        ),
         "plan_review_only": True,
-        "executable_fallbacks": ("agy",),
+        "executable_fallbacks": ("antigravity",),
+    },
+    # Experimental labor: same adapter, Flash-class model for volume implement.
+    # Not Lane A (that remains Grok-oriented). Host must qualify tools/yolo.
+    "antigravity-labor": {
+        "adapter": "antigravity-cli",
+        "executable": "agy",
+        "notes": (
+            "Experimental Antigravity labor tier — pin a fast current model "
+            "(e.g. 'Gemini 3.5 Flash (High)' or Medium). Not host-import write-lease "
+            "qualified; not cobbler implement prepare/launch (Grok Lane A). "
+            "Use only when you accept Google CLI tool semantics and cost."
+        ),
+        "tier": "labor",
+        "plan_review_only": False,
+        "executable_fallbacks": ("antigravity",),
     },
     "custom-cli": {"adapter": "custom-cli"},
     # Provider-breadth tokens used in interview — not bare apply targets.
@@ -266,9 +290,12 @@ def inventory_tools(
         else:
             present = which_executable(exe) is not None
             if name == "antigravity-cli" and not present:
-                present = which_executable("agy") is not None
-                if present:
-                    exe = "agy"
+                # Prefer agy; accept legacy antigravity binary name.
+                for alt in ("agy", "antigravity"):
+                    if which_executable(alt):
+                        present = True
+                        exe = alt
+                        break
         version = fake_versions.get(name)
         auth = fake_auth.get(name, "unknown" if present else "missing")
         # Never infer auth from env var *presence of values* — only name existence as hint.

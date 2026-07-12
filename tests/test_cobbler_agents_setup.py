@@ -41,6 +41,8 @@ class InventoryTests(unittest.TestCase):
                 "grok-build": False,
                 "codex-fugu": False,
                 "custom-cli": False,
+                "gemini-cli": False,
+                "antigravity-cli": False,
             }
         )
         by_name = {i.adapter: i for i in items}
@@ -130,7 +132,11 @@ class TomlGenerationTests(unittest.TestCase):
         self.assertIn("requested_model", text)
         self.assertIn("claude-code-planning", PROFILE_RECIPES)
         self.assertIn("antigravity-cli", PROFILE_RECIPES)
+        self.assertIn("antigravity-labor", PROFILE_RECIPES)
         self.assertTrue(PROFILE_RECIPES["gemini-cli"].get("plan_review_only"))
+        self.assertTrue(PROFILE_RECIPES["antigravity-cli"].get("plan_review_only"))
+        self.assertFalse(PROFILE_RECIPES["antigravity-labor"].get("plan_review_only"))
+        self.assertEqual(PROFILE_RECIPES["antigravity-labor"].get("adapter"), "antigravity-cli")
         try:
             import tomllib
 

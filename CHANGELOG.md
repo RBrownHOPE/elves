@@ -63,6 +63,13 @@ All notable changes to the Elves skill are documented here.
   - Env **name** presence also scans ignored `.env.local` (values never returned).
   - Plan/review-only profiles on implement emit a warning; corrupt models.toml surfaces warnings
     instead of silent host-native pass.
+- **Google CLI adapter support (dogfood):**
+  - `gemini-cli` / `antigravity-cli` headless builders use `-p`/`--print` (not bare stdin), Gemini
+    `--skip-trust` + plan approval, Antigravity `--mode plan`.
+  - Prefer **current** Gemini models (dogfood: 3.1 Pro plan/review, 3.5 Flash optional labor);
+    pin via `requested_model` in ignored models.toml — re-check `agy models` after upgrades.
+  - Experimental `antigravity-labor` profile for Flash-class implement; **not** Lane A / Grok
+    `implement prepare|launch`, not write-lease qualified.
 
 ## [1.20.2] - 2026-07-12
 
