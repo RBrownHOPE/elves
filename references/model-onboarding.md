@@ -27,14 +27,18 @@ loop.
 
 ### Testing honesty and contributions
 
-The **Claude Code / Codex host-native path** is what we design and dogfood against. Optional
-routes, tier profiles, Google CLIs, provider keys, and multi-model panels are **documented so people
-can try them**, but **not all of this has been heavily tested** across installs, versions, and
-subscriptions. Expect rough edges.
+The **Claude Code / Codex host-native path** is what we design and dogfood against.
+
+Optional routes are **documented so people can try them**, but **many have not been heavily
+tested** — including more **exotic** interfaces such as **Antigravity CLI**, Gemini CLI, Muse,
+OpenRouter multi-model panels, AlphaEvolve, and within-family model-tier splits across every
+install. The maintainer does not hold every subscription (e.g. no Antigravity subscription to
+dogfood that path). Expect rough edges; treat exotic recipes as community-validated until proven.
 
 If something does not work:
 
-1. **Prefer a PR** with a fix, a clearer error, a recipe note, or a test — that helps everyone.
+1. **Prefer a PR** with a fix, a clearer error, a recipe note, or a test — that helps everyone
+   (especially for exotic CLIs we cannot exercise daily).
 2. Or **open an issue** with host (Claude Code / Codex), OS, command, and what failed (no secrets).
 
 Issue tracker: [github.com/aigorahub/elves/issues](https://github.com/aigorahub/elves/issues).
@@ -135,8 +139,9 @@ that family). Treat both as optional **subscription CLIs** when installed and th
 Claude Code or Codex**.
 
 **Not a supported Elves host.** Do not treat Antigravity or Gemini CLI as the main overnight driver.
-Support for them as the primary runtime is not our focus; paths may work as called tools, but they
-are best-effort optional routes.
+Support for them as the primary runtime is not our focus. As **optional lenses**, they are
+**best-effort and lightly tested** (including cases where the maintainer has no subscription to
+verify live). If you use them and hit a wall, **prefer a PR**.
 
 **Cost guidance:** usually **not** cost-effective as the main overnight implement engine. Prefer
 host-native or labor-tier Claude/Codex (or optional Grok implement) for bulk batch coding; use

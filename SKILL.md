@@ -251,11 +251,12 @@ language. Do not invent top-level Codex slash commands for implement or setup.
 Optional checkout setup for which tools handle planning, implement, review, scout, and related
 purposes. **Supported main drivers are Claude Code and Codex only** — they run Elves and own the
 overnight loop. Optional CLIs (Gemini, Antigravity, Grok, Muse, OpenRouter, etc.) may be routed for
-specific jobs when installed; that is not our focus, is **not heavily tested**, and is not a claim
-that those products work as the Elves host. If an optional route fails, prefer a PR with a fix or
-recipe note, or open a GitHub issue (no secrets). **Claude Code and Codex** use the same
-host-mediated onboarding flow (agent interviews the user; CLI stores and probes). Native-only
-remains fully valid without setup.
+specific jobs when installed; that is not our focus. Exotic interfaces (Antigravity, Gemini CLI,
+and similar) are **not heavily tested** and may lack maintainer dogfood without the right
+subscription. Not a claim those products work as the Elves host. If an optional route fails,
+**prefer a PR** with a fix or recipe note, or open a GitHub issue (no secrets). **Claude Code and
+Codex** use the same host-mediated onboarding flow (agent interviews the user; CLI stores and
+probes). Native-only remains fully valid without setup.
 
 - Claude Code: `/setup-cobbler` (primary) and `/setup-council` (compatibility), or natural language
   (“onboard models”, “update model routes”)

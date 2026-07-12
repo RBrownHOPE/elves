@@ -11,8 +11,9 @@ These recipes map common host tool mixes onto Cobbler roles **without source cha
 Public default: **native-only** (no setup, no keys, no external executables).
 
 Recipes beyond host-native Claude Code / Codex are **best-effort**: useful when they match your
-install, but **not all combinations are heavily tested**. If a recipe fails, prefer a PR with a fix
-or a corrected recipe, or open an issue with host/OS/command (no secrets):
+install, but **exotic interfaces are not heavily tested** (e.g. Antigravity CLI — not dogfooded
+here without a subscription). If a recipe fails, **prefer a PR** with a fix or a corrected recipe,
+or open an issue with host/OS/command (no secrets):
 https://github.com/aigorahub/elves/issues
 
 ## Operator commands
@@ -116,7 +117,8 @@ Pin `requested_model` per tier in ignored `models.toml`. Prefer host-native vali
 ## Recipe: Google Gemini CLI / Antigravity CLI (plan/review only)
 
 - **Not a supported Elves host.** Claude Code or Codex must still be the main driver (`host-native`
-  for the loop). Paths as optional lenses may work; that has not been our focus.
+  for the loop). Optional-lens paths are **lightly tested / community-validated** (Antigravity in
+  particular is not dogfooded without a subscription). Prefer PRs when flags or behavior drift.
 - Inventory: `gemini` and/or `antigravity` (fallback `agy`) on PATH
 - **Use for:** planning, independent review, scout (called *by* Claude Code / Codex)
 - **Avoid as default bulk implement** — usually not cost-effective for the main overnight batch
