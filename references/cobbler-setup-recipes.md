@@ -10,9 +10,10 @@ These recipes map common host tool mixes onto Cobbler roles **without source cha
 
 Public default: **native-only** (no setup, no keys, no external executables).
 
-Recipes beyond host-native Claude Code / Codex are **best-effort**: useful when they match your
-install, but **exotic interfaces are not heavily tested** (e.g. Antigravity CLI — not dogfooded
-here without a subscription). If a recipe fails, **prefer a PR** with a fix or a corrected recipe,
+Recipes beyond host-native Claude Code / Codex are **best-effort**. We have **not** fully tested
+every work-driver matrix (OpenCode, Antigravity, Gemini CLI, OpenRouter models, Grok, …), and we
+are **not** treating OpenCode/Antigravity as supported **main drivers**. Those paths **may or may
+not work**. If a recipe fails or you harden an exotic config, **prefer a PR** with a fix, test, or
 or open an issue with host/OS/command (no secrets):
 https://github.com/aigorahub/elves/issues
 
@@ -205,7 +206,8 @@ Main driver: Claude Code or Codex
   → Main driver: validate, review, push, PR
 ```
 
-Not supported as product default: running Elves *inside* OpenCode as the overnight main driver.
+**Exotic main driver:** running Elves *inside* OpenCode as the overnight orchestrator is
+**unsupported / untested** — it may or may not work. Prefer PRs if you make that path real.
 
 ```bash
 # Example: Codex/Claude Code orchestrates; OpenCode + GLM does the coding
@@ -262,8 +264,9 @@ python3 scripts/cobbler_agents.py implement launch --json \
 **Session continuity:** prefer exact `--session <id>` (never bare `--continue`). Capture id via
 `opencode session list` after the first turn. If no id, attach plan/docs in the packet.
 
-**Honesty:** lightly tested vs Claude Code/Codex hosts; prefer PRs when flags drift. Not
-host-import write-lease qualified. Do not treat OpenCode as a drop-in Elves skill host.
+**Honesty:** work-driver and main-driver OpenCode configs are incomplete coverage; flags drift.
+Not host-import write-lease qualified. Prefer PRs/tests that make OpenCode more robust under a
+Claude Code/Codex main driver — or document honest failures.
 
 ## Recipe: all three subscription CLIs (experimental mix)
 

@@ -223,14 +223,15 @@ In Codex, use natural language or `$elves …` skill forms (for example `$elves 
 ### External-agent setup and model onboarding
 
 Optional checkout setup for which tools handle planning, implement, review, scout, and related
-purposes. **Supported main drivers are Claude Code and Codex only** — they run Elves and own the
-overnight loop. Optional CLIs (Gemini, Antigravity, Grok, Muse, OpenRouter, etc.) may be routed for
-specific jobs when installed; that is not our focus. Exotic interfaces (Antigravity, Gemini CLI,
-and similar) are **not heavily tested** and may lack maintainer dogfood without the right
-subscription. Not a claim those products work as the Elves host. If an optional route fails,
-**prefer a PR** with a fix or recipe note, or open a GitHub issue (no secrets). **Claude Code and
-Codex** use the same host-mediated onboarding flow (agent interviews the user; CLI stores and
-probes). Native-only remains fully valid without setup.
+purposes. **Supported main drivers are Claude Code and Codex only** (orchestrators) — they run
+Elves and own the overnight loop. Optional **work drivers** and lenses (OpenCode, Grok, Antigravity,
+Gemini CLI, OpenRouter models, Muse, etc.) may do labor or plan/review under that host when
+installed; that is not our focus, and **not every configuration is fully tested**. Using OpenCode
+or Antigravity as the **main driver** (skill host) is exotic — it **may or may not work**; we are
+not designing for it right now. If an optional or exotic route fails, **prefer a PR** with a fix,
+recipe note, or test (or open a GitHub issue, no secrets). **Claude Code and Codex** use the same
+host-mediated onboarding flow (agent interviews the user; CLI stores and probes). Native-only
+remains fully valid without setup.
 
 - Claude Code: `/setup-cobbler` (primary) and `/setup-council` (compatibility), or natural language
   (“onboard models”, “update model routes”)

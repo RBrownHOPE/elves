@@ -7,16 +7,16 @@
 Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default coordinator inside Elves: it decides whether to answer directly, ask independent reviewers, assign scoped worker agents, or record a run decision, then returns one clear recommendation.
 
 **Current release: v1.20.2** (optional external batch implementer). On this branch / unreleased
-work, the product framing is **native-first**: **Claude Code or Codex as the main driver**, out of
-the box, with Cobbler coordinating natively — no Grok, OpenRouter, Sakana, or multi-provider
-council required. Optional tools (Gemini/Antigravity/Muse/OpenRouter for plan/review, Grok
-implement, AlphaEvolve, host-import writer lease) may help when you already have them; **that is
-not our focus**. More exotic interfaces (Antigravity, Gemini CLI, multi-provider panels, etc.)
-are **not heavily tested** — including paths the maintainer cannot dogfood without the right
-subscription. Not a claim those products work as the Elves host. If something breaks, **prefer a
-PR** with a fix or recipe note, or [file an issue](https://github.com/aigorahub/elves/issues).
-Operator helpers live under `python3 scripts/cobbler_agents.py`. See [`CHANGELOG.md`](CHANGELOG.md)
-(`[Unreleased]`) and [`references/model-onboarding.md`](references/model-onboarding.md).
+work, the product framing is **native-first**: **Claude Code or Codex as the main driver**
+(orchestrator), with Cobbler coordinating natively — no Grok, OpenRouter, or multi-provider setup
+required. Optional **work drivers** and lenses (OpenCode, Grok, Antigravity, Gemini CLI, OpenRouter
+models, AlphaEvolve, …) may help for labor or review when you already have them; **that is not our
+focus**, and we have **not fully tested** every combination. Trying OpenCode or Antigravity as the
+**main driver** (Elves skill host) is exotic: it **may or may not work** — we are not designing for
+it right now. If something breaks or you harden a path, **prefer a PR** (or
+[file an issue](https://github.com/aigorahub/elves/issues), no secrets). Operator helpers:
+`python3 scripts/cobbler_agents.py`. See [`CHANGELOG.md`](CHANGELOG.md) (`[Unreleased]`) and
+[`references/model-onboarding.md`](references/model-onboarding.md).
 
 You write the plan and own the merge decision. The agent does everything in between.
 

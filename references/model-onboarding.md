@@ -31,25 +31,47 @@ Code is the main driver; OpenCode is the work driver using GLM via OpenRouter
 (`implement = opencode-labor`, `requested_model = openrouter/…/glm-…`). The main driver prepares the
 packet, launches/resumes the exact session, validates, reviews, and lands the PR.
 
-Other tools are **not** main drivers. We do **not** claim Elves works overnight if OpenCode or
-Antigravity is the process that owns the skill and loop. Prefer Claude Code or Codex as
-`host-native` for validate, synthesize, git/PR, and the unattended loop.
+Other tools are **not** supported main drivers. Prefer Claude Code or Codex as `host-native` for
+validate, synthesize, git/PR, and the unattended loop.
+
+### Exotic main drivers (may or may not work)
+
+Someone might try **OpenCode** or **Antigravity** (or similar) as the **main driver** — the process
+that loads Elves and owns the overnight session. We are **not** designing for that right now and
+have **not** dogfooded it. It **may or may not work**. Do not treat success stories or recipes as a
+product guarantee. If you try it and care about the project: **prefer a PR** (skill load path,
+headless loop, session recovery, docs) so others benefit.
+
+### Work drivers and optional lenses (also incomplete coverage)
+
+Even as a **work driver** or plan/review lens under Claude Code/Codex, we have **not fully tested**
+every configuration of:
+
+- OpenCode (`opencode-cli` / `opencode-labor`) + OpenRouter model matrix  
+- Antigravity (`agy`) + model tiers  
+- Gemini CLI headless flags / auth modes  
+- OpenRouter thin lens + every provider/model slug  
+- Muse, AlphaEvolve, Grok implement edge cases  
+
+Adapters and recipes exist so people can try them. Expect rough edges, version drift, and gaps.
 
 ### Testing honesty and contributions
 
-The **Claude Code / Codex host-native path** is what we design and dogfood against.
+What we design and dogfood against: **Claude Code or Codex as main driver**, mostly **host-native**
+labor, with selective checks on a few optional paths when credentials allow. Optional and exotic
+routes (OpenCode, Antigravity CLI, Gemini CLI, OpenRouter panels, Muse, AlphaEvolve, work-driver
+matrices) are documented so people can try them, but they **have not been our focus**, and **many
+have not been heavily** tested — including cases without maintainer subscriptions or installs.
 
-Optional routes are **documented so people can try them**, but **many have not been heavily
-tested** — including more **exotic** interfaces such as **Antigravity CLI**, Gemini CLI, Muse,
-OpenRouter multi-model panels, AlphaEvolve, and within-family model-tier splits across every
-install. The maintainer does not hold every subscription (e.g. no Antigravity subscription to
-dogfood that path). Expect rough edges; treat exotic recipes as community-validated until proven.
+We are **not** thinking hard about every exotic main-driver or work-driver matrix right now.
+**Contributions welcome** — that is how the project gets more robust.
 
 If something does not work:
 
-1. **Prefer a PR** with a fix, a clearer error, a recipe note, or a test — that helps everyone
-   (especially for exotic CLIs we cannot exercise daily).
-2. Or **open an issue** with host (Claude Code / Codex), OS, command, and what failed (no secrets).
+1. **Prefer a PR** with a fix, clearer error, recipe note, or test (especially exotic CLIs and
+   work-driver combos we cannot exercise daily).
+2. Or **open an issue** with main driver (Claude Code / Codex / other), work driver if any, OS,
+   command, and what failed (**no secrets**).
 
 Issue tracker: [github.com/aigorahub/elves/issues](https://github.com/aigorahub/elves/issues).
 

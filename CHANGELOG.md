@@ -87,6 +87,9 @@ All notable changes to the Elves skill are documented here.
   `--session`; labor uses `--auto`. `implement prepare --adapter opencode-cli` alongside Grok.
   Framed as **work driver (laborer)** under a **main driver** Claude Code/Codex orchestrator
   (not Elves skill host). Example: OpenCode + OpenRouter GLM for batch coding.
+- **Exotic honesty:** OpenCode/Antigravity as main driver may or may not work (untested / not a
+  design focus). Work-driver matrices (OpenCode, Antigravity, Gemini CLI, OpenRouter, …) are
+  incomplete coverage. Prefer PRs/tests to harden community paths.
 
 ## [1.20.2] - 2026-07-12
 
