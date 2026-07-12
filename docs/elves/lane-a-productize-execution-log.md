@@ -48,3 +48,7 @@
 - Version bump not required for this PR unless host later opens a release batch; CHANGELOG Unreleased is enough.
 - Absorb adaptive-review **design** only (PR #62 content), not runtime.
 - Close/comment doc-only PRs #62/#63 after #64 lands if fully subsumed.
+
+### Batch 2-3 closed via Lane A Grok
+- Batch 2: 2871705 f45454e 038084d; gate 335
+- Batch 3: 7c5792d f8ce1e7; gate pending host

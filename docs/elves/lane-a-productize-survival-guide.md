@@ -43,10 +43,10 @@ alignment, design plans on the product branch, readiness, and regular merge comm
 
 ## Stop Gate
 
-- **Planned batches remaining:** 3
-- **Stop allowed right now:** no
-- **Why:** skill/doc batch, design-doc batch, and land remain
-- **Next required action:** launch Grok for Batch 2 packet (skill/human-doc alignment)
+- **Planned batches remaining:** 0
+- **Stop allowed right now:** yes
+- **Why:** implement batches complete; land in progress
+- **Next required action:** Final readiness and merge PR #64
 
 ## Current Phase
 
