@@ -332,7 +332,7 @@ class CapabilityAdapterTests(unittest.TestCase):
         snap = registry_snapshot()
         self.assertIn("claude-code", snap)
         self.assertIn("grok-build", snap)
-        self.assertEqual(snap["host-native"]["status"], "stub")
+        self.assertIn(snap["host-native"]["status"], {"stub", "readonly-builder"})
 
 
 class CliSkeletonTests(unittest.TestCase):

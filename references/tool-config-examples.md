@@ -411,6 +411,28 @@ cobbler-provider-backed-role-effort:
 Legacy `council-*` config keys remain compatibility aliases for existing `v1.14.0` setups. Prefer
 new `cobbler-*` keys in fresh configs, but do not rename working project config just for style.
 
+### Read-only council runtime commands
+
+```bash
+# Parallel independent lenses (default host-native; no paid providers required)
+python3 scripts/cobbler_agents.py council --json \
+  --task "review the proposed batch contract" \
+  --roles architect,skeptic,tester \
+  --target-quorum 2
+
+# Hard quorum only when the project Survival Guide marks the phase required=true
+python3 scripts/cobbler_agents.py council --json \
+  --task "required review phase" \
+  --phase review --phase-required --required-quorum 2
+
+# Utility review — not a council vote, cannot close high-risk review
+python3 scripts/cobbler_agents.py lightweight-review --json \
+  --task "quick docs/consistency check"
+```
+
+Artifacts (if written) stay under ignored `.elves/runtime/council/<run-id>/`. Do not commit
+transcripts. Host synthesis remains the fitted-answer owner.
+
 ---
 
 ## Full-Run Model Routing

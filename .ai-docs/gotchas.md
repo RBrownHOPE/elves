@@ -48,3 +48,13 @@
   is fine; presence without `tomllib` must fail validation rather than being silently ignored.
 - `python3 scripts/cobbler_agents.py validate-config --json` and `doctor --json` never launch paid
   model turns and must not mutate the repo.
+- Council lanes must launch in parallel. Sequential fan-out is not independence and fails the
+  wall-clock overlap tests in `tests/test_cobbler_agents_dispatch.py`.
+- Exit code 0 is not inference success. Structured role-report JSON must validate; actual-model
+  mismatches fail the lane when a requested model was set.
+- Strip secret env **names** from child processes and never log secret values. Allowlisting a
+  secret-looking name must not reintroduce it.
+- `lightweight-review` is a utility lane, not a council vote. It cannot close high-risk review or
+  satisfy independent review quorum by itself.
+- `target_quorum` degrades with a confidence drop; `required_quorum` only applies when the phase is
+  explicitly `required=true` and blocks when unmet after fallback.

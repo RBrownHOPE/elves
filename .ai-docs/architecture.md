@@ -24,6 +24,20 @@ Elves has one coordination hierarchy:
 Math is the first domain workflow. Its ledgers under `docs/math/*` are domain evidence artifacts
 managed inside the Elves run, not a separate Council or Cobbler memory system.
 
+## External-agent runtime (stdlib)
+
+`scripts/cobbler_runtime/` is the standard-library external-agent foundation:
+
+- `schema.py` / `config.py` / `capabilities.py`: provider-neutral contracts and route resolution
+- `context.py`: redacted context packets and minimal child environments
+- `adapters.py`: read-only argv command builders and structured role-report parsing
+- `dispatch.py`: parallel read-only council fan-out, quorum policy, lightweight-review utility
+
+The thin CLI is `scripts/cobbler_agents.py` (`validate-config`, `doctor`, `council`,
+`lightweight-review`). Private council artifacts belong under ignored
+`.elves/runtime/council/<run-id>/`. Session registry and writer leases land in later batches; this
+layer remains read-only for external lanes.
+
 The survival guide remains the home for live run control, checkpoint semantics, active compute, next exact batch, and operator constraints; the Cobbler session state extends that live layer.
 
 ## Memory layers

@@ -195,6 +195,50 @@ the council from turning into an echo chamber.
 The coordinator may share the final synthesis back to the user, and may show individual reports
 only when the user asks for `--verbose`, `--show-reports`, or `--json`.
 
+## Parallel Read-Only Dispatch (operator runtime)
+
+Elves ships a standard-library parallel dispatcher at `scripts/cobbler_runtime/dispatch.py` with the
+thin CLI entry point `python3 scripts/cobbler_agents.py council`.
+
+Rules:
+
+- Lanes launch **concurrently** (`asyncio.create_subprocess_exec`, `shell=False`). Sequential
+  launch is not a council.
+- Every lane receives the same redacted context packet (task, role, mode, scope, relevant files,
+  plan/run pointers, date/HEAD, output schema, evidence needs, forbidden actions).
+- Child environments are minimal: strip API-key/token/cloud/git credential env **names** by default
+  and report stripped names never values.
+- Task text is never interpolated into a shell string; prompts/packets are file paths under ignored
+  `.elves/runtime/council/<run-id>/` with restrictive permissions.
+- Exit code zero is not success by itself — structured role-report JSON must validate.
+- Stderr warnings (for example stale MCP OAuth noise) do not fail inference when the report is valid.
+- One optional lane failure must not erase successful independent reports.
+- Host synthesis remains the only fitted-answer step (`host_synthesis_only`).
+
+### Quorum policy
+
+- `target_quorum` is **advisory**. If optional fallbacks still leave fewer successful independent
+  reports, continue with host synthesis, record a confidence drop, and do **not** label the result
+  `council_verified`.
+- `required_quorum` is valid only when the phase is explicitly `required=true` in the project
+  Survival Guide. It counts successful independent reports (including a fresh host-native lane),
+  tolerates individual optional lane failures while the count is met, and **blocks** after
+  recovery/fallback when it is not met.
+- Required lane failures block even if optional peers succeeded.
+
+### Lightweight review (utility, not a council vote)
+
+`python3 scripts/cobbler_agents.py lightweight-review` runs a **single** bounded ephemeral
+read-only dispatch. It:
+
+- may use a cheaper/faster profile from config;
+- remains read-only and cannot perform git/PR mutations;
+- cannot close a high-risk review;
+- is **not** a default independent council vote and does not participate in council quorum.
+
+Use it for quick utility checks. High-risk or merge-readiness review still needs the independent
+council (or explicit host review) with the configured quorum policy.
+
 ## Role Report Shape
 
 Each role returns a bounded report:
@@ -210,8 +254,16 @@ recommended_actions:
 open_questions:
 ```
 
+Optional machine fields used by the runtime parser:
+
+```yaml
+actual_model:
+requested_model:
+```
+
 Keep reports brief. Evidence should cite files, commands, PR comments, docs, or source material
-when available. If a role lacks enough context, it should say so directly.
+when available. If a role lacks enough context, it should say so directly. When `requested_model`
+is set, a mismatched `actual_model` fails that lane's structured validation.
 
 ## Fitted Answer Shape
 

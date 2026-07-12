@@ -257,9 +257,21 @@ python3 scripts/cobbler_agents.py validate-config --json
 python3 scripts/cobbler_agents.py doctor --json
 ```
 
+Run a native-only parallel read-only council smoke (host synthesis still owns the fitted answer):
+
+```bash
+python3 scripts/cobbler_agents.py council --json \
+  --task "review this batch contract" \
+  --roles architect,skeptic,tester \
+  --target-quorum 2
+python3 scripts/cobbler_agents.py lightweight-review --json \
+  --task "quick utility check"
+```
+
 Copy schema ideas from [`references/models.toml.example`](references/models.toml.example) into the
 ignored checkout file `.elves/models.toml` (never stage it). Effective routes for a real run still
-belong in the Survival Guide snapshot.
+belong in the Survival Guide snapshot. Private council transcripts stay under ignored
+`.elves/runtime/council/`.
 
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
 model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
