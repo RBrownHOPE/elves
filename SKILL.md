@@ -210,6 +210,23 @@ never blocks an ordinary run. Treat `required: true` as valid only when the user
 the project survival guide; never infer it from provider config, Quick Cobbler, or legacy Council
 aliases.
 
+### Implementation lanes
+
+When routing implement work, record `implementation_lane: fast | untrusted` in the Survival Guide
+(and optionally `.elves-session.json`):
+
+- **`fast` (default for “have Grok run it”)** — Lane A: smart host stages plan/PR/worktree and one
+  batch packet; a persistent Grok Build session implements the whole batch with feature-branch
+  progress commits; host gates between batches. Operator CLI:
+  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
+  Launch recipe: `references/grok-implementer-launch-prompt.md`.
+- **`untrusted` (advanced)** — Lane B: exclusive `worker` lease, detached commits, host audit/import
+  only. Do **not** use as the default overnight path. CLI:
+  `python3 scripts/cobbler_agents.py worker …`. See `references/councilelves-launch-prompt.md`.
+
+Host honesty: Claude Code may use managed slash aliases for setup; Codex uses `$elves` / natural
+language. Do not invent top-level Codex slash commands for implement or setup.
+
 ### External-agent setup
 
 Optional checkout setup for external harness preferences:

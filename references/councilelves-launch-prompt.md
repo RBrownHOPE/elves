@@ -1,14 +1,35 @@
 # CouncilElves Launch Prompt
 
 Cobbler is the coordinator. "CouncilElves" is the compatibility name for the same loop: plan with
-independent lenses, implement with one qualified external worker, review independently, integrate
-on the host, and repeat.
+independent lenses, implement, review independently, integrate on the host, and repeat.
+
+## Two implementation lanes
+
+Record `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
+`.elves-session.json`).
+
+| Lane | When | Default? |
+|------|------|----------|
+| **`fast`** | User says “have Grok run it”; overnight volume implementation | **Yes** |
+| **`untrusted`** | Prove the writer boundary; repair lease/runtime itself | Explicit opt-in |
+
+- **Fast path (Lane A):** smart host stages plan/PR/worktree and writes one batch packet; a
+  persistent Grok Build session implements the whole batch with normal coding permissions (`auto`,
+  subagents on). Host gates with tests between batches. See
+  [`grok-implementer-launch-prompt.md`](grok-implementer-launch-prompt.md) and
+  [`docs/plans/smart-plan-grok-implement.md`](../docs/plans/smart-plan-grok-implement.md).
+  Operator CLI: `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
+- **Untrusted path (Lane B):** exclusive writer lease, detached commits, host audit/import only
+  (this document’s legacy launch text below). CLI: `python3 scripts/cobbler_agents.py worker …`.
+
+Do **not** use the untrusted lease path as the default overnight “turn it over to Grok” path.
 
 ## When to use
 
 Use this prompt after staging is launch-ready (plan, Survival Guide, PR, preflight, Stop Gate ready).
+For Lane A, prefer the Grok implementer launch prompt linked above.
 
-## Launch text
+## Launch text (Lane B — untrusted writer)
 
 ```text
 Start the staged Elves run now. Read the Survival Guide first, then .elves-session.json, learnings,
@@ -22,7 +43,7 @@ project Survival Guide). Remediate through the same worker. Repeat through all p
 Never merge unless the user explicitly opts in after Final Readiness.
 ```
 
-## Loop shape
+## Loop shape (Lane B)
 
 1. **Planning fan-out (read-only, concurrent):** host + optional configured independent reviewers (or native
    fallbacks). Same redacted context packet; no peer reports before synthesis.
@@ -37,12 +58,15 @@ Never merge unless the user explicitly opts in after Final Readiness.
 - Native-only remains complete without external tools/keys.
 - `required = true` only via explicit project Survival Guide.
 - No credentials in config/packets/logs/git.
-- Worker never creates/moves refs, pushes, owns PRs, or edits run memory.
+- Lane B worker never creates/moves refs, pushes, owns PRs, or edits run memory.
+- Lane A still never merges/tags or opens a second PR; host owns final readiness.
 - Git history is operator UI: meaningful Contract/Implement/Validate/Review/Close subjects.
 
 ## Related surfaces
 
-- Runtime CLI: `scripts/cobbler_agents.py`
+- Runtime CLI: `scripts/cobbler_agents.py` (`implement` for Lane A, `worker` for Lane B)
+- Fast implementer: `references/grok-implementer-launch-prompt.md`
+- Design: `docs/plans/smart-plan-grok-implement.md`
 - Setup: `/setup-cobbler`, `/setup-council`, `$elves setup-cobbler` / natural Codex wording
 - Recipes: `references/cobbler-setup-recipes.md`
 - Workflow: `references/council-workflow.md`

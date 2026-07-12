@@ -4,6 +4,14 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Lane A fast implementer
+
+- Documented `implementation_lane: fast | untrusted` on skill surfaces (`SKILL.md`, `AGENTS.md`) with
+  Lane A as the default “have Grok run it” path.
+- Operator CLI: `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
+- Launch recipe: `references/grok-implementer-launch-prompt.md`. Untrusted `worker` lease remains
+  advanced and is not the default overnight path.
+
 ## [1.20.1] - 2026-07-12
 
 ### Cobbler runtime truthfulness and safety

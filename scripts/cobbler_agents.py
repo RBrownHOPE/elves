@@ -10,6 +10,8 @@ Commands:
   session list|probe|resume  Exact persistent session registry helpers
   worker prepare|audit|export|refresh
                              Single external writer lease lifecycle (host-owned)
+  implement prepare|launch|gate|resume-batch|status
+                             Lane A fast implementer (default for "have Grok run it")
   setup [--json]             Inventory tools and write local .elves/models.toml
 
 This entry point stays thin; implementation lives under scripts/cobbler_runtime/.
@@ -57,6 +59,13 @@ from cobbler_runtime.dispatch import (  # noqa: E402
 from cobbler_runtime.leases import LeaseStore, build_write_task_packet  # noqa: E402
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.sessions import SessionRegistry  # noqa: E402
+from cobbler_runtime.implement import (  # noqa: E402
+    launch_payload,
+    prepare_implement,
+    resume_batch_payload,
+    run_gate,
+    status_payload,
+)
 from cobbler_runtime.setup import (  # noqa: E402
     preferences_from_flags,
     run_setup,
@@ -458,6 +467,132 @@ def cmd_worker(args: argparse.Namespace) -> int:
     return 2
 
 
+def cmd_implement(args: argparse.Namespace) -> int:
+    """Lane A fast implementer: prepare|launch|gate|resume-batch|status."""
+    repo_root = _repo_root_from_args(args)
+    action = args.implement_action
+
+    try:
+        if action == "prepare":
+            payload = prepare_implement(
+                repo_root,
+                worktree=args.worktree,
+                model=args.model,
+                session_id=args.session_id,
+                branch=args.branch,
+                lane=args.lane,
+                git_mode=args.git_mode,
+                permission_mode=args.permission_mode,
+                executable=args.executable,
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+
+        if action == "launch":
+            payload = launch_payload(
+                repo_root,
+                session_id=args.session_id,
+                packet=args.packet,
+                cwd=args.cwd or args.worktree,
+                model=args.model,
+                permission_mode=args.permission_mode,
+                executable=args.executable,
+                create=bool(args.create),
+                batch=args.batch,
+                exec_process=bool(args.exec),
+            )
+            if args.json:
+                return _emit_json(
+                    payload,
+                    exit_code=0 if payload.get("ok") else int(payload.get("exit_code") or 1),
+                )
+            # Default human surface: exact argv line (host/human launches).
+            print(payload["argv_joined"])
+            if payload.get("launched"):
+                return int(payload.get("exit_code") or 0)
+            return 0
+
+        if action == "resume-batch":
+            payload = resume_batch_payload(
+                repo_root,
+                batch=int(args.batch),
+                packet=args.packet,
+                session_id=args.session_id,
+                cwd=args.cwd or args.worktree,
+                model=args.model,
+                permission_mode=args.permission_mode,
+                executable=args.executable,
+                exec_process=bool(args.exec),
+            )
+            if args.json:
+                return _emit_json(
+                    payload,
+                    exit_code=0 if payload.get("ok") else int(payload.get("exit_code") or 1),
+                )
+            print(payload["argv_joined"])
+            if payload.get("launched"):
+                return int(payload.get("exit_code") or 0)
+            return 0
+
+        if action == "gate":
+            payload = run_gate(
+                repo_root,
+                batch=int(args.batch),
+                focused=bool(args.focused),
+                cwd=args.cwd,
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
+            status = "OK" if payload.get("ok") else "FAILED"
+            tests = payload.get("tests") or {}
+            print(
+                f"implement gate: {status} batch={payload.get('batch')} "
+                f"tip={payload.get('tip')} "
+                f"passed={tests.get('passed')} failed={tests.get('failed')} "
+                f"skipped={tests.get('skipped')}"
+            )
+            for warning in payload.get("warnings") or []:
+                print(f"warning: {warning}", file=sys.stderr)
+            print(f"  gate_path: {payload.get('gate_path')}")
+            return 0 if payload.get("ok") else 1
+
+        if action == "status":
+            payload = status_payload(repo_root)
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            if not payload.get("present"):
+                print("implement status: no runtime state (run prepare first)")
+                return 0
+            state = payload.get("state") or {}
+            print("implement status:")
+            print(f"  runtime_dir: {payload.get('runtime_dir')}")
+            print(f"  lane: {state.get('lane')}")
+            print(f"  git_mode: {state.get('git_mode')}")
+            print(f"  session_id: {state.get('session_id')}")
+            print(f"  model: {state.get('model')}")
+            print(f"  worktree: {state.get('worktree')}")
+            print(f"  permission_mode: {state.get('permission_mode')}")
+            print(f"  last_batch: {state.get('last_batch')}")
+            print(f"  last_packet: {state.get('last_packet')}")
+            print(f"  gates: {len(payload.get('gates') or [])}")
+            print(f"  done_reports: {len(payload.get('done_reports') or [])}")
+            return 0
+
+    except ValidationIssue as issue:
+        payload = {"ok": False, "issues": [issue.to_dict()]}
+        if args.json:
+            return _emit_json(payload, exit_code=1)
+        print(f"implement {action}: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+        if issue.hint:
+            print(f"  hint: {issue.hint}", file=sys.stderr)
+        return 1
+
+    print(f"unknown implement action: {action}", file=sys.stderr)
+    return 2
+
+
 def _add_common_flags(subparser: argparse.ArgumentParser) -> None:
     subparser.add_argument(
         "--repo-root",
@@ -798,6 +933,170 @@ def build_parser() -> argparse.ArgumentParser:
     w_packet.add_argument("--lease-id", required=True)
     w_packet.add_argument("--task", required=True)
     w_packet.set_defaults(func=cmd_worker)
+
+    implement = sub.add_parser(
+        "implement",
+        help=(
+            "Lane A fast implementer lifecycle "
+            "(prepare|launch|gate|resume-batch|status); default for 'have Grok run it'"
+        ),
+    )
+    implement_sub = implement.add_subparsers(dest="implement_action", required=True)
+
+    i_prepare = implement_sub.add_parser(
+        "prepare",
+        help="Record implementer metadata under .elves/runtime/implement/ (no network)",
+    )
+    _add_common_flags(i_prepare)
+    i_prepare.add_argument(
+        "--worktree",
+        default=None,
+        help="Implementer worktree path (default: repo root)",
+    )
+    i_prepare.add_argument("--branch", default=None, help="Feature branch name")
+    i_prepare.add_argument(
+        "--session-id",
+        default=None,
+        help="Optional exact Grok session id (can set later on launch)",
+    )
+    i_prepare.add_argument(
+        "--model",
+        default="grok-4.5",
+        help="Default implementer model (default: grok-4.5)",
+    )
+    i_prepare.add_argument(
+        "--lane",
+        default="fast",
+        choices=["fast", "untrusted"],
+        help="implementation_lane (default: fast)",
+    )
+    i_prepare.add_argument(
+        "--git-mode",
+        default="branch_progress",
+        help="Git ownership mode (default: branch_progress)",
+    )
+    i_prepare.add_argument(
+        "--permission-mode",
+        default="auto",
+        help="Grok permission mode (default: auto; never dontAsk)",
+    )
+    i_prepare.add_argument(
+        "--executable",
+        default="grok",
+        help="Grok CLI executable (default: grok)",
+    )
+    i_prepare.set_defaults(func=cmd_implement)
+
+    i_launch = implement_sub.add_parser(
+        "launch",
+        help="Emit exact grok argv (print-only by default; --exec optional)",
+    )
+    _add_common_flags(i_launch)
+    i_launch.add_argument(
+        "--session-id",
+        default=None,
+        help="Exact session id (required unless prepare already recorded one)",
+    )
+    i_launch.add_argument(
+        "--packet",
+        required=True,
+        help="Path to batch packet (--prompt-file)",
+    )
+    i_launch.add_argument(
+        "--cwd",
+        default=None,
+        help="Worktree / CWD for grok (alias: --worktree)",
+    )
+    i_launch.add_argument(
+        "--worktree",
+        default=None,
+        help="Alias for --cwd",
+    )
+    i_launch.add_argument(
+        "--model",
+        default=None,
+        help="Model (default: prepare state or grok-4.5)",
+    )
+    i_launch.add_argument(
+        "--permission-mode",
+        default=None,
+        help="Permission mode (default: auto; never dontAsk)",
+    )
+    i_launch.add_argument(
+        "--executable",
+        default=None,
+        help="CLI executable (default: grok)",
+    )
+    i_launch.add_argument(
+        "--batch",
+        type=int,
+        default=None,
+        help="Optional batch number to record in state",
+    )
+    i_launch.add_argument(
+        "--create",
+        action="store_true",
+        help="Use --session-id (create) instead of --resume",
+    )
+    i_launch.add_argument(
+        "--exec",
+        action="store_true",
+        help="Actually spawn the process (default: print argv only)",
+    )
+    i_launch.set_defaults(func=cmd_implement)
+
+    i_gate = implement_sub.add_parser(
+        "gate",
+        help="Run tests, record tip + counts under gates/batch-N.json",
+    )
+    _add_common_flags(i_gate)
+    i_gate.add_argument("--batch", type=int, required=True, help="Batch number")
+    i_gate.add_argument(
+        "--focused",
+        action="store_true",
+        help="Run focused implement unit tests only",
+    )
+    i_gate.add_argument(
+        "--cwd",
+        default=None,
+        help="CWD for test run (default: repo root)",
+    )
+    i_gate.set_defaults(func=cmd_implement)
+
+    i_resume = implement_sub.add_parser(
+        "resume-batch",
+        help="Print launch argv for next batch packet (same session)",
+    )
+    _add_common_flags(i_resume)
+    i_resume.add_argument("--batch", type=int, required=True, help="Next batch number")
+    i_resume.add_argument(
+        "--packet",
+        required=True,
+        help="Path to next batch packet",
+    )
+    i_resume.add_argument("--session-id", default=None, help="Exact session id")
+    i_resume.add_argument("--cwd", default=None, help="Worktree / CWD")
+    i_resume.add_argument("--worktree", default=None, help="Alias for --cwd")
+    i_resume.add_argument("--model", default=None, help="Model override")
+    i_resume.add_argument(
+        "--permission-mode",
+        default=None,
+        help="Permission mode (default: auto)",
+    )
+    i_resume.add_argument("--executable", default=None, help="CLI executable")
+    i_resume.add_argument(
+        "--exec",
+        action="store_true",
+        help="Actually spawn the process (default: print argv only)",
+    )
+    i_resume.set_defaults(func=cmd_implement)
+
+    i_status = implement_sub.add_parser(
+        "status",
+        help="Show implement runtime state if present",
+    )
+    _add_common_flags(i_status)
+    i_status.set_defaults(func=cmd_implement)
 
     return parser
 
