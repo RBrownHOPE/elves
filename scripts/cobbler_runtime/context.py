@@ -45,8 +45,8 @@ _SECRET_NAME_MARKERS: tuple[str, ...] = (
     "BEARER",
 )
 
-# Minimal runtime discovery allowlist. Auth discovery vars are only kept when
-# callers explicitly opt in via extra_allowlist (still never logged as values).
+# Minimal runtime discovery allowlist. extra_allowlist may add non-secret names
+# only; secret-looking names are always stripped even if listed there.
 DEFAULT_ENV_ALLOWLIST: frozenset[str] = frozenset(
     {
         "PATH",
@@ -195,7 +195,11 @@ def scrub_environment(
     allowlist: frozenset[str] | None = None,
     extra_allowlist: frozenset[str] | set[str] | None = None,
 ) -> EnvScrubResult:
-    """Build a minimal child env. Report stripped *names*, never values."""
+    """Build a minimal child env. Report stripped *names*, never values.
+
+    ``extra_allowlist`` may add non-secret discovery names. Secret-looking names
+    are always stripped even when listed on the allowlist.
+    """
     source = dict(parent_env if parent_env is not None else os.environ)
     allowed = set(allowlist if allowlist is not None else DEFAULT_ENV_ALLOWLIST)
     if extra_allowlist:
@@ -204,27 +208,16 @@ def scrub_environment(
     kept: dict[str, str] = {}
     stripped: list[str] = []
     for name, value in source.items():
-        if name in allowed and not is_secret_env_name(name):
-            kept[name] = value
-        else:
-            # Always strip secrets even if someone put them on an allowlist by mistake.
-            if is_secret_env_name(name) or name not in allowed:
-                stripped.append(name)
-            else:
-                kept[name] = value
-
-    # Defensive second pass: drop anything that still looks secret by name.
-    final: dict[str, str] = {}
-    for name, value in kept.items():
-        if is_secret_env_name(name):
+        # Always strip secrets even if listed on an allowlist by mistake.
+        if is_secret_env_name(name) or name not in allowed:
             stripped.append(name)
             continue
-        final[name] = value
+        kept[name] = value
 
     return EnvScrubResult(
-        env=final,
+        env=kept,
         stripped_names=tuple(sorted(set(stripped))),
-        kept_names=tuple(sorted(final)),
+        kept_names=tuple(sorted(kept)),
     )
 
 

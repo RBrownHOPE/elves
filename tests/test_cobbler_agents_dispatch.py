@@ -399,6 +399,40 @@ class ParallelDispatchTests(unittest.TestCase):
         self.assertEqual(result.lane_results[0].exit_code, 0)
         self.assertIn("JSON", result.lane_results[0].error or "")
 
+    def test_nonzero_exit_with_parseable_stdout_is_not_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = _write_fake_lane_script(
+                root / "nz.py",
+                role="architect",
+                actual_model="ok-model",
+                exit_code=3,
+                sleep_s=0.02,
+            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    requested_model="ok-model",
+                    command_override=(sys.executable, str(script)),
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="nonzero exit",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+        lane = result.lane_results[0]
+        self.assertFalse(lane.ok)
+        self.assertEqual(lane.exit_code, 3)
+        self.assertIn("non-zero terminal status", lane.error or "")
+        # Parsed report may still be attached for diagnostics.
+        self.assertIsNotNone(lane.report)
+        self.assertEqual(lane.report["verdict"], "pass")
+
     def test_actual_model_mismatch_fails_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -677,6 +711,13 @@ class CliCouncilTests(unittest.TestCase):
 
 
 class AdapterBuilderTests(unittest.TestCase):
+    PERMISSION_BYPASS_TOKENS = (
+        "--dangerously-skip-permissions",
+        "bypassPermissions",
+        "--yolo",
+        "--always-approve",
+    )
+
     def test_readonly_builders_use_argv_not_shell_strings(self) -> None:
         packet = Path("/tmp/packet.json")
         prompt = Path("/tmp/prompt.txt")
@@ -695,6 +736,37 @@ class AdapterBuilderTests(unittest.TestCase):
             joined = " ".join(inv.argv)
             self.assertNotIn("$(", joined)
             self.assertNotIn("`", joined)
+
+    def test_readonly_invocations_never_use_permission_bypass_tokens(self) -> None:
+        packet = Path("/tmp/packet.json")
+        prompt = Path("/tmp/prompt.txt")
+        cases = [
+            ("claude-code", "claude-code", None),
+            ("grok-build", "grok-build", None),
+            ("codex-fugu", "codex-fugu", None),
+            ("host-native", "host-native", None),
+            ("custom-cli", "worker", "my-agent"),
+        ]
+        for adapter, profile, executable in cases:
+            with self.subTest(adapter=adapter):
+                inv = build_readonly_invocation(
+                    adapter=adapter,
+                    profile=profile,
+                    packet_path=packet,
+                    prompt_path=prompt,
+                    executable=executable,
+                    requested_model="example-model" if adapter != "host-native" else None,
+                )
+                argv_text = " ".join(inv.argv)
+                for token in self.PERMISSION_BYPASS_TOKENS:
+                    self.assertNotIn(token, inv.argv)
+                    self.assertNotIn(token, argv_text)
+                if adapter == "claude-code":
+                    self.assertIn("--permission-mode", inv.argv)
+                    mode_idx = inv.argv.index("--permission-mode")
+                    self.assertEqual(inv.argv[mode_idx + 1], "plan")
+                    self.assertIn("permission-mode plan", inv.notes)
+                    self.assertIn("no permission-bypass", inv.notes)
 
     def test_custom_cli_requires_executable(self) -> None:
         with self.assertRaises(ValidationIssue) as ctx:

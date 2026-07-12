@@ -341,7 +341,10 @@ async def _run_subprocess_lane(
         result.error = f"timeout after {spec.timeout_seconds}s"
         return result
 
-    # Do not treat exit 0 alone as success — require structured report.
+    # Success requires both a validated structured report and a zero exit code.
+    # Non-zero terminal status is never ok, even when stdout is parseable.
+    report: dict[str, Any] | None = None
+    parse_error: str | None = None
     try:
         report = parse_role_report(
             stdout,
@@ -349,13 +352,27 @@ async def _run_subprocess_lane(
             requested_model=spec.requested_model,
         )
     except ValidationIssue as issue:
-        result.error = issue.message
-        # Stderr warnings alone do not fail inference when structured output is valid;
-        # here parsing failed.
+        parse_error = issue.message
+
+    if report is not None:
+        result.report = report
+        result.actual_model = report.get("actual_model") or report.get("model")
+
+    if proc.returncode != 0:
+        result.ok = False
+        status_err = f"non-zero terminal status: exit_code={proc.returncode}"
+        if parse_error:
+            result.error = f"{status_err}; {parse_error}"
+        else:
+            result.error = status_err
         return result
 
-    result.report = report
-    result.actual_model = report.get("actual_model") or report.get("model")
+    if parse_error is not None:
+        result.error = parse_error
+        # Stderr warnings alone do not fail inference when structured output is valid;
+        # here parsing failed with exit 0.
+        return result
+
     result.ok = True
     # Preserve stderr summary even on success (warnings with successful inference).
     return result
