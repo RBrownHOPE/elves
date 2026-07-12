@@ -223,21 +223,26 @@ native subagents (or direct analysis when subagents are unavailable). No Grok Bu
 Sakana, multi-provider council, or external implement CLI is required. Missing optional tools never
 block an ordinary overnight run.
 
-**Optional upgrades (same pattern as the math module):** if the capability scan finds extra tools
-or keys the user already has, Cobbler may use them for additional benefit. They are role routes and
-operator helpers, not a second product:
+**Optional multi-agent tooling (same pattern as the math module):** if the capability scan finds
+extra tools or keys the user already has, Cobbler may route them for additional benefit. They are
+role routes, work drivers, and domain tools — not a second product, and never required for a
+native overnight run:
 
-- **Extra models for planning / review / council** — when keys + project wrappers exist, same
-  pattern as production multi-model math runs: OpenRouter (`OPENROUTER_API_KEY` + named `or-…`
-  presets / `openrouter:<model-id>`) and Meta Muse Spark 1.1 (`META_API_KEY` or `MODEL_API_KEY`,
-  model id `muse-spark-1.1`, preset e.g. `meta-muse-spark11`) as **independent read-only**
-  planner/reviewer lanes. Fall back to native if missing. Never treat them as sole authority.
-  See `references/council-provider-config.md` and `references/cobbler-setup-recipes.md`.
-- **External batch implementer (e.g. Grok Build)** — only when the user has that CLI and wants it.
-  Record `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
-  `.elves-session.json`). Operator CLI:
-  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
-  Launch recipe: `references/grok-implementer-launch-prompt.md`.
+- **Extra models for planning / review / council** — when keys + project wrappers exist: OpenRouter
+  (`OPENROUTER_API_KEY` + `scripts/openrouter_lens.py` / named `or-…` presets), Meta Muse Spark
+  1.1 (`META_API_KEY` or `MODEL_API_KEY`, model id `muse-spark-1.1`), Gemini CLI, and Antigravity
+  CLI as **independent read-only** planner/reviewer/scout lanes. Fall back to native if missing.
+  Never treat them as sole authority. See `references/council-provider-config.md` and
+  `references/cobbler-setup-recipes.md`.
+- **Work drivers (batch labor)** — Grok Build via
+  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status` (Lane A;
+  optional `--model fast|deep`, `--check`) and OpenCode via `--adapter opencode-cli` / labor
+  profiles. Host owns packets, gates, and merge. Launch recipe:
+  `references/grok-implementer-launch-prompt.md`.
+- **Math domain tools** — OpenRouter math role presets; Google **AlphaEvolve** as optional
+  `evolutionary_search` when a project runner + deterministic local evaluator exist
+  (`references/math-alphaevolve.md`). Signals and examples only — **not** a proof engine; never
+  required for Discovery Sprint.
 - **Stricter host-import writer** — advanced lease path for proving a hard writer boundary
   (`implementation_lane: untrusted`). Detached commits, host audit/import only. Do **not** use as
   the default overnight path. CLI: `python3 scripts/cobbler_agents.py worker …`. See
@@ -250,14 +255,14 @@ language. Do not invent top-level Codex slash commands for implement or setup.
 
 Optional checkout setup for which tools handle planning, implement, review, scout, and related
 purposes. **Supported main drivers are Claude Code and Codex only** (orchestrators) — they run
-Elves and own the overnight loop. Optional **work drivers** and lenses (OpenCode, Grok, Antigravity,
-Gemini CLI, OpenRouter models, Muse, etc.) may do labor or plan/review under that host when
-installed; that is not our focus, and **not every configuration is fully tested**. Using OpenCode
-or Antigravity as the **main driver** (skill host) is exotic — it **may or may not work**; we are
-not designing for it right now. If an optional or exotic route fails, **prefer a PR** with a fix,
-recipe note, or test (or open a GitHub issue, no secrets). **Claude Code and Codex** use the same
-host-mediated onboarding flow (agent interviews the user; CLI stores and probes). Native-only
-remains fully valid without setup.
+Elves and own the overnight loop. Optional **work drivers**, lenses, and math tools (OpenCode, Grok,
+Antigravity, Gemini CLI, OpenRouter models, Muse, AlphaEvolve, etc.) may do labor, plan/review, or
+evolutionary search under that host when installed; that is not our focus, and **not every
+configuration is fully tested**. Using OpenCode or Antigravity as the **main driver** (skill host)
+is exotic — it **may or may not work**; we are not designing for it right now. If an optional or
+exotic route fails, **prefer a PR** with a fix, recipe note, or test (or open a GitHub issue, no
+secrets). **Claude Code and Codex** use the same host-mediated onboarding flow (agent interviews
+the user; CLI stores and probes). Native-only remains fully valid without setup.
 
 - Claude Code: `/setup-cobbler` (primary) and `/setup-council` (compatibility), or natural language
   (“onboard models”, “update model routes”)

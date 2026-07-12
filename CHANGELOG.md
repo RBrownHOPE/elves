@@ -4,6 +4,26 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Multi-agent tooling expansion (native-first)
+
+This unreleased work is a **large multi-agent tooling update**, not a copy-only docs pass.
+**Vanilla Cobbler is host-native** (Claude Code or Codex out of the box). Everything below is
+optional capacity Cobbler can route when tools, keys, and project wrappers already exist —
+missing optional tools never block an ordinary overnight run.
+
+| Layer | What landed (summary) |
+| --- | --- |
+| **Main drivers** | Claude Code / Codex only as supported Elves skill hosts (orchestrators) |
+| **Onboarding** | `onboard plan\|show\|apply\|probe`, partial apply merge, apply-blocked bare tokens, relative probe paths |
+| **Plan/review lenses** | OpenRouter lens + presets; Gemini CLI / Antigravity headless adapters; Muse Spark docs |
+| **Work drivers** | Grok Build Lane A (`implement …`); OpenCode plan/labor adapter (`--file` packets) |
+| **Math domain** | Google **AlphaEvolve** as optional `evolutionary_search` (runner + local evaluator; not a proof engine) |
+| **Honesty** | Exotic main/work paths lightly tested; prefer PRs; exact session ids over `latest`/`continue` |
+
+Canonical maps: [`references/model-onboarding.md`](references/model-onboarding.md),
+[`references/cobbler-setup-recipes.md`](references/cobbler-setup-recipes.md),
+[`references/math-alphaevolve.md`](references/math-alphaevolve.md).
+
 ### Grok implement: aliases, --check, humanized failures (community credit)
 
 - Lane A `implement prepare|launch|resume-batch` accepts Grok model aliases **`fast`** /

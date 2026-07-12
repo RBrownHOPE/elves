@@ -7,16 +7,18 @@
 Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default coordinator inside Elves: it decides whether to answer directly, ask independent reviewers, assign scoped worker agents, or record a run decision, then returns one clear recommendation.
 
 **Current release: v1.20.2** (optional external batch implementer). On this branch / unreleased
-work, the product framing is **native-first**: **Claude Code or Codex as the main driver**
-(orchestrator), with Cobbler coordinating natively — no Grok, OpenRouter, or multi-provider setup
-required. Optional **work drivers** and lenses (OpenCode, Grok, Antigravity, Gemini CLI, OpenRouter
-models, AlphaEvolve, …) may help for labor or review when you already have them; **that is not our
-focus**, and we have **not fully tested** every combination. Trying OpenCode or Antigravity as the
-**main driver** (Elves skill host) is exotic: it **may or may not work** — we are not designing for
-it right now. If something breaks or you harden a path, **prefer a PR** (or
-[file an issue](https://github.com/aigorahub/elves/issues), no secrets). Operator helpers:
-`python3 scripts/cobbler_agents.py`. See [`CHANGELOG.md`](CHANGELOG.md) (`[Unreleased]`) and
-[`references/model-onboarding.md`](references/model-onboarding.md).
+work, Elves is getting a **multi-agent tooling expansion** under a **native-first** rule:
+**Claude Code or Codex as the main driver** (orchestrator), with Cobbler coordinating natively —
+no Grok, OpenRouter, or multi-provider setup required to run overnight. Optional **work drivers**,
+**plan/review lenses**, and **math-domain tools** (OpenCode, Grok Build, Antigravity, Gemini CLI,
+OpenRouter models, Muse Spark, Google AlphaEvolve, …) may help for labor, review, or evolutionary
+search when you already have them. That matrix is **not fully tested**; OpenCode/Antigravity as
+the **main driver** (Elves skill host) is exotic and **may or may not work**. If something breaks or
+you harden a path, **prefer a PR** (or [file an issue](https://github.com/aigorahub/elves/issues),
+no secrets). Operator helpers: `python3 scripts/cobbler_agents.py`. See
+[`CHANGELOG.md`](CHANGELOG.md) (`[Unreleased]`),
+[`references/model-onboarding.md`](references/model-onboarding.md), and
+[`references/math-alphaevolve.md`](references/math-alphaevolve.md).
 
 You write the plan and own the merge decision. The agent does everything in between.
 
@@ -67,8 +69,24 @@ The architecture is intentionally simple:
 - **Domain workflows** are Cobbler-managed packs for specialized work.
 - **Math** is the first domain workflow, with scouts, critics, source auditors, ledgers, and
   human-verification gates.
-- **Providers** are optional role routes. They add perspective when configured; they are not the
-  orchestration layer.
+- **Providers / optional tools** are role routes and work drivers. They add perspective or labor
+  when configured; they are not the orchestration layer.
+
+### Optional multi-agent tooling (when you already have the tools)
+
+Native-only runs need none of this. When present, Cobbler may route:
+
+| Kind | Examples | Role in Elves |
+| --- | --- | --- |
+| **Main driver** | Claude Code, Codex | Only supported skill hosts / overnight orchestrators |
+| **Work drivers** | Grok Build (`implement …`), OpenCode labor | Batch implement under host packets + gates |
+| **Plan/review lenses** | OpenRouter lens, Gemini CLI, Antigravity (`agy`), Muse Spark | Independent read-only evidence |
+| **Math domain tools** | OpenRouter math roles, Google **AlphaEvolve** (`evolutionary_search`) | Discovery / examples / counterexample *signals* — not proofs |
+| **Writer boundary** | Host-import `worker …` lease | Advanced isolation; not the default overnight path |
+
+Setup: `python3 scripts/cobbler_agents.py onboard …` and recipes in
+[`references/cobbler-setup-recipes.md`](references/cobbler-setup-recipes.md). AlphaEvolve details:
+[`references/math-alphaevolve.md`](references/math-alphaevolve.md).
 
 ### Reviewed PR landing command
 

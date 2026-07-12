@@ -26,12 +26,16 @@ Cobbler sits inside Elves, not beside it:
 - **Cobbler** handles coordination: intent, routing, context, evidence, dissent, medium, and fitted
   answer.
 - **Domain workflows** handle specialized work under Cobbler.
-- **Providers** are optional role routes.
+- **Providers / optional multi-agent tools** are role routes, work drivers, and domain tools — not
+  the orchestration layer.
 
 Math is the first domain workflow. When a task is mathematical, Cobbler routes into the math
 workflow: Discovery Sprint, scout lanes, proof critics, derivation checkers, source auditors,
-artifact ledgers, and human verification. The math ledgers are domain evidence ledgers, not a
-separate Cobbler or Council memory system.
+artifact ledgers, optional evolutionary search (e.g. Google AlphaEvolve when configured), and human
+verification. The math ledgers are domain evidence ledgers, not a separate Cobbler or Council memory
+system. Capability scan may also surface implement work drivers (Grok Build, OpenCode) and
+plan/review lenses (OpenRouter, Gemini CLI, Antigravity, Muse) for ordinary coding runs — same
+native-first rule: missing optional tools never block host-native Cobbler.
 
 ## The handling paths
 
@@ -166,11 +170,12 @@ and `/elves-council`. Codex supports `$elves council: <task>` and natural Counci
 ## External-agent setup and model onboarding
 
 Setup is optional. Native-only Elves needs no external tools or keys. **Supported main drivers are
-Claude Code and Codex** — they run Elves. Other CLIs (Antigravity, Gemini, etc.) are optional
-routes only; running Elves with those as the primary host is not our focus. Exotic interfaces
-(Antigravity, Gemini CLI, etc.) are **not heavily tested** (including without maintainer
-subscriptions to dogfood them). **Prefer PRs** (or issues) when something breaks.
-**Claude Code and Codex** share one onboarding protocol (`references/model-onboarding.md`):
+Claude Code and Codex** — they run Elves. Other CLIs and services (Antigravity, Gemini, OpenCode,
+Grok Build, OpenRouter, Muse, AlphaEvolve, etc.) are optional multi-agent routes only; running Elves
+with those as the primary host is not our focus. Exotic interfaces are **not heavily tested**
+(including without maintainer subscriptions to dogfood them). **Prefer PRs** (or issues) when
+something breaks. **Claude Code and Codex** share one onboarding protocol
+(`references/model-onboarding.md`):
 
 ```bash
 python3 scripts/cobbler_agents.py onboard plan --json    # interview packet
