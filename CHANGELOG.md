@@ -4,6 +4,22 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-07-12
+
+### Cobbler external-agent orchestration
+
+- Added standard-library `scripts/cobbler_agents.py` runtime for provider-neutral role routes,
+  config resolution (Survival Guide → local `.elves/models.toml` → user config → native),
+  parallel read-only council dispatch, exact sessions, single external writer lease/audit, and setup.
+- Coordinator-to-implementer handoff standard and operator-visible git progress commits are pinned
+  across `SKILL.md`, `AGENTS.md`, templates, and consistency checks.
+- External writers may create only audited detached commits; host imports binary patches and owns
+  branch commits, pushes, PRs, run memory, validation, and acceptance.
+- Setup inventory/non-interactive flags, Claude `/setup-cobbler` + `/setup-council` aliases, Codex
+  natural/`$elves` setup wording, and custom harness recipes (OpenRouter/API-only/wrappers).
+- Master launch prompt: `references/councilelves-launch-prompt.md`.
+- Native-only defaults remain complete with zero external tools or provider keys.
+
 ## [1.19.0] - 2026-07-08
 
 ### Acceptance evidence and landing hardening

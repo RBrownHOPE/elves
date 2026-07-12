@@ -210,3 +210,7 @@ The part Cobbler borrows is the coordination pattern: route a request through av
 capabilities, preserve dissent, assemble evidence, choose the right medium, and fit one answer back
 to the user. Cobbler does not copy Fable's model identity, persona, policy text, or safety
 guardrails.
+
+## CouncilElves launch
+
+See [`references/councilelves-launch-prompt.md`](../references/councilelves-launch-prompt.md) for the plan→implement→review loop prompt.
