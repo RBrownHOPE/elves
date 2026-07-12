@@ -10,6 +10,7 @@ Commands:
   session list|probe|resume  Exact persistent session registry helpers
   worker prepare|audit|export|refresh
                              Single external writer lease lifecycle (host-owned)
+  setup [--json]             Inventory tools and write local .elves/models.toml
 
 This entry point stays thin; implementation lives under scripts/cobbler_runtime/.
 """
@@ -55,6 +56,10 @@ from cobbler_runtime.dispatch import (  # noqa: E402
 from cobbler_runtime.leases import LeaseStore, build_write_task_packet  # noqa: E402
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.sessions import SessionRegistry  # noqa: E402
+from cobbler_runtime.setup import (  # noqa: E402
+    preferences_from_flags,
+    run_setup,
+)
 
 
 def _repo_root_from_args(args: argparse.Namespace) -> Path:
@@ -252,6 +257,59 @@ def cmd_session(args: argparse.Namespace) -> int:
 
     print(f"unknown session action: {action}", file=sys.stderr)
     return 2
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    """Inventory tools and optionally write ignored local models.toml."""
+    repo_root = _repo_root_from_args(args)
+    required = [r.strip() for r in (args.required or "").split(",") if r.strip()]
+    prefs = preferences_from_flags(
+        implement=args.implement,
+        review=args.review,
+        planning=args.planning,
+        lightweight_review=args.lightweight_review,
+        validate=args.validate,
+        synthesize=args.synthesize,
+        scout=args.scout,
+        required=required,
+        session_mode=args.session_mode,
+        sharing_policy=args.sharing_policy,
+        native_fallback=not args.no_native_fallback,
+    )
+    try:
+        result = run_setup(
+            repo_root,
+            preferences=prefs,
+            write_toml=not args.dry_run,
+            force_toml=bool(args.force),
+            run_smoke=bool(args.smoke),
+        )
+    except ValidationIssue as issue:
+        payload = {"ok": False, "issues": [issue.to_dict()], "credentials_printed": False}
+        if args.json:
+            return _emit_json(payload, exit_code=1)
+        print(f"setup: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+        return 1
+
+    payload = result.to_dict()
+    payload["mutated_repo"] = False
+    payload["staged_models_toml"] = False
+    if args.json:
+        return _emit_json(payload, exit_code=0 if result.ok else 1)
+
+    print(f"setup: {'OK' if result.ok else 'FAILED'}")
+    print(f"  models_toml_written: {result.models_toml_written}")
+    print(f"  models_toml_ignored: {result.models_toml_ignored}")
+    print(f"  smoke_ran: {result.smoke_ran}")
+    print(f"  credentials_printed: {result.credentials_printed}")
+    for rec in result.recommendations:
+        print(f"  recommend: {rec}")
+    for warning in result.warnings:
+        print(f"  warning: {warning}")
+    for issue in result.issues:
+        print(f"  issue: [{issue.get('code')}] {issue.get('message')}")
+    print("  note: never stage .elves/models.toml; snapshot routes into Survival Guide when staging")
+    return 0 if result.ok else 1
 
 
 def cmd_worker(args: argparse.Namespace) -> int:
@@ -523,6 +581,60 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_flags(doctor)
     doctor.set_defaults(func=cmd_doctor)
+
+    setup = sub.add_parser(
+        "setup",
+        help="Inventory tools and write local ignored .elves/models.toml (no secrets)",
+    )
+    _add_common_flags(setup)
+    setup.add_argument("--implement", default=None, help="Profile for implement role")
+    setup.add_argument("--review", default=None, help="Profile for review role")
+    setup.add_argument("--planning", default=None, help="Profile for planning role")
+    setup.add_argument(
+        "--lightweight-review",
+        default=None,
+        help="Profile for lightweight_review role",
+    )
+    setup.add_argument("--validate", default=None, help="Profile for validate role")
+    setup.add_argument("--synthesize", default=None, help="Profile for synthesize role")
+    setup.add_argument("--scout", default=None, help="Profile for scout role")
+    setup.add_argument(
+        "--required",
+        default="",
+        help="Comma-separated roles that are required (explicit opt-in)",
+    )
+    setup.add_argument(
+        "--session-mode",
+        default="ephemeral",
+        choices=["ephemeral", "persistent", "exact_resume"],
+        help="Default session mode preference",
+    )
+    setup.add_argument(
+        "--sharing-policy",
+        default="local-only",
+        help="models.toml sharing policy (local-only by default; never team-shared automatically)",
+    )
+    setup.add_argument(
+        "--no-native-fallback",
+        action="store_true",
+        help="Do not auto-add host-native fallbacks for external profiles",
+    )
+    setup.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Inventory and recommendations only; do not write models.toml",
+    )
+    setup.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite models.toml even when unknown sections exist",
+    )
+    setup.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Opt into smoke acknowledgment (still does not print secrets or require paid turns)",
+    )
+    setup.set_defaults(func=cmd_setup)
 
     council = sub.add_parser(
         "council",

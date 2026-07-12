@@ -2,7 +2,8 @@
 
 Typed contracts, config resolution, capability records, read-only adapter
 builders, context redaction, parallel council dispatch, exact session
-registry/usage ledger, and single external writer lease/audit.
+registry/usage ledger, single external writer lease/audit, and setup UX for
+local ignored preferences.
 """
 
 from .schema import (
