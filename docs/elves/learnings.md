@@ -25,6 +25,10 @@ silently deleting it.
   potentially less-capable, context-poor implementer: include intent, rationale, existing Build On
   targets, owned/forbidden surfaces, acceptance evidence, failure modes, and pitfalls without
   prescribing brittle line-by-line code.
+- [2026-07-12] Git history is an operator-facing progress surface. The host should promptly commit
+  and push meaningful, reviewable slices within each batch using branch/batch/phase/outcome subjects;
+  avoid vague giant dumps and noisy micro-commits, reserve `Close` for acceptance-backed completion,
+  and never delegate commit/push ownership to an external implementation worker.
 - [2026-07-08] Batch `status: complete` must carry plan Acceptance proof in session JSON
   (`acceptance: [{criterion, met, evidence}]`). Green CI alone is not landable. Structure/regex
   characterization tests may lock god-file splits but must not alone complete them unless the plan

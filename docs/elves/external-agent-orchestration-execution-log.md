@@ -32,6 +32,8 @@ reduce the contract to a short chat prompt.
   `doctor --json` foundations; no external model inference or worker write in this batch.
 - Add the coordinator-to-implementer handoff standard to both canonical skill surfaces, relevant
   templates/reviewer guidance, consistency checks, and tests.
+- Add the git-history-as-operator-UI standard to the same canonical/template/checker surfaces: the
+  host pushes meaningful branch/batch/phase/outcome commits during a batch, and workers never commit.
 - Preserve native-only Elves, current Cobbler hierarchy, stage-then-launch behavior, and all existing
   170 tests.
 
@@ -63,6 +65,9 @@ reduce the contract to a short chat prompt.
 - **No brittle implementation prescription:** use standard-library Python and current repo test
   patterns; if a planned module split is inferior after survey, report the evidence and proposed
   alternative before diverging.
+- **Commit milestone:** the host, not Grok, will audit/import each reviewable slice and use
+  `[codex/external-agent-orchestration · Batch 1/6 · <phase>] <concrete outcome>`. Grok must not run
+  git; `Close` is unavailable until every acceptance row has evidence.
 - **Likely pitfalls:** Python `tomllib` availability, TOML/JSON/Survival Guide precedence drift,
   treating ignored `.elves/models.toml` as committed team state, treating model names as
   capabilities, conflating installed/authenticated/qualified, prematurely implementing dispatch,
@@ -89,6 +94,9 @@ reduce the contract to a short chat prompt.
 - [ ] Config/examples contain no raw-secret patterns or personal paths.
 - [ ] Coordinator-to-implementer handoff language appears in `SKILL.md`, `AGENTS.md`, plan/Survival
       Guide/execution-log templates, and review obligations, protected by consistency tests.
+- [ ] Those surfaces also require prompt meaningful progress commits, the branch/batch/phase/outcome
+      subject schema, external-worker git denial, and acceptance-backed `Close`; consistency tests
+      reject drift and vague example subjects.
 - [ ] Focused tests and full baseline pass; test count is at least 170 with none newly skipped.
 - [ ] Consistency, compile, shell syntax, JSON, TOML validator, sync fixture, and whitespace gates pass.
 - [ ] `.elves-session.json` receives non-empty criterion/met/evidence rows before status becomes
@@ -106,6 +114,8 @@ reduce the contract to a short chat prompt.
   detached writer lease
 - Actual route: pending launch
 - Fallback: diagnose/repair Grok before any switch; Claude Code Opus then host are recorded fallbacks
+- Automatic implementation fallback: disabled; after three distinct failed Grok recovery attempts,
+  stop for the user rather than silently switching providers
 - Validation/synthesis/docs/git: host coordinator
 - Independent review: fresh native + Fable + Fugu, concurrent, Grok excluded; this run explicitly
   requires two successful independent reports after recovery/fallback
@@ -119,6 +129,36 @@ reduce the contract to a short chat prompt.
 - Repo uses standard-library Python scripts and `unittest`; no package-managed runtime exists.
 - Live qualification proved the current external CLIs but also exposed Grok 0.2.93 incompatibilities
   that fixtures must preserve.
+
+---
+
+## Implementation Route Decision: 2026-07-12 09:06 EDT
+
+The user changed the experiment from “Grok required for the first implementation attempt” to “have
+Grok Build complete the run.” The same exact Grok child
+`019f5644-93d5-7a02-827d-caa8b30a2825` is now the required worker for every product implementation
+and remediation slice across all six batches. The host still owns detailed packets, run documents,
+git/PR, patch audit/import, validation, review synthesis, and progress updates. Claude Code Opus and
+host implementation remain documented possibilities but are not automatic fallbacks; after three
+distinct failed Grok recovery attempts with no safe workaround, stop and ask the user.
+
+The user will receive synthesized live updates in the Codex chat after each Grok turn and each
+audit/validation/commit milestone; GitHub/GitKraken will show every pushed progress commit. Raw model
+transcripts remain ignored evidence unless the user asks for an excerpt.
+
+---
+
+## Operator Visibility Decision: 2026-07-12 08:59 EDT
+
+The user explicitly relies on GitKraken/GitHub to monitor unattended work. The host will therefore
+commit and push meaningful progress slices within each batch, not merely one opaque batch dump. The
+subject schema is `[branch · Batch N/6 · Contract|Implement|Validate|Review|Close] concrete outcome`.
+External workers still cannot commit or push; the host audits/imports and validates before creating
+each visible milestone. Batch 1 must promote this rule into canonical Elves behavior, templates,
+review obligations, and consistency tests.
+
+**Validation:** repo consistency PASS; 170/170 tests PASS; session JSON, Survival Guide validator,
+plan-hash integrity, and whitespace PASS.
 
 ---
 
@@ -274,8 +314,8 @@ checkpoint_is_stop=false; next_required_action=finish staging and hand user the 
   of pretending the parent UUID migrated.
 - Keep a clean persistent Grok child worktree for the implementation experiment; remove the unused
   host-created qualification worktree and all canaries.
-- Public default stays native-only; the user explicitly makes the initial Grok implementation
-  attempt required only in this Survival Guide.
+- Public default stays native-only; this Survival Guide explicitly requires the exact Grok child for
+  all product implementation/remediation in this run, without automatic provider fallback.
 - Host writes canonical run docs and detailed contracts; Grok may edit assigned product docs/code.
 - Six architecture-aware batches: contracts before dispatcher, read-only before persistence, and
   persistence before write safety/setup/release.

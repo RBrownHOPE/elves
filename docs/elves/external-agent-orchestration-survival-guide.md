@@ -23,7 +23,9 @@ final integration.
 - **Stop policy:** plan-complete-or-true-blocker
 - **User intent:** “Test everything before we code it up. Once all the pieces work, plan and stage an
   Elves run; then get Grok Build to do it as an experiment.” The user also requires the main smart
-  coordinator to write detailed Elves documents for a potentially less-capable implementation agent.
+  coordinator to write detailed Elves documents for a potentially less-capable implementation agent,
+  requires meaningful pushed commit history because GitKraken/GitHub are progress monitors, and now
+  requires the exact persistent Grok child to perform product implementation throughout the run.
 - **Checkpoint due by:** none; assume an approximately 8-hour execution budget from the fresh launch
   call because no return time was specified
 - **Checkpoint semantics:** none
@@ -42,8 +44,12 @@ final integration.
   final response is disallowed until plan completion or a true blocker
 - **Coordination mode:** Cobbler-first; independent lenses for non-trivial planning, contract, risk,
   debugging, review, and synthesis; host owns git/docs and delegates only scoped worker edits
-- **Batch completion rule:** update execution log -> update Survival Guide/session JSON -> commit ->
-  push -> re-read this file. Never begin a later batch with completed work only in the working tree.
+- **Progress visibility rule:** the host commits and pushes each meaningful reviewable slice during a
+  batch, using `[branch · Batch N/6 · phase] concrete outcome`; external workers never commit. Avoid
+  vague or noisy commits, and reserve `Close` for acceptance-backed batch completion.
+- **Batch completion rule:** update execution log -> update Survival Guide/session JSON -> `Close`
+  commit -> push -> re-read this file. Never begin a later batch with completed work only in the
+  working tree, and never hide hours of already-validated progress until batch close.
 - **Re-read rule:** immediately after every commit and push, read this file before any other action.
 - **Checkpoint rule:** if a later checkpoint is marked delivery-only, log it, push it, and continue;
   a checkpoint is never a stop unless this Run Control block explicitly makes it a hard boundary.
@@ -118,7 +124,9 @@ contains:
    hardcoded provider/model assumptions;
 6. likely failure modes, tool/version gotchas, and recovery behavior;
 7. current HEAD, plan/run-document paths, context digest, route/model/session identity, and output
-   format.
+   format;
+8. the host-owned commit milestone and intended outcome-focused subject if this worker slice passes
+   audit and validation. The worker still receives no commit/push permission.
 
 The packet should not prescribe brittle line-by-line code. The worker must survey current source,
 use judgment inside the contract, and report uncertainty. Reviewers must treat an incomplete or
@@ -165,6 +173,8 @@ Promotion flow: execution log -> learnings -> `.ai-docs/*`.
 - Every coordinator packet is executable by a less-capable/context-poor worker and every behavior
   change keeps `SKILL.md`, `AGENTS.md`, templates/docs/config, sync surfaces, consistency checks, and
   tests aligned.
+- Host-owned git history remains a live operator surface: push meaningful Contract/Implement/
+  Validate/Review/Close slices with concrete subjects; do not wait until batch close to show progress.
 - Never merge, squash, rebase, force-push, publish a release, or push a release tag in this run.
 
 ## Launch Readiness
@@ -206,7 +216,7 @@ resources only:
 | --- | --- | --- | --- | --- |
 | Fable session `02bb9552-fbbd-423f-abbe-acbaa580c918` | planning/contextual review/Claude host | idle; no process | 2026-07-12 | resume exact ID for a bounded turn; record usage afterward |
 | Grok parent `159e611b-6c48-4376-8695-5134b9803b7e` | planning lineage | idle; no process | 2026-07-12 | read-only planning only; never source-checkout writes |
-| Grok child `019f5644-93d5-7a02-827d-caa8b30a2825` | required first implementation worker | idle; clean detached worktree | 2026-07-12 | align to staged tip before launch; one lease at a time |
+| Grok child `019f5644-93d5-7a02-827d-caa8b30a2825` | required implementation/remediation worker for all six batches | idle; clean detached worktree | 2026-07-12 | align to staged tip before launch; one lease at a time |
 | Fugu Ultra `019f5627-e61e-72a3-af3f-ae6e51a348b5` | planning/contextual review | idle; no process | 2026-07-12 | resume exact ID read-only; inherited MCP warnings are separate health |
 
 ## Next Exact Batch
@@ -231,8 +241,9 @@ for every later batch.
 
 ## Post-Checkpoint Control Loop
 
-Every completed batch must end with a commit and push. Immediately after every commit and push,
-re-read this survival guide before doing anything else.
+Every completed batch must end with a commit and push. Every meaningful progress slice must also end
+with a host-owned commit and push, and batch completion specifically uses an acceptance-backed
+`Close` commit. Immediately after every commit and push, re-read this survival guide before doing anything else.
 
 After every commit and push during execution:
 
@@ -300,7 +311,8 @@ model-routing:
       fallback-chain:
         - claude-code:opus
         - host-coordinator
-      fallback-policy: diagnose-and-record-before-switching
+      automatic-fallback: false
+      failure-policy: three-distinct-recovery-attempts-then-stop-for-user
     validate:
       preference: host-coordinator
       required: true
@@ -327,6 +339,10 @@ blocked; do not call the work council-verified. This project override does not c
 default, where an advisory target quorum may degrade to host synthesis with a recorded confidence
 drop. If any other required route fails after three distinct recovery attempts and no safe workaround
 exists, log the exact blocker and stop for the user.
+
+The implementation fallback names are user-decision options only. They are not automatic routes for
+this run: every product implementation/remediation slice goes first to the exact Grok child, and a
+switch requires a later explicit user instruction.
 
 ## Tool Configuration
 
@@ -428,7 +444,7 @@ Do not commit raw transcripts or credentials. Summarize material evidence in run
 - **Durable docs manifest:** `.ai-docs/manifest.md`
 - **Branch:** `codex/external-agent-orchestration`
 - **PR number:** not created yet
-- **Plan SHA-256 at staging:** `af80812a93172582ff4c62bd5c09bc6bde49bd4ddd93669231bdc62eafa2b97e`
+- **Plan SHA-256 at staging:** `f13c2362d1acc0057cf9e78661afd69689a51277c6e68f258529a86bcbbeb310`
 
 ## Elves Report
 
