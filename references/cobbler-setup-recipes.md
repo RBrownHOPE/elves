@@ -142,6 +142,16 @@ Pin `requested_model` per tier in ignored `models.toml`. Prefer host-native vali
 - Fallback: `host-native`
 - Gemini CLI is transitioning into the Antigravity family; Elves adapters use headless
   `-p`/`--print` (not bare stdin)
+- **Exact session IDs for plan→review continuity.** If the same Google lens plans and later
+  reviews, record the **exact** session/conversation id after planning and pass it into review:
+  - Gemini CLI: create with `--session-id <uuid>`; resume with `--resume <uuid>` only (never
+    `latest` / bare continue)
+  - Antigravity (`agy`): resume with `--conversation <uuid>` only (never bare `--continue`);
+    after the first planning turn, capture the conversation UUID into the session registry
+  - Host stores ids in the Cobbler session registry / Survival Guide route snapshot so compaction
+    cannot drop them
+- **Review bar for Google (and all) lenses:** completeness vs plan+contract, **constitution**
+  deal-breakers, and **regressions** (indirect breakage), not only local correctness of the diff
 
 ```bash
 # Plan/review with Antigravity + current Pro model pin (edit models.toml after apply)

@@ -61,6 +61,14 @@ actual_model:
 Prefer concrete evidence over vibes. If context is missing, say what would change your answer.
 Do not read peer role reports. Do not print secrets. Do not edit files in read-only lens scope.
 When the runtime requested a model identity, set `actual_model` to the model that actually ran.
+
+If this role is **review** / **lightweight_review** (or any critique of implemented work):
+- Check **completeness** against the plan and batch contract, not only local correctness of the diff.
+- Check **regressions**: correct changes can still break unedited paths, callers, and shared surfaces.
+- If a **constitution** exists, check deal-breaker flows/invariants that must still hold even when
+  those areas were not the edit focus.
+- If you also helped **plan** in an earlier turn, the host should resume your **exact** session id
+  so you keep planning context; still re-read plan + constitution rather than relying on memory alone.
 ```
 
 ## Role Selector

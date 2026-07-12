@@ -1506,12 +1506,43 @@ class AdapterBuilderTests(unittest.TestCase):
             print_idx = agy.argv.index("--print")
             self.assertGreater(len(agy.argv[print_idx + 1]), 10)
 
-            with self.assertRaises(ValidationIssue) as ctx:
-                build_session_create_invocation(
-                    adapter="gemini-cli",
-                    profile="gemini-cli",
-                )
-            self.assertEqual(ctx.exception.code, "google_cli_no_persistent_session")
+            from cobbler_runtime.adapters import (  # noqa: PLC0415
+                assert_exact_session_id,
+                build_session_create_invocation,
+                build_session_resume_invocation,
+            )
+
+            created = build_session_create_invocation(
+                adapter="gemini-cli",
+                profile="gemini-cli",
+            )
+            self.assertIsNotNone(created.session_id)
+            self.assertIn("--session-id", created.argv)
+            sid = created.session_id or ""
+            resumed = build_session_resume_invocation(
+                adapter="gemini-cli",
+                profile="gemini-cli",
+                session_id=sid,
+            )
+            self.assertIn("--resume", resumed.argv)
+            self.assertIn(sid, resumed.argv)
+            with self.assertRaises(ValidationIssue) as amb:
+                assert_exact_session_id("latest", adapter="gemini-cli")
+            self.assertEqual(amb.exception.code, "ambiguous_session_id")
+
+            agy_resume = build_readonly_invocation(
+                adapter="antigravity-cli",
+                profile="antigravity-cli",
+                packet_path=packet,
+                prompt_path=prompt,
+                executable="agy",
+                session_id="11111111-2222-3333-4444-555555555555",
+                task="review",
+                role="review",
+                repo_root=Path(tmp),
+            )
+            self.assertIn("--conversation", agy_resume.argv)
+            self.assertIn("11111111-2222-3333-4444-555555555555", agy_resume.argv)
 
     def test_custom_cli_requires_executable(self) -> None:
         with self.assertRaises(ValidationIssue) as ctx:

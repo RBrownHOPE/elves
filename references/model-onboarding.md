@@ -136,6 +136,18 @@ Same pattern with `codex-fugu-planning` / `codex-fugu-labor`.
 | `antigravity-cli` | `agy` (fallback `antigravity`) | planning, review, scout — pin latest Gemini (e.g. 3.1 Pro) |
 | `antigravity-labor` | `agy` | **experimental** implement labor — pin Flash-class (e.g. 3.5 Flash); not Lane A |
 
+### Session continuity (plan → review)
+
+External chats are **not** one-shot throwaways when the same lens plans and later reviews:
+
+1. At planning, create or capture an **exact** session/conversation id (Gemini:
+   `--session-id` / listed UUID; Antigravity: conversation UUID after first turn).
+2. Store it in the session registry / run memory (never paste secrets).
+3. At review, resume with that **exact** id only — forbid `latest`, bare `--continue`, or “most
+   recent”.
+4. Review still must load plan + constitution + regression surfaces; session continuity is *context*,
+   not a substitute for those documents.
+
 Google is consolidating coding-agent surfaces around **Antigravity** (Gemini CLI transitions into
 that family). Treat both as optional **subscription CLIs** when installed and the **host is still
 Claude Code or Codex**.

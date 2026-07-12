@@ -66,6 +66,7 @@ class AdapterInvocation:
     unavailable_reason: str = ""
     cwd: str | None = None
     prompt_file_body: str | None = None  # full body when writing prompt-file
+    session_id: str | None = None  # exact external chat id when resume/create known
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +83,7 @@ class AdapterInvocation:
             "unavailable_reason": self.unavailable_reason,
             "cwd": self.cwd,
             "has_stdin": bool(self.stdin_text),
+            "session_id": self.session_id,
             "argv_digest": hashlib.sha256("\0".join(self.argv).encode()).hexdigest()[:16],
         }
 
@@ -134,7 +136,8 @@ _BUILTIN: dict[str, StubAdapter] = {
     "gemini-cli": StubAdapter(
         name="gemini-cli",
         executable_hint="gemini",
-        supports_persistent_sessions=False,
+        # Exact --session-id create / --resume <uuid> only (never latest/continue).
+        supports_persistent_sessions=True,
         # API-key Gemini CLI is a plan/review lens; not an isolated write implementer.
         supports_isolated_write=False,
     ),
@@ -142,7 +145,8 @@ _BUILTIN: dict[str, StubAdapter] = {
         name="antigravity-cli",
         # Prefer binary name `agy` (Antigravity CLI); `antigravity` is a fallback alias.
         executable_hint="agy",
-        supports_persistent_sessions=False,
+        # Exact --conversation <id> only (never bare --continue).
+        supports_persistent_sessions=True,
         # Not host-import write-lease qualified. Experimental labor is host-launched
         # headless `agy -p` with model pin (e.g. Gemini 3.5 Flash), not Lane A/Grok.
         supports_isolated_write=False,
@@ -455,6 +459,46 @@ def validate_adapter_contract_pair(
     return ic, oc
 
 
+_AMBIGUOUS_SESSION_TOKENS: frozenset[str] = frozenset(
+    {
+        "latest",
+        "last",
+        "continue",
+        "most-recent",
+        "most_recent",
+        "recent",
+        "current",
+        "active",
+    }
+)
+
+
+def assert_exact_session_id(session_id: str, *, adapter: str = "") -> str:
+    """Require a concrete session/conversation id — never latest/continue/last."""
+    sid = (session_id or "").strip()
+    if not sid:
+        raise ValidationIssue(
+            "missing_session_id",
+            "Exact session_id is required",
+            path=f"adapters.{adapter or 'session'}.session_id",
+            hint="Use a concrete UUID/conversation id from the registry — never latest/continue",
+        )
+    if sid.lower() in _AMBIGUOUS_SESSION_TOKENS:
+        raise ValidationIssue(
+            "ambiguous_session_id",
+            f"Session id `{sid}` is ambiguous and forbidden",
+            path=f"adapters.{adapter or 'session'}.session_id",
+            hint="Pass the exact UUID/conversation id recorded at create time",
+        )
+    if sid.startswith("-"):
+        raise ValidationIssue(
+            "ambiguous_session_id",
+            f"Session id `{sid}` looks like a flag, not an id",
+            path=f"adapters.{adapter or 'session'}.session_id",
+        )
+    return sid
+
+
 def build_readonly_invocation(
     *,
     adapter: str,
@@ -471,8 +515,14 @@ def build_readonly_invocation(
     input_contract: str | None = None,
     output_contract: str | None = None,
     repo_root: Path | str | None = None,
+    session_id: str | None = None,
 ) -> AdapterInvocation:
-    """Build an argv-safe read-only command for a known adapter."""
+    """Build an argv-safe read-only command for a known adapter.
+
+    When ``session_id`` is set, Google/Claude/etc. resume that exact conversation so
+    a reviewer that helped plan can keep planning context. Ambiguous tokens
+    (latest/continue/last) are rejected.
+    """
     name = adapter.strip().lower()
     if name not in _BUILTIN and name != "custom-cli":
         if not executable:
@@ -487,6 +537,9 @@ def build_readonly_invocation(
     exe = executable or meta.executable_hint
     extras = tuple(extra_args)
     validate_extra_args(name, extras)
+    exact_session = (
+        assert_exact_session_id(session_id, adapter=name) if session_id else None
+    )
 
     default_in, default_out = ADAPTER_CONTRACT_PAIRS.get(
         name, ("json-stdio", "custom-json-envelope")
@@ -640,9 +693,11 @@ def build_readonly_invocation(
                 exe = resolved
             elif not exe:
                 exe = "agy"
-            argv_list = [exe, "--print", full_prompt]
-            # plan mode is read-only oriented when the CLI supports --mode.
-            argv_list.extend(["--mode", "plan"])
+            argv_list = [exe]
+            if exact_session:
+                # Exact conversation resume — planning context for later review.
+                argv_list.extend(["--conversation", exact_session])
+            argv_list.extend(["--print", full_prompt, "--mode", "plan"])
             if requested_model:
                 argv_list.extend(["--model", str(requested_model)])
             argv_list.extend(extras)
@@ -657,12 +712,14 @@ def build_readonly_invocation(
                     "Antigravity CLI (agy) headless --print; pin latest Gemini model "
                     "(3.1 Pro plan/review, 3.5 Flash optional labor). Not Lane A / not "
                     "host-import write-lease qualified. Experimental implement: host "
-                    "launches agy with --dangerously-skip-permissions separately."
+                    "launches agy with --dangerously-skip-permissions separately. "
+                    "Pass exact session_id/--conversation so review resumes planning chat."
                 ),
                 stdin_text=None,
                 input_mode="none",
                 decoder="custom-json-envelope",
                 cwd=work_cwd,
+                session_id=exact_session,
             )
 
         # gemini-cli
@@ -675,9 +732,11 @@ def build_readonly_invocation(
             "plan",
             "-o",
             "text",
-            "-p",
-            full_prompt,
         ]
+        if exact_session:
+            # Resume exact planning conversation so review keeps plan context.
+            argv_list.extend(["--resume", exact_session])
+        argv_list.extend(["-p", full_prompt])
         if requested_model:
             argv_list.extend(["-m", str(requested_model)])
         argv_list.extend(extras)
@@ -691,12 +750,14 @@ def build_readonly_invocation(
             notes=(
                 "Gemini CLI headless -p + --skip-trust + plan approval; pin a current "
                 "Gemini model id via requested_model. Prefer plan/review; API-key path "
-                "is not a substitute for Antigravity OAuth sessions."
+                "is not a substitute for Antigravity OAuth sessions. "
+                "Pass exact session_id to resume planning context into review."
             ),
             stdin_text=None,
             input_mode="none",
             decoder="custom-json-envelope",
             cwd=work_cwd,
+            session_id=exact_session,
         )
 
     # custom-cli: provider-neutral JSON-over-stdio envelope on stdin.
@@ -1326,17 +1387,52 @@ def build_session_create_invocation(
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
-    if name in {"gemini-cli", "antigravity-cli"}:
-        raise ValidationIssue(
-            "google_cli_no_persistent_session",
-            (
-                f"Adapter `{name}` is headless one-shot only in Elves "
-                f"(no exact session create/resume). Use build_readonly_invocation "
-                f"for plan/review, or run `agy`/`gemini` interactively outside Cobbler."
+    if name == "gemini-cli":
+        # Host supplies exact UUID; Gemini creates under --session-id.
+        import uuid as _uuid  # noqa: PLC0415
+
+        sid = str(_uuid.uuid4())
+        argv = [exe or "gemini", "--skip-trust", "--session-id", sid]
+        if requested_model:
+            argv.extend(["-m", str(requested_model)])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="gemini-cli",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes=(
+                "exact Gemini session create via --session-id; record session_id in "
+                "registry and reuse for review so planning context is preserved"
             ),
-            path=f"adapters.{name}.session",
-            hint="Do not use session create/resume for Google CLIs",
+            session_id=sid,
         )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
+    if name == "antigravity-cli":
+        # First turn creates a conversation; host must capture exact conversation id
+        # (agent output CONVID=… or conversations/*.db) and register it before resume.
+        import uuid as _uuid  # noqa: PLC0415
+
+        sid = str(_uuid.uuid4())
+        argv = [exe or "agy", "--print", "Reply with exactly: session-created"]
+        if requested_model:
+            argv.extend(["--model", str(requested_model)])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="antigravity-cli",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes=(
+                "Antigravity create is host-mediated: after first turn, record the "
+                "exact conversation UUID (not --continue) in the session registry, then "
+                "resume with --conversation <id> so plan→review keeps context"
+            ),
+            session_id=sid,
+        )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
     if not exe or exe == "(user-defined)":
         raise ValidationIssue(
             "missing_executable",
@@ -1368,13 +1464,7 @@ def build_session_resume_invocation(
     cwd: str | None = None,
     extra_args: tuple[str, ...] | list[str] = (),
 ) -> AdapterInvocation:
-    sid = (session_id or "").strip()
-    if not sid:
-        raise ValidationIssue(
-            "missing_session_id",
-            "Exact session_id is required for resume",
-            hint="Never omit the id or use last/continue selection",
-        )
+    sid = assert_exact_session_id(session_id, adapter=adapter)
     name = adapter.strip().lower()
     meta = _BUILTIN.get(name, _BUILTIN["custom-cli"])
     exe = executable or meta.executable_hint
@@ -1397,6 +1487,7 @@ def build_session_resume_invocation(
             argv=tuple(argv),
             read_only=True,
             notes="exact --resume <session-id>",
+            session_id=sid,
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
@@ -1413,6 +1504,7 @@ def build_session_resume_invocation(
             argv=tuple(argv),
             read_only=True,
             notes="exact child resume; verify CWD/worktree registration",
+            session_id=sid,
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
@@ -1429,19 +1521,46 @@ def build_session_resume_invocation(
             argv=tuple(argv),
             read_only=True,
             notes="exact --session-id <id>",
+            session_id=sid,
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
-    if name in {"gemini-cli", "antigravity-cli"}:
-        raise ValidationIssue(
-            "google_cli_no_persistent_session",
-            (
-                f"Adapter `{name}` is headless one-shot only in Elves "
-                f"(no exact session create/resume)."
+    if name == "gemini-cli":
+        argv = [exe or "gemini", "--skip-trust", "--resume", sid]
+        if requested_model:
+            argv.extend(["-m", str(requested_model)])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="gemini-cli",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes=(
+                "exact Gemini --resume <uuid> only — never latest/continue; "
+                "use planning session id when reviewing"
             ),
-            path=f"adapters.{name}.session",
-            hint="Use read-only one-shot invocations for Google CLIs",
+            session_id=sid,
         )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
+    if name == "antigravity-cli":
+        argv = [exe or "agy", "--conversation", sid]
+        if requested_model:
+            argv.extend(["--model", str(requested_model)])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="antigravity-cli",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes=(
+                "exact agy --conversation <id> only — never bare --continue; "
+                "resume the same conversation that did planning when reviewing"
+            ),
+            session_id=sid,
+        )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
     if not exe or exe == "(user-defined)":
         raise ValidationIssue(
             "missing_executable",

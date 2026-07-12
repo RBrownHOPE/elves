@@ -70,6 +70,11 @@ All notable changes to the Elves skill are documented here.
     pin via `requested_model` in ignored models.toml — re-check `agy models` after upgrades.
   - Experimental `antigravity-labor` profile for Flash-class implement; **not** Lane A / Grok
     `implement prepare|launch`, not write-lease qualified.
+  - **Exact session continuity:** `session_id` on readonly invocations and session create/resume
+    for Gemini (`--session-id` / `--resume <uuid>`) and Antigravity (`--conversation <id>`);
+    reject ambiguous latest/continue. Plan→review should resume the same chat.
+  - Review protocol: completeness (plan+contract), constitution deal-breakers, and regressions
+    (indirect breakage), not only local correctness of the diff.
 
 ## [1.20.2] - 2026-07-12
 
