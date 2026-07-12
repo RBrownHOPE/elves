@@ -526,7 +526,8 @@ If a PR already exists on the branch, detect it and skip.
 
 **The PR isn't the deliverable. The deliverable is work that is ready to review.** You never merge by default — that gate stays with the user unless they set a merge-on-green preference or invoke the Reviewed PR Landing Command.
 
-When staging is complete, stop and hand the user the launch prompt. The unattended run begins in the next call.
+When staging is complete: in **E2E single-kickoff**, continue into execution immediately; in
+**legacy two-call**, stop and hand the user a short launch prompt for the next call.
 
 ## Batch Decomposition
 
