@@ -378,6 +378,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
                 pre_remotes=pre.get("remotes"),
                 pre_config=pre.get("config"),
                 pre_hooks=pre.get("hooks"),
+                pre_common_config=pre.get("common_config"),
+                pre_common_hooks=pre.get("common_hooks"),
                 observed_commands=list(args.observed_command or []),
             )
             if not result.ok:

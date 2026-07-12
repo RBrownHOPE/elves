@@ -26,7 +26,9 @@ class LeaseState(str, Enum):
     PREPARED = "prepared"
     ACTIVE = "active"
     AUDITING = "auditing"
+    AUDITED_PASS = "audited_pass"
     EXPORTED = "exported"
+    APPLY_CHECKED = "apply_checked"
     INTEGRATED = "integrated"
     CLOSED = "closed"
     REJECTED = "rejected"
@@ -37,9 +39,63 @@ LIVE_LEASE_STATES: frozenset[LeaseState] = frozenset(
         LeaseState.PREPARED,
         LeaseState.ACTIVE,
         LeaseState.AUDITING,
+        LeaseState.AUDITED_PASS,
         LeaseState.EXPORTED,
+        LeaseState.APPLY_CHECKED,
     }
 )
+
+# Explicit compare-and-swap lifecycle. Rejected is terminal.
+_ALLOWED_LEASE_TRANSITIONS: dict[LeaseState, frozenset[LeaseState]] = {
+    LeaseState.PREPARED: frozenset(
+        {LeaseState.PREPARED, LeaseState.ACTIVE, LeaseState.REJECTED, LeaseState.CLOSED}
+    ),
+    LeaseState.ACTIVE: frozenset(
+        {LeaseState.ACTIVE, LeaseState.AUDITING, LeaseState.REJECTED, LeaseState.CLOSED}
+    ),
+    LeaseState.AUDITING: frozenset(
+        {
+            LeaseState.AUDITING,
+            LeaseState.AUDITED_PASS,
+            LeaseState.REJECTED,
+            LeaseState.CLOSED,
+        }
+    ),
+    LeaseState.AUDITED_PASS: frozenset(
+        {LeaseState.AUDITED_PASS, LeaseState.EXPORTED, LeaseState.REJECTED, LeaseState.CLOSED}
+    ),
+    LeaseState.EXPORTED: frozenset(
+        {
+            LeaseState.EXPORTED,
+            LeaseState.APPLY_CHECKED,
+            LeaseState.REJECTED,
+            LeaseState.CLOSED,
+        }
+    ),
+    LeaseState.APPLY_CHECKED: frozenset(
+        {
+            LeaseState.APPLY_CHECKED,
+            LeaseState.INTEGRATED,
+            LeaseState.REJECTED,
+            LeaseState.CLOSED,
+        }
+    ),
+    LeaseState.INTEGRATED: frozenset({LeaseState.INTEGRATED, LeaseState.CLOSED}),
+    LeaseState.CLOSED: frozenset({LeaseState.CLOSED}),
+    LeaseState.REJECTED: frozenset({LeaseState.REJECTED}),
+}
+
+
+def transition_lease_state(current: LeaseState, target: LeaseState) -> LeaseState:
+    allowed = _ALLOWED_LEASE_TRANSITIONS.get(current, frozenset())
+    if target not in allowed:
+        raise ValidationIssue(
+            "invalid_lease_transition",
+            f"Cannot transition lease from `{current.value}` to `{target.value}`",
+            path="lease.state",
+            hint=f"Allowed from {current.value}: {', '.join(sorted(s.value for s in allowed))}",
+        )
+    return target
 
 # Git actions a qualified detached writer may use when the lease permits commits.
 DEFAULT_PERMITTED_GIT_ACTIONS: tuple[str, ...] = (
@@ -239,22 +295,100 @@ def build_write_task_packet(lease: WriterLease, *, task: str, contract: Mapping[
     }
 
 
+def normalize_repo_rel_path(rel_path: str) -> str:
+    """Normalize a repository-relative path without stripping leading dots.
+
+    ``str.lstrip("./")`` is unsafe: it treats the argument as a *set* of
+    characters, so ``.elves/secret.json`` becomes ``elves/secret.json`` and can
+    escape forbidden-prefix checks. Only strip explicit ``./`` segments.
+    """
+    if rel_path is None:
+        raise ValidationIssue(
+            "invalid_path",
+            "Path is required",
+            path="lease.path",
+        )
+    text = str(rel_path).replace("\\", "/").strip()
+    if not text or text in {".", ".."}:
+        raise ValidationIssue(
+            "invalid_path",
+            f"Path `{rel_path}` is empty or not repository-relative",
+            path="lease.path",
+        )
+    if text.startswith("/") or re_is_absolute_drive(text):
+        raise ValidationIssue(
+            "absolute_path_forbidden",
+            f"Absolute path `{rel_path}` is not allowed in a writer lease",
+            path="lease.path",
+        )
+    while text.startswith("./"):
+        text = text[2:]
+    parts: list[str] = []
+    for part in text.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            raise ValidationIssue(
+                "path_escape",
+                f"Path `{rel_path}` contains `..` segments",
+                path="lease.path",
+            )
+        parts.append(part)
+    if not parts:
+        raise ValidationIssue(
+            "invalid_path",
+            f"Path `{rel_path}` resolves empty",
+            path="lease.path",
+        )
+    return "/".join(parts)
+
+
+def re_is_absolute_drive(text: str) -> bool:
+    """True for Windows-style drive paths like ``C:/foo``."""
+    return len(text) >= 2 and text[0].isalpha() and text[1] == ":"
+
+
 def is_path_allowed(rel_path: str, lease: WriterLease) -> bool:
-    """Return True if a repo-relative path is within lease scope."""
-    normalized = rel_path.replace("\\", "/").lstrip("./")
+    """Return True if a repo-relative path is within lease scope.
+
+    Empty allow-lists fail closed (nothing is permitted). Forbidden prefixes are
+    checked against a safe normalization that preserves leading dots in names
+    like ``.elves/``.
+    """
+    try:
+        normalized = normalize_repo_rel_path(rel_path)
+    except ValidationIssue:
+        return False
+
     for prefix in lease.forbidden_path_prefixes:
-        p = prefix.replace("\\", "/")
-        if normalized == p.rstrip("/") or normalized.startswith(p):
+        p = str(prefix).replace("\\", "/")
+        while p.startswith("./"):
+            p = p[2:]
+        p_stripped = p.rstrip("/")
+        if not p_stripped:
+            continue
+        if normalized == p_stripped or normalized.startswith(p_stripped + "/"):
             return False
+        # Exact file forbids such as ``.elves-session.json``.
+        if not p.endswith("/") and normalized == p:
+            return False
+
     if not lease.allowed_paths:
-        # Empty allow-list means "all non-forbidden product paths".
-        return True
+        return False
+
     for allowed in lease.allowed_paths:
-        a = allowed.replace("\\", "/").lstrip("./")
-        if normalized == a or normalized.startswith(a.rstrip("/") + "/") or a == ".":
+        try:
+            a = normalize_repo_rel_path(allowed.rstrip("/")) if allowed not in {".", "./"} else ""
+        except ValidationIssue:
+            continue
+        if allowed in {".", "./"} or a == "":
+            # Explicit whole-repo allow only when non-forbidden.
             return True
-        # Directory allow entries.
-        if a.endswith("/") and normalized.startswith(a):
+        if normalized == a or normalized.startswith(a + "/"):
+            return True
+        if str(allowed).replace("\\", "/").endswith("/") and (
+            normalized == a or normalized.startswith(a + "/")
+        ):
             return True
     return False
 
@@ -458,6 +592,17 @@ class LeaseStore:
                 hint="Only one external writer lease may be active at a time",
             )
 
+        paths = list(allowed_paths or [])
+        if not paths:
+            raise ValidationIssue(
+                "empty_path_allowlist",
+                "Writer leases require a non-empty explicit allowed_paths list",
+                hint="Refuse broad empty allow-lists; name product paths the worker may touch",
+            )
+        # Validate paths fail closed before creating the lease record.
+        for rel in paths:
+            normalize_repo_rel_path(rel)
+
         pre = preflight_worker_checkout(
             worker_checkout=Path(worker_checkout),
             base_head=base_head,
@@ -477,7 +622,7 @@ class LeaseStore:
             adapter=adapter,
             profile=profile,
             sandbox_profile=sandbox_profile,
-            allowed_paths=list(allowed_paths or []),
+            allowed_paths=paths,
             detached_commits_permitted=detached_commits_permitted and workspace_capable,
             require_detached=require_detached,
             state=LeaseState.PREPARED,
@@ -497,49 +642,64 @@ class LeaseStore:
 
     def activate(self, lease_id: str) -> WriterLease:
         lease = self.get(lease_id)
-        if lease.state != LeaseState.PREPARED:
-            raise ValidationIssue(
-                "invalid_lease_state",
-                f"Cannot activate lease in state `{lease.state.value}`",
-            )
-        lease.state = LeaseState.ACTIVE
+        lease.state = transition_lease_state(lease.state, LeaseState.ACTIVE)
         return self.save(lease)
 
     def mark_auditing(self, lease_id: str) -> WriterLease:
         lease = self.get(lease_id)
-        if lease.state not in {LeaseState.ACTIVE, LeaseState.AUDITING}:
-            raise ValidationIssue(
-                "invalid_lease_state",
-                f"Cannot audit lease in state `{lease.state.value}`",
-            )
-        lease.state = LeaseState.AUDITING
+        lease.state = transition_lease_state(lease.state, LeaseState.AUDITING)
+        return self.save(lease)
+
+    def mark_audited_pass(self, lease_id: str) -> WriterLease:
+        """Record immutable audit success. Export is legal only from this state."""
+        lease = self.get(lease_id)
+        lease.state = transition_lease_state(lease.state, LeaseState.AUDITED_PASS)
         return self.save(lease)
 
     def mark_exported(self, lease_id: str, patch_dir: str) -> WriterLease:
         lease = self.get(lease_id)
-        lease.state = LeaseState.EXPORTED
+        # Export is legal only from audited_pass (or idempotent re-export).
+        if lease.state == LeaseState.AUDITING:
+            lease.state = transition_lease_state(lease.state, LeaseState.AUDITED_PASS)
+        lease.state = transition_lease_state(lease.state, LeaseState.EXPORTED)
         lease.exported_patch_dir = patch_dir
+        return self.save(lease)
+
+    def mark_apply_checked(self, lease_id: str) -> WriterLease:
+        lease = self.get(lease_id)
+        lease.state = transition_lease_state(lease.state, LeaseState.APPLY_CHECKED)
         return self.save(lease)
 
     def mark_integrated(self, lease_id: str) -> WriterLease:
         lease = self.get(lease_id)
-        if lease.state != LeaseState.EXPORTED:
-            raise ValidationIssue(
-                "invalid_lease_state",
-                f"Cannot integrate lease before export (state={lease.state.value})",
-            )
-        lease.state = LeaseState.INTEGRATED
+        # Allow exported -> apply_checked -> integrated, or direct exported when
+        # host applied checks in the same step (recorded as APPLY_CHECKED first).
+        if lease.state == LeaseState.EXPORTED:
+            lease.state = transition_lease_state(lease.state, LeaseState.APPLY_CHECKED)
+        lease.state = transition_lease_state(lease.state, LeaseState.INTEGRATED)
         return self.save(lease)
 
     def reject(self, lease_id: str, reason: str) -> WriterLease:
         lease = self.get(lease_id)
-        lease.state = LeaseState.REJECTED
+        lease.state = transition_lease_state(lease.state, LeaseState.REJECTED)
         lease.rejection_reason = reason
         return self.save(lease)
 
     def close(self, lease_id: str) -> WriterLease:
         lease = self.get(lease_id)
-        lease.state = LeaseState.CLOSED
+        # Closing is allowed from most non-rejected live/terminal success states.
+        if lease.state == LeaseState.REJECTED:
+            raise ValidationIssue(
+                "invalid_lease_transition",
+                "Rejected leases are terminal and cannot be closed into a success path",
+            )
+        if lease.state != LeaseState.CLOSED:
+            # Prefer explicit close transition when allowed; otherwise go via integrate/reject.
+            try:
+                lease.state = transition_lease_state(lease.state, LeaseState.CLOSED)
+            except ValidationIssue:
+                # From exported/apply_checked, require integrate first.
+                raise
         return self.save(lease)
 
     def refresh_worker_to_tip(

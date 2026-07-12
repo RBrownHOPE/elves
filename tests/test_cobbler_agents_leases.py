@@ -78,7 +78,7 @@ def _detached_worktree(main: Path, worktree: Path, head: str) -> None:
 
 class PathScopeTests(unittest.TestCase):
     def test_forbidden_and_allowed_paths(self) -> None:
-        from cobbler_runtime.leases import WriterLease
+        from cobbler_runtime.leases import WriterLease, normalize_repo_rel_path
 
         lease = WriterLease(
             lease_id="L",
@@ -91,9 +91,41 @@ class PathScopeTests(unittest.TestCase):
             allowed_paths=["src/", "scripts/"],
         )
         self.assertTrue(is_path_allowed("src/app.py", lease))
+        self.assertTrue(is_path_allowed("./scripts/x.py", lease))
         self.assertFalse(is_path_allowed(".elves/session.json", lease))
+        self.assertFalse(is_path_allowed(".elves/secret.json", lease))
+        self.assertFalse(is_path_allowed(".elves-session.json", lease))
         self.assertFalse(is_path_allowed("docs/elves/log.md", lease))
         self.assertFalse(is_path_allowed("other/x.py", lease))
+        self.assertFalse(is_path_allowed("../escape.py", lease))
+        self.assertFalse(is_path_allowed("/abs/path.py", lease))
+        # Empty allow-list fails closed.
+        empty = WriterLease(
+            lease_id="E",
+            host_checkout="/host",
+            worker_checkout="/worker",
+            session_id="s",
+            base_head="h",
+            adapter="grok-build",
+            profile="p",
+            allowed_paths=[],
+        )
+        self.assertFalse(is_path_allowed("src/app.py", empty))
+        self.assertFalse(is_path_allowed(".elves/secret.json", empty))
+        # lstrip("./") would have turned this into elves/ and escaped; must stay blocked.
+        sneaky = WriterLease(
+            lease_id="S",
+            host_checkout="/host",
+            worker_checkout="/worker",
+            session_id="s",
+            base_head="h",
+            adapter="grok-build",
+            profile="p",
+            allowed_paths=["elves/"],
+        )
+        self.assertFalse(is_path_allowed(".elves/secret.json", sneaky))
+        self.assertEqual(normalize_repo_rel_path(".elves/secret.json"), ".elves/secret.json")
+        self.assertEqual(normalize_repo_rel_path("./src/app.py"), "src/app.py")
 
 
 class LeaseExclusivityTests(unittest.TestCase):
