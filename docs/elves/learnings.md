@@ -97,19 +97,16 @@ silently deleting it.
   qualified, no worker ref/push/PR/run-memory ownership, full chain+ref+remote+config+hook+path audit,
   and host-only binary-patch import, validation, branch commit, and push. The implementer is excluded
   from independent review quorum.
-- [2026-07-12] Prefer `implementation_lane: fast` (Lane A) as the default when the user says “have
-  Grok run it.” Smart host plans and gates; one persistent Grok session implements whole batches with
-  `auto` permissions and subagents enabled (never default `dontAsk`, never `--no-subagents`). Use
-  `untrusted` (Lane B lease/import) only when proving the writer boundary or repairing that runtime.
-  Operator surface: `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
+- [2026-07-12] **Default implementer is the host** (Claude Code or Codex). Grok Build, multi-provider
+  plan/review, and the host-import writer lease are optional upgrades when those tools exist — same
+  pattern as the math module. Do not imply overnight Elves requires Grok or “Lane A.”
+- [2026-07-12] When the user *does* have Grok Build and wants it, prefer
+  `implementation_lane: fast` with one whole-batch launch
+  (`--prompt-file <packet> --yolo --effort medium`, session create/resume, sensible `--max-turns`)
+  over nested host driving. Operator surface:
+  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`. Use
+  `untrusted` (host-import lease) only when proving the writer boundary or repairing that runtime.
   Docs: `docs/plans/smart-plan-grok-implement.md`, `references/grok-implementer-launch-prompt.md`.
-- [2026-07-12] Prefer one whole-batch Grok Build launch with
-  `--prompt-file <packet> --yolo --effort medium` (plus session create/resume and a sensible
-  `--max-turns`) over a nested host driver that re-invokes Grok tool-call by tool-call. Dogfood on
-  this repo finished real multi-file implement work in ~3 minutes that way; nested Codex→Grok
-  headless ceremony was dominated by host audit/suite/review tax between breaths. Host owns staging
-  and between-batch gates; do not reintroduce mid-batch nested driving as the default overnight path.
-  See `docs/plans/smart-plan-grok-implement.md` and `references/grok-implementer-launch-prompt.md`.
 - [2026-04-11] Elves is intentionally lightweight. Borrow architectural ideas from richer systems,
   but avoid pulling in hydration, skeleton generation, or opaque automation unless the repo
   genuinely needs them.

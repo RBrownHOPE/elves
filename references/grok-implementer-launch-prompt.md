@@ -1,22 +1,30 @@
-# Grok Implementer Launch Prompt (Lane A — Fast Path)
+# Grok Implementer Launch Prompt (optional external implementer)
 
-Default path when the user says **“have Grok run it.”** Smart host plans and gates; one persistent
-Grok Build session implements whole batches. Design authority:
+**This is not the Elves default.** Vanilla Cobbler implements with the host agent (Claude Code or
+Codex) only. Use this document when the user already has Grok Build (or a similar CLI) and wants it
+to implement a whole batch under host staging and gates — same optional-upgrade pattern as the math
+module’s provider routes.
+
+Smart host plans and gates; one persistent Grok Build session implements whole batches. Design
+authority:
 [`docs/plans/smart-plan-grok-implement.md`](../docs/plans/smart-plan-grok-implement.md).
 
-For the untrusted detached-writer lease path (Lane B), use the advanced worker lease flow in
-[`councilelves-launch-prompt.md`](councilelves-launch-prompt.md) and
-`python3 scripts/cobbler_agents.py worker …`. Do **not** use Lane B as the default overnight path.
+For the stricter host-import writer lease (detached commits, host audit/import only), use the
+advanced worker flow in [`councilelves-launch-prompt.md`](councilelves-launch-prompt.md) and
+`python3 scripts/cobbler_agents.py worker …`. Do **not** use that lease path as the default
+overnight path.
 
-## Survival Guide field
+## Survival Guide field (only when using an external implementer)
 
 ```text
 implementation_lane: fast | untrusted
 ```
 
-- **`fast` (default)** — Lane A: Grok owns feature-branch progress in a host-created worktree;
-  host launches once, gates between batches, final readiness stays smart-host-owned.
-- **`untrusted`** — Lane B: exclusive writer lease, detached commits, host audit/import only.
+- **`fast`** — external implementer (e.g. Grok) owns feature-branch progress in a host-created
+  worktree; host launches once, gates between batches, final readiness stays host-owned.
+- **`untrusted`** — exclusive writer lease, detached commits, host audit/import only (advanced).
+
+Omit `implementation_lane` entirely for host-native runs.
 
 ## Operator CLI
 
@@ -39,7 +47,7 @@ python3 scripts/cobbler_agents.py implement status
 Runtime metadata lives under `.elves/runtime/implement/` (mode `0700` dirs). Network is not required
 for `prepare` / `status` / argv emission.
 
-## Launch invariants (Lane A)
+## Launch invariants (external Grok implementer)
 
 | Setting | Value | Why |
 |---------|-------|-----|
@@ -145,7 +153,7 @@ Minimum fields:
 `implement gate` may read the done report when present and **warn** if missing (dogfood default:
 missing report is non-fatal). Host still owns merge/tag and final readiness.
 
-## What Grok may do (Lane A / Mode A1)
+## What Grok may do (when selected as implementer / Mode A1)
 
 - Edit owned product surfaces only  
 - Run focused and full tests  
@@ -158,7 +166,7 @@ missing report is non-fatal). Host still owns merge/tag and final readiness.
 - Change Survival Guide stop/merge policy unless the packet assigns it  
 - Touch credentials or secrets  
 - Review its own work as if it were independent host review  
-- Use Lane B lease commands unless the packet explicitly selects `untrusted`  
+- Use the host-import lease commands unless the packet explicitly selects `untrusted` 
 
 ## Host after handoff
 

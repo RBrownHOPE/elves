@@ -214,8 +214,10 @@ guardrails.
 ## CouncilElves launch
 
 See [`references/councilelves-launch-prompt.md`](../references/councilelves-launch-prompt.md) for the
-plan→implement→review loop overview (two lanes: `implementation_lane: fast | untrusted`). For the
-default “have Grok run it” path, use
+plan→implement→review loop overview. **Default is host-native** (Claude Code or Codex implements
+itself). Optional external implementers and the host-import writer lease are capability upgrades
+when those tools exist — same pattern as math optional providers. When using an external
+implementer, see
 [`references/grok-implementer-launch-prompt.md`](../references/grok-implementer-launch-prompt.md) and
 `python3 scripts/cobbler_agents.py implement …`. Design:
 [`docs/plans/smart-plan-grok-implement.md`](plans/smart-plan-grok-implement.md).

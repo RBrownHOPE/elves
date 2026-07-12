@@ -4,14 +4,22 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Docs: native-first implement framing
+
+- Clarified that **vanilla Cobbler is host-native** (Claude Code or Codex out of the box). Grok
+  Build, multi-provider plan/review, and the stricter host-import writer lease are **optional
+  upgrades** when those tools exist — same pattern as the math module’s optional providers.
+- Kept operator CLIs (`implement …`, `worker …`) and `implementation_lane: fast | untrusted` as
+  opt-in surfaces; they are not the default overnight path.
+
 ## [1.20.2] - 2026-07-12
 
-### Lane A fast implementer
+### Optional external batch implementer
 
-- Documented `implementation_lane: fast | untrusted` on skill surfaces (`SKILL.md`, `AGENTS.md`) with
-  Lane A as the default “have Grok run it” path.
+- Documented optional `implementation_lane: fast | untrusted` on skill surfaces (`SKILL.md`,
+  `AGENTS.md`) for when an external implement CLI (e.g. Grok Build) is available.
 - Operator CLI: `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
-- Launch recipe: `references/grok-implementer-launch-prompt.md`. Untrusted `worker` lease remains
+- Launch recipe: `references/grok-implementer-launch-prompt.md`. Host-import `worker` lease remains
   advanced and is not the default overnight path.
 
 ## [1.20.1] - 2026-07-12

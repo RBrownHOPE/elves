@@ -1648,47 +1648,58 @@ FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS = {
     for label in FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES
 }
 
-# Implementation lanes (Lane A fast implementer + Lane B untrusted worker).
+# Who implements: host-native default + optional external implementer / host-import writer.
 IMPLEMENTATION_LANES_PHRASES = {
     "SKILL.md": [
-        "### Implementation lanes",
+        "### Who implements (native default, optional extras)",
+        "Default: host-native only",
+        "Vanilla Cobbler uses whatever host is running the skill",
+        "same pattern as the math module",
         "implementation_lane: fast | untrusted",
-        "default for “have Grok run it”",
         "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
         "references/grok-implementer-launch-prompt.md",
-        "not** use as the default overnight path",
+        "the default overnight path",
         "cobbler_agents.py worker",
         "Do not invent top-level Codex slash commands",
     ],
     "AGENTS.md": [
-        "### Implementation lanes",
+        "### Who implements (native default, optional extras)",
+        "Default: host-native only",
+        "Vanilla Cobbler uses whatever host is running the skill",
+        "same pattern as the math module",
         "implementation_lane: fast | untrusted",
-        "default for “have Grok run it”",
         "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
         "references/grok-implementer-launch-prompt.md",
-        "not** use as the default overnight path",
+        "the default overnight path",
         "cobbler_agents.py worker",
         "Do not invent top-level Codex slash commands",
     ],
     "README.md": [
+        "by default the **host agent**",
         "implementation_lane: fast",
         "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
         "grok-implementer-launch-prompt.md",
         "not the default overnight path",
     ],
     "CHANGELOG.md": [
-        "### Lane A fast implementer",
+        "### Optional external batch implementer",
         "implementation_lane: fast | untrusted",
         "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
         "references/grok-implementer-launch-prompt.md",
         "not the default overnight path",
+        "### Docs: native-first implement framing",
+        "vanilla Cobbler is host-native",
     ],
     "references/grok-implementer-launch-prompt.md": [
+        "This is not the Elves default",
         "implementation_lane: fast | untrusted",
         "cobbler_agents.py implement prepare",
-        "not** use Lane B as the default overnight path",
+        "not** use that lease path as the default",
+        "Omit `implementation_lane` entirely for host-native runs",
     ],
     "references/councilelves-launch-prompt.md": [
+        "Vanilla path",
+        "Claude Code or Codex out of the box",
         "implementation_lane: fast | untrusted",
         "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
         "not** use the untrusted lease path as the default overnight",

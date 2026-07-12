@@ -210,19 +210,29 @@ never blocks an ordinary run. Treat `required: true` as valid only when the user
 the project survival guide; never infer it from provider config, Quick Cobbler, or legacy Council
 aliases.
 
-### Implementation lanes
+### Who implements (native default, optional extras)
 
-When routing implement work, record `implementation_lane: fast | untrusted` in the Survival Guide
-(and optionally `.elves-session.json`):
+**Default: host-native only.** Vanilla Cobbler uses whatever host is running the skill — Claude Code
+or Codex out of the box. The host plans, implements, validates, and reviews with its own tools and
+native subagents (or direct analysis when subagents are unavailable). No Grok Build, OpenRouter,
+Sakana, multi-provider council, or external implement CLI is required. Missing optional tools never
+block an ordinary overnight run.
 
-- **`fast` (default for “have Grok run it”)** — Lane A: smart host stages plan/PR/worktree and one
-  batch packet; a persistent Grok Build session implements the whole batch with feature-branch
-  progress commits; host gates between batches. Operator CLI:
+**Optional upgrades (same pattern as the math module):** if the capability scan finds extra tools
+or keys the user already has, Cobbler may use them for additional benefit. They are role routes and
+operator helpers, not a second product:
+
+- **Extra models for planning / review / council** — configured provider routes or other CLIs when
+  present; fall back to native and note the fallback.
+- **External batch implementer (e.g. Grok Build)** — only when the user has that CLI and wants it.
+  Record `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
+  `.elves-session.json`). Operator CLI:
   `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
   Launch recipe: `references/grok-implementer-launch-prompt.md`.
-- **`untrusted` (advanced)** — Lane B: exclusive `worker` lease, detached commits, host audit/import
-  only. Do **not** use as the default overnight path. CLI:
-  `python3 scripts/cobbler_agents.py worker …`. See `references/councilelves-launch-prompt.md`.
+- **Stricter host-import writer** — advanced lease path for proving a hard writer boundary
+  (`implementation_lane: untrusted`). Detached commits, host audit/import only. Do **not** use as
+  the default overnight path. CLI: `python3 scripts/cobbler_agents.py worker …`. See
+  `references/councilelves-launch-prompt.md`.
 
 Host honesty: Claude Code may use managed slash aliases for setup; Codex uses `$elves` / natural
 language. Do not invent top-level Codex slash commands for implement or setup.
