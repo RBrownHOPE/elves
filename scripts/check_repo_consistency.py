@@ -1084,6 +1084,24 @@ CLAUDE_ALIAS_SKILL_PHRASES = {
         "Next move",
         "must not require OpenRouter",
     ],
+    "aliases/claude/setup-cobbler/SKILL.md": [
+        CLAUDE_ALIAS_MARKER,
+        "name: setup-cobbler",
+        "/setup-cobbler",
+        "cobbler_agents.py setup",
+        "Never stage",
+        ".elves/models.toml",
+        "must not require OpenRouter",
+    ],
+    "aliases/claude/setup-council/SKILL.md": [
+        CLAUDE_ALIAS_MARKER,
+        "name: setup-council",
+        "/setup-council",
+        "cobbler_agents.py setup",
+        "compatibility",
+        "must not require OpenRouter",
+        "Never stage",
+    ],
     "aliases/claude/council/SKILL.md": [
         CLAUDE_ALIAS_MARKER,
         "name: council",
@@ -1628,6 +1646,63 @@ FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS = {
         r"(?<!do not )\bmake\s+implementation\s+provider-backed\s+by\s+default\b",
     ]
     for label in FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES
+}
+
+# External-agent setup (v1.20.0 Batch 5).
+SETUP_COBBLER_PHRASES = {
+    "SKILL.md": [
+        "### External-agent setup",
+        "/setup-cobbler",
+        "/setup-council",
+        "$elves setup-cobbler",
+        "$elves setup-council",
+        "not a top-level",
+        "cobbler_agents.py setup",
+        ".elves/models.toml",
+        "references/cobbler-setup-recipes.md",
+        "Setup is not required for native-only Elves",
+    ],
+    "AGENTS.md": [
+        "### External-agent setup",
+        "/setup-cobbler",
+        "/setup-council",
+        "$elves setup-cobbler",
+        "$elves setup-council",
+        "not a top-level",
+        "cobbler_agents.py setup",
+        ".elves/models.toml",
+        "references/cobbler-setup-recipes.md",
+        "Setup is not required for native-only Elves",
+    ],
+    "README.md": [
+        "/setup-cobbler",
+        "/setup-council",
+        "$elves setup-cobbler",
+        "$elves setup-council",
+        "cobbler-setup-recipes.md",
+        ".elves/models.toml",
+    ],
+    "docs/cobbler.md": [
+        "/setup-cobbler",
+        "/setup-council",
+        "$elves setup-cobbler",
+        "$elves setup-council",
+        "External-agent setup",
+        "cobbler-setup-recipes.md",
+        "Never stage",
+    ],
+    "references/cobbler-setup-recipes.md": [
+        "/setup-cobbler",
+        "/setup-council",
+        "$elves setup-cobbler",
+        "verified",
+        "experimental",
+        "custom",
+        "OPENROUTER_API_KEY",
+        "native-only",
+        "remaining_quota",
+        "Never stage",
+    ],
 }
 
 # Coordinator-to-implementer handoff + git-history-as-operator-UI standards (v1.20.0 Batch 1).
@@ -2249,6 +2324,15 @@ def main() -> int:
             full_run_routing_texts,
             FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS,
             "full-run model routing",
+        )
+    )
+
+    setup_texts = {label: read_text(REPO_ROOT / label) for label in SETUP_COBBLER_PHRASES}
+    errors.extend(
+        find_missing_phrases(
+            setup_texts,
+            SETUP_COBBLER_PHRASES,
+            "setup cobbler",
         )
     )
 
