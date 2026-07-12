@@ -324,8 +324,12 @@ adapter = "claude-code"
 executable = "claude"
 requested_model = "claude-opus-user-pin"
 
-[roles.review]
+[roles.planning]
 profile = "claude-code-planning"
+required = false
+
+[roles.review]
+profile = "host-native"
 required = true
 """.lstrip(),
                 encoding="utf-8",

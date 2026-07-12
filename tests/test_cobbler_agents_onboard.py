@@ -263,7 +263,7 @@ profile = "claude-code-planning"
 required = false
 
 [roles.review]
-profile = "claude-code-planning"
+profile = "host-native"
 required = true
 """.lstrip(),
                 encoding="utf-8",
