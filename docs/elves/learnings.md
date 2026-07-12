@@ -28,7 +28,8 @@ silently deleting it.
 - [2026-07-12] Git history is an operator-facing progress surface. The host should promptly commit
   and push meaningful, reviewable slices within each batch using branch/batch/phase/outcome subjects;
   avoid vague giant dumps and noisy micro-commits, reserve `Close` for acceptance-backed completion,
-  and never delegate commit/push ownership to an external implementation worker.
+  and never delegate branch/ref/push ownership to an external implementation worker. A qualified
+  worker may use detached commits as audited internal handoff boundaries.
 - [2026-07-08] Batch `status: complete` must carry plan Acceptance proof in session JSON
   (`acceptance: [{criterion, met, evidence}]`). Green CI alone is not landable. Structure/regex
   characterization tests may lock god-file splits but must not alone complete them unless the plan
@@ -81,9 +82,11 @@ silently deleting it.
 - [2026-07-12] Native-only Cobbler remains the zero-config default. External Claude/Grok/Sakana,
   OpenRouter, API-only models, and future custom tools are optional role routes; only an explicit
   project Survival Guide may make one required.
-- [2026-07-12] External implementation is an untrusted-patch workflow: one detached writer lease,
-  no worker commit/push/PR/run-memory ownership, pre/post HEAD+ref+path audit, and host-only import,
-  validation, commit, and push. The implementer is excluded from independent review quorum.
+- [2026-07-12] External implementation is an untrusted detached-commit/patch workflow: one writer
+  lease, optional direct-descendant commits only when the exact session+sandbox capability is
+  qualified, no worker ref/push/PR/run-memory ownership, full chain+ref+remote+config+hook+path audit,
+  and host-only binary-patch import, validation, branch commit, and push. The implementer is excluded
+  from independent review quorum.
 - [2026-04-11] Elves is intentionally lightweight. Borrow architectural ideas from richer systems,
   but avoid pulling in hydration, skeleton generation, or opaque automation unless the repo
   genuinely needs them.
@@ -96,6 +99,11 @@ silently deleting it.
   checkout. Interactive worktree resume creates a discoverable child session with the full parent
   transcript. Verify actual CWD, registered detached worktree, parent/child identity, and HEAD; never
   treat the flag itself or an unchanged requested session ID as isolation proof.
+- [2026-07-12] A Grok sandbox profile is fixed at session startup and cannot be changed by resume or
+  fork. In a linked worktree, `workspace` may allow source edits while denying the shared Git
+  `index.lock` outside the CWD; edit capability therefore does not imply commit capability. Start a
+  separately qualified commit-capable session before implementation, seed it from canonical run
+  memory, constrain Git to detached commits, and audit all shared-repo state afterward.
 - [2026-07-12] Narrow Grok `--tools` allowlists can remove terminal background-support tools and
   make agent construction fail. Treat a harness toolset as a behaviorally qualified bundle rather
   than composing individual advertised capabilities ad hoc.

@@ -3,7 +3,7 @@
   "session_id": "elves-external-agent-orchestration-20260712",
   "status": "staging",
   "created_at": "2026-07-12T12:39:00Z",
-  "updated_at": "2026-07-12T13:07:08Z",
+  "updated_at": "2026-07-12T13:51:00Z",
   "run_mode": "finite",
   "execution_budget_hours": 8,
   "checkpoint": {
@@ -12,20 +12,21 @@
     "may_continue_after": true
   },
   "repository": {
-    "path": "/Users/john/aigora/dev/elves-external-agent-orchestration",
-    "source_repository": "/Users/john/aigora/dev/elves",
+    "path": ".",
+    "source_repository": "../elves",
     "default_branch": "main",
     "branch": "codex/external-agent-orchestration",
     "base_ref": "origin/main",
     "start_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
-    "owned_worktree": "/Users/john/aigora/dev/elves-external-agent-orchestration",
-    "pr_number": null,
-    "pr_url": null,
+    "owned_worktree": ".",
+    "path_resolution": "repository-relative locators resolve from the directory containing this file; ${HOME} expands before canonicalization and git-worktree verification",
+    "pr_number": 59,
+    "pr_url": "https://github.com/aigorahub/elves/pull/59",
     "pr_draft": true,
     "merge_policy": "user-merges"
   },
   "plan_path": "docs/plans/v1.20.0-cobbler-external-agent-orchestration.md",
-  "plan_sha256": "f13c2362d1acc0057cf9e78661afd69689a51277c6e68f258529a86bcbbeb310",
+  "plan_sha256": "27a400cff4f1a12de8ae75b59167a6921df1287910e21d93fb1ade5bad357309",
   "survival_guide_path": "docs/elves/external-agent-orchestration-survival-guide.md",
   "learnings_path": "docs/elves/learnings.md",
   "execution_log_path": "docs/elves/external-agent-orchestration-execution-log.md",
@@ -65,8 +66,18 @@
       "push_meaningful_slices_during_batch": true,
       "subject_schema": "[branch · Batch N/total · Contract|Implement|Validate|Review|Close] concrete outcome",
       "forbid_vague_subjects": true,
-      "external_worker_may_commit_or_push": false,
+      "external_worker_may_commit_detached_when_qualified": true,
+      "external_worker_may_create_refs_or_push": false,
+      "detached_commit_target_per_substantial_batch": [
+        2,
+        5
+      ],
       "close_requires_acceptance_evidence": true
+    },
+    "model_cost_split": {
+      "supervisor": "codex:gpt-5.6-sol with ultra effort",
+      "lightweight_review": "ephemeral codex:gpt-5.6-luna with low effort and read-only sandbox",
+      "git_pr_operations": "deterministic host shell; no model invocation"
     }
   },
   "configuration_ownership": {
@@ -84,12 +95,12 @@
     "start_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
     "allowed_head_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
     "remote_ref": "origin/codex/external-agent-orchestration",
-    "expected_remote_tip": null,
-    "last_pushed_tip": null,
+    "expected_remote_tip": "1baf3ae4e94b0ac61b2c5e6d546c0c14f63613cc",
+    "last_pushed_tip": "1baf3ae4e94b0ac61b2c5e6d546c0c14f63613cc",
     "external_writer_enforcement": "manual host audit until the mechanical lease guard ships in Batch 4"
   },
   "test_baseline": {
-    "command": "python3 -m unittest discover -s tests -v",
+    "command": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
     "total": 170,
     "passed": 170,
     "failed": 0,
@@ -110,7 +121,12 @@
       "grok_exact_child_resume": "pass",
       "grok_allowed_write": "pass",
       "grok_commit_deny": "pass",
+      "grok_workspace_linked_worktree_commit": "expected_fail_index_lock_outside_writable_cwd",
+      "grok_devbox_successor_context_seed": "pass",
+      "grok_devbox_successor_detached_commit": "pass",
+      "grok_detached_chain_ref_remote_config_hook_audit": "pass",
       "grok_run_memory_edit_deny": "pass",
+      "codex_luna_low_read_only_utility_review": "pass",
       "host_head_ref_path_audit": "pass",
       "fable_independent_review": "pass",
       "fugu_ultra_independent_review": "pass"
@@ -119,6 +135,7 @@
       "Grok Build 0.2.93 headless --worktree with --resume silently retained the source checkout.",
       "A narrow Grok tools list can remove terminal background-support tools and fail agent construction.",
       "Grok CLI dontAsk is not a sufficient hard boundary by itself.",
+      "A Grok session sandbox is immutable across resume/fork; workspace edit capability does not imply linked-worktree commit capability.",
       "Grok child-process network restriction is a no-op on macOS.",
       "Fugu may emit unrelated inherited MCP OAuth warnings while Sakana inference succeeds."
     ]
@@ -156,6 +173,85 @@
     ],
     "strongest_dissent": "Batch 4 must mechanically enforce and audit the writer lease; prompt policy or unchanged HEAD is insufficient."
   },
+  "detached_commit_qualification": {
+    "status": "pass",
+    "canary": "GROK-DETACHED-COMMIT-20260712-A",
+    "completed_at": "2026-07-12T13:28:20Z",
+    "review_lanes": [
+      "claude-fable-5",
+      "grok-4.5 planning parent",
+      "fugu-ultra"
+    ],
+    "qualification_child": {
+      "session_id": "019f5644-93d5-7a02-827d-caa8b30a2825",
+      "sandbox_profile": "workspace",
+      "result": "edit passed; linked-worktree git add failed safely because shared index.lock was outside writable CWD; resume/fork profile change rejected"
+    },
+    "implementation_successor": {
+      "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
+      "actual_model": "grok-4.5",
+      "sandbox_profile": "devbox",
+      "context_seed": "complete staged Survival Guide, session JSON, plan, and execution log",
+      "canary_commit": "2bf4937ff1737de4d007a54be86c1a0e36cc8bc5",
+      "canary_parent": "74c52d88868e39a9d4c5cca6dee46919011d2127",
+      "canary_imported": false,
+      "post_cleanup_head": "74c52d88868e39a9d4c5cca6dee46919011d2127",
+      "post_cleanup_state": "clean_detached"
+    },
+    "audit": {
+      "source_unchanged_clean": true,
+      "owned_branch_unchanged": true,
+      "worker_only_expected_regular_file": true,
+      "refs_sha256": "0f215bf415fcdb7c4222f5909bbc156e8bf327c74754e53a0227ec0176d90e1a",
+      "remote_heads_tags_sha256": "5249b7af22d79f9979ee1b542c02149d5eb798e009267bc559ceaf994f424ce1",
+      "shared_config_sha256": "f1ceca447a7bb8e9d7b4217a5b6c164ab6af7099c4d58001efe30a78cbd46455",
+      "hooks_sha256": "869f208cd3158287f078a6adfae73e6b08f5abafa363a85932457e5a5a09af18"
+    },
+    "integration_policy": "export and audit per-commit binary patches; apply with no-commit check; host creates sanitized branch commits recording worker SHAs; never bare cherry-pick"
+  },
+  "final_routing_review": {
+    "canary": "FINAL-ROUTING-REVIEW-20260712-J",
+    "status": "pending_closure_after_staging_metadata",
+    "started_at": "2026-07-12T13:43:00Z",
+    "lanes": [
+      {
+        "harness": "claude-code",
+        "actual_model": "claude-fable-5",
+        "session_id": "02bb9552-fbbd-423f-abbe-acbaa580c918",
+        "verdict": "pass",
+        "observed_usage": {
+          "input_tokens": 7,
+          "cache_creation_input_tokens": 194473,
+          "cache_read_input_tokens": 608749,
+          "output_tokens": 3694,
+          "reported_cost_usd": 4.682979
+        }
+      },
+      {
+        "harness": "codex-fugu",
+        "requested_model": "fugu-ultra",
+        "actual_model": "fugu-ultra",
+        "session_id": "019f5627-e61e-72a3-af3f-ae6e51a348b5",
+        "verdict": "fail_pending_mechanical_staging_closure",
+        "initial_invocation_error": "model_provider override omitted; Codex attempted ChatGPT routing and inference did not start",
+        "corrected_invocation": "model_provider=sakana",
+        "findings": [
+          "stale plan hash",
+          "PR metadata not recorded",
+          "preflight, final worker alignment, and launch prompt still pending"
+        ],
+        "observed_usage": {
+          "input_tokens": 8089503,
+          "cached_input_tokens": 7261441,
+          "output_tokens": 49139,
+          "reasoning_output_tokens": 17030,
+          "remaining_quota": "unknown"
+        }
+      }
+    ],
+    "architecture_blockers": [],
+    "next_action": "Complete deterministic validation, metadata, worker alignment, push, then obtain exact-session Fugu closure verdict."
+  },
   "external_sessions": {
     "claude_fable": {
       "harness": "claude-code",
@@ -183,7 +279,7 @@
       "status": "qualified_idle",
       "remaining_quota": "unknown"
     },
-    "grok_child": {
+    "grok_qualification_child": {
       "harness": "grok-build",
       "cli_version": "0.2.93",
       "requested_model": "grok-4.5",
@@ -191,11 +287,34 @@
       "session_id": "019f5644-93d5-7a02-827d-caa8b30a2825",
       "parent_session_id": "159e611b-6c48-4376-8695-5134b9803b7e",
       "worktree_id": "2026-07-12-e8fa7ada-e1507717b9a587a4",
-      "worktree_path": "/Users/john/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada",
+      "worktree_path": "${HOME}/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada",
       "worktree_head": "74c52d88868e39a9d4c5cca6dee46919011d2127",
       "worktree_state": "clean_detached",
       "roles": [
-        "implementation"
+        "qualification_provenance"
+      ],
+      "sandbox_profile": "workspace",
+      "commit_capability": "unqualified: linked-worktree index.lock denied",
+      "status": "provenance_idle_not_writer",
+      "remaining_quota": "unknown"
+    },
+    "grok_implementation_successor": {
+      "harness": "grok-build",
+      "cli_version": "0.2.93",
+      "requested_model": "grok-4.5",
+      "actual_model": "grok-4.5",
+      "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
+      "context_predecessor_session_id": "019f5644-93d5-7a02-827d-caa8b30a2825",
+      "parent_session_id": null,
+      "worktree_id": "2026-07-12-e8fa7ada-e1507717b9a587a4",
+      "worktree_path": "${HOME}/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada",
+      "worktree_head": "74c52d88868e39a9d4c5cca6dee46919011d2127",
+      "worktree_state": "clean_detached",
+      "sandbox_profile": "devbox",
+      "roles": [
+        "implementation",
+        "remediation",
+        "detached_commit_handoff"
       ],
       "status": "qualified_idle",
       "remaining_quota": "unknown"
@@ -218,6 +337,21 @@
   },
   "model_routes": [
     {
+      "phase": "supervise",
+      "requested_route": "codex:gpt-5.6-sol with ultra reasoning",
+      "actual_route": "current host thread",
+      "responsibilities": [
+        "contracts",
+        "risk",
+        "disputed_findings",
+        "acceptance",
+        "synthesis",
+        "canonical_run_memory"
+      ],
+      "required": true,
+      "fallback_reason": null
+    },
+    {
       "phase": "planning",
       "requested_route": "parallel host + Fable + Grok parent + Fugu Ultra",
       "actual_route": "qualified; execution pending launch",
@@ -226,8 +360,14 @@
     },
     {
       "phase": "implement",
-      "requested_route": "exact grok-build:grok-4.5 child 019f5644-93d5-7a02-827d-caa8b30a2825 for every product implementation and remediation slice",
-      "actual_route": "qualified; execution pending launch",
+      "requested_route": "exact grok-build:grok-4.5 successor 9927883a-0203-42e1-a3e4-710a02096d46 for every product implementation and remediation slice",
+      "actual_route": "qualified devbox successor with detached-commit canary; execution pending launch",
+      "context_predecessor": "019f5644-93d5-7a02-827d-caa8b30a2825",
+      "delegation_unit": "one substantial complete batch per turn",
+      "target_detached_commits_per_batch": [
+        2,
+        5
+      ],
       "required": true,
       "fallback_chain": [
         "claude-code:opus",
@@ -238,9 +378,26 @@
       "fallback_reason": null
     },
     {
+      "phase": "lightweight_review",
+      "requested_route": "ephemeral codex:gpt-5.6-luna with low reasoning and read-only sandbox",
+      "actual_route": "capability qualified by exact-response canary; full staging review retry blocked by current account usage limit until 2026-07-12 11:16 EDT",
+      "scope": [
+        "routine_diff_sanity",
+        "commit_subject",
+        "low_risk_invariant"
+      ],
+      "may_write": false,
+      "may_close_high_risk_review": false,
+      "required": false,
+      "fallback_chain": [
+        "host-supervisor"
+      ],
+      "fallback_reason": "dynamic availability fallback to host supervisor while Codex child quota is exhausted"
+    },
+    {
       "phase": "validate",
-      "requested_route": "host-coordinator",
-      "actual_route": "host-coordinator",
+      "requested_route": "deterministic host shell",
+      "actual_route": "deterministic host shell",
       "required": true,
       "fallback_reason": null
     },
@@ -255,8 +412,15 @@
     },
     {
       "phase": "synthesize_and_document",
-      "requested_route": "host-coordinator",
-      "actual_route": "host-coordinator",
+      "requested_route": "codex:gpt-5.6-sol with ultra reasoning",
+      "actual_route": "current host thread",
+      "required": true,
+      "fallback_reason": null
+    },
+    {
+      "phase": "git_pr_operations",
+      "requested_route": "deterministic host shell; no model",
+      "actual_route": "deterministic host shell; no model",
       "required": true,
       "fallback_reason": null
     }
@@ -265,12 +429,51 @@
     "status": "qualified_idle",
     "active_lease": null,
     "maximum_concurrent_leases": 1,
-    "worker_may_commit": false,
+    "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
+    "sandbox_profile": "devbox",
+    "delegation_unit": "one substantial complete batch per turn",
+    "worker_may_commit_detached": true,
+    "target_detached_commits_per_batch": [
+      2,
+      5
+    ],
+    "worker_may_create_or_move_refs": false,
     "worker_may_push": false,
     "worker_may_edit_run_memory": false,
     "worker_may_join_independent_review": false,
     "integration_owner": "host-coordinator",
-    "next_action": "Align clean detached child worktree to the final staged tip under host control after staging commits are complete."
+    "integration_method": "audit per-commit binary patches; no bare cherry-pick; host creates sanitized branch commits recording worker SHAs",
+    "next_action": "Align clean detached successor worktree to the final staged tip under host control after staging commits are complete."
+  },
+  "staging_preflight": {
+    "status": "pass",
+    "captured_at": "2026-07-12T13:50:30Z",
+    "collision_tripwire": "1baf3ae4e94b0ac61b2c5e6d546c0c14f63613cc",
+    "noninteractive_environment": "pass",
+    "git_remote_auth_dry_run": "pass",
+    "workspace_ownership": "pass",
+    "plan_and_survival_guide": "pass",
+    "validation": {
+      "repo_consistency": "pass",
+      "tests": "170 passed, 0 failed, 0 skipped",
+      "compileall": "pass",
+      "shell_syntax": "pass",
+      "json_and_duplicate_keys": "pass",
+      "survival_guide": "pass",
+      "release_checklist": "pass with expected unreleased-plan warning",
+      "plan_hash": "pass",
+      "whitespace": "pass",
+      "credential_scan": "pass"
+    },
+    "expected_warning": "No package-manager project marker; repository is a script/docs skill with GitHub Actions."
+  },
+  "launch_prompt": {
+    "prepared": true,
+    "surfaces": [
+      "docs/elves/external-agent-orchestration-survival-guide.md#fresh-call-launch-prompt",
+      "docs/elves/external-agent-orchestration-execution-log.md#launch-prompt"
+    ],
+    "execution_must_start_in_fresh_user_call": true
   },
   "api_surface_snapshot": {
     "enabled": "auto",
@@ -341,7 +544,32 @@
       "acceptance": []
     }
   ],
-  "review_comments": [],
+  "review_comments": [
+    {
+      "id": 3566349251,
+      "surface": "Survival Guide typecheck gate",
+      "status": "addressed_pending_push",
+      "resolution": "use python3 -m compileall -q scripts tests without shell glob expansion"
+    },
+    {
+      "id": 3566349254,
+      "surface": ".elves-session.json repository paths",
+      "status": "addressed_pending_push",
+      "resolution": "use repository-relative locators plus explicit canonicalization policy"
+    },
+    {
+      "id": 3566349255,
+      "surface": ".elves-session.json owned worktree",
+      "status": "addressed_pending_push",
+      "resolution": "use dot relative to the session-file repository root"
+    },
+    {
+      "id": 3566349260,
+      "surface": ".elves-session.json Grok worktree",
+      "status": "addressed_pending_push",
+      "resolution": "use ${HOME} locator then canonicalize and verify git worktree registration"
+    }
+  ],
   "active_compute": [],
   "continuation_guard": {
     "remaining_batches": 6,

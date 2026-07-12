@@ -5,18 +5,42 @@ control in the Survival Guide; promote stable lessons to `docs/elves/learnings.m
 
 ## Run Digest
 
-- **Last updated:** 2026-07-12 08:39 EDT
+- **Last updated:** 2026-07-12 09:29 EDT
 - **Current phase:** Staging
 - **Active batch:** Batch 0: qualification and run scaffolding
 - **Last completed batch:** none; implementation has not started
 - **Next exact batch:** Batch 1: Contracts, configuration, and implementer clarity
-- **Active PR:** not created yet
+- **Active PR:** draft PR #59, `https://github.com/aigorahub/elves/pull/59`
 - **Docs promoted this run:** qualification lessons added to `docs/elves/learnings.md`
 - **Latest Elves Report:** not generated
 
+## Final Routing Review: 2026-07-12 09:49 EDT
+
+Canary `FINAL-ROUTING-REVIEW-20260712-J` sent the same five complete staged documents to persistent
+Fable and Fugu read-only lanes. Fable (`claude-fable-5`, exact session
+`02bb9552-fbbd-423f-abbe-acbaa580c918`) returned PASS with no blocker. It preserved the dissent that
+manual host audits remain the safety boundary until Batch 4 ships mechanical enforcement and noted
+that shared Codex quota can remove the optional Luna lane mid-run.
+
+The first Fugu resume failed before inference because the command omitted `model_provider=sakana`;
+Codex tried to route `fugu-ultra` as a ChatGPT model. The corrected exact-session retry used the
+Sakana provider, reported actual `fugu-ultra` and session
+`019f5627-e61e-72a3-af3f-ae6e51a348b5`, and agreed the routing/ownership design is coherent. Its FAIL
+listed only three staging-close facts still pending at review time: refresh the plan digest, record
+draft PR #59 in structured/live memory, and complete preflight + final Grok alignment + launch prompt.
+The plan digest and PR metadata are now corrected; deterministic validation/alignment/launch closure
+will be completed before asking the same Fugu session for a no-tools closure verdict.
+
+Observed usage is recorded in `.elves-session.json`. Fable reported 3,694 output tokens and $4.682979;
+Fugu reported 8,089,503 input tokens (7,261,441 cached), 49,139 output tokens, and 17,030 reasoning
+tokens. Remaining subscription quota is still unknown; do not infer scarcity or abundance from those
+figures.
+
+---
+
 ## Batch 1 Contract: prepared during staging on 2026-07-12
 
-This contract is deliberately detailed for the persistent Grok implementation child. The host must
+This contract is deliberately detailed for the persistent Grok implementation successor. The host must
 re-read current source and update only facts that changed before issuing the worker lease; it must not
 reduce the contract to a short chat prompt.
 
@@ -24,6 +48,8 @@ reduce the contract to a short chat prompt.
 
 - Define generic, validated harness/capability/role/fallback contracts without hardcoding this user's
   current model names as public defaults.
+- Include an optional lightweight-review role so a strong supervisor can delegate cheap bounded
+  read-only checks while deterministic git/PR operations remain model-free.
 - Resolve active routes from committed Survival Guide snapshot -> local ignored
   `.elves/models.toml` -> installed/user `config.json` -> native host default, preserving source
   provenance and explicit `required` semantics. Ship `references/models.toml.example` as the
@@ -33,7 +59,8 @@ reduce the contract to a short chat prompt.
 - Add the coordinator-to-implementer handoff standard to both canonical skill surfaces, relevant
   templates/reviewer guidance, consistency checks, and tests.
 - Add the git-history-as-operator-UI standard to the same canonical/template/checker surfaces: the
-  host pushes meaningful branch/batch/phase/outcome commits during a batch, and workers never commit.
+  host pushes meaningful branch/batch/phase/outcome commits during a batch; a qualified worker may
+  create only audited detached handoff commits and never owns refs/remotes/push.
 - Preserve native-only Elves, current Cobbler hierarchy, stage-then-launch behavior, and all existing
   170 tests.
 
@@ -59,15 +86,19 @@ reduce the contract to a short chat prompt.
 - **Owned product surfaces:** only files named in the host-issued worker lease for Batch 1. Product
   docs may include `SKILL.md`, `AGENTS.md`, templates, README/config, scripts, and tests when assigned.
 - **Host-only forbidden surfaces:** this plan, Survival Guide, execution log, learnings,
-  `.elves-session.json`, `.elves/**`, `.git/**`, commits, tags, pushes, PRs, or installed global skills.
+  `.elves-session.json`, `.elves/**`, direct `.git/**` edits, branches/tags/refs, pushes, PRs, or
+  installed global skills.
 - **No secrets:** examples may name environment variables; no key/token/auth value or private local
   path belongs in product config/docs/tests.
 - **No brittle implementation prescription:** use standard-library Python and current repo test
   patterns; if a planned module split is inferior after survey, report the evidence and proposed
   alternative before diverging.
-- **Commit milestone:** the host, not Grok, will audit/import each reviewable slice and use
-  `[codex/external-agent-orchestration · Batch 1/6 · <phase>] <concrete outcome>`. Grok must not run
-  git; `Close` is unavailable until every acceptance row has evidence.
+- **Commit milestone:** Grok receives one substantial Batch 1 turn and should create two to five
+  meaningful detached direct-descendant commits when the work naturally divides. The host audits
+  the complete chain, imports approved binary patches, and creates/pushes sanitized
+  `[codex/external-agent-orchestration · Batch 1/6 · <phase>] <concrete outcome>` commits recording
+  worker SHAs. Grok must not create refs or push; `Close` is unavailable until every acceptance row
+  has evidence.
 - **Likely pitfalls:** Python `tomllib` availability, TOML/JSON/Survival Guide precedence drift,
   treating ignored `.elves/models.toml` as committed team state, treating model names as
   capabilities, conflating installed/authenticated/qualified, prematurely implementing dispatch,
@@ -85,6 +116,8 @@ reduce the contract to a short chat prompt.
       `required`, unknown/invalid profiles, and no-provider native defaults.
 - [ ] The same schema maps implementation to Claude Code, Grok, or a custom harness without source
       changes.
+- [ ] The same schema maps lightweight review to a cheaper native/custom profile while leaving the
+      supervising route unchanged; commit/push execution does not dispatch any model.
 - [ ] `.elves/models.toml` parsing uses no unreviewed third-party dependency and has a clear
       unsupported-Python/fallback diagnostic if applicable.
 - [ ] Tests prove the local TOML is ignored/untracked, setup never stages it, the tracked
@@ -95,8 +128,8 @@ reduce the contract to a short chat prompt.
 - [ ] Coordinator-to-implementer handoff language appears in `SKILL.md`, `AGENTS.md`, plan/Survival
       Guide/execution-log templates, and review obligations, protected by consistency tests.
 - [ ] Those surfaces also require prompt meaningful progress commits, the branch/batch/phase/outcome
-      subject schema, external-worker git denial, and acceptance-backed `Close`; consistency tests
-      reject drift and vague example subjects.
+      subject schema, audited-detached-worker versus host-branch ownership, worker ref/push denial,
+      and acceptance-backed `Close`; consistency tests reject drift and vague example subjects.
 - [ ] Focused tests and full baseline pass; test count is at least 170 with none newly skipped.
 - [ ] Consistency, compile, shell syntax, JSON, TOML validator, sync fixture, and whitespace gates pass.
 - [ ] `.elves-session.json` receives non-empty criterion/met/evidence rows before status becomes
@@ -110,13 +143,14 @@ reduce the contract to a short chat prompt.
 
 **Phase routing:**
 
-- Requested route: persistent Grok child `019f5644-93d5-7a02-827d-caa8b30a2825` under one
-  detached writer lease
+- Requested route: persistent Grok successor `9927883a-0203-42e1-a3e4-710a02096d46` (`devbox`,
+  context predecessor `019f5644-93d5-7a02-827d-caa8b30a2825`) under one detached writer lease
 - Actual route: pending launch
 - Fallback: diagnose/repair Grok before any switch; Claude Code Opus then host are recorded fallbacks
 - Automatic implementation fallback: disabled; after three distinct failed Grok recovery attempts,
   stop for the user rather than silently switching providers
-- Validation/synthesis/docs/git: host coordinator
+- Supervision/synthesis/docs: `gpt-5.6-sol` Ultra host coordinator; routine bounded read-only checks
+  may use ephemeral `gpt-5.6-luna` low; validation/git/PR execution is deterministic host shell
 - Independent review: fresh native + Fable + Fugu, concurrent, Grok excluded; this run explicitly
   requires two successful independent reports after recovery/fallback
 
@@ -132,7 +166,77 @@ reduce the contract to a short chat prompt.
 
 ---
 
+## Grok Detached-Commit and Codex Cost Routing: 2026-07-12 09:29 EDT
+
+The user chose larger delegation units: one substantial complete batch per Grok turn, with a target
+of two to five meaningful commits when the work naturally divides. Sol Ultra remains accountable for
+the contract, high-risk/disputed review, acceptance, synthesis, and canonical run documents. A live
+Codex canary proved `gpt-5.6-luna` at low reasoning can be invoked ephemerally in a read-only sandbox
+for bounded routine checks. Git commit/push/PR plumbing remains deterministic host shell work and
+does not dispatch Sol, Luna, or any external model.
+
+A later Luna-low full-diff review attempt at 09:41 EDT reached the account's aggregate Codex usage
+limit and reported a retry time of 11:16 EDT before inference. The earlier exact-response canary still
+qualifies the invocation path, but not current availability. Lightweight review is therefore optional,
+probed before each use, and falls back to the Sol host without blocking the run.
+
+**Detached-commit council:** persistent Fable, Grok parent, and Fugu Ultra reviewed the proposal
+independently. All returned conditional PASS provided the host retained branch/remote/run-memory
+ownership, audited the entire chain plus refs/remotes/config/hooks, and imported binary patches
+rather than bare-cherry-picking worker commits. Fugu's stricter binary-patch boundary was selected.
+
+**Canary `GROK-DETACHED-COMMIT-20260712-A`:** the original implementation child
+`019f5644-93d5-7a02-827d-caa8b30a2825` proved its immutable `workspace` sandbox could edit the
+worker CWD but could not create the shared linked-worktree `index.lock`; `git add` failed with
+`Operation not permitted`. `--fork-session --sandbox devbox` also failed before inference because a
+resume/fork cannot change the originating sandbox. The host removed the uncommitted probe and left
+the source, worker, and owned checkout state otherwise unchanged.
+
+The host then created the persistent context-seeded implementation successor
+`9927883a-0203-42e1-a3e4-710a02096d46` in the same detached worktree with actual model `grok-4.5`
+and immutable `devbox` profile. It read the complete staged Survival Guide, session JSON, plan, and
+execution log before any write. Under credential-scrubbed environment overrides, `dontAsk`, exact
+write/add/commit/status/rev-parse allows, and explicit branch/tag/switch/push/remote/config/network
+denies, it created detached commit `2bf4937ff1737de4d007a54be86c1a0e36cc8bc5` with parent
+`74c52d88868e39a9d4c5cca6dee46919011d2127` and exactly one regular probe file.
+
+Independent host audit verified: clean detached status; exact parent/tree/path/content/author/message;
+source main and staging branch unchanged; and identical command-specific pre/post hashes for refs
+(`0f215bf415fcdb7c4222f5909bbc156e8bf327c74754e53a0227ec0176d90e1a`), remote heads/tags
+(`5249b7af22d79f9979ee1b542c02149d5eb798e009267bc559ceaf994f424ce1`), shared Git config
+(`f1ceca447a7bb8e9d7b4217a5b6c164ab6af7099c4d58001efe30a78cbd46455`), and hooks
+(`869f208cd3158287f078a6adfae73e6b08f5abafa363a85932457e5a5a09af18`). The host did not import
+the probe and moved the clean detached worker back to the expected base, leaving the canary dangling
+and unreachable from every ref.
+
+**Result:** qualified workers may create only direct-descendant detached commits when the exact
+session/profile/lease permits it. The host still owns refs, branch commits, push, PR, run memory,
+validation, acceptance, and synthesis. Product implementation remains unstarted; this is staging
+qualification and contract work only.
+
+---
+
+## PR Review Feedback: 2026-07-12 09:11 EDT
+
+Draft PR #59 opened and all current CodeQL, repository-consistency, and Socket checks passed. Gemini
+Code Assist left four medium-priority inline comments. The host accepted both underlying findings:
+
+- replaced committed `/Users/john/...` values with deterministic `.` / `../elves` / `${HOME}/...`
+  locators; the runtime must expand, canonicalize, and verify them against git worktree registration,
+  while fully expanded machine paths remain only in ignored runtime evidence;
+- replaced shell-expanded `python3 -m py_compile scripts/*.py tests/*.py` with
+  `python3 -m compileall -q scripts tests`, matching the plan's argv-safe/no-shell direction.
+
+These are portability fixes, not weaker safety: an unresolved or unregistered locator still blocks a
+write lease. The host will reply to all four inline comments after the fix commit is pushed and then
+re-read every review surface.
+
+---
+
 ## Implementation Route Decision: 2026-07-12 09:06 EDT
+
+**Superseded for the exact writer identity and detached-commit policy by the 09:29 EDT decision
+above; retained as chronology.**
 
 The user changed the experiment from “Grok required for the first implementation attempt” to “have
 Grok Build complete the run.” The same exact Grok child
@@ -149,6 +253,9 @@ transcripts remain ignored evidence unless the user asks for an excerpt.
 ---
 
 ## Operator Visibility Decision: 2026-07-12 08:59 EDT
+
+**Refined by the 09:29 EDT decision: host branch commits/pushes remain the operator surface, while
+the qualified successor may create audited detached handoff commits.**
 
 The user explicitly relies on GitKraken/GitHub to monitor unattended work. The host will therefore
 commit and push meaningful progress slices within each batch, not merely one opaque batch dump. The
@@ -226,7 +333,7 @@ Survival Guide validator; release checklist with unreleased work allowed; plan S
 
 **Branch:** `codex/external-agent-orchestration`
 
-**Owned worktree:** `/Users/john/aigora/dev/elves-external-agent-orchestration`
+**Owned worktree locator:** `.` relative to this run's repository root
 
 **Collision tripwire:** `74c52d88868e39a9d4c5cca6dee46919011d2127`
 
@@ -260,7 +367,7 @@ checkpoint_is_stop=false; next_required_action=finish staging and hand user the 
 - repo HEAD/origin main: `74c52d88868e39a9d4c5cca6dee46919011d2127`
 - heads+tags pre/post SHA-256:
   `191b747db719d476c6ba75aeb3fe7478154b5cca95e0de9d0564d2b0f57d2f0c`
-- baseline tests: 170 passed in 8.925s; consistency, py_compile, JSON, and diff checks passed
+- baseline tests: 170 passed in 8.925s; consistency, Python compilation, JSON, and diff checks passed
 - source checkout clean before/after
 
 **Persistent sessions and actual models:**
@@ -295,12 +402,16 @@ checkpoint_is_stop=false; next_required_action=finish staging and hand user the 
 
 ### Staging preflight status
 
-- Git remote/push/`gh` auth: previously PASS; rerun from owned worktree before readiness
-- Validation gate dry run: baseline PASS; rerun after staging docs/session state
+- Git remote/push/`gh` auth: PASS from owned worktree; branch is current with `origin/main`
+- Validation gates: PASS — consistency; 170/170 tests; recursive compile; shell; JSON plus duplicate-
+  key check; Survival Guide; release checklist with expected unreleased warning; plan hash;
+  whitespace; credential scan
 - Environment/sleep/notification: local desktop; no Slack webhook required; PR comment fallback
 - Install doctor: no advisory output at startup
-- Launch readiness: pending docs validation, commit/push, draft PR, PR/check poll, and Grok child
-  alignment to final staged tip
+- Non-interactive preflight: PASS with recommended environment exported; caffeinate and AC power PASS;
+  sole expected warning is no package-manager project marker in this script/docs repository
+- Launch readiness: draft PR #59 exists; pending final commits/push/check poll and post-commit Grok
+  successor alignment to the exact final staged tip
 
 ### Decisions made
 
@@ -334,8 +445,21 @@ checkpoint_is_stop=false; next_required_action=finish staging and hand user the 
 
 ### Launch prompt
 
-Pending final PR number, staged tip, preflight results, and readiness checklist. It will be written
-into this entry before staging closes and repeated in the final handoff.
+```text
+Start the staged Elves run now. Read the Survival Guide first, then .elves-session.json, learnings,
+the plan, execution log, and .ai-docs manifest/linked docs. Set the Stop Gate and continuation guard
+to no; export the recorded non-interactive environment; verify plan hash, PR, refs, resources, and
+both owned/worker worktrees; align the clean exact Grok successor
+9927883a-0203-42e1-a3e4-710a02096d46 to current HEAD before its lease. Stay Cobbler-first. Sol Ultra
+owns unusually detailed contracts, risk, acceptance, synthesis, and canonical run documents. Give
+Grok one whole substantial batch at a time, targeting 2–5 meaningful detached commits; stream useful
+updates, but grant no refs/push/PR/run-memory authority. Audit the complete chain and shared git state,
+import only approved binary patches, run focused/full validation, and create/push sanitized visible
+host commits recording worker SHAs. Use Luna-low only for optional bounded read-only checks after an
+availability probe. Run fresh-host, Fable, and Fugu review concurrently, exclude Grok, require quorum
+2, remediate through the same Grok successor, and repeat through all six batches. Never merge. Do not
+stop before completion unless the user stops the run or a genuine blocker survives recovery.
+```
 
 ---
 

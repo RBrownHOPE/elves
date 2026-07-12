@@ -9,13 +9,14 @@ execution log -> `.ai-docs/manifest.md` and linked docs -> `TODO.md`.
 ## Mission
 
 Build and qualify a generic external-agent runtime for Cobbler that can plan and review in parallel,
-delegate one bounded implementation task to a persistent qualified worker, audit/import its patch,
-and repeat. Ship native-only fallback, configurable roles/fallbacks, Claude/Codex parity, setup
-helpers, exact session lineage, a safe Grok writer path, and a master CouncilElves launch prompt.
+delegate one substantial implementation batch to a persistent qualified worker, audit/import its
+detached commit chain as binary patches, and repeat. Ship native-only fallback, configurable roles/
+fallbacks including cheap utility review, Claude/Codex parity, setup helpers, exact session identity,
+a safe Grok writer path, and a master CouncilElves launch prompt.
 
 The current Fable 5, Grok 4.5, and Fugu Ultra setup is the live experiment, not a hardcoded public
-default. The host coordinator owns all run memory, git, PRs, validation, acceptance, synthesis, and
-final integration.
+default. The host coordinator owns all run memory, branch refs/commits, pushes, PRs, validation,
+acceptance, synthesis, and final integration.
 
 ## Run Control
 
@@ -25,7 +26,7 @@ final integration.
   Elves run; then get Grok Build to do it as an experiment.” The user also requires the main smart
   coordinator to write detailed Elves documents for a potentially less-capable implementation agent,
   requires meaningful pushed commit history because GitKraken/GitHub are progress monitors, and now
-  requires the exact persistent Grok child to perform product implementation throughout the run.
+  requires the exact persistent Grok successor to perform product implementation throughout the run.
 - **Checkpoint due by:** none; assume an approximately 8-hour execution budget from the fresh launch
   call because no return time was specified
 - **Checkpoint semantics:** none
@@ -33,10 +34,11 @@ final integration.
 - **Actual stop conditions during execution:** all six batches complete with clean Final Readiness
   Review; explicit user stop; or a genuine blocker with no reasonable in-scope workaround
 - **Workspace ownership:** owned branch `codex/external-agent-orchestration` in dedicated worktree
-  `/Users/john/aigora/dev/elves-external-agent-orchestration`; no other agent may edit this checkout
+  `.` (the canonical directory containing this Survival Guide); no other agent may edit this checkout
 - **Branch tip at start (collision tripwire):** `74c52d88868e39a9d4c5cca6dee46919011d2127`
 - **External worker checkout:** clean detached Grok worktree
-  `/Users/john/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada`; never attach it to the owned branch;
+  `${HOME}/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada`; expand/canonicalize the locator and verify
+  it against `git worktree list --porcelain`; never attach it to the owned branch;
   align it to the current owned tip only under host control and only while clean
 - **Merge policy:** user-merges; never merge, squash, rebase, publish a release, or push a release tag
   without a later explicit opt-in
@@ -44,9 +46,14 @@ final integration.
   final response is disallowed until plan completion or a true blocker
 - **Coordination mode:** Cobbler-first; independent lenses for non-trivial planning, contract, risk,
   debugging, review, and synthesis; host owns git/docs and delegates only scoped worker edits
-- **Progress visibility rule:** the host commits and pushes each meaningful reviewable slice during a
-  batch, using `[branch · Batch N/6 · phase] concrete outcome`; external workers never commit. Avoid
-  vague or noisy commits, and reserve `Close` for acceptance-backed batch completion.
+- **Progress visibility rule:** the host creates and pushes each operator-visible branch slice using
+  `[branch · Batch N/6 · phase] concrete outcome`. The qualified Grok successor may create two to
+  five meaningful detached handoff commits per substantial batch turn; those never move refs or
+  reach the remote. Avoid vague/noisy commits and reserve `Close` for accepted batch completion.
+- **Model-cost rule:** keep `gpt-5.6-sol` Ultra as supervisor for contracts, risk, disputes,
+  acceptance, and synthesis; delegate only bounded routine read-only checks to ephemeral
+  `gpt-5.6-luna` low. Git commit/push/PR commands are deterministic host operations and invoke no
+  model.
 - **Batch completion rule:** update execution log -> update Survival Guide/session JSON -> `Close`
   commit -> push -> re-read this file. Never begin a later batch with completed work only in the
   working tree, and never hide hours of already-validated progress until batch close.
@@ -86,7 +93,7 @@ final integration.
 - **Stop allowed right now:** yes
 - **Why:** this is the explicit staging-only call; implementation must begin from a fresh launch call
 - **Next required action:** user sends the prepared launch prompt; host sets this gate to `no`, aligns
-  the clean Grok child worktree to the staged tip, and writes the Batch 1 contract
+  the clean Grok successor worktree to the staged tip, and writes the Batch 1 contract
 
 ## Effort Standard
 
@@ -125,8 +132,9 @@ contains:
 6. likely failure modes, tool/version gotchas, and recovery behavior;
 7. current HEAD, plan/run-document paths, context digest, route/model/session identity, and output
    format;
-8. the host-owned commit milestone and intended outcome-focused subject if this worker slice passes
-   audit and validation. The worker still receives no commit/push permission.
+8. the intended two-to-five detached worker commit boundaries plus the host-owned branch milestone
+   and outcome-focused subject if the batch passes audit and validation. The worker receives no
+   branch/tag/ref/push permission.
 
 The packet should not prescribe brittle line-by-line code. The worker must survey current source,
 use judgment inside the contract, and report uncertainty. Reviewers must treat an incomplete or
@@ -162,8 +170,9 @@ Promotion flow: execution log -> learnings -> `.ai-docs/*`.
 
 ## Non-Negotiables
 
-- Host owns run documents, validation, acceptance, git, PR, synthesis, and patch integration;
-  external workers never commit/push/merge/own PRs/edit run memory.
+- Host owns run documents, validation, acceptance, branch refs/commits, pushes, PR, synthesis, and
+  patch integration. The qualified external worker may create only audited detached commits under
+  its lease; it never creates/moves refs, pushes, merges, owns PRs, or edits run memory.
 - Native-only behavior remains complete; external tools/keys are optional by default, and only this
   project Survival Guide may mark a route required.
 - No credential values enter config, prompts, logs, git, or child environments; write routes fail
@@ -185,14 +194,15 @@ Promotion flow: execution log -> learnings -> `.ai-docs/*`.
 - [x] Execution log initialized with six batches and qualification evidence
 - [x] Branch created in a dedicated staging worktree
 - [x] Branch tip/collision tripwire recorded
-- [ ] Draft PR opened and recorded
-- [ ] Preflight and all baseline gates pass in the staging worktree
+- [x] Draft PR #59 opened and recorded
+- [x] Preflight and all baseline gates pass in the staging worktree; the sole expected warning is
+      that this script/docs repository has no package-manager project marker
 - [x] `.elves-session.json` validates and records Cobbler, routes, sessions, test baseline, and guard
 - [ ] Stop Gate initialized with `Stop allowed right now: no` in the fresh launch call; staging uses
       an explicit `yes` boundary so this preparation call can hand off cleanly
-- [ ] Clean Grok child worktree/session recorded and aligned to final staged tip
+- [ ] Clean Grok successor worktree/session recorded and aligned to final staged tip
 - [x] No active paid/long-running process remains ambiguous
-- [ ] Short next-call launch prompt prepared
+- [x] Short next-call launch prompt prepared below and in the execution log
 
 ## Current Phase
 
@@ -200,12 +210,14 @@ Promotion flow: execution log -> learnings -> `.ai-docs/*`.
 
 **Active batch:** Batch 0: qualification and run scaffolding
 
-**What was just finished:** All connector, host-parity, persistent-lineage, isolated-write, and
-independent-review qualification gates passed; the parallel staging council closed its two findings;
-the dedicated worktree, detailed plan, and run memory pass all baseline gates including 170 tests.
+**What was just finished:** All connector, host-parity, persistent-lineage, detached-commit, and
+independent-review qualification gates passed. Fable found no routing blocker; Fugu agreed with the
+design and identified only the mechanical staging-close fields now being resolved. Full consistency,
+170 tests, compile, shell, JSON/duplicate-key, Survival Guide, release, plan-hash, whitespace,
+credential, and preflight gates pass.
 
-**Single next action:** finish run memory, validate/stage/push Batch 0, open the draft PR, run
-preflight, align the clean Grok child worktree to the staged tip, and prepare the launch prompt.
+**Single next action:** commit/push validated Batch 0 state, answer PR comments, commit final launch
+metadata, align the clean Grok successor to that exact final tip before push, and obtain Fugu closure.
 
 ## Active Compute
 
@@ -216,7 +228,8 @@ resources only:
 | --- | --- | --- | --- | --- |
 | Fable session `02bb9552-fbbd-423f-abbe-acbaa580c918` | planning/contextual review/Claude host | idle; no process | 2026-07-12 | resume exact ID for a bounded turn; record usage afterward |
 | Grok parent `159e611b-6c48-4376-8695-5134b9803b7e` | planning lineage | idle; no process | 2026-07-12 | read-only planning only; never source-checkout writes |
-| Grok child `019f5644-93d5-7a02-827d-caa8b30a2825` | required implementation/remediation worker for all six batches | idle; clean detached worktree | 2026-07-12 | align to staged tip before launch; one lease at a time |
+| Grok qualification child `019f5644-93d5-7a02-827d-caa8b30a2825` | persistence/write-deny provenance | idle; immutable `workspace` profile; not the writer | 2026-07-12 | retain on disk; do not route writes or try to change its sandbox |
+| Grok implementation successor `9927883a-0203-42e1-a3e4-710a02096d46` | required implementation/remediation worker for all six batches | idle; `devbox`; clean detached worktree; commit canary passed | 2026-07-12 | align to staged tip before launch; one substantial batch lease at a time |
 | Fugu Ultra `019f5627-e61e-72a3-af3f-ae6e51a348b5` | planning/contextual review | idle; no process | 2026-07-12 | resume exact ID read-only; inherited MCP warnings are separate health |
 
 ## Next Exact Batch
@@ -226,10 +239,12 @@ resources only:
 **Scope:**
 
 - Host writes the complete Batch 1 contract and worker packet from the plan.
-- Grok child implements typed harness/config/capability foundations and the handoff standard only
-  inside its detached lease checkout.
-- Host audits/imports the patch, runs focused and full tests, and updates product docs/run memory.
-- Fresh native review + Fable + Fugu review in parallel; remediate through the same Grok child.
+- Grok successor implements typed harness/config/capability foundations and the handoff standard
+  inside its detached lease checkout, targeting two to five meaningful detached commits.
+- Host audits the full chain, imports approved binary patches, runs focused/full tests, and updates
+  product docs/run memory before creating and pushing sanitized branch commits.
+- Luna-low may perform bounded routine read-only checks; fresh Sol/native + Fable + Fugu review in
+  parallel closes risk, with remediation returning to the same Grok successor.
 
 **Acceptance criteria:** use every Batch 1 criterion in the plan, with non-empty evidence rows in
 `.elves-session.json`; do not close on tests alone.
@@ -260,16 +275,21 @@ After every commit and push during execution:
 - Exactly one lease, one exact session ID, one detached registered worktree, and one allowed path set.
 - The host pauses edits to leased surfaces while the worker runs.
 - Pre-turn evidence: clean status, HEAD, full refs digest/snapshot, CWD/worktree registration, model,
-  session parent/child, context digest, policy profile, environment names, and process baseline.
-- Worker may edit/test only assigned product files. It may not edit `.git`, `.elves`, this plan,
-  Survival Guide, execution log, learnings, session JSON, credentials, aliases outside scope, or
-  another worktree.
-- Post-turn evidence: process exit, status/staging, HEAD, refs, changed paths, symlinks, patch, and
-  forbidden path checks.
-- Any commit, ref change, out-of-scope path, ambiguous CWD, wrong model/session, or audit failure
-  rejects the patch and stops that lease. Do not route around a denial.
-- Host applies accepted patch to the owned branch, validates, reviews, writes run state, commits,
-  pushes, then refreshes the clean worker worktree to the new tip under host control.
+  session/predecessor, context digest, immutable sandbox profile, allowed Git commands, credential-
+  scrubbed environment names, remotes/config/hooks snapshot, and process baseline.
+- Worker may edit/test only assigned product files and, for the qualified `devbox` successor, create
+  two to five meaningful non-merge commits directly descended from the recorded detached base. It
+  may not create/move refs, push, edit `.elves` or canonical run docs, mutate config/hooks/remotes,
+  touch credentials/aliases outside scope, or touch another worktree.
+- Post-turn evidence: process exit, clean status/index, exact base-to-HEAD commit chain, every parent/
+  tree/author/message/path set, refs/remotes/config/hooks, symlinks, binary patches, and forbidden-
+  path checks.
+- An unexpected commit/parent/merge, any ref/remote/config/hook change, out-of-scope path, ambiguous
+  CWD, wrong model/session/profile, or audit failure rejects the handoff and stops that lease. Do not
+  route around a denial.
+- Host exports/audits each accepted worker boundary, applies binary patches to the owned branch with
+  a no-commit check, validates/reviews, writes run state, creates sanitized host commits recording
+  worker SHAs, pushes, then moves the clean detached worker to the new tip under host control.
 
 ## Configuration Ownership for This Run
 
@@ -295,6 +315,11 @@ model-routing:
   fallback: host-native
   document-owner: host-coordinator
   phases:
+    supervise:
+      preference: codex:gpt-5.6-sol
+      reasoning-effort: ultra
+      responsibilities: [contracts, risk, disputed-findings, acceptance, synthesis, run-memory]
+      required: true
     planning:
       preference: parallel-independent-council
       routes:
@@ -304,17 +329,29 @@ model-routing:
         - codex-fugu:fugu-ultra
       required: false
     implement:
-      preference: grok-build:grok-4.5-child
-      exact-session: 019f5644-93d5-7a02-827d-caa8b30a2825
-      worktree: /Users/john/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada
+      preference: grok-build:grok-4.5-successor
+      exact-session: 9927883a-0203-42e1-a3e4-710a02096d46
+      context-predecessor: 019f5644-93d5-7a02-827d-caa8b30a2825
+      worktree: ${HOME}/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada
+      sandbox: devbox
+      turn-size: one-substantial-batch
+      target-detached-commits: [2, 5]
       required: true
       fallback-chain:
         - claude-code:opus
         - host-coordinator
       automatic-fallback: false
       failure-policy: three-distinct-recovery-attempts-then-stop-for-user
+    lightweight_review:
+      preference: codex:gpt-5.6-luna
+      reasoning-effort: low
+      execution: ephemeral-read-only
+      availability: probe-before-use
+      scope: [routine-diff-sanity, commit-subject, low-risk-invariant]
+      fallback-chain: [host-supervisor]
+      required: false
     validate:
-      preference: host-coordinator
+      preference: deterministic-host-shell
       required: true
     review:
       preference: parallel-independent-council
@@ -323,12 +360,17 @@ model-routing:
         - claude-code:claude-fable-5
         - codex-fugu:fugu-ultra
       exclude:
-        - grok-build:grok-4.5-child
+        - grok-build:grok-4.5-successor
       required: true
       required-quorum: 2
       quorum-policy: block-below-required-after-recovery
     synthesize:
-      preference: host-coordinator
+      preference: codex:gpt-5.6-sol
+      reasoning-effort: ultra
+      required: true
+    git_operations:
+      preference: deterministic-host-shell
+      model: none
       required: true
 ```
 
@@ -340,9 +382,15 @@ default, where an advisory target quorum may degrade to host synthesis with a re
 drop. If any other required route fails after three distinct recovery attempts and no safe workaround
 exists, log the exact blocker and stop for the user.
 
+The Luna capability canary passed, but a 09:41 EDT full-review attempt hit the shared Codex account
+usage limit until 11:16 EDT. Treat availability as dynamic: probe before use and fall back to the Sol
+host without blocking or weakening review.
+
 The implementation fallback names are user-decision options only. They are not automatic routes for
-this run: every product implementation/remediation slice goes first to the exact Grok child, and a
-switch requires a later explicit user instruction.
+this run: every product implementation/remediation slice goes first to the exact Grok successor,
+and a switch requires a later explicit user instruction. The Luna route is optional and may never
+close a high-risk review or mutate the repo. Commit, push, tag, PR, and comment operations are
+ordinary host commands; do not spend Sol, Luna, or provider tokens to execute them.
 
 ## Tool Configuration
 
@@ -353,7 +401,7 @@ its absence during staging is not a preflight failure.
 
 ```yaml
 lint: python3 scripts/check_repo_consistency.py
-typecheck: python3 -m py_compile scripts/*.py tests/*.py
+typecheck: python3 -m compileall -q scripts tests
 build: bash -n scripts/preflight.sh scripts/notify.sh
 test: python3 -m unittest discover -s tests -p 'test_*.py' -v
 json: python3 -m json.tool config.json.example
@@ -400,13 +448,14 @@ CLI/config snapshots are shape evidence only and do not replace tests or review.
 - [ ] Plan criterion has direct evidence, not only a green umbrella test
 - [ ] `.elves-session.json` acceptance rows are non-empty and `met: true`
 - [ ] Focused and full gates pass; test total does not decrease
-- [ ] Worker pre/post lease audit passes and host imported the patch
+- [ ] Worker pre/post lease and detached-chain audit passes; host imported approved binary patches
 - [ ] Shared surfaces and consumers were traced
 - [ ] External route requested/actual/fallback and observed usage recorded
 - [ ] Independent review council excludes the implementer and has no blocking finding
 - [ ] PR feedback queue is read and dispositions recorded
 - [ ] Docs and durable memory are current
-- [ ] Batch closes in one commit/push; Survival Guide is re-read immediately
+- [ ] Batch has meaningful visible progress commits plus one acceptance-backed `Close` commit/push;
+      Survival Guide is re-read immediately after each
 - [ ] Rollback tag existed before implementation
 
 ## Evidence Layout
@@ -443,8 +492,26 @@ Do not commit raw transcripts or credentials. Summarize material evidence in run
 - **Execution log:** `docs/elves/external-agent-orchestration-execution-log.md`
 - **Durable docs manifest:** `.ai-docs/manifest.md`
 - **Branch:** `codex/external-agent-orchestration`
-- **PR number:** not created yet
-- **Plan SHA-256 at staging:** `f13c2362d1acc0057cf9e78661afd69689a51277c6e68f258529a86bcbbeb310`
+- **PR number:** 59 (`https://github.com/aigorahub/elves/pull/59`)
+- **Plan SHA-256 at staging:** `27a400cff4f1a12de8ae75b59167a6921df1287910e21d93fb1ade5bad357309`
+
+## Fresh-Call Launch Prompt
+
+```text
+Start the staged Elves run now. Read the Survival Guide first, then .elves-session.json, learnings,
+the plan, execution log, and .ai-docs manifest/linked docs. Set the Stop Gate and continuation guard
+to no; export the recorded non-interactive environment; verify plan hash, PR, refs, resources, and
+both owned/worker worktrees; align the clean exact Grok successor
+9927883a-0203-42e1-a3e4-710a02096d46 to current HEAD before its lease. Stay Cobbler-first. Sol Ultra
+owns unusually detailed contracts, risk, acceptance, synthesis, and canonical run documents. Give
+Grok one whole substantial batch at a time, targeting 2–5 meaningful detached commits; stream useful
+updates, but grant no refs/push/PR/run-memory authority. Audit the complete chain and shared git state,
+import only approved binary patches, run focused/full validation, and create/push sanitized visible
+host commits recording worker SHAs. Use Luna-low only for optional bounded read-only checks after an
+availability probe. Run fresh-host, Fable, and Fugu review concurrently, exclude Grok, require quorum
+2, remediate through the same Grok successor, and repeat through all six batches. Never merge. Do not
+stop before completion unless the user stops the run or a genuine blocker survives recovery.
+```
 
 ## Elves Report
 
