@@ -149,10 +149,10 @@
         "synthesis": "native-coordinator"
       },
       "external_route_examples": [
-        "openrouter:<provider/model-id>",
+        "openrouter:<model-id>",
         "meta:muse-spark-1.1"
       ],
-      "external_route_example": "openrouter:<provider/model-id>",
+      "external_route_example": "openrouter:<model-id>",
       "meta_muse_notes": "Pin muse-spark-1.1 from Meta /v1/models; accept META_API_KEY or MODEL_API_KEY; independent review lane only",
       "role_effort": {
         "architect": "high",

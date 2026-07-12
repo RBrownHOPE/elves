@@ -248,11 +248,11 @@ The pattern borrows the useful harness idea of independent role reports followed
 without importing vendor identity, policy, persona, or safety text.
 
 Optional model routing stays behind the same Cobbler interaction. The default route is the host's
-native subagents. When keys **and** project wrappers exist, opt-in independent lanes include
-OpenRouter (`OPENROUTER_API_KEY`, any `provider/model-id` via named presets) and Meta Muse Spark
-1.1 (`META_API_KEY` / `MODEL_API_KEY`, model id `muse-spark-1.1`) for planning and review — the
-same multi-lane panel pattern used in heavy math runs. Missing keys fall back to native. Weigh
-evidence, not model prestige.
+native subagents; configured role routes like `openrouter:<model-id>` are opt-in (any OpenRouter
+model via named presets when `OPENROUTER_API_KEY` exists). Meta Muse Spark 1.1 is the same kind of
+opt-in lane (`META_API_KEY` / `MODEL_API_KEY`, catalog id `muse-spark-1.1`, e.g. preset
+`meta-muse-spark11`) for planning and independent review. Missing keys fall back to native.
+Weigh evidence rather than model prestige.
 
 For full Elves runs, the Cobbler can prefer different elves for different phases. Add optional
 `model-routing` preferences during staging when implementation, validation, review, scouting, or
