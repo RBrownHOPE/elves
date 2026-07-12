@@ -151,6 +151,10 @@ class HarnessProfile:
     input_contract: str = "prompt-file"
     output_contract: str = "json-role-report"
     capabilities: tuple[str, ...] = ()
+    # Trusted qualified capability names (never self-certified from preference text).
+    qualified_capabilities: tuple[str, ...] = ()
+    # Fields explicitly present in the defining config layer (for field-wise merge).
+    provided_fields: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -160,6 +164,8 @@ class HarnessProfile:
         payload["extra_args"] = list(self.extra_args)
         payload["env_grants"] = list(self.env_grants)
         payload["capabilities"] = list(self.capabilities)
+        payload["qualified_capabilities"] = list(self.qualified_capabilities)
+        payload["provided_fields"] = list(self.provided_fields)
         return payload
 
 
@@ -234,9 +240,11 @@ class EffectiveAttempt:
     source: str = ConfigSource.NATIVE_DEFAULT.value
     session_mode: str = SessionMode.EPHEMERAL.value
     context_sharing: str = ContextSharingPolicy.INDEPENDENT.value
-    input_contract: str = "prompt-file"
-    output_contract: str = "json-role-report"
+    # Empty means "use adapter default pair" at dispatch time.
+    input_contract: str = ""
+    output_contract: str = ""
     capabilities: tuple[str, ...] = ()
+    qualified_capabilities: tuple[str, ...] = ()
     reason: str = "primary"
     notes: str = ""
 
@@ -256,6 +264,7 @@ class EffectiveAttempt:
             "input_contract": self.input_contract,
             "output_contract": self.output_contract,
             "capabilities": list(self.capabilities),
+            "qualified_capabilities": list(self.qualified_capabilities),
             "reason": self.reason,
             "notes": self.notes,
         }
@@ -358,6 +367,7 @@ def attempt_from_profile(
         input_contract=profile.input_contract,
         output_contract=profile.output_contract,
         capabilities=tuple(profile.capabilities),
+        qualified_capabilities=tuple(profile.qualified_capabilities),
         reason=reason,
         notes=profile.notes,
     )

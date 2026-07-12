@@ -179,17 +179,54 @@ def is_secret_env_name(name: str) -> bool:
     return False
 
 
-def redact_text(text: str) -> RedactionResult:
-    """Redact secret-looking values from free text; report pattern names only."""
+def redact_text(
+    text: str,
+    *,
+    exact_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+) -> RedactionResult:
+    """Redact secret-looking values and exact granted secret values from free text.
+
+    Pattern matches report pattern *names* only. Exact value redaction is required
+    because regex shape matching alone cannot cover arbitrary API token values.
+    """
     if not text:
         return RedactionResult(text="")
     redacted = text
     fired: list[str] = []
+    # Exact values first (longest first to avoid partial overlaps).
+    values = sorted(
+        {v for v in (exact_values or ()) if isinstance(v, str) and v},
+        key=len,
+        reverse=True,
+    )
+    for value in values:
+        if value and value in redacted:
+            fired.append("exact_grant")
+            redacted = redacted.replace(value, "[REDACTED:exact_grant]")
     for name, pattern in _VALUE_PATTERNS:
         if pattern.search(redacted):
             fired.append(name)
             redacted = pattern.sub(f"[REDACTED:{name}]", redacted)
-    return RedactionResult(text=redacted, redacted_patterns=tuple(fired))
+    return RedactionResult(text=redacted, redacted_patterns=tuple(dict.fromkeys(fired)))
+
+
+def redact_structure(
+    value: Any,
+    *,
+    exact_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+) -> Any:
+    """Recursively redact strings inside mappings/lists; leave non-strings intact."""
+    if isinstance(value, str):
+        return redact_text(value, exact_values=exact_values).text
+    if isinstance(value, Mapping):
+        return {
+            str(k): redact_structure(v, exact_values=exact_values) for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [redact_structure(item, exact_values=exact_values) for item in value]
+    if isinstance(value, tuple):
+        return tuple(redact_structure(item, exact_values=exact_values) for item in value)
+    return value
 
 
 def scrub_environment(
@@ -316,6 +353,47 @@ def council_artifact_root(repo_root: Path, run_id: str) -> Path:
     return Path(repo_root) / ".elves" / "runtime" / "council" / run_id
 
 
+_SAFE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}$")
+
+
+def safe_path_component(raw: str, *, field: str = "path_component") -> str:
+    """Validate a single path component; encode traversal/unsafe forms."""
+    value = (raw or "").strip()
+    if not value:
+        raise ValidationIssue(
+            "invalid_path_component",
+            f"Invalid empty {field}",
+            path=field,
+        )
+    if (
+        value in {".", ".."}
+        or "/" in value
+        or "\\" in value
+        or "\x00" in value
+        or not _SAFE_PATH_COMPONENT.match(value)
+    ):
+        # Encode unsafe names into a stable hex digest form rather than accepting them.
+        digest = __import__("hashlib").sha256(value.encode("utf-8", errors="replace")).hexdigest()[:24]
+        return f"enc_{digest}"
+    return value
+
+
+def resolve_contained_path(root: Path, *parts: str) -> Path:
+    """Join parts under root and prove the resolved path stays contained."""
+    root_resolved = Path(root).resolve()
+    safe_parts = [safe_path_component(part, field=f"part[{idx}]") for idx, part in enumerate(parts)]
+    candidate = root_resolved.joinpath(*safe_parts).resolve()
+    try:
+        candidate.relative_to(root_resolved)
+    except ValueError as exc:
+        raise ValidationIssue(
+            "path_escape",
+            f"Resolved path escapes artifact root: {candidate}",
+            path=str(candidate),
+        ) from exc
+    return candidate
+
+
 def ensure_private_dir(path: Path) -> Path:
     """Create a directory with owner-only permissions when the OS supports it."""
     path.mkdir(parents=True, exist_ok=True)
@@ -327,21 +405,52 @@ def ensure_private_dir(path: Path) -> Path:
     return path
 
 
+def _assert_no_symlink_escape(path: Path, *, repo_root: Path) -> None:
+    """Reject path components that are symlinks escaping the canonical repo root."""
+    repo = Path(repo_root).resolve()
+    current = Path(path)
+    # Walk from repo toward path, creating nothing; check existing components.
+    try:
+        relative = current.resolve(strict=False).relative_to(repo)
+    except ValueError as exc:
+        raise ValidationIssue(
+            "artifact_root_escape",
+            f"Artifact path escapes repository root: {path}",
+            path=str(path),
+        ) from exc
+    cursor = repo
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.exists() or cursor.is_symlink():
+            if cursor.is_symlink():
+                target = cursor.resolve()
+                try:
+                    target.relative_to(repo)
+                except ValueError as exc:
+                    raise ValidationIssue(
+                        "artifact_root_symlink_escape",
+                        f"Symlink component `{cursor}` escapes repository root",
+                        path=str(cursor),
+                    ) from exc
+
+
 def create_exclusive_artifact_root(repo_root: Path, run_id: str) -> Path:
     """Create a council artifact root atomically; refuse reuse of an existing id.
 
     Fails closed if ``run_id`` already has a directory so stale evidence cannot
-    be silently overwritten or shared across concurrent runs.
+    be silently overwritten or shared across concurrent runs. Rejects symlink
+    parents that escape the canonical repository root.
     """
-    rid = (run_id or "").strip()
-    if not rid or "/" in rid or "\\" in rid or rid in {".", ".."}:
-        raise ValidationIssue(
-            "invalid_run_id",
-            f"Invalid run_id for artifact root: {run_id!r}",
-        )
-    root = council_artifact_root(repo_root, rid)
+    repo = Path(repo_root).resolve()
+    rid = safe_path_component((run_id or "").strip(), field="run_id")
+    root = council_artifact_root(repo, rid)
+    # Ensure intermediate parents (.elves, runtime, council) are not escape symlinks.
+    for parent in [repo / ".elves", repo / ".elves" / "runtime", repo / ".elves" / "runtime" / "council"]:
+        if parent.exists() or parent.is_symlink():
+            _assert_no_symlink_escape(parent, repo_root=repo)
     parent = root.parent
     parent.mkdir(parents=True, exist_ok=True)
+    _assert_no_symlink_escape(parent, repo_root=repo)
     try:
         parent.chmod(stat.S_IRWXU)
     except OSError:
@@ -366,7 +475,16 @@ def create_exclusive_artifact_root(repo_root: Path, run_id: str) -> Path:
         root.chmod(stat.S_IRWXU)
     except OSError:
         pass
-    return root
+    resolved = root.resolve()
+    try:
+        resolved.relative_to(repo)
+    except ValueError as exc:
+        raise ValidationIssue(
+            "artifact_root_escape",
+            f"Created artifact root escapes repository: {resolved}",
+            path=str(resolved),
+        ) from exc
+    return resolved
 
 
 def write_json_artifact(path: Path, payload: Mapping[str, Any]) -> Path:

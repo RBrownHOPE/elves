@@ -173,7 +173,13 @@ def _parse_role_override(
         data.get("profile") or data.get("preference") or data.get("route"),
         path=f"{path}.profile",
     )
-    required = _as_bool(data.get("required"), path=f"{path}.required", default=False)
+    # required: true is valid only from the active Survival Guide route source.
+    raw_required = data.get("required")
+    if raw_required is not None and source != ConfigSource.SURVIVAL_GUIDE:
+        # Ignore silent mandatory elevation from user/global preference config.
+        required = False
+    else:
+        required = _as_bool(raw_required, path=f"{path}.required", default=False)
     fallback = _parse_fallback_chain(
         data.get("fallback_chain") or data.get("fallback") or data.get("fallback-chain"),
         path=f"{path}.fallback_chain",
@@ -208,9 +214,11 @@ def _parse_profiles(
     source: ConfigSource,
     path: str,
     existing: dict[str, HarnessProfile],
+    warnings: list[str] | None = None,
 ) -> dict[str, HarnessProfile]:
     data = _as_mapping(raw, path=path)
     parsed: dict[str, HarnessProfile] = {}
+    warn_sink = warnings if warnings is not None else []
     for name, body in data.items():
         profile_path = f"{path}.{name}"
         if name in existing and existing[name].adapter != "host-native" and source != ConfigSource.SURVIVAL_GUIDE:
@@ -226,12 +234,36 @@ def _parse_profiles(
         if isinstance(body, str):
             adapter_name = body.strip()
             body_map: dict[str, Any] = {"adapter": adapter_name}
+            provided: set[str] = {"adapter"}
         else:
             body_map = _as_mapping(body, path=profile_path)
+            provided = set(body_map.keys())
+            # Normalize aliases into canonical provided field names.
+            if "model" in provided and "requested_model" not in provided:
+                provided.add("requested_model")
+            if "args" in provided or "extra-args" in provided:
+                provided.add("extra_args")
+            if "env" in provided or "environment" in provided or "named_env" in provided:
+                provided.add("env_grants")
+            if "input" in provided:
+                provided.add("input_contract")
+            if "output" in provided:
+                provided.add("output_contract")
+            if "harness" in provided:
+                provided.add("adapter")
+            if "session-mode" in provided:
+                provided.add("session_mode")
+            if "context-sharing" in provided:
+                provided.add("context_sharing")
+            if "qualified_capabilities" in provided or "qualified" in provided:
+                provided.add("qualified_capabilities")
         adapter_name = _as_str(
             body_map.get("adapter") or body_map.get("harness") or name,
             path=f"{profile_path}.adapter",
         )
+        if "adapter" not in provided and "harness" not in provided and isinstance(body, Mapping):
+            # adapter defaulted from profile name — not an explicit field.
+            provided.discard("adapter")
         # Validate adapter exists (custom-cli and built-ins).
         try:
             get_adapter(adapter_name if adapter_name in {
@@ -282,16 +314,26 @@ def _parse_profiles(
             or body_map.get("named_env"),
             path=f"{profile_path}.env_grants",
         )
-        input_contract = str(
-            body_map.get("input_contract") or body_map.get("input") or "prompt-file"
-        ).strip()
-        output_contract = str(
-            body_map.get("output_contract") or body_map.get("output") or "json-role-report"
-        ).strip()
         capabilities = _parse_str_tuple(
             body_map.get("capabilities"),
             path=f"{profile_path}.capabilities",
         )
+        # No config source may self-certify behavioral qualification — not even
+        # Survival Guide preference text. Qualification is runtime evidence only.
+        if (
+            "qualified_capabilities" in provided
+            or "qualified" in provided
+            or body_map.get("qualified_capabilities") is not None
+            or body_map.get("qualified") is not None
+        ):
+            warn_sink.append(
+                f"Ignoring config-declared qualified_capabilities for profile `{name}` "
+                f"(source={source.value}); qualification requires runtime CapabilityRecord/"
+                "LaneSpec evidence, not preference text"
+            )
+            provided.discard("qualified_capabilities")
+            provided.discard("qualified")
+        qualified_capabilities: tuple[str, ...] = ()
         session_raw = body_map.get("session_mode") or body_map.get("session-mode")
         if session_raw is None:
             session_mode = SessionMode.EPHEMERAL
@@ -318,6 +360,28 @@ def _parse_profiles(
                     f"Unknown context sharing `{sharing_raw}`",
                     path=f"{profile_path}.context_sharing",
                 ) from exc
+        # When IO fields are absent, use the resolved adapter's canonical pair.
+        from .adapters import ADAPTER_CONTRACT_PAIRS
+
+        adapter_pair = ADAPTER_CONTRACT_PAIRS.get(
+            resolved_adapter, ("json-stdio", "custom-json-envelope")
+        )
+        if "input_contract" not in provided and "input" not in body_map:
+            input_contract = adapter_pair[0]
+        else:
+            input_contract = str(
+                body_map.get("input_contract") or body_map.get("input") or adapter_pair[0]
+            ).strip()
+        if "output_contract" not in provided and "output" not in body_map:
+            output_contract = adapter_pair[1]
+        else:
+            output_contract = str(
+                body_map.get("output_contract") or body_map.get("output") or adapter_pair[1]
+            ).strip()
+            if output_contract == "json-role-report":
+                output_contract = adapter_pair[1]
+        if "enabled" not in provided:
+            enabled = True
         parsed[name] = HarnessProfile(
             name=name,
             adapter=resolved_adapter,
@@ -332,6 +396,8 @@ def _parse_profiles(
             input_contract=input_contract,
             output_contract=output_contract,
             capabilities=capabilities,
+            qualified_capabilities=qualified_capabilities,
+            provided_fields=tuple(sorted(provided)),
         )
     return parsed
 
@@ -341,10 +407,12 @@ def _extract_roles_and_profiles(
     *,
     source: ConfigSource,
     root_path: str,
+    warnings: list[str] | None = None,
 ) -> tuple[dict[str, RoleRoute], dict[str, HarnessProfile]]:
     """Extract roles/profiles from a config-shaped mapping."""
     roles: dict[str, RoleRoute] = {}
     profiles: dict[str, HarnessProfile] = {}
+    warn_sink = warnings if warnings is not None else []
 
     # TOML style: [profiles] / [roles]
     if "profiles" in data:
@@ -354,6 +422,7 @@ def _extract_roles_and_profiles(
                 source=source,
                 path=f"{root_path}.profiles",
                 existing=profiles,
+                warnings=warn_sink,
             )
         )
     if "roles" in data:
@@ -378,6 +447,7 @@ def _extract_roles_and_profiles(
                     source=source,
                     path=f"{root_path}.model_routing.profiles",
                     existing=profiles,
+                    warnings=warn_sink,
                 )
             )
         phases = routing_map.get("phases") or routing_map.get("roles") or {}
@@ -389,8 +459,13 @@ def _extract_roles_and_profiles(
                 source=source,
                 path=f"{root_path}.model_routing.phases.{role_name}",
             )
-            # Global required only applies when role omits required.
-            if isinstance(body, Mapping) and "required" not in body and "required" in routing_map:
+            # Global required only applies from Survival Guide when role omits required.
+            if (
+                source == ConfigSource.SURVIVAL_GUIDE
+                and isinstance(body, Mapping)
+                and "required" not in body
+                and "required" in routing_map
+            ):
                 route = RoleRoute(
                     role=route.role,
                     profile=route.profile,
@@ -492,6 +567,62 @@ def _merge_route(
     return current
 
 
+def _merge_profile_fields(
+    base: HarnessProfile,
+    overlay: HarnessProfile,
+    *,
+    source: ConfigSource,
+) -> HarnessProfile:
+    """Field-presence-aware merge: only explicitly provided overlay fields win.
+
+    Explicit empty lists clear base values. Explicit EPHEMERAL/INDEPENDENT reset
+    lower values. Absent fields preserve base (including disabled/executable).
+    """
+    provided = set(overlay.provided_fields)
+
+    def take(field: str, overlay_value: Any, base_value: Any) -> Any:
+        return overlay_value if field in provided else base_value
+
+    adapter = take("adapter", overlay.adapter, base.adapter)
+    executable = take("executable", overlay.executable, base.executable)
+    notes = take("notes", overlay.notes, base.notes) if "notes" in provided else (
+        overlay.notes or base.notes
+    )
+    enabled = take("enabled", overlay.enabled, base.enabled)
+    requested_model = take("requested_model", overlay.requested_model, base.requested_model)
+    # model alias already mapped into provided requested_model
+    if "model" in provided and "requested_model" not in provided:
+        requested_model = overlay.requested_model
+    extra_args = take("extra_args", overlay.extra_args, base.extra_args)
+    env_grants = take("env_grants", overlay.env_grants, base.env_grants)
+    capabilities = take("capabilities", overlay.capabilities, base.capabilities)
+    # Qualification never merges from config overlays — runtime evidence only.
+    qualified: tuple[str, ...] = ()
+    input_contract = take("input_contract", overlay.input_contract, base.input_contract)
+    output_contract = take("output_contract", overlay.output_contract, base.output_contract)
+    session_mode = take("session_mode", overlay.session_mode, base.session_mode)
+    context_sharing = take("context_sharing", overlay.context_sharing, base.context_sharing)
+
+    merged_provided = tuple(sorted(set(base.provided_fields) | provided))
+    return HarnessProfile(
+        name=overlay.name or base.name,
+        adapter=adapter or base.adapter,
+        executable=executable,
+        notes=notes or f"merged from {source.value}",
+        session_mode=session_mode,
+        context_sharing=context_sharing,
+        enabled=enabled,
+        requested_model=requested_model,
+        extra_args=tuple(extra_args),
+        env_grants=tuple(env_grants),
+        input_contract=input_contract,
+        output_contract=output_contract,
+        capabilities=tuple(capabilities),
+        qualified_capabilities=tuple(qualified),
+        provided_fields=merged_provided,
+    )
+
+
 def resolve_config(
     *,
     survival_guide: Mapping[str, Any] | None = None,
@@ -551,14 +682,17 @@ def resolve_config(
                 payload,
                 source=source,
                 root_path=label,
+                warnings=resolved.warnings,
             )
             for name, profile in layer_profiles.items():
-                if name in resolved.profiles and resolved.profiles[name] != profile:
-                    # Later (higher) layers overwrite; same-source duplicates already rejected.
-                    if source == ConfigSource.LOCAL_MODELS_TOML:
-                        # Detect ambiguous duplicate names across profile tables in one file.
-                        pass
-                resolved.profiles[name] = profile
+                if name in resolved.profiles:
+                    resolved.profiles[name] = _merge_profile_fields(
+                        resolved.profiles[name],
+                        profile,
+                        source=source,
+                    )
+                else:
+                    resolved.profiles[name] = profile
             for role_name, route in layer_roles.items():
                 roles[role_name] = _merge_route(roles.get(role_name), route)
 
@@ -731,7 +865,26 @@ def lanes_from_resolved(
         role = role.strip()
         if not role:
             continue
-        if not use_resolved_routes or not resolved.external_routing_enabled:
+
+        # Prefer an exact role match; free lenses may share review/planning routes.
+        route = (
+            resolved.roles.get(role)
+            or resolved.roles.get(role.replace("-", "_"))
+            or resolved.roles.get("review")
+            or resolved.roles.get("planning")
+        )
+
+        # Survival-guide required routes cannot be erased by use_resolved_routes=false.
+        force_resolved = bool(
+            route
+            and route.required
+            and route.source == ConfigSource.SURVIVAL_GUIDE
+        )
+
+        if (
+            (not use_resolved_routes and not force_resolved)
+            or not resolved.external_routing_enabled
+        ):
             lanes.append(
                 LaneSpec(
                     lane_id=f"{role}-{index}",
@@ -739,18 +892,12 @@ def lanes_from_resolved(
                     adapter=NATIVE_PROFILE_NAME,
                     profile=NATIVE_PROFILE_NAME,
                     requested_model=None,
+                    required=False,
                     timeout_seconds=timeout_seconds,
                 )
             )
             continue
 
-        # Prefer an exact role match; fall back to review then planning for free lenses.
-        route = (
-            resolved.roles.get(role)
-            or resolved.roles.get(role.replace("-", "_"))
-            or resolved.roles.get("review")
-            or resolved.roles.get("planning")
-        )
         if route is None or route.profile not in resolved.profiles:
             lanes.append(
                 LaneSpec(
@@ -759,6 +906,7 @@ def lanes_from_resolved(
                     adapter=NATIVE_PROFILE_NAME,
                     profile=NATIVE_PROFILE_NAME,
                     requested_model=None,
+                    required=bool(route.required) if route else False,
                     timeout_seconds=timeout_seconds,
                 )
             )
@@ -774,7 +922,7 @@ def lanes_from_resolved(
                 profile=primary.profile,
                 requested_model=primary.requested_model,
                 executable=primary.executable,
-                required=route.required,
+                required=route.required and route.source == ConfigSource.SURVIVAL_GUIDE,
                 timeout_seconds=timeout_seconds,
                 extra_args=primary.extra_args,
                 env_grants=primary.env_grants,

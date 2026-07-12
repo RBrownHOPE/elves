@@ -474,9 +474,28 @@ def cmd_council(args: argparse.Namespace) -> int:
     repo_root = _repo_root_from_args(args)
     resolved = resolve_from_repo(repo_root)
 
+    if not resolved.ok:
+        payload = {
+            "ok": False,
+            "blocked": True,
+            "council_verified": False,
+            "issues": [issue.to_dict() for issue in resolved.issues],
+            "warnings": list(resolved.warnings),
+            "model_calls_made": False,
+            "mutated_repo": False,
+            "host_synthesis_only": True,
+            "external_routing_enabled": resolved.external_routing_enabled,
+            "notes": ["resolved config is not ok; refusing council launch"],
+        }
+        if args.json:
+            return _emit_json(payload, exit_code=1)
+        print("council: FAILED (resolved config not ok)", file=sys.stderr)
+        for issue in resolved.issues:
+            print(f"  [{issue.code}] {issue.message}", file=sys.stderr)
+        return 1
+
     # Build lanes from each resolved role/profile without dropping fields.
-    # Default (no --use-resolved-routes): host-native lenses only — host skill
-    # synthesizes without fabricating council votes.
+    # Survival-guide required routes remain even when --use-resolved-routes is off.
     role_names = [
         name.strip()
         for name in (args.roles or "architect,skeptic,tester").split(",")
@@ -504,13 +523,11 @@ def cmd_council(args: argparse.Namespace) -> int:
         head_sha=args.head,
     )
     payload = result.to_dict()
-    payload["model_calls_made"] = any(
-        lane.adapter != "host-native" and lane.ok for lane in result.lane_results
-    )
-    payload["mutated_repo"] = False
+    # Prefer runtime-truthful counters from dispatch.
+    payload["model_calls_made"] = bool(result.model_calls_made)
+    payload["mutated_repo"] = bool(result.mutated_repo)
     payload["host_synthesis_only"] = True
     payload["external_routing_enabled"] = resolved.external_routing_enabled
-    # Standalone CLI without injected host reports cannot claim independent votes.
     if args.json:
         return _emit_json(payload, exit_code=0 if result.ok and not result.blocked else 1)
 
@@ -520,6 +537,8 @@ def cmd_council(args: argparse.Namespace) -> int:
     print(f"  blocked: {result.blocked}")
     print(f"  confidence: {result.confidence}")
     print(f"  successful_reports: {len(result.successful_reports)}")
+    print(f"  model_calls_made: {result.model_calls_made}")
+    print(f"  mutated_repo: {result.mutated_repo}")
     for note in result.notes:
         print(f"  note: {note}")
     return 0 if result.ok and not result.blocked else 1
@@ -541,7 +560,11 @@ def cmd_lightweight_review(args: argparse.Namespace) -> int:
     payload = result.to_dict()
     payload["not_a_council_vote"] = True
     payload["cannot_close_high_risk_review"] = True
-    payload["mutated_repo"] = False
+    # Explicit lane-level truth from dispatch (not path-substring inference).
+    payload["mutated_repo"] = bool(result.mutated_repo)
+    payload["model_calls_made"] = bool(result.model_call_made) or any(
+        a.model_call_made for a in (result.attempts or [])
+    )
     if args.json:
         return _emit_json(payload, exit_code=0 if result.ok else 1)
     print(f"lightweight-review: {'OK' if result.ok else 'FAILED'}")
