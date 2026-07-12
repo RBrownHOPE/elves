@@ -134,6 +134,8 @@ In Claude Code:
 ```text
 /cobbler should we refactor this or patch it?
 /cobbler-mode
+/setup-cobbler
+/setup-council
 ```
 
 In Codex:
@@ -141,6 +143,8 @@ In Codex:
 ```text
 $elves cobbler: should we refactor this or patch it?
 $elves cobbler-mode
+$elves setup-cobbler
+$elves setup-council
 ```
 
 Natural language also works:
@@ -149,12 +153,31 @@ Natural language also works:
 Ask the Cobbler to audit this plan.
 Cobbler Mode: on
 Cobbler Mode: off
+Set up Cobbler external-agent preferences.
 ```
 
-Codex does not get the Claude Code slash aliases. Use `$elves cobbler: ...` or ask naturally.
+Codex does not get the Claude Code slash aliases. Use `$elves cobbler: ...`,
+`$elves setup-cobbler`, or ask naturally. Do not document a top-level Codex `/setup-cobbler`
+slash command.
 
 Legacy Council aliases still work and now route to Cobbler. Claude Code supports `/council`, `/ec`,
 and `/elves-council`. Codex supports `$elves council: <task>` and natural Council references.
+
+## External-agent setup
+
+Setup is optional. Native-only Elves needs no external tools or keys.
+
+```bash
+python3 scripts/cobbler_agents.py setup --json --dry-run
+python3 scripts/cobbler_agents.py setup --json --implement grok-build --review claude-code
+```
+
+Setup inventories tools without printing credentials, writes only ignored local
+`.elves/models.toml` (Never stage it), and never pastes API keys into TOML/chat/Survival Guide.
+Host coordinators should snapshot effective routes into the Survival Guide during staging.
+Recipes for Claude-only, Grok-only, Sakana-only, custom wrappers, OpenRouter breadth, and API-only
+models live in `references/cobbler-setup-recipes.md`. Commit/push/PR remain host operations, not
+model roles. `remaining_quota` stays unknown unless a harness explicitly exposes it.
 
 ## Provider routing
 
@@ -187,3 +210,7 @@ The part Cobbler borrows is the coordination pattern: route a request through av
 capabilities, preserve dissent, assemble evidence, choose the right medium, and fit one answer back
 to the user. Cobbler does not copy Fable's model identity, persona, policy text, or safety
 guardrails.
+
+## CouncilElves launch
+
+See [`references/councilelves-launch-prompt.md`](../references/councilelves-launch-prompt.md) for the plan→implement→review loop prompt.

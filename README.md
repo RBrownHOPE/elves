@@ -6,6 +6,12 @@
 
 Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default coordinator inside Elves: it decides whether to answer directly, ask independent reviewers, assign scoped worker agents, or record a run decision, then returns one clear recommendation.
 
+**Current release: v1.20.0.** This release adds Cobbler external-agent orchestration: a standard-library
+runtime for optional parallel planning/review councils, exact persistent sessions, a single audited
+external writer lease with host-owned binary-patch integration, setup helpers, and a master
+CouncilElves launch prompt—while native-only Elves remains complete with zero external tools or keys.
+See [`CHANGELOG.md`](CHANGELOG.md) and [`references/councilelves-launch-prompt.md`](references/councilelves-launch-prompt.md).
+
 You write the plan and own the merge decision. The agent does everything in between.
 
 **Running Elves is a two-stage process: first you _stage_ the run, then in a separate call you _start_ it.** Staging lines up the plan, branch, PR, and survival guide, then stops. Launching is a short second prompt that turns the agent loose. Keeping the two calls separate is the single biggest thing that prevents "the elves stopped" failures. See [Stage, then launch](#stage-then-launch).
@@ -250,6 +256,66 @@ or configured provider can actually honor them; missing optional provider access
 host-native work and is logged only when it changes risk or confidence. `required: true` is an
 explicit survival-guide opt-in, never a Quick Cobbler default.
 
+Validate local route preferences without launching models:
+
+```bash
+python3 scripts/cobbler_agents.py validate-config --json
+python3 scripts/cobbler_agents.py doctor --json
+python3 scripts/cobbler_agents.py setup --json --dry-run
+```
+
+Setup writes only ignored local `.elves/models.toml` (never stage it; never paste keys). Claude Code:
+`/setup-cobbler` (primary) or `/setup-council` (compatibility). Codex: `$elves setup-cobbler` or
+`$elves setup-council` / natural language — not a top-level Codex slash command. Recipes:
+[`references/cobbler-setup-recipes.md`](references/cobbler-setup-recipes.md). Master unattended loop:
+[`references/councilelves-launch-prompt.md`](references/councilelves-launch-prompt.md).
+
+Run a native-only parallel read-only council smoke (host synthesis still owns the fitted answer):
+
+```bash
+python3 scripts/cobbler_agents.py council --json \
+  --task "review this batch contract" \
+  --roles architect,skeptic,tester \
+  --target-quorum 2
+python3 scripts/cobbler_agents.py lightweight-review --json \
+  --task "quick utility check"
+```
+
+**Exact session registry helpers** (no paid launch on resume argv build):
+
+```bash
+python3 scripts/cobbler_agents.py session list --json
+python3 scripts/cobbler_agents.py session probe --json --session-id <exact-id>
+python3 scripts/cobbler_agents.py session resume --json \
+  --session-id <exact-id> --adapter grok-build --cwd /verified/worktree
+```
+
+Copy schema ideas from [`references/models.toml.example`](references/models.toml.example) into the
+ignored checkout file `.elves/models.toml` (never stage it). Effective routes for a real run still
+belong in the Survival Guide snapshot. Private council transcripts and session registry files stay
+under ignored `.elves/runtime/` (`council/`, `sessions/`). Never commit transcripts or auth stores.
+
+**Session troubleshooting:** always use exact session IDs. Bare `--resume` / `--continue` / `--last`
+are forbidden. Grok worktree children get a new UUID — resume the child from its registered
+worktree, and do not treat headless worktree-resume on Grok 0.2.93 as isolation. Remaining
+subscription quota is `unknown` unless a harness explicitly exposes it.
+
+**Writer lease (host-owned):**
+
+```bash
+python3 scripts/cobbler_agents.py worker prepare --json \
+  --lease-id lease-1 --host-checkout . --worker-checkout /path/to/detached \
+  --session-id <exact-child> --base-head <sha> --adapter grok-build \
+  --allowed-path scripts/ --allowed-path tests/
+python3 scripts/cobbler_agents.py worker audit --json --lease-id lease-1
+python3 scripts/cobbler_agents.py worker export --json --lease-id lease-1 \
+  --output-dir /tmp/lease-1-patches --host-apply-check
+python3 scripts/cobbler_agents.py worker refresh --json --lease-id lease-1 --new-tip <host-sha>
+```
+
+Only one live lease is allowed. Worker detached commits are untrusted; the host applies binary
+patches with `git apply --check --index` and owns branch commits/push/PR/run-memory.
+
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
 model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
 synthesis prompt templates, and
@@ -379,7 +445,8 @@ See [Installation](#installation) below for full details. The short version:
 - **Codex:** copy the skill bundle into `~/.codex/skills/elves/` (at minimum `SKILL.md`,
   `AGENTS.md`, `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
   `scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`,
-  `scripts/validate_survival_guide.py`, and `scripts/elves_landing_check.py`)
+  `scripts/validate_survival_guide.py`, `scripts/elves_landing_check.py`,
+  `scripts/cobbler_agents.py`, and `scripts/cobbler_runtime/*`)
 - **Claude.ai:** zip the `elves/` directory and upload via Settings > Features > Skills
 
 **2. Write a plan**
@@ -469,7 +536,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Constitution and legality check**: human-authored deal-breaker behaviors (`docs/constitution.md`) verified by a read-only judge after each batch. Three quality layers: correctness (tests), plan compliance (review), legality (judge). Success criteria the agent didn't author.
 - **PR Loop**: poll PR comments, inline reviews, and check status after every push, not just at batch boundaries
 - **Readiness Gate**: branch-level checklist before declaring review-ready (plan Acceptance with proof, `elves_landing_check.py` clean, local proof on current tip, preview proof on exact runtime tip, final cumulative review, PR comments polled, legality check clean, strategic forgetting complete, git status clean, execution log current). Green CI + `status: complete` alone is not landable.
-- **Acceptance evidence (v1.19+)**: each complete batch records `acceptance: [{criterion, met, evidence}]` in `.elves-session.json`; god-file splits cannot close on structure/regex locks alone; prefer one batch per close commit
+- **Acceptance evidence (v1.19+/v1.20+)**: each complete batch records `acceptance: [{criterion, met, evidence}]` in `.elves-session.json`; god-file splits cannot close on structure/regex locks alone; prefer one batch per close commit. v1.20 adds external-agent orchestration under Cobbler without making external tools required.
 - **Structured session data** in `.elves-session.json` for tooling, dashboards, and analytics
 - **Install doctor and update advisory**: startup can flag newer published releases and explain
   when a project-local install differs from the global one that you thought you were using
@@ -713,6 +780,8 @@ elves/
 │   ├── sync_installed_skills.py          # Local Claude/Codex install sync helper
 │   ├── validate_survival_guide.py        # Advisory survival-guide completeness check
 │   ├── elves_landing_check.py            # Pre-land plan Acceptance + acceptance evidence check
+│   ├── cobbler_agents.py                 # External-agent config validate/doctor CLI
+│   ├── cobbler_runtime/                  # Typed contracts and config resolution package
 │   └── workspace_guard.py                # Optional workspace owned-tip guard prototype
 └── .github/
     └── ISSUE_TEMPLATE/                   # Bug report, feature request, overnight run report
@@ -869,7 +938,8 @@ mkdir -p ~/.codex/skills/elves/scripts
 git clone https://github.com/aigorahub/elves.git /tmp/elves
 cp /tmp/elves/SKILL.md /tmp/elves/AGENTS.md /tmp/elves/config.json.example ~/.codex/skills/elves/
 cp -r /tmp/elves/references ~/.codex/skills/elves/
-cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/preflight_worktree.py /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py /tmp/elves/scripts/elves_landing_check.py ~/.codex/skills/elves/scripts/
+cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/preflight_worktree.py /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py /tmp/elves/scripts/elves_landing_check.py /tmp/elves/scripts/cobbler_agents.py ~/.codex/skills/elves/scripts/
+cp -r /tmp/elves/scripts/cobbler_runtime ~/.codex/skills/elves/scripts/
 rm -rf /tmp/elves
 ```
 
@@ -959,7 +1029,8 @@ For Codex, the sync helper updates the main skill bundle only. Invoke Cobbler wi
 The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
 `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
 `scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`,
-`scripts/validate_survival_guide.py`, and `scripts/elves_landing_check.py`.
+`scripts/validate_survival_guide.py`, `scripts/elves_landing_check.py`,
+`scripts/cobbler_agents.py`, and `scripts/cobbler_runtime/*`.
 Repo-only maintenance
 helpers such as `scripts/check_repo_consistency.py`, `scripts/release_checklist.py`,
 `scripts/pr_portfolio_report.py`, and `scripts/workspace_guard.py` stay in the checkout.
@@ -1052,7 +1123,7 @@ and on any model after context compaction or late-run thrash:
 | `status: complete` in session JSON | The agent flipped a flag | Criteria were met with evidence |
 | Multi-batch "close remaining" commit | Something pushed | Each batch had its own validate pass |
 
-So v1.19 hardens both skill surfaces (Claude `SKILL.md` and Codex `AGENTS.md`) the same way:
+So v1.19+ hardens both skill surfaces (Claude `SKILL.md` and Codex `AGENTS.md`) the same way:
 
 1. **Per-batch acceptance rows** — `acceptance: [{criterion, met, evidence}]` before complete  
 2. **God-file rule** — locks lock; they do not complete a split unless the plan allows characterization-only  

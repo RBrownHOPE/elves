@@ -37,3 +37,46 @@
 - Multi-batch "close remaining" commits can make unfinished work look shippable. Prefer one batch
   per close commit; otherwise require separate Validate sections per batch id and run
   `scripts/elves_landing_check.py` before Final Readiness.
+- Vague commit subjects (`Updates`, `progress`, `WIP`, bare `fixes`) hide operator progress in
+  GitHub/GitKraken. Prefer phase-aware subjects and push mid-batch slices, not one opaque dump.
+- Incomplete coordinator-to-implementer packets are coordinator defects. Do not expect a context-poor
+  worker to reconstruct intent, Build On targets, or forbidden surfaces from chat memory.
+- `.elves/models.toml` is local and ignored. Staging it or treating personal model IDs as public
+  defaults reintroduces provider lock-in. Use `references/models.toml.example` as the reviewable
+  schema and snapshot effective routes in the Survival Guide.
+- Python 3.11+ supplies stdlib `tomllib` for local models TOML. On older Python, absence of the file
+  is fine; presence without `tomllib` must fail validation rather than being silently ignored.
+- `python3 scripts/cobbler_agents.py validate-config --json` and `doctor --json` never launch paid
+  model turns and must not mutate the repo.
+- Council lanes must launch in parallel. Sequential fan-out is not independence and fails the
+  wall-clock overlap tests in `tests/test_cobbler_agents_dispatch.py`.
+- Exit code 0 is not inference success. Structured role-report JSON must validate; actual-model
+  mismatches fail the lane when a requested model was set.
+- Strip secret env **names** from child processes and never log secret values. Allowlisting a
+  secret-looking name must not reintroduce it.
+- `lightweight-review` is a utility lane, not a council vote. It cannot close high-risk review or
+  satisfy independent review quorum by itself.
+- `target_quorum` degrades with a confidence drop; `required_quorum` only applies when the phase is
+  explicitly `required=true` and blocks when unmet after fallback.
+- Never use bare `--resume`, `--continue`, or `--last` for session selection. Exact session IDs only.
+  Canonical disk state (plan/Survival Guide/session registry) outranks chat memory.
+- Grok parent→worktree child lineage uses a **new** child UUID. Headless `--worktree --resume` on
+  Grok Build 0.2.93 is broken (retains source CWD); fail closed without verified CWD/worktree
+  registration, then resume the discovered child exactly from that worktree.
+- `remaining_quota` is `unknown` unless a harness explicitly sets `quota_known`. Never invent limits
+  from token counts, and never treat unknown as zero.
+- Unexpected model/CWD/parent/worktree drift blocks write reuse; expected HEAD/plan digest change
+  yields rehydration, not silent continuation on stale assumptions.
+- Only one external writer lease may be live. Dirty, branch-attached (when detached required), HEAD
+  mismatch, or unregistered worktrees fail closed at prepare.
+- Never bare-cherry-pick worker commits. Export binary patches, `git apply --check --index` on the
+  host, then create sanitized host commits that record source worker SHAs.
+- Grok write profile forbids headless `--worktree --resume` as isolation (especially 0.2.93). Resume
+  the exact child from a registered detached worktree CWD under a `devbox` (or equivalent) sandbox.
+- A `workspace` sandbox linked worktree must not be assumed commit-capable; leases force
+  `detached_commits_permitted=false` for that profile.
+- Ref/remote/config/hook mutations, out-of-scope paths (including `.elves/` and run docs), symlink
+  escapes, push attempts, and process leaks fail the post-turn audit even when the file diff looks right.
+- Setup is optional. Never stage `.elves/models.toml` or paste API keys into TOML/chat/Survival Guide.
+  Codex has no top-level `/setup-cobbler` slash — use `$elves setup-cobbler` or natural language.
+  OpenRouter/API-only routes are optional read-only breadth unless a wrapper qualifies write/isolation.

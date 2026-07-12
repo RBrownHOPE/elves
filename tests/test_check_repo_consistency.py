@@ -99,6 +99,37 @@ class ConsistencyPhraseTests(unittest.TestCase):
                 self.assertIn("\\land-pr", self.consistency.REVIEWED_PR_LANDING_PHRASES[label])
                 self.assertIn("/land-pr", self.consistency.REVIEWED_PR_LANDING_PHRASES[label])
 
+    def test_implementer_handoff_phrases_cover_skill_and_templates(self) -> None:
+        for label in (
+            "SKILL.md",
+            "AGENTS.md",
+            "references/plan-template.md",
+            "references/survival-guide-template.md",
+            "references/execution-log-template.md",
+            "references/review-subagent.md",
+        ):
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.IMPLEMENTER_HANDOFF_PHRASES)
+                self.assertIn(
+                    "acceptance evidence",
+                    self.consistency.IMPLEMENTER_HANDOFF_PHRASES[label],
+                )
+
+    def test_progress_commit_phrases_forbid_vague_examples_as_positive(self) -> None:
+        for label in ("SKILL.md", "AGENTS.md"):
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.PROGRESS_COMMIT_PHRASES)
+                self.assertIn(
+                    "Contract|Implement|Validate|Review|Close",
+                    " ".join(self.consistency.PROGRESS_COMMIT_PHRASES[label]),
+                )
+                self.assertIn(label, self.consistency.PROGRESS_COMMIT_ANTIPATTERN_EXAMPLES)
+        # Anti-pattern corpus must include vague subjects so they stay labeled bad.
+        self.assertIn(
+            "[feat/payments · Batch 3/12] Updates",
+            self.consistency.PROGRESS_COMMIT_ANTIPATTERN_EXAMPLES["SKILL.md"],
+        )
+
     def test_cobbler_and_council_aliases_are_required_on_user_facing_surfaces(self) -> None:
         for label in ("SKILL.md", "AGENTS.md", "README.md"):
             with self.subTest(label=label):

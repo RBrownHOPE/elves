@@ -1,5 +1,5 @@
 ---
-version: "1.19.0"
+version: "1.20.0"
 ---
 
 # Elves: Autonomous Development Agent (Codex)
@@ -184,6 +184,20 @@ never blocks an ordinary run. Treat `required: true` as valid only when the user
 the project survival guide; never infer it from provider config, Quick Cobbler, or legacy Council
 aliases.
 
+### External-agent setup
+
+Optional checkout setup for external harness preferences:
+
+- Claude Code: `/setup-cobbler` (primary) and `/setup-council` (compatibility)
+- Codex: `$elves setup-cobbler`, `$elves setup-council`, or natural language — not a top-level
+  Codex slash command
+- Operator CLI: `python3 scripts/cobbler_agents.py setup [--json] [--dry-run] ...`
+
+Setup inventories tools without printing credentials, does not launch paid model turns unless the
+user opts into smoke, and writes only ignored local `.elves/models.toml` (never stage it; never paste
+keys). Snapshot effective routes into the Survival Guide during staging. Recipes:
+`references/cobbler-setup-recipes.md`. Setup is not required for native-only Elves.
+
 ## Strategic Forgetting
 
 Durable memory must stay curated. Giant chats, append-only scratchpads, and huge logs are drag, not
@@ -223,6 +237,55 @@ These principles apply across the full lifecycle: planning (batch ordering and d
 **For reviewers:** The current codebase is the source of truth, not your training data. The coding agent can search in real time and may use libraries, model versions, or APIs newer than what you know. Don't flag something as wrong just because it doesn't match your training data. Always pass today's date to review subagents.
 
 These apply to all code, including review fixes. When fixing a reviewer finding, fix the root cause — don't band-aid it.
+
+## Coordinator-to-Implementer Handoff Standard
+
+The host coordinator is assumed to hold more context than an external or less-capable implementation
+worker. Before every worker turn, write a task packet that can stand alone after compaction and
+carries:
+
+1. **intent / why** — product intent and why the batch exists;
+2. **non-obvious rationale** — architecture choices the worker should not rediscover from chat;
+3. **Build On targets** — existing patterns/utilities to extend, not reinvent;
+4. **owned surfaces** — exact files/modules the worker may edit;
+5. **forbidden surfaces** — run memory, `.git`, credentials, other worktrees, out-of-scope paths;
+6. **acceptance evidence** — observable criteria with proof, not “make tests green”;
+7. **failure modes / pitfalls** — tool/version gotchas and recovery behavior;
+8. **HEAD / run-doc paths / route-session identity / output format** — current tip, plan and run
+   document paths, exact model/session identity when routed externally, and the required handoff
+   report shape.
+
+An incomplete or chat-dependent handoff is a blocking coordinator defect before implementation
+begins. Canonical run documents (plan, Survival Guide, execution log, learnings, `.elves-session.json`)
+stay host-owned. Product docs (`SKILL.md`, `AGENTS.md`, README, references) may be worker-edited only
+when the batch contract assigns them.
+
+## Git History as Operator UI
+
+Users monitor unattended work through GitHub, GitKraken, and ordinary `git log`. The host commits and
+pushes meaningful progress slices during a batch — not only one opaque close commit. Preferred
+subject schema:
+
+```text
+[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>
+```
+
+Rules:
+
+- Push after each independently reviewable host-owned slice; re-read the Survival Guide after every push.
+- Forbid vague subjects such as `Updates`, `progress`, `WIP`, or bare `fixes`.
+- Qualified external workers may create only audited detached handoff commits inside a lease.
+- Exactly one external writer lease is live at a time; dirty/unregistered/branch-attached (when
+  detached is required)/HEAD-mismatched/unqualified write profiles fail closed. Host imports via
+  binary patch export and `git apply --check --index` — never bare cherry-pick.
+- External workers never own refs, remotes, push, PRs, or canonical run memory.
+- Reserve the `Close` phase for acceptance-backed batch completion with non-empty
+  `acceptance: [{criterion, met, evidence}]` rows.
+- Git and PR operations never dispatch model inference; they are host operator surfaces only.
+
+The legacy form `[<branch> · Batch N/Total] <verb> <what changed>` remains acceptable for host-only
+runs that do not use phase labels, but new external-agent and multi-slice batches should prefer the
+phase-aware schema above.
 
 ## Effort Standard
 
@@ -605,12 +668,18 @@ git push
 
 **Self-check before every commit:** verify your subject line matches the format. If it doesn't, rewrite it. Non-negotiable.
 
-**Format:** `[<branch> · Batch N/Total] <verb> <what changed>`
+**Preferred format:** `[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>`
 
-- The progress prefix `[branch · Batch N/Total]` is always present. Variants: `[branch · Scout]`, `[branch · Entropy check after Batch N]`, `[branch · Batch 0/N]` for setup.
-- Starts with a verb: Add, Fix, Update, Remove, Implement, Extend, Refactor. Not a noun. Not a gerund.
-- Specific enough that `git log --oneline` reads as a progress report.
+**Legacy format:** `[<branch> · Batch N/Total] <verb> <what changed>`
+
+- The progress prefix with branch and batch is always present. Variants: `[branch · Scout]`, `[branch · Entropy check after Batch N]`, `[branch · Batch 0/N]` for setup.
+- Prefer phase labels `Contract|Implement|Validate|Review|Close` so GitHub/GitKraken show live progress.
+- Outcome is specific enough that `git log --oneline` reads as a progress report; prefer verb-led text.
+- Forbid vague subjects: `Updates`, `progress`, `WIP`, bare `fixes`.
 - Keep the subject concise enough to fit comfortably in common `git log` views. Aim for about 100 characters or less.
+- Push meaningful host-owned slices during a batch; `Close` requires acceptance evidence.
+- Qualified external workers may create only audited detached handoff commits; they never own refs, remotes, push, PRs, or run memory.
+- Git and PR operations never dispatch model inference.
 
 The body tells the reader *why*: design decisions, justifications for hardcoded values, rationale for dismissed findings. **When a commit touches shared code, include a `Safe because:` line** explaining why consumers aren't broken.
 
@@ -619,13 +688,15 @@ This applies to **every commit during the run**: implementation, review fixes, d
 **Anti-patterns (never do these):**
 - `Add payment endpoint` — missing progress prefix
 - `[feat/auth · Batch 3/12] Updates` — vague, says nothing
+- `[feat/auth · Batch 3/12 · Implement] progress` — vague phase subject
 - `[feat/auth · Batch 3/12] Working on batch 3` — describes the process, not the change
 - `[feat/auth · Batch 3/12] More changes` — meaningless
 - `[feat/auth · Batch 3/12] Payment endpoint` — noun phrase, no verb
 
 **Good examples:**
-- `[feat/auth · Batch 3/12] Add payment processing endpoints`
-- `[feat/auth · Batch 3/12] Fix input validation per review findings`
+- `[feat/auth · Batch 3/12 · Implement] Add payment processing endpoints`
+- `[feat/auth · Batch 3/12 · Review] Fix input validation per review findings`
+- `[feat/auth · Batch 3/12 · Close] Record acceptance evidence for auth batch`
 - `[feat/auth · Batch 3/12] Add E2E test for checkout flow`
 
 ### 12. Re-read the Survival Guide

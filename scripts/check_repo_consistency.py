@@ -1084,6 +1084,24 @@ CLAUDE_ALIAS_SKILL_PHRASES = {
         "Next move",
         "must not require OpenRouter",
     ],
+    "aliases/claude/setup-cobbler/SKILL.md": [
+        CLAUDE_ALIAS_MARKER,
+        "name: setup-cobbler",
+        "/setup-cobbler",
+        "cobbler_agents.py setup",
+        "Never stage",
+        ".elves/models.toml",
+        "must not require OpenRouter",
+    ],
+    "aliases/claude/setup-council/SKILL.md": [
+        CLAUDE_ALIAS_MARKER,
+        "name: setup-council",
+        "/setup-council",
+        "cobbler_agents.py setup",
+        "compatibility",
+        "must not require OpenRouter",
+        "Never stage",
+    ],
     "aliases/claude/council/SKILL.md": [
         CLAUDE_ALIAS_MARKER,
         "name: council",
@@ -1630,6 +1648,182 @@ FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS = {
     for label in FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES
 }
 
+# External-agent setup (v1.20.0 Batch 5).
+SETUP_COBBLER_PHRASES = {
+    "SKILL.md": [
+        "### External-agent setup",
+        "/setup-cobbler",
+        "/setup-council",
+        "$elves setup-cobbler",
+        "$elves setup-council",
+        "not a top-level",
+        "cobbler_agents.py setup",
+        ".elves/models.toml",
+        "references/cobbler-setup-recipes.md",
+        "Setup is not required for native-only Elves",
+    ],
+    "AGENTS.md": [
+        "### External-agent setup",
+        "/setup-cobbler",
+        "/setup-council",
+        "$elves setup-cobbler",
+        "$elves setup-council",
+        "not a top-level",
+        "cobbler_agents.py setup",
+        ".elves/models.toml",
+        "references/cobbler-setup-recipes.md",
+        "Setup is not required for native-only Elves",
+    ],
+    "README.md": [
+        "/setup-cobbler",
+        "/setup-council",
+        "$elves setup-cobbler",
+        "$elves setup-council",
+        "cobbler-setup-recipes.md",
+        ".elves/models.toml",
+    ],
+    "docs/cobbler.md": [
+        "/setup-cobbler",
+        "/setup-council",
+        "$elves setup-cobbler",
+        "$elves setup-council",
+        "External-agent setup",
+        "cobbler-setup-recipes.md",
+        "Never stage",
+    ],
+    "references/cobbler-setup-recipes.md": [
+        "/setup-cobbler",
+        "/setup-council",
+        "$elves setup-cobbler",
+        "verified",
+        "experimental",
+        "custom",
+        "OPENROUTER_API_KEY",
+        "native-only",
+        "remaining_quota",
+        "Never stage",
+    ],
+}
+
+# Coordinator-to-implementer handoff + git-history-as-operator-UI standards (v1.20.0 Batch 1).
+IMPLEMENTER_HANDOFF_PHRASES = {
+    "SKILL.md": [
+        "## Coordinator-to-Implementer Handoff Standard",
+        "intent / why",
+        "Build On targets",
+        "owned surfaces",
+        "forbidden surfaces",
+        "acceptance evidence",
+        "failure modes / pitfalls",
+        "HEAD / run-doc paths / route-session identity / output format",
+        "blocking coordinator defect",
+    ],
+    "AGENTS.md": [
+        "## Coordinator-to-Implementer Handoff Standard",
+        "intent / why",
+        "Build On targets",
+        "owned surfaces",
+        "forbidden surfaces",
+        "acceptance evidence",
+        "failure modes / pitfalls",
+        "HEAD / run-doc paths / route-session identity / output format",
+        "blocking coordinator defect",
+    ],
+    "references/plan-template.md": [
+        "Coordinator-to-implementer handoff",
+        "Build On targets",
+        "Owned surfaces",
+        "Forbidden surfaces",
+        "acceptance evidence",
+        "Failure modes / pitfalls",
+        "HEAD / run-doc paths / route-session identity / output format",
+    ],
+    "references/survival-guide-template.md": [
+        "Coordinator-to-implementer handoff",
+        "Build On targets",
+        "owned surfaces",
+        "forbidden surfaces",
+        "acceptance evidence",
+    ],
+    "references/execution-log-template.md": [
+        "Handoff standard",
+        "Build On targets",
+        "owned surfaces",
+        "forbidden surfaces",
+        "acceptance evidence",
+    ],
+    "references/review-subagent.md": [
+        "Coordinator-to-implementer handoff obligations",
+        "blocking coordinator defect",
+        "Build On targets",
+        "owned surfaces",
+        "forbidden surfaces",
+        "acceptance evidence",
+    ],
+}
+
+PROGRESS_COMMIT_PHRASES = {
+    "SKILL.md": [
+        "## Git History as Operator UI",
+        "[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>",
+        "Forbid vague subjects",
+        "audited detached handoff commits",
+        "never own refs, remotes, push, PRs, or canonical run memory",
+        "Reserve the `Close` phase for acceptance-backed batch completion",
+        "Git and PR operations never dispatch model inference",
+    ],
+    "AGENTS.md": [
+        "## Git History as Operator UI",
+        "[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>",
+        "Forbid vague subjects",
+        "audited detached handoff commits",
+        "never own refs, remotes, push, PRs, or canonical run memory",
+        "Close` phase for acceptance-backed batch completion",
+        "Git and PR operations never dispatch model inference",
+    ],
+    "references/plan-template.md": [
+        "Contract|Implement|Validate|Review|Close",
+        "Forbid vague subjects",
+        "audited detached handoff commits",
+        "never own refs/remotes/push/PR/run-memory",
+        "Close` requires",
+    ],
+    "references/survival-guide-template.md": [
+        "Contract|Implement|Validate|Review|Close",
+        "Forbid vague subjects",
+        "audited detached handoff commits",
+        "Close` requires acceptance",
+        "Git/PR ops never dispatch model inference",
+    ],
+    "references/execution-log-template.md": [
+        "Contract|Implement|Validate|Review|Close",
+        "forbid vague subjects",
+        "audited detached handoff commits",
+        "never own refs/remotes/push/PR/run-memory",
+    ],
+    "references/review-subagent.md": [
+        "Git history as operator UI",
+        "Contract|Implement|Validate|Review|Close",
+        "audited detached handoff commits",
+        "Close` appears only with acceptance evidence",
+        "did not dispatch model inference",
+    ],
+}
+
+# Vague subjects must remain present as anti-pattern examples on skill mirrors.
+PROGRESS_COMMIT_ANTIPATTERN_EXAMPLES = {
+    "SKILL.md": [
+        "[feat/payments · Batch 3/12] Updates",
+        "[feat/payments · Batch 3/12 · Implement] progress",
+        "[feat/payments · Batch 3/12 · Implement] WIP",
+        "[feat/payments · Batch 3/12 · Implement] fixes",
+    ],
+    "AGENTS.md": [
+        "[feat/auth · Batch 3/12] Updates",
+        "[feat/auth · Batch 3/12 · Implement] progress",
+    ],
+}
+
 PUBLIC_WORDING_FILES = [
     REPO_ROOT / "SKILL.md",
     REPO_ROOT / "AGENTS.md",
@@ -2130,6 +2324,44 @@ def main() -> int:
             full_run_routing_texts,
             FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS,
             "full-run model routing",
+        )
+    )
+
+    setup_texts = {label: read_text(REPO_ROOT / label) for label in SETUP_COBBLER_PHRASES}
+    errors.extend(
+        find_missing_phrases(
+            setup_texts,
+            SETUP_COBBLER_PHRASES,
+            "setup cobbler",
+        )
+    )
+
+    handoff_texts = {
+        label: read_text(REPO_ROOT / label) for label in IMPLEMENTER_HANDOFF_PHRASES
+    }
+    errors.extend(
+        find_missing_phrases(
+            handoff_texts,
+            IMPLEMENTER_HANDOFF_PHRASES,
+            "implementer handoff",
+        )
+    )
+    progress_texts = {
+        label: read_text(REPO_ROOT / label)
+        for label in set(PROGRESS_COMMIT_PHRASES) | set(PROGRESS_COMMIT_ANTIPATTERN_EXAMPLES)
+    }
+    errors.extend(
+        find_missing_phrases(
+            progress_texts,
+            PROGRESS_COMMIT_PHRASES,
+            "progress commit",
+        )
+    )
+    errors.extend(
+        find_missing_phrases(
+            progress_texts,
+            PROGRESS_COMMIT_ANTIPATTERN_EXAMPLES,
+            "progress commit anti-pattern example",
         )
     )
 

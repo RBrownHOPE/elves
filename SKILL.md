@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "1.19.0"
+  version: "1.20.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -210,6 +210,20 @@ never blocks an ordinary run. Treat `required: true` as valid only when the user
 the project survival guide; never infer it from provider config, Quick Cobbler, or legacy Council
 aliases.
 
+### External-agent setup
+
+Optional checkout setup for external harness preferences:
+
+- Claude Code: `/setup-cobbler` (primary) and `/setup-council` (compatibility)
+- Codex: `$elves setup-cobbler`, `$elves setup-council`, or natural language — not a top-level
+  Codex slash command
+- Operator CLI: `python3 scripts/cobbler_agents.py setup [--json] [--dry-run] ...`
+
+Setup inventories tools without printing credentials, does not launch paid model turns unless the
+user opts into smoke, and writes only ignored local `.elves/models.toml` (never stage it; never paste
+keys). Snapshot effective routes into the Survival Guide during staging. Recipes:
+`references/cobbler-setup-recipes.md`. Setup is not required for native-only Elves.
+
 ## Strategic Forgetting
 
 Durable memory is useful only when it stays curated. Giant chats, append-only scratchpads, and
@@ -267,6 +281,55 @@ These principles govern the entire lifecycle — how you **plan** batches (order
 **For reviewers:** The current codebase is the source of truth, not your training data. The coding agent can search the web in real time and may be using libraries, APIs, model versions, or SDK methods that are newer than what you know. If the code references `gemini-3.1` and you only know about `gemini-1.5`, don't flag it — the codebase is probably right and you are probably stale. If you genuinely believe something is outdated, state your concern but acknowledge your knowledge may be behind. Always pass today's date to the review subagent so it knows the temporal context.
 
 These principles apply to **all code changes**, including review fixes. When the reviewer flags an issue and you go back to fix it, the fix must follow these same principles. Don't slap a band-aid on the reviewer's finding — fix the root cause. Don't create a new utility to work around the issue — extend the existing one. The review-fix cycle is where agents are most tempted to take shortcuts because the pressure to "just make it pass" is highest. Resist that pressure.
+
+## Coordinator-to-Implementer Handoff Standard
+
+The host coordinator is assumed to hold more context than an external or less-capable implementation
+worker. Before every worker turn, write a task packet that can stand alone after compaction and
+carries:
+
+1. **intent / why** — product intent and why the batch exists;
+2. **non-obvious rationale** — architecture choices the worker should not rediscover from chat;
+3. **Build On targets** — existing patterns/utilities to extend, not reinvent;
+4. **owned surfaces** — exact files/modules the worker may edit;
+5. **forbidden surfaces** — run memory, `.git`, credentials, other worktrees, out-of-scope paths;
+6. **acceptance evidence** — observable criteria with proof, not “make tests green”;
+7. **failure modes / pitfalls** — tool/version gotchas and recovery behavior;
+8. **HEAD / run-doc paths / route-session identity / output format** — current tip, plan and run
+   document paths, exact model/session identity when routed externally, and the required handoff
+   report shape.
+
+An incomplete or chat-dependent handoff is a blocking coordinator defect before implementation
+begins. Canonical run documents (plan, Survival Guide, execution log, learnings, `.elves-session.json`)
+stay host-owned. Product docs (`SKILL.md`, `AGENTS.md`, README, references) may be worker-edited only
+when the batch contract assigns them.
+
+## Git History as Operator UI
+
+Users monitor unattended work through GitHub, GitKraken, and ordinary `git log`. The host commits and
+pushes meaningful progress slices during a batch — not only one opaque close commit. Preferred
+subject schema:
+
+```text
+[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>
+```
+
+Rules:
+
+- Push after each independently reviewable host-owned slice; re-read the Survival Guide after every push.
+- Forbid vague subjects such as `Updates`, `progress`, `WIP`, or bare `fixes`.
+- Qualified external workers may create only audited detached handoff commits inside a lease.
+- Exactly one external writer lease is live at a time; dirty/unregistered/branch-attached (when
+  detached is required)/HEAD-mismatched/unqualified write profiles fail closed. Host imports via
+  binary patch export and `git apply --check --index` — never bare cherry-pick.
+- External workers never own refs, remotes, push, PRs, or canonical run memory.
+- Reserve the `Close` phase for acceptance-backed batch completion with non-empty
+  `acceptance: [{criterion, met, evidence}]` rows.
+- Git and PR operations never dispatch model inference; they are host operator surfaces only.
+
+The legacy form `[<branch> · Batch N/Total] <verb> <what changed>` remains acceptable for host-only
+runs that do not use phase labels, but new external-agent and multi-slice batches should prefer the
+phase-aware schema above.
 
 ## Effort Standard
 
@@ -832,14 +895,23 @@ separate **Validate:** section for each batch id before any of those batches may
 
 #### Commit subject format
 
+Preferred phase-aware form (Git history as operator UI):
+
+```
+[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>
+```
+
+Legacy form still accepted for simple host-only commits:
+
 ```
 [<branch> · Batch N/Total] <verb> <what changed>
 ```
 
-Three parts, always present, always in this order:
-1. **`[<branch> · Batch N/Total]`** — the progress prefix. Branch name, batch number, total batches. Exact format: square brackets, space-dot-space between branch and batch, forward slash between N and Total.
-2. **A verb** — starts with an action word: Add, Fix, Update, Remove, Implement, Extend, Refactor. Not a noun phrase. Not a gerund.
-3. **What changed** — specific enough that `git log --oneline` reads as a progress report.
+Always include:
+1. **Progress prefix** with branch and batch — square brackets, space-dot-space separators.
+2. **Optional phase label** — `Contract`, `Implement`, `Validate`, `Review`, or `Close`.
+3. **Concrete outcome** — specific enough that `git log --oneline` reads as a live progress report.
+   Prefer a verb-led outcome (`Add …`, `Fix …`) unless the phase label already frames the work.
 
 Variant prefixes for non-batch commits:
 - `[<branch> · Scout]` — scout mode work
@@ -847,6 +919,10 @@ Variant prefixes for non-batch commits:
 - `[<branch> · Batch 0/N]` — session setup
 
 **This format applies to every commit during the run.** Implementation commits, review fix commits, doc updates, session setup commits. No exceptions. The human may check `git log` at 3am to see if you're still making progress. If they see commits without the progress prefix, they have no idea where you are.
+
+Push meaningful slices during the batch; do not hide hours of validated progress until `Close`.
+`Close` requires acceptance evidence. Qualified external workers may create only audited detached
+handoff commits and never own refs, remotes, push, or PRs.
 
 #### Anti-patterns (never do these)
 
@@ -856,6 +932,9 @@ Add payment endpoint
 
 # BAD: prefix exists but vague description
 [feat/payments · Batch 3/12] Updates
+[feat/payments · Batch 3/12 · Implement] progress
+[feat/payments · Batch 3/12 · Implement] WIP
+[feat/payments · Batch 3/12 · Implement] fixes
 
 # BAD: prefix exists but description is about the process, not the change
 [feat/payments · Batch 3/12] Working on batch 3
@@ -872,7 +951,7 @@ Add payment endpoint
 #### Good examples
 
 ```
-[feat/payment-system · Batch 3/12] Add charge endpoint and webhook handler
+[feat/payment-system · Batch 3/12 · Implement] Add charge endpoint and webhook handler
 ```
 
 ```
@@ -884,12 +963,16 @@ consistency problem. Hardcoded 24h TTL matches Stripe's documented window.
 ```
 
 ```
-[feat/payment-system · Batch 3/12] Fix validation and error handling per review
+[feat/payment-system · Batch 3/12 · Review] Fix validation and error handling per review
 
 Fixed: email regex was anchored incorrectly (CodeRabbit #42).
 Dismissed: "extract timeout to constants" — the 30s value is Stripe's
 documented webhook timeout, not a tunable parameter. Justified in code
 comment referencing their docs.
+```
+
+```
+[feat/payment-system · Batch 3/12 · Close] Record acceptance evidence for payment batch
 ```
 
 ```

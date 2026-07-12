@@ -47,7 +47,7 @@ If Work scope is worker edit: edit only the assigned files or modules, do not re
 changes, and report the files changed. The main coordinator owns git operations, durable memory,
 PRs, and final synthesis unless it explicitly delegates a narrower action.
 
-Return a bounded report:
+Return a bounded JSON-compatible report:
 role:
 verdict:
 confidence:
@@ -56,8 +56,11 @@ evidence:
 risks:
 recommended_actions:
 open_questions:
+actual_model:
 
 Prefer concrete evidence over vibes. If context is missing, say what would change your answer.
+Do not read peer role reports. Do not print secrets. Do not edit files in read-only lens scope.
+When the runtime requested a model identity, set `actual_model` to the model that actually ran.
 ```
 
 ## Role Selector
@@ -201,6 +204,25 @@ Focus on:
 - quick checks that reduce uncertainty.
 
 Return the role report. Mark each lead as useful, speculative, blocked, or irrelevant.
+```
+
+## Lightweight Review (utility; not a council vote)
+
+```text
+Mode: lightweight-review
+Work scope: read-only lens (ephemeral)
+Constraints:
+- not a default independent council vote
+- cannot close high-risk review
+- no git/PR mutations
+- no run-memory edits
+
+Question: [USER QUESTION]
+Context packet: [BOUNDED REDACTED PACKET]
+
+Return a single bounded role report for role=lightweight_review. Keep it short. Flag only
+actionable utility findings. Escalate high-risk items to a full independent council rather than
+closing them here.
 ```
 
 ## Synthesizer
