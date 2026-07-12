@@ -210,6 +210,20 @@ never blocks an ordinary run. Treat `required: true` as valid only when the user
 the project survival guide; never infer it from provider config, Quick Cobbler, or legacy Council
 aliases.
 
+### External-agent setup
+
+Optional checkout setup for external harness preferences:
+
+- Claude Code: `/setup-cobbler` (primary) and `/setup-council` (compatibility)
+- Codex: `$elves setup-cobbler`, `$elves setup-council`, or natural language — not a top-level
+  Codex slash command
+- Operator CLI: `python3 scripts/cobbler_agents.py setup [--json] [--dry-run] ...`
+
+Setup inventories tools without printing credentials, does not launch paid model turns unless the
+user opts into smoke, and writes only ignored local `.elves/models.toml` (never stage it; never paste
+keys). Snapshot effective routes into the Survival Guide during staging. Recipes:
+`references/cobbler-setup-recipes.md`. Setup is not required for native-only Elves.
+
 ## Strategic Forgetting
 
 Durable memory is useful only when it stays curated. Giant chats, append-only scratchpads, and

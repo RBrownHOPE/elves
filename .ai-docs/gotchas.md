@@ -77,3 +77,6 @@
   `detached_commits_permitted=false` for that profile.
 - Ref/remote/config/hook mutations, out-of-scope paths (including `.elves/` and run docs), symlink
   escapes, push attempts, and process leaks fail the post-turn audit even when the file diff looks right.
+- Setup is optional. Never stage `.elves/models.toml` or paste API keys into TOML/chat/Survival Guide.
+  Codex has no top-level `/setup-cobbler` slash — use `$elves setup-cobbler` or natural language.
+  OpenRouter/API-only routes are optional read-only breadth unless a wrapper qualifies write/isolation.

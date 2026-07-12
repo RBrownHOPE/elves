@@ -411,6 +411,22 @@ cobbler-provider-backed-role-effort:
 Legacy `council-*` config keys remain compatibility aliases for existing `v1.14.0` setups. Prefer
 new `cobbler-*` keys in fresh configs, but do not rename working project config just for style.
 
+### Setup (optional local preferences)
+
+```bash
+# Inventory only — no credentials printed, no paid model turns
+python3 scripts/cobbler_agents.py setup --json --dry-run
+
+# Write ignored local .elves/models.toml (never stage it)
+python3 scripts/cobbler_agents.py setup --json \
+  --implement grok-build \
+  --review claude-code \
+  --lightweight-review host-native
+```
+
+Claude Code: `/setup-cobbler` or `/setup-council`. Codex: `$elves setup-cobbler` /
+`$elves setup-council` (not top-level slash). Recipes: `references/cobbler-setup-recipes.md`.
+
 ### Read-only council runtime commands
 
 ```bash

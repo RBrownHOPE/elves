@@ -255,7 +255,13 @@ Validate local route preferences without launching models:
 ```bash
 python3 scripts/cobbler_agents.py validate-config --json
 python3 scripts/cobbler_agents.py doctor --json
+python3 scripts/cobbler_agents.py setup --json --dry-run
 ```
+
+Setup writes only ignored local `.elves/models.toml` (never stage it; never paste keys). Claude Code:
+`/setup-cobbler` (primary) or `/setup-council` (compatibility). Codex: `$elves setup-cobbler` or
+`$elves setup-council` / natural language — not a top-level Codex slash command. Recipes:
+[`references/cobbler-setup-recipes.md`](references/cobbler-setup-recipes.md).
 
 Run a native-only parallel read-only council smoke (host synthesis still owns the fitted answer):
 
