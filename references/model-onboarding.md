@@ -138,6 +138,9 @@ Same pattern with `codex-fugu-planning` / `codex-fugu-labor`.
 
 ### Session continuity (plan → review)
 
+**Preferred (most robust):** exact session/conversation id so the same chat that planned can review
+with its full planning thread. Document-only context is the fallback when no id exists.
+
 External chats are **not** one-shot throwaways when the same lens plans and later reviews:
 
 1. At planning, create or capture an **exact** session/conversation id (Gemini:
@@ -145,17 +148,17 @@ External chats are **not** one-shot throwaways when the same lens plans and late
 2. Store it in the session registry / run memory (never paste secrets).
 3. At review, resume with that **exact** id only — forbid `latest`, bare `--continue`, or “most
    recent”.
-4. Review still must load plan + constitution + regression surfaces; session continuity is *context*,
-   not a substitute for those documents.
+4. Even with a session id, still load plan + constitution + regression surfaces from the repo —
+   session memory supplements documents; it does not replace them.
 
 **If there is no session id** (missing, lost after compaction, or one-shot lens): do **not** invent
-`latest`/`continue`. Fall back to **repo documents the agent can read** as the planning context:
+`latest`/`continue`. Fall back to **repo documents the agent can read**:
 
 - plan file, batch contract / execution log, Survival Guide, constitution (if present),
   relevant `.ai-docs` / PR body
 
-Session resume is additive. Document visibility is the baseline that always works when tools can
-see the checkout.
+Order of preference: **exact session id (best) → repo documents (required fallback) → never
+ambiguous “latest/continue”.**
 
 Google is consolidating coding-agent surfaces around **Antigravity** (Gemini CLI transitions into
 that family). Treat both as optional **subscription CLIs** when installed and the **host is still

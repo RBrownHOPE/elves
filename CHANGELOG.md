@@ -70,11 +70,12 @@ All notable changes to the Elves skill are documented here.
     pin via `requested_model` in ignored models.toml — re-check `agy models` after upgrades.
   - Experimental `antigravity-labor` profile for Flash-class implement; **not** Lane A / Grok
     `implement prepare|launch`, not write-lease qualified.
-  - **Exact session continuity:** `session_id` on readonly invocations and session create/resume
-    for Gemini (`--session-id` / `--resume <uuid>`) and Antigravity (`--conversation <id>`);
-    reject ambiguous latest/continue. Plan→review should resume the same chat when possible.
-  - **No session id:** fall back to repo documents the agent can read (plan, contract, execution
-    log, Survival Guide, constitution) — never invent `latest`/`continue`.
+  - **Exact session continuity (preferred, most robust):** `session_id` on readonly invocations and
+    session create/resume for Gemini (`--session-id` / `--resume <uuid>`) and Antigravity
+    (`--conversation <id>`); reject ambiguous latest/continue. Plan→review should resume the same
+    chat when possible.
+  - **No session id (fallback):** repo documents the agent can read (plan, contract, execution log,
+    Survival Guide, constitution) — never invent `latest`/`continue`.
   - Review protocol: completeness (plan+contract), constitution deal-breakers, and regressions
     (indirect breakage), not only local correctness of the diff.
 

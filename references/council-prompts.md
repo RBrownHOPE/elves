@@ -67,10 +67,11 @@ If this role is **review** / **lightweight_review** (or any critique of implemen
 - Check **regressions**: correct changes can still break unedited paths, callers, and shared surfaces.
 - If a **constitution** exists, check deal-breaker flows/invariants that must still hold even when
   those areas were not the edit focus.
-- If you also helped **plan** in an earlier turn, the host should resume your **exact** session id
-  when available. If there is **no session id**, treat plan file, batch contract, execution log,
-  Survival Guide, and constitution (when present) as the planning context — as long as you can
-  read the repo. Still re-read those documents rather than relying on chat memory alone.
+- If you also helped **plan** in an earlier turn, the host should **prefer** resuming your
+  **exact** session id (most robust continuity). If there is **no session id**, treat plan file,
+  batch contract, execution log, Survival Guide, and constitution (when present) as the planning
+  context — as long as you can read the repo. Always re-read those documents; chat memory alone
+  is not enough even when a session id is present.
 ```
 
 ## Role Selector

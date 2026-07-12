@@ -47,10 +47,11 @@ Review the current state of PR #[NUMBER] for repo [OWNER/REPO].
    flows/invariants that must still work even when not directly edited
 8. Any full-run `model-routing` preferences in the survival guide, execution-log contract, or
    `.elves-session.json`: requested route, actual route, and fallback reason. If an external
-   reviewer (e.g. Gemini/Antigravity) also helped plan, prefer resuming its **exact session_id**
-   (never latest/continue). **If no session id is available**, still proceed: load planning
-   context from **repo documents** the agent can see (plan, contract, execution log, Survival
-   Guide, constitution, PR). Missing chat memory is not an excuse to skip completeness review.
+   reviewer (e.g. Gemini/Antigravity) also helped plan, **prefer** resuming its **exact
+   session_id** when available (most robust; never latest/continue). **If no session id**, fall
+   back to **repo documents** the agent can see (plan, contract, execution log, Survival Guide,
+   constitution, PR). Missing chat memory is not an excuse to skip completeness review; missing
+   documents when a session id exists is not an excuse to skip re-reading the plan/constitution.
 9. Any `## Cobbler Session State` block or `.elves-session.json` `cobbler.default_for_session`
    state that explains how the run is being coordinated
 10. For mathematical runs, the relevant `docs/math/*` ledgers: claim, source, model-call,
