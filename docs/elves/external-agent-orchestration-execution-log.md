@@ -14,6 +14,22 @@ control in the Survival Guide; promote stable lessons to `docs/elves/learnings.m
 - **Docs promoted this run:** qualification lessons added to `docs/elves/learnings.md`
 - **Latest Elves Report:** not generated
 
+## Batch 2 Contract: 2026-07-12 ~10:41 EDT
+
+**Contract:** Parallel read-only council dispatcher with redaction, argv-safe concurrency, adapter
+command builders, lightweight_review path, and quorum/fallback policy. No writer/session registry.
+
+**Build on:** Batch 1 cobbler_runtime contracts; council-workflow independence; council-prompts schema.
+
+**Acceptance:** wall-clock overlap ≥3 fake lanes; secret env scrub; advisory/required quorum
+semantics; native-only path; full suite not decreased from 199.
+
+**Lease:** lease-batch-2-20260712-A base `9d390ce92472efa18ed15b658ea9e15f658f9adc` session 9927883a…
+
+**Rollback:** elves/pre-batch-2
+
+---
+
 ## Batch 1 Close: 2026-07-12 ~10:35 EDT
 
 **Batch:** 1 Contracts, configuration, and implementer clarity  

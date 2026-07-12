@@ -3,7 +3,7 @@
   "session_id": "elves-external-agent-orchestration-20260712",
   "status": "in_progress",
   "created_at": "2026-07-12T12:39:00Z",
-  "updated_at": "2026-07-12T14:40:56Z",
+  "updated_at": "2026-07-12T14:41:37Z",
   "run_mode": "finite",
   "execution_budget_hours": 8,
   "checkpoint": {
@@ -319,7 +319,7 @@
         "remediation",
         "detached_commit_handoff"
       ],
-      "status": "qualified_idle",
+      "status": "leased_active",
       "remaining_quota": "unknown"
     },
     "sakana_fugu_ultra": {
@@ -429,8 +429,14 @@
     }
   ],
   "external_writer": {
-    "status": "qualified_idle",
-    "active_lease": null,
+    "status": "active",
+    "active_lease": {
+      "id": "lease-batch-2-20260712-A",
+      "batch": 2,
+      "base_head": "9d390ce92472efa18ed15b658ea9e15f658f9adc",
+      "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
+      "started_at": "2026-07-12T14:41:37Z"
+    },
     "maximum_concurrent_leases": 1,
     "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
     "sandbox_profile": "devbox",
@@ -545,10 +551,10 @@
     {
       "id": 2,
       "name": "Parallel read-only council dispatcher",
-      "status": "pending",
+      "status": "in_progress",
       "commit": null,
-      "rollback_tag": null,
-      "started_at": null,
+      "rollback_tag": "elves/pre-batch-2",
+      "started_at": "2026-07-12T14:41:37Z",
       "completed_at": null,
       "acceptance": []
     },
@@ -646,11 +652,11 @@
     "stop_allowed": false,
     "staging_stop": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Start Batch 2: Parallel read-only council dispatcher"
+    "next_required_action": "Await Grok Batch 2 handoff then audit"
   },
   "current_batch": {
     "id": 2,
     "name": "Parallel read-only council dispatcher",
-    "status": "pending"
+    "status": "in_progress"
   }
 }
