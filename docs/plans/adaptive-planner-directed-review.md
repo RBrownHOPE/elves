@@ -2,9 +2,15 @@
 
 ## Status
 
+**Design doc only.** Adaptive review **runtime is future work** — this file is the durable plan
+portfolio entry so operators can find the follow-up without hunting doc PRs. Do not implement the
+review-policy engine, evidence cache, or between-batch adaptive executor from this document on a
+Lane A productize branch.
+
 Follow-up design proposal. This work should land after the v1.20.1 Cobbler runtime-hardening run,
 using evidence from that run to calibrate review cost and escalation rules. It should not expand the
-scope of the corrective PR while that PR is validating the external-worker procedure.
+scope of a corrective or Lane A productize PR while those PRs are validating implementer procedure
+and docs.
 
 ## Objective
 
@@ -683,3 +689,12 @@ migration docs, and host tests. Planned review: standard, escalating if persiste
 - Codex and Claude behave consistently.
 - Git/run memory explains every review decision.
 - Measured review time/provider usage decreases without weakening acceptance or increasing escaped defects.
+
+## Related
+
+- [`smart-plan-grok-implement.md`](smart-plan-grok-implement.md) — Lane A fast path (smart plan →
+  persistent Grok implement); pairs with this plan for between-batch vs final readiness cost split
+- [`lane-a-productize.md`](lane-a-productize.md) — productize run that lands the implement CLI and
+  keeps this design doc on the product branch (runtime still out of scope)
+- [`references/grok-implementer-launch-prompt.md`](../../references/grok-implementer-launch-prompt.md)
+  — measured Lane A launch recipe (`--prompt-file --yolo --effort medium`)

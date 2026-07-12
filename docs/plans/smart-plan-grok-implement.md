@@ -350,7 +350,14 @@ Do **not** have Codex “drive” Grok tool-call by tool-call. That recreates th
 
 ## Related
 
-- `docs/plans/adaptive-planner-directed-review.md` — between-batch cost control
-- `docs/plans/v1.20.1-cobbler-runtime-hardening.md` — untrusted lane truthfulness (Lane B)
-- `references/councilelves-launch-prompt.md` — current orchestration prompt (needs split)
+- [`lane-a-productize.md`](lane-a-productize.md) — productize PR that ships the implement CLI + skill
+  surfaces for this design (docs + operator UX, not adaptive runtime)
+- [`adaptive-planner-directed-review.md`](adaptive-planner-directed-review.md) — between-batch cost
+  control (design only; runtime is future work)
+- [`v1.20.1-cobbler-runtime-hardening.md`](v1.20.1-cobbler-runtime-hardening.md) — untrusted lane
+  truthfulness (Lane B)
+- [`references/grok-implementer-launch-prompt.md`](../../references/grok-implementer-launch-prompt.md)
+  — measured Lane A launch recipe (`--prompt-file --yolo --effort medium`)
+- [`references/councilelves-launch-prompt.md`](../../references/councilelves-launch-prompt.md) —
+  two-lane orchestration overview
 - Execution evidence: Codex session driving Grok for v1.20.1 Batch 1 vs interactive Grok speed

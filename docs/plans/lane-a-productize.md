@@ -113,3 +113,11 @@ python3 scripts/cobbler_agents.py implement launch …   # prints measured grok 
 # Grok runs whole batch, commits often
 python3 scripts/cobbler_agents.py implement gate --batch N
 ```
+
+## Related
+
+- [`smart-plan-grok-implement.md`](smart-plan-grok-implement.md) — design authority for the fast path
+- [`adaptive-planner-directed-review.md`](adaptive-planner-directed-review.md) — between-batch /
+  final readiness review cost design (docs only on this branch; runtime is future work)
+- [`references/grok-implementer-launch-prompt.md`](../../references/grok-implementer-launch-prompt.md)
+  — operator launch recipe
