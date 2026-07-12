@@ -9,6 +9,7 @@ Public default remains native-only with zero external tools or keys.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import stat
@@ -435,7 +436,37 @@ def assert_toml_has_no_secrets(text: str) -> None:
             )
 
 
-def render_models_toml(preferences: SetupPreferences) -> str:
+def _toml_key(value: str) -> str:
+    return value if re.fullmatch(r"[A-Za-z0-9_-]+", value) else json.dumps(value)
+
+
+def _toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    if isinstance(value, Mapping):
+        entries = ", ".join(
+            f"{_toml_key(str(key))} = {_toml_value(item)}"
+            for key, item in value.items()
+            if item is not None
+        )
+        return "{ " + entries + " }"
+    raise ValidationIssue(
+        "unsupported_profile_value",
+        f"Cannot preserve models.toml profile value of type {type(value).__name__}",
+    )
+
+
+def render_models_toml(
+    preferences: SetupPreferences,
+    *,
+    existing_profiles: Mapping[str, Mapping[str, Any]] | None = None,
+) -> str:
     """Render a local models.toml from preferences (no credentials)."""
     lines: list[str] = [
         "# Local Cobbler external-agent preferences (machine-local; do not stage)",
@@ -459,6 +490,9 @@ def render_models_toml(preferences: SetupPreferences) -> str:
         profiles_needed.add(profile)
     for chain in preferences.fallbacks.values():
         profiles_needed.update(chain)
+    # Partial apply must preserve every existing profile body, including inactive
+    # custom wrappers the user may route to again later.
+    profiles_needed.update((existing_profiles or {}).keys())
     profiles_needed.discard("")
 
     for profile_name in sorted(profiles_needed):
@@ -474,7 +508,21 @@ def render_models_toml(preferences: SetupPreferences) -> str:
             adapter = str(recipe.get("adapter") or "custom-cli")
             executable = resolve_recipe_executable(profile_name)
             notes = recipe.get("notes")
-        lines.append(f"[profiles.{profile_name}]")
+        lines.append(f"[profiles.{_toml_key(profile_name)}]")
+        existing_body = dict((existing_profiles or {}).get(profile_name) or {})
+        if existing_body:
+            existing_body.setdefault("adapter", adapter)
+            if executable:
+                existing_body.setdefault("executable", executable)
+            priority = ("adapter", "executable", "requested_model", "extra_args", "notes")
+            ordered_keys = [key for key in priority if key in existing_body]
+            ordered_keys.extend(key for key in existing_body if key not in ordered_keys)
+            for key in ordered_keys:
+                value = existing_body[key]
+                if value is not None:
+                    lines.append(f"{_toml_key(str(key))} = {_toml_value(value)}")
+            lines.append("")
+            continue
         lines.append(f'adapter = "{adapter}"')
         if executable:
             lines.append(f'executable = "{executable}"')
@@ -663,6 +711,7 @@ def run_setup(
     fake_presence: Mapping[str, bool] | None = None,
     fake_versions: Mapping[str, str | None] | None = None,
     fake_auth: Mapping[str, str] | None = None,
+    existing_profiles: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> SetupResult:
     """Run setup inventory + optional local models.toml generation.
 
@@ -785,7 +834,10 @@ def run_setup(
         result.notes.append("Dry-run: no files written")
     if should_write:
         try:
-            text = render_models_toml(prefs)
+            text = render_models_toml(
+                prefs,
+                existing_profiles=existing_profiles,
+            )
             path, written = write_models_toml(root, text, force=force_toml)
             result.models_toml_written = written
             result.models_toml_path = str(path)

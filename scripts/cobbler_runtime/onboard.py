@@ -292,6 +292,10 @@ class ModelsTomlState:
     exists: bool
     parse_ok: bool
     required_roles: list[str] = field(default_factory=list)
+    session_mode: str = "ephemeral"
+    sharing_policy: str = "local-only"
+    document_owner: str = "host-coordinator"
+    usage_budget_warning: int | None = None
 
 
 def _utc_now() -> str:
@@ -431,6 +435,14 @@ def load_models_toml_state(repo_root: Path) -> ModelsTomlState:
         exists=True,
         parse_ok=True,
         required_roles=required_roles,
+        session_mode=str(data.get("session_mode_default") or "ephemeral"),
+        sharing_policy=str(data.get("sharing_policy") or "local-only"),
+        document_owner=str(data.get("document_owner") or "host-coordinator"),
+        usage_budget_warning=(
+            int(data["usage_budget_warning_tokens"])
+            if isinstance(data.get("usage_budget_warning_tokens"), int)
+            else None
+        ),
     )
 
 
@@ -575,6 +587,11 @@ def apply_onboarding(
     unspecified roles to host-native.
     """
     base_roles = None
+    existing_profiles: Mapping[str, Mapping[str, Any]] | None = None
+    session_mode = "ephemeral"
+    sharing_policy = "local-only"
+    document_owner = "host-coordinator"
+    usage_budget_warning: int | None = None
     if required is None:
         merged_required: list[str] = []
     else:
@@ -582,6 +599,11 @@ def apply_onboarding(
     if merge_existing:
         state = load_models_toml_state(repo_root)
         base_roles = state.roles
+        existing_profiles = state.profiles
+        session_mode = state.session_mode
+        sharing_policy = state.sharing_policy
+        document_owner = state.document_owner
+        usage_budget_warning = state.usage_budget_warning
         # Preserve existing required flags unless caller passes --required explicitly.
         if required is None:
             merged_required = list(state.required_roles)
@@ -594,9 +616,13 @@ def apply_onboarding(
         synthesize=role_flags.get("synthesize"),
         scout=role_flags.get("scout"),
         required=merged_required,
+        session_mode=session_mode,
+        sharing_policy=sharing_policy,
         native_fallback=True,
         base_roles=base_roles,
     )
+    prefs.document_owner = document_owner
+    prefs.usage_budget_warning = usage_budget_warning
     result = run_setup(
         Path(repo_root),
         preferences=prefs,
@@ -606,6 +632,7 @@ def apply_onboarding(
         smoke_executor=smoke_executor,
         dry_run=dry_run,
         fake_presence=fake_presence,
+        existing_profiles=existing_profiles,
     )
     payload = result.to_dict()
     changed = {
@@ -1010,6 +1037,9 @@ def show_onboarding(repo_root: Path) -> dict[str, Any]:
             }
             for name, body in state.profiles.items()
         },
+        "required_roles": list(state.required_roles),
+        "session_mode_default": state.session_mode,
+        "sharing_policy": state.sharing_policy,
         "purposes": list(PURPOSE_CATALOG),
         "env_present": env_name_presence(repo_root=repo_root),
         "warnings": list(state.warnings),

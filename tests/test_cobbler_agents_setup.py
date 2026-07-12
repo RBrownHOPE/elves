@@ -306,6 +306,54 @@ class SetupCliTests(unittest.TestCase):
         self.assertFalse(payload["credentials_printed"])
         self.assertFalse(payload["staged_models_toml"])
 
+    def test_setup_cli_partial_apply_preserves_profile_and_top_level_values(self) -> None:
+        cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / ".elves" / "models.toml"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                """
+sharing_policy = "private-machine"
+document_owner = "custom-host"
+session_mode_default = "exact_resume"
+usage_budget_warning_tokens = 1234
+
+[profiles.claude-code-planning]
+adapter = "claude-code"
+executable = "claude"
+requested_model = "claude-opus-user-pin"
+
+[roles.review]
+profile = "claude-code-planning"
+required = true
+""".lstrip(),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(cli),
+                    "setup",
+                    "--json",
+                    "--repo-root",
+                    tmp,
+                    "--implement",
+                    "host-native",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            text = path.read_text(encoding="utf-8")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('requested_model = "claude-opus-user-pin"', text)
+        self.assertIn('sharing_policy = "private-machine"', text)
+        self.assertIn('document_owner = "custom-host"', text)
+        self.assertIn('session_mode_default = "exact_resume"', text)
+        self.assertIn("usage_budget_warning_tokens = 1234", text)
+
 
 class AliasDelegationTests(unittest.TestCase):
     def test_setup_aliases_exist_with_managed_marker(self) -> None:

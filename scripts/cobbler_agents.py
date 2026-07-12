@@ -284,6 +284,11 @@ def cmd_setup(args: argparse.Namespace) -> int:
     from cobbler_runtime.onboard import load_models_toml_state  # noqa: PLC0415
 
     base_roles = None
+    existing_profiles = None
+    session_mode = args.session_mode or "ephemeral"
+    sharing_policy = args.sharing_policy or "local-only"
+    document_owner = "host-coordinator"
+    usage_budget_warning = None
     required: list[str] | None
     if getattr(args, "required", None) is None:
         required = None
@@ -292,6 +297,11 @@ def cmd_setup(args: argparse.Namespace) -> int:
     if not getattr(args, "reset_roles", False):
         state = load_models_toml_state(repo_root)
         base_roles = state.roles
+        existing_profiles = state.profiles
+        session_mode = args.session_mode or state.session_mode
+        sharing_policy = args.sharing_policy or state.sharing_policy
+        document_owner = state.document_owner
+        usage_budget_warning = state.usage_budget_warning
         if required is None:
             required = list(state.required_roles)
     else:
@@ -305,11 +315,13 @@ def cmd_setup(args: argparse.Namespace) -> int:
         synthesize=args.synthesize,
         scout=args.scout,
         required=required or [],
-        session_mode=args.session_mode,
-        sharing_policy=args.sharing_policy,
+        session_mode=session_mode,
+        sharing_policy=sharing_policy,
         native_fallback=not args.no_native_fallback,
         base_roles=base_roles,
     )
+    prefs.document_owner = document_owner
+    prefs.usage_budget_warning = usage_budget_warning
     try:
         result = run_setup(
             repo_root,
@@ -317,6 +329,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
             write_toml=not args.dry_run,
             force_toml=bool(args.force),
             run_smoke=bool(args.smoke),
+            existing_profiles=existing_profiles,
         )
     except ValidationIssue as issue:
         payload = {"ok": False, "issues": [issue.to_dict()], "credentials_printed": False}
@@ -890,14 +903,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     setup.add_argument(
         "--session-mode",
-        default="ephemeral",
+        default=None,
         choices=["ephemeral", "persistent", "exact_resume"],
-        help="Default session mode preference",
+        help="Default session mode preference (omit to preserve existing)",
     )
     setup.add_argument(
         "--sharing-policy",
-        default="local-only",
-        help="models.toml sharing policy (local-only by default; never team-shared automatically)",
+        default=None,
+        help="models.toml sharing policy (omit to preserve existing; local-only for new config)",
     )
     setup.add_argument(
         "--no-native-fallback",

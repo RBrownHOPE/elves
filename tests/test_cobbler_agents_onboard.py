@@ -234,6 +234,62 @@ class ApplyAndProbeTests(unittest.TestCase):
             self.assertEqual(shown2["roles"]["implement"], "host-native")
             self.assertEqual(shown2["roles"]["review"], "host-native")
 
+    def test_partial_apply_preserves_profile_bodies_and_top_level_preferences(self) -> None:
+        """Unrelated role updates must not erase model pins or custom wrapper config."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            elves = root / ".elves"
+            elves.mkdir()
+            (elves / "models.toml").write_text(
+                """
+sharing_policy = "private-machine"
+document_owner = "custom-host"
+session_mode_default = "exact_resume"
+usage_budget_warning_tokens = 1234
+
+[profiles.claude-code-planning]
+adapter = "claude-code"
+executable = "claude"
+requested_model = "claude-opus-user-pin"
+extra_args = ["--user-preserved-flag"]
+
+[profiles.my-wrapper]
+adapter = "custom-cli"
+executable = "scripts/my-wrapper"
+requested_model = "user/model"
+
+[roles.planning]
+profile = "claude-code-planning"
+required = false
+
+[roles.review]
+profile = "claude-code-planning"
+required = true
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            result = apply_onboarding(
+                root,
+                role_flags={"implement": "grok-build"},
+                fake_presence={"grok-build": True},
+            )
+            self.assertTrue(result["ok"], result)
+            text = (elves / "models.toml").read_text(encoding="utf-8")
+            self.assertIn('requested_model = "claude-opus-user-pin"', text)
+            self.assertIn('extra_args = ["--user-preserved-flag"]', text)
+            self.assertIn("[profiles.my-wrapper]", text)
+            self.assertIn('executable = "scripts/my-wrapper"', text)
+            self.assertIn('sharing_policy = "private-machine"', text)
+            self.assertIn('document_owner = "custom-host"', text)
+            self.assertIn('session_mode_default = "exact_resume"', text)
+            self.assertIn("usage_budget_warning_tokens = 1234", text)
+
+            shown = show_onboarding(root)
+            self.assertEqual(shown["required_roles"], ["review"])
+            self.assertEqual(shown["session_mode_default"], "exact_resume")
+            self.assertEqual(shown["sharing_policy"], "private-machine")
+
     def test_required_tier_profile_resolves_to_adapter(self) -> None:
         """B2: claude-code-planning + --required review succeeds when claude-code present."""
         with tempfile.TemporaryDirectory() as tmp:
