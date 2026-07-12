@@ -24,7 +24,10 @@ DEFAULT_PERMISSION_MODE = "auto"
 DEFAULT_LANE = "fast"
 DEFAULT_GIT_MODE = "branch_progress"
 DEFAULT_EXECUTABLE = "grok"
+DEFAULT_EFFORT = "medium"
 FORBIDDEN_DEFAULT_PERMISSION = "dontAsk"
+# Empirically required for unattended headless tool use (Grok Build 0.2.93 docs + dogfood).
+# --permission-mode auto alone does not auto-approve writes; --yolo / --always-approve does.
 
 RUNTIME_REL = Path(".elves") / "runtime" / "implement"
 STATE_NAME = "state.json"
@@ -218,33 +221,55 @@ def _normalize_permission(mode: str | None) -> str:
 
 def build_launch_argv(
     *,
-    session_id: str,
+    session_id: str | None = None,
     packet: str | Path,
     cwd: str | Path,
     model: str = DEFAULT_MODEL,
     permission_mode: str = DEFAULT_PERMISSION_MODE,
     executable: str = DEFAULT_EXECUTABLE,
     create: bool = False,
+    effort: str = DEFAULT_EFFORT,
+    yolo: bool = True,
+    max_turns: int | None = 80,
+    output_format: str | None = "json",
 ) -> list[str]:
-    """Build exact grok argv for Lane A. Never includes --no-subagents."""
-    sid = (session_id or "").strip()
-    if not sid:
-        raise ValidationIssue(
-            "missing_session_id",
-            "Exact session_id is required for implement launch/resume",
-            hint="Pass --session-id <uuid>",
-        )
+    """Build exact grok argv for Lane A headless implementer turns.
+
+    Dogfood findings (Grok Build 0.2.93):
+    - ``--prompt-file`` or ``-p`` both trigger headless multi-turn with tools.
+    - ``--yolo`` / ``--always-approve`` is required for unattended edits (not
+      ``--permission-mode auto`` alone).
+    - ``--effort high`` roughly doubles tiny-task latency; default ``medium``.
+    - Do not pass ``-p`` and ``--prompt-file`` together (CLI rejects).
+    - Prefer whole-batch packets; host gates between batches, not breaths.
+    - Interactive TUI (positional prompt, no ``-p``) remains valid for humans;
+      this builder targets the scripted/host path.
+    """
     packet_path = Path(packet).expanduser().resolve()
+    if not packet_path.is_file():
+        raise ValidationIssue(
+            "packet_missing",
+            f"Packet file not found: {packet_path}",
+        )
     cwd_path = Path(cwd).expanduser().resolve()
     perm = _normalize_permission(permission_mode)
     exe = (executable or DEFAULT_EXECUTABLE).strip() or DEFAULT_EXECUTABLE
     model_name = (model or DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    effort_name = (effort or DEFAULT_EFFORT).strip() or DEFAULT_EFFORT
 
     argv: list[str] = [exe]
+    sid = (session_id or "").strip()
     if create:
+        if not sid:
+            raise ValidationIssue(
+                "missing_session_id",
+                "create=True requires an exact new session UUID",
+            )
         argv.extend(["--session-id", sid])
-    else:
+    elif sid:
         argv.extend(["--resume", sid])
+    # Headless packet delivery (mutually exclusive with -p).
+    argv.extend(["--prompt-file", str(packet_path)])
     argv.extend(
         [
             "--cwd",
@@ -253,10 +278,16 @@ def build_launch_argv(
             model_name,
             "--permission-mode",
             perm,
-            "--prompt-file",
-            str(packet_path),
+            "--effort",
+            effort_name,
         ]
     )
+    if yolo:
+        argv.append("--yolo")
+    if max_turns is not None and int(max_turns) > 0:
+        argv.extend(["--max-turns", str(int(max_turns))])
+    if output_format:
+        argv.extend(["--output-format", str(output_format)])
     # Product invariants: no crippling flags.
     joined = " ".join(argv)
     if "--no-subagents" in argv or "--no-subagents" in joined:
@@ -268,6 +299,11 @@ def build_launch_argv(
         raise ValidationIssue(
             "implement_dontask_forbidden",
             "Lane A launch argv must not use permission-mode dontAsk",
+        )
+    if "-p" in argv or "--single" in argv:
+        raise ValidationIssue(
+            "implement_prompt_conflict",
+            "Lane A launch uses --prompt-file only; do not also pass -p/--single",
         )
     return argv
 
@@ -306,6 +342,10 @@ def launch_payload(
         permission_mode=perm,
         executable=exe,
         create=create,
+        effort=DEFAULT_EFFORT,
+        yolo=True,
+        max_turns=80,
+        output_format="json",
     )
 
     # Persist last launch pointers for status/resume.

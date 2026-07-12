@@ -43,33 +43,60 @@ for `prepare` / `status` / argv emission.
 
 | Setting | Value | Why |
 |---------|-------|-----|
-| Session | exact UUID create once; `--resume` for every later batch | preserve context |
-| Permission | `auto` (or `acceptEdits`) | never default headless to `dontAsk` |
+| Session | exact UUID create once; `--resume` for later batches | preserve context |
+| Unattended tools | **`--yolo`** (alias `--always-approve`) | required for headless edits; `--permission-mode auto` alone is not enough |
+| Effort | **`medium`** default (`--effort medium`) | `high` roughly doubles tiny-task latency; reserve high for hard batches |
 | Subagents | enabled | never pass `--no-subagents` |
 | Unit of work | whole batch per packet | avoid mid-breath host tax |
-| Prompt | `--prompt-file` packet on disk | stable, resumable |
+| Prompt | `--prompt-file` packet **or** `-p` text — never both | CLI rejects combining them |
 | Model default | `grok-4.5` | product default for this path |
 | Git default | `branch_progress` (Mode A1) | Grok commits/pushes progress slices on the feature branch |
 
-Example create (host or human):
+### Headless recipe that worked in dogfood (Grok Build 0.2.93)
+
+Whole-batch implement (~3 minutes for docs+CLI+tests on this repo):
 
 ```bash
-grok --session-id <uuid> \
+grok --prompt-file .elves/runtime/packets/batch-1.md \
   --cwd <worktree> \
   --model grok-4.5 \
-  --permission-mode auto \
-  --prompt-file .elves/runtime/packets/batch-1.md
+  --yolo \
+  --effort medium \
+  --max-turns 80 \
+  --output-format json
 ```
 
-Example resume:
+Resume next batch in the same session (use `sessionId` from prior JSON):
 
 ```bash
-grok --resume <uuid> \
+grok --resume <sessionId> \
+  --prompt-file .elves/runtime/packets/batch-N.md \
   --cwd <worktree> \
   --model grok-4.5 \
-  --permission-mode auto \
-  --prompt-file .elves/runtime/packets/batch-N.md
+  --yolo \
+  --effort medium \
+  --max-turns 80 \
+  --output-format json
 ```
+
+### Interactive TUI (human-fast path)
+
+Positional prompt, **no** `-p` / `--prompt-file` headless flags:
+
+```bash
+cd <worktree>
+grok --model grok-4.5 \
+  "Read and execute .elves/runtime/packets/batch-1.md end-to-end."
+```
+
+### Slow anti-patterns (measured)
+
+| Recipe | Result |
+|--------|--------|
+| Nested host loop (Codex drives every tool call) | Hours of ceremony tax |
+| `--reasoning-effort high` on volume implement | ~2× tiny-task latency; long thought streams |
+| `--permission-mode auto` without `--yolo` | May not auto-approve writes unattended |
+| Host re-audits / full suite between every amend | Recreates nested-driver slowness |
 
 ## Packet contract (versioned expectations)
 

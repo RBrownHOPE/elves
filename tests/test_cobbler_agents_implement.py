@@ -71,8 +71,14 @@ class BuildLaunchArgvTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("--permission-mode") + 1], DEFAULT_PERMISSION_MODE)
         self.assertEqual(argv[argv.index("--model") + 1], DEFAULT_MODEL)
         self.assertIn("--prompt-file", argv)
+        self.assertIn("--yolo", argv)
+        self.assertIn("--effort", argv)
+        self.assertEqual(argv[argv.index("--effort") + 1], "medium")
+        self.assertIn("--max-turns", argv)
         self.assertNotIn("--no-subagents", argv)
         self.assertNotIn("dontAsk", argv)
+        self.assertNotIn("-p", argv)
+        self.assertNotIn("--single", argv)
 
     def test_create_uses_session_id_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -101,12 +107,17 @@ class BuildLaunchArgvTests(unittest.TestCase):
                 )
         self.assertEqual(ctx.exception.code, "implement_dontask_forbidden")
 
-    def test_missing_session_id(self) -> None:
+    def test_create_requires_session_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             packet = Path(tmp) / "p.md"
             packet.write_text("x\n", encoding="utf-8")
             with self.assertRaises(ValidationIssue) as ctx:
-                build_launch_argv(session_id="  ", packet=packet, cwd=tmp)
+                build_launch_argv(
+                    session_id="  ",
+                    packet=packet,
+                    cwd=tmp,
+                    create=True,
+                )
         self.assertEqual(ctx.exception.code, "missing_session_id")
 
 
