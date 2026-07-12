@@ -1,0 +1,70 @@
+# Local Cobbler external-agent preferences (schema example)
+#
+# Copy ideas from this file into the intentionally ignored checkout file:
+#   .elves/models.toml
+#
+# Precedence for active routes (highest wins):
+#   1. committed Survival Guide route snapshot / explicit project required values
+#   2. local ignored .elves/models.toml  (this schema)
+#   3. installed/user config.json
+#   4. native host defaults (host-native for every role)
+#
+# Rules:
+# - Never stage or commit .elves/models.toml
+# - Never put raw credentials, tokens, or personal absolute paths here
+# - Environment variable *names* are fine (for example OPENROUTER_API_KEY)
+# - required = true is valid only as an explicit project choice (usually mirrored
+#   into the Survival Guide); public defaults stay native-first
+# - Profile names are harness/capability labels, not prestige model IDs
+# - Built-in adapters: claude-code, grok-build, codex-fugu, custom-cli, host-native
+#
+# Python 3.11+ is required to parse a local models.toml (stdlib tomllib).
+# Older Python continues through Survival Guide / JSON / native when this file
+# is absent; if the file is present without tomllib, validation fails closed.
+
+[profiles.coding_worker]
+adapter = "custom-cli"
+executable = "my-coding-agent"
+notes = "Example custom wrapper; replace executable for your environment"
+
+[profiles.review_lens]
+adapter = "claude-code"
+# executable defaults to the adapter hint when omitted
+
+[roles.planning]
+profile = "host-native"
+required = false
+
+[roles.implement]
+profile = "coding_worker"
+required = false
+fallback_chain = [
+  { profile = "host-native", reason = "native fallback when worker unavailable" },
+]
+
+[roles.validate]
+profile = "host-native"
+required = true
+
+[roles.review]
+profile = "review_lens"
+required = false
+fallback_chain = [
+  { profile = "host-native", reason = "keep review available without providers" },
+]
+
+# Lightweight review is independent of the supervising review/synthesize route.
+[roles.lightweight_review]
+profile = "host-native"
+required = false
+
+[roles.synthesize]
+profile = "host-native"
+required = true
+
+[roles.scout]
+profile = "host-native"
+required = false
+
+# Optional provider breadth (read-only recipes in later batches) may name env vars:
+# optional_env = ["OPENROUTER_API_KEY", "GEMINI_API_KEY"]

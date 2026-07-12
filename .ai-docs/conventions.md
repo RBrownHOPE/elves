@@ -6,6 +6,13 @@
 - Template updates in `references/*` should reflect the same model as the skill files.
 - A release version bump is incomplete until the skill metadata, `AGENTS.md`, and
   `CHANGELOG.md` all agree.
+- Coordinator-to-implementer handoff packets must carry intent/why, non-obvious rationale,
+  Build On targets, owned/forbidden surfaces, acceptance evidence, failure modes/pitfalls, and
+  HEAD/run-doc/route-session/output identity. Pin drift with consistency phrases.
+- Git history is an operator UI: prefer
+  `[branch · Batch N/total · Contract|Implement|Validate|Review|Close] concrete outcome`,
+  forbid vague subjects, push meaningful mid-batch slices, and reserve `Close` for acceptance-
+  backed completion. External workers may create only audited detached handoff commits.
 - Run control is live metadata. If stop behavior, checkpoint meaning, or continuation policy
   changes mid-run, rewrite the survival guide's `Run Control` block immediately and log the change
   in the execution log.
@@ -26,8 +33,12 @@
 - Installed Claude/Codex skill bundles should ship only the installable runtime surface:
   `SKILL.md`, `AGENTS.md` (Codex), `config.json.example`, `references/`,
   `scripts/preflight.sh`, `scripts/preflight_worktree.py`, `scripts/notify.sh`,
-  `scripts/install_doctor.py`, and `scripts/validate_survival_guide.py`.
+  `scripts/install_doctor.py`, `scripts/validate_survival_guide.py`,
+  `scripts/elves_landing_check.py`, and `scripts/cobbler_agents.py` plus
+  `scripts/cobbler_runtime/` when those runtime modules exist.
   Repo-only maintenance helpers stay in the checkout.
+- Local `.elves/models.toml` is ignored checkout preference; track only
+  `references/models.toml.example` as the schema. Never stage credentials or personal paths.
 - Startup installation/update checks must stay advisory-only. They may alert the user, but they
   must never block a run or auto-update the installed skill.
 - When you add a cross-file behavioral concept, pin it with a `*_PHRASES` map in

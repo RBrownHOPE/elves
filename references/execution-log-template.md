@@ -35,6 +35,13 @@
 - **Active PR:** [#N / "not created yet"]
 - **Docs promoted this run:** [list / "none yet"]
 - **Latest Elves Report:** [/tmp/elves-report-...html / "not generated yet"]
+- **Progress commits:** host uses
+  `[branch · Batch N/total · Contract|Implement|Validate|Review|Close] concrete outcome`;
+  forbid vague subjects (`Updates`, `progress`, `WIP`, bare `fixes`); external workers only create
+  audited detached handoff commits and never own refs/remotes/push/PR/run-memory
+- **Handoff standard:** worker packets include intent/why, non-obvious rationale, Build On targets,
+  owned surfaces, forbidden surfaces, acceptance evidence, failure modes/pitfalls, and
+  HEAD/run-doc paths/route-session identity/output format
 
 ---
 

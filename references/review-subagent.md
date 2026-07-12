@@ -91,6 +91,31 @@ For EACH acceptance criterion:
 - Can it be verified from the diff and test results?
 - If a criterion has no corresponding test or verification, mark it BLOCKING.
 
+## Coordinator-to-implementer handoff obligations:
+
+When the batch used an external or less-capable worker, treat an incomplete handoff as a **blocking
+coordinator defect** before blaming the worker. The packet must carry:
+
+1. intent / why
+2. non-obvious rationale
+3. Build On targets
+4. owned surfaces
+5. forbidden surfaces
+6. acceptance evidence (not “make tests green”)
+7. failure modes / pitfalls
+8. HEAD / run-doc paths / route-session identity / output format
+
+Also verify **Git history as operator UI**:
+
+- Host pushed meaningful mid-batch slices with
+  `[branch · Batch N/total · Contract|Implement|Validate|Review|Close] concrete outcome`
+  (or the documented legacy host-only form).
+- Subjects are not vague (`Updates`, `progress`, `WIP`, bare `fixes`).
+- External workers created only audited detached handoff commits and never owned refs, remotes,
+  push, PRs, or run memory.
+- `Close` appears only with acceptance evidence.
+- Git and PR operations did not dispatch model inference.
+
 ## Code quality review (the Code Quality Philosophy):
 
 The goal is that each batch leaves the codebase easier to work on, not harder. For each of these, check the diff:

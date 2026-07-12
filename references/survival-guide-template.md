@@ -44,6 +44,15 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
   non-trivial planning, contract, risk, debugging, review, and synthesis decisions; use direct
   execution only for simple mechanical tasks or when the survival guide explicitly overrides it
 - **Batch completion rule:** Every completed batch ends with `update execution log -> update survival guide -> commit -> push`. A batch is not complete while its finished work exists only in the working tree.
+- **Progress visibility rule:** Host pushes meaningful mid-batch slices with
+  `[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>`.
+  Forbid vague subjects (`Updates`, `progress`, `WIP`, bare `fixes`). `Close` requires acceptance
+  evidence. Qualified external workers may create only audited detached handoff commits and never own
+  refs, remotes, push, PRs, or run memory. Git/PR ops never dispatch model inference.
+- **Coordinator-to-implementer handoff:** Every worker packet carries intent/why, non-obvious
+  rationale, Build On targets, owned surfaces, forbidden surfaces, acceptance evidence, failure
+  modes/pitfalls, and HEAD/run-doc paths/route-session identity/output format. Incomplete handoffs are
+  blocking coordinator defects.
 - **Re-read rule:** Immediately after every commit and push, re-read this survival guide before doing anything else.
 - **Checkpoint rule:** If `Checkpoint semantics` is `delivery target only`, log the checkpoint, push it, and continue immediately. Do not stop at the checkpoint.
 - **Continuation rule:** If work remains and `Actual stop conditions` are not met, continue without waiting for user acknowledgment.

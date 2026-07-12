@@ -37,3 +37,14 @@
 - Multi-batch "close remaining" commits can make unfinished work look shippable. Prefer one batch
   per close commit; otherwise require separate Validate sections per batch id and run
   `scripts/elves_landing_check.py` before Final Readiness.
+- Vague commit subjects (`Updates`, `progress`, `WIP`, bare `fixes`) hide operator progress in
+  GitHub/GitKraken. Prefer phase-aware subjects and push mid-batch slices, not one opaque dump.
+- Incomplete coordinator-to-implementer packets are coordinator defects. Do not expect a context-poor
+  worker to reconstruct intent, Build On targets, or forbidden surfaces from chat memory.
+- `.elves/models.toml` is local and ignored. Staging it or treating personal model IDs as public
+  defaults reintroduces provider lock-in. Use `references/models.toml.example` as the reviewable
+  schema and snapshot effective routes in the Survival Guide.
+- Python 3.11+ supplies stdlib `tomllib` for local models TOML. On older Python, absence of the file
+  is fine; presence without `tomllib` must fail validation rather than being silently ignored.
+- `python3 scripts/cobbler_agents.py validate-config --json` and `doctor --json` never launch paid
+  model turns and must not mutate the repo.

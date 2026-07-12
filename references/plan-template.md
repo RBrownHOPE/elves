@@ -63,6 +63,16 @@ Example:
 
 ### Batch 1: [Name]
 
+**Coordinator-to-implementer handoff (required when an external or less-capable worker implements):**
+- **Intent / why:** [why this batch exists]
+- **Non-obvious rationale:** [architecture choices the worker must not rediscover from chat]
+- **Build On targets:** [existing utilities/patterns to extend]
+- **Owned surfaces:** [files/modules the worker may edit]
+- **Forbidden surfaces:** [run memory, `.git`, credentials, other worktrees, out-of-scope paths]
+- **Acceptance evidence:** [observable criteria with proof — not “make tests green”]
+- **Failure modes / pitfalls:** [tool/version gotchas and recovery]
+- **HEAD / run-doc paths / route-session identity / output format:** [tip, plan/survival/log paths, exact session if routed, handoff shape]
+
 **Tasks:**
 - [ ] [Specific implementable task]
 - [ ] [Specific implementable task]
@@ -74,6 +84,12 @@ Example:
 - [ ] [Verifiable criterion]
 - [ ] [If this batch changes existing behavior, include one criterion that proves old behavior still works]
 - [ ] [If this batch splits a large/god file: include a measurable bar (LOC, facade boundary, module count) — structure/regex lock tests alone do not complete the batch unless you explicitly allow characterization-only here]
+
+**Progress commits (Git history as operator UI):** host pushes meaningful slices using
+`[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>`.
+Forbid vague subjects (`Updates`, `progress`, `WIP`, bare `fixes`). External workers may create
+only audited detached handoff commits and never own refs/remotes/push/PR/run-memory. `Close` requires
+acceptance evidence.
 
 **Docs likely touched:**
 - [README / config docs / learnings / `.ai-docs/*` / "none expected"]
