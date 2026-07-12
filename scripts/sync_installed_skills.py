@@ -43,6 +43,7 @@ RUNTIME_SCRIPT_PATHS = [
     "scripts/cobbler_runtime/sessions.py",
     "scripts/cobbler_runtime/leases.py",
     "scripts/cobbler_runtime/audit.py",
+    "scripts/cobbler_runtime/setup.py",
 ]
 REPO_ONLY_SCRIPT_PATHS = [
     "scripts/check_repo_consistency.py",
@@ -52,7 +53,16 @@ REPO_ONLY_SCRIPT_PATHS = [
     "scripts/sync_installed_skills.py",
 ]
 CLAUDE_ALIAS_MARKER = "<!-- elves-managed-alias: claude-skill-alias v1 -->"
-CLAUDE_ALIAS_NAMES = ["cobbler", "cobbler-mode", "council", "ec", "elves-council"]
+CLAUDE_ALIAS_NAMES = [
+    "cobbler",
+    "cobbler-mode",
+    "council",
+    "ec",
+    "elves-council",
+    "setup-cobbler",
+    "setup-council",
+]
+
 
 TARGETS = {
     "claude": {
