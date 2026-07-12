@@ -25,6 +25,11 @@ def _ensure_import_path() -> None:
 _ensure_import_path()
 
 from cobbler_runtime import context as context_mod  # noqa: E402
+from cobbler_runtime import dispatch as dispatch_mod  # noqa: E402
+from cobbler_runtime.adapters import (  # noqa: E402
+    build_readonly_invocation,
+    parse_role_report,
+)
 from cobbler_runtime.context import (  # noqa: E402
     build_context_packet,
     council_artifact_root,
@@ -33,6 +38,62 @@ from cobbler_runtime.context import (  # noqa: E402
     scrub_environment,
     write_json_artifact,
 )
+from cobbler_runtime.dispatch import (  # noqa: E402
+    LaneSpec,
+    evaluate_quorum,
+    run_council_sync,
+    run_lightweight_review_sync,
+)
+from cobbler_runtime.schema import ValidationIssue  # noqa: E402
+
+
+def _write_fake_lane_script(
+    path: Path,
+    *,
+    role: str,
+    sleep_s: float = 0.15,
+    actual_model: str = "fake-model",
+    exit_code: int = 0,
+    malformed: bool = False,
+    stderr_warning: str | None = None,
+    hang_s: float | None = None,
+) -> Path:
+    """Create an argv-safe fake lane executable that emits a role report."""
+    report = {
+        "role": role,
+        "verdict": "pass",
+        "confidence": "high",
+        "key_findings": [f"finding-from-{role}"],
+        "evidence": ["fixture"],
+        "risks": [],
+        "recommended_actions": ["host synthesis"],
+        "open_questions": [],
+        "actual_model": actual_model,
+    }
+    body = textwrap.dedent(
+        f"""\
+        #!/usr/bin/env python3
+        import json, sys, time
+        sleep_s = {sleep_s!r}
+        hang_s = {hang_s!r}
+        if hang_s is not None:
+            time.sleep(float(hang_s))
+        else:
+            time.sleep(float(sleep_s))
+        stderr_warning = {stderr_warning!r}
+        if stderr_warning:
+            print(stderr_warning, file=sys.stderr)
+        malformed = {malformed!r}
+        if malformed:
+            print("not-json-at-all")
+            sys.exit({exit_code})
+        print(json.dumps({report!r}))
+        sys.exit({exit_code})
+        """
+    )
+    path.write_text(body, encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+    return path
 
 
 class ContextRedactionTests(unittest.TestCase):
@@ -111,8 +172,501 @@ class ContextRedactionTests(unittest.TestCase):
             self.assertFalse(mode & stat.S_IROTH)
 
 
-class DispatchPlaceholderTests(unittest.TestCase):
-    """Import guards so later commits can grow dispatch tests in this module."""
+class QuorumPolicyTests(unittest.TestCase):
+    def test_advisory_target_quorum_degrades_without_blocking(self) -> None:
+        ok, verified, blocked, confidence, notes = evaluate_quorum(
+            successful_count=1,
+            target_quorum=3,
+            required_quorum=None,
+            phase_required=False,
+        )
+        self.assertTrue(ok)
+        self.assertFalse(verified)
+        self.assertFalse(blocked)
+        self.assertEqual(confidence, "reduced")
+        self.assertTrue(any("target_quorum" in note for note in notes))
+
+    def test_required_quorum_blocks_when_unmet(self) -> None:
+        ok, verified, blocked, confidence, notes = evaluate_quorum(
+            successful_count=1,
+            target_quorum=None,
+            required_quorum=2,
+            phase_required=True,
+        )
+        self.assertFalse(ok)
+        self.assertFalse(verified)
+        self.assertTrue(blocked)
+        self.assertEqual(confidence, "blocked")
+        self.assertTrue(any("required_quorum" in note for note in notes))
+
+    def test_required_quorum_ignored_when_phase_not_required(self) -> None:
+        # evaluate_quorum still accepts the args; run_council nulls it when phase_required=False.
+        ok, verified, blocked, confidence, _notes = evaluate_quorum(
+            successful_count=1,
+            target_quorum=1,
+            required_quorum=5,
+            phase_required=False,
+        )
+        self.assertTrue(ok)
+        self.assertTrue(verified)
+        self.assertFalse(blocked)
+
+
+class ParallelDispatchTests(unittest.TestCase):
+    def test_three_lanes_overlap_in_wall_clock_time(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = []
+            lanes = []
+            for role in ("architect", "skeptic", "tester"):
+                script = _write_fake_lane_script(
+                    root / f"{role}.py",
+                    role=role,
+                    sleep_s=0.25,
+                    actual_model=f"fake-{role}",
+                )
+                scripts.append(script)
+                lanes.append(
+                    LaneSpec(
+                        lane_id=role,
+                        role=role,
+                        adapter="custom-cli",
+                        profile=role,
+                        requested_model=f"fake-{role}",
+                        command_override=(sys.executable, str(script)),
+                        timeout_seconds=5.0,
+                    )
+                )
+            started = time.monotonic()
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="overlap timing probe",
+                target_quorum=3,
+                phase_required=False,
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+            elapsed = time.monotonic() - started
+
+        self.assertTrue(result.ok)
+        self.assertTrue(result.council_verified)
+        self.assertEqual(len(result.successful_reports), 3)
+        # Sequential would take ~0.75s+; parallel should be well under 0.65s.
+        self.assertLess(
+            elapsed,
+            0.65,
+            f"lanes appear sequential: elapsed={elapsed:.3f}s",
+        )
+        # Also assert pairwise start/end overlap evidence.
+        spans = [(lane.start_time, lane.end_time) for lane in result.lane_results]
+        self.assertEqual(len(spans), 3)
+        # Each lane should start before the earliest end (true concurrency).
+        earliest_end = min(end for _, end in spans)
+        for start, _end in spans:
+            self.assertLessEqual(start, earliest_end + 0.05)
+
+    def test_optional_lane_failure_preserves_other_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good = _write_fake_lane_script(
+                root / "good.py", role="architect", sleep_s=0.05, actual_model="m1"
+            )
+            bad = _write_fake_lane_script(
+                root / "bad.py",
+                role="skeptic",
+                sleep_s=0.05,
+                malformed=True,
+                actual_model="m2",
+            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    requested_model="m1",
+                    command_override=(sys.executable, str(good)),
+                ),
+                LaneSpec(
+                    lane_id="skeptic",
+                    role="skeptic",
+                    adapter="custom-cli",
+                    profile="b",
+                    requested_model="m2",
+                    command_override=(sys.executable, str(bad)),
+                    required=False,
+                ),
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="optional failure",
+                target_quorum=2,
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+        self.assertEqual(len(result.successful_reports), 1)
+        self.assertFalse(result.council_verified)
+        self.assertFalse(result.blocked)
+        self.assertEqual(result.confidence, "reduced")
+        self.assertTrue(any(not lane.ok for lane in result.lane_results))
+
+    def test_required_lane_failure_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bad = _write_fake_lane_script(
+                root / "bad.py", role="architect", malformed=True, sleep_s=0.02
+            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    command_override=(sys.executable, str(bad)),
+                    required=True,
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="required failure",
+                phase_required=True,
+                required_quorum=1,
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+        self.assertTrue(result.blocked)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.confidence, "blocked")
+
+    def test_timeout_and_cancellation_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hang = _write_fake_lane_script(
+                root / "hang.py",
+                role="architect",
+                hang_s=5.0,
+                sleep_s=0.0,
+                actual_model="slow",
+            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    requested_model="slow",
+                    command_override=(sys.executable, str(hang)),
+                    timeout_seconds=0.2,
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="timeout",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+        self.assertEqual(len(result.lane_results), 1)
+        self.assertTrue(result.lane_results[0].timeout)
+        self.assertFalse(result.lane_results[0].ok)
+        self.assertIn("timeout", result.lane_results[0].error or "")
+
+    def test_malformed_json_fails_lane_not_exit_code_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bad = _write_fake_lane_script(
+                root / "bad.py",
+                role="architect",
+                malformed=True,
+                exit_code=0,
+                sleep_s=0.02,
+            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    command_override=(sys.executable, str(bad)),
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="malformed",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+        self.assertFalse(result.lane_results[0].ok)
+        self.assertEqual(result.lane_results[0].exit_code, 0)
+        self.assertIn("JSON", result.lane_results[0].error or "")
+
+    def test_actual_model_mismatch_fails_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = _write_fake_lane_script(
+                root / "m.py",
+                role="architect",
+                actual_model="other-model",
+                sleep_s=0.02,
+            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    requested_model="expected-model",
+                    command_override=(sys.executable, str(script)),
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="model mismatch",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+        self.assertFalse(result.lane_results[0].ok)
+        self.assertIn("actual_model", result.lane_results[0].error or "")
+
+    def test_stderr_warning_with_successful_inference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = _write_fake_lane_script(
+                root / "w.py",
+                role="architect",
+                actual_model="ok-model",
+                sleep_s=0.02,
+                stderr_warning="stale MCP OAuth warning: ignore me",
+            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    requested_model="ok-model",
+                    command_override=(sys.executable, str(script)),
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="stderr warning",
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+        self.assertTrue(result.lane_results[0].ok)
+        self.assertIn("MCP", result.lane_results[0].stderr_summary)
+
+    def test_secret_parent_env_does_not_reach_child(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # Child dumps sorted env names and fails if secret names/values appear.
+            probe = root / "probe.py"
+            probe.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env python3
+                    import json, os, sys
+                    secret_names = [n for n in os.environ if "TOKEN" in n or "KEY" in n or "SECRET" in n]
+                    leaked_values = [
+                        v for v in os.environ.values()
+                        if v in ("super-secret-token", "openrouter-secret", "ghp_leaked")
+                    ]
+                    if secret_names or leaked_values:
+                        print(json.dumps({
+                            "role": "architect",
+                            "verdict": "fail",
+                            "confidence": "low",
+                            "key_findings": ["leak"],
+                            "evidence": [str(secret_names), str(leaked_values)],
+                            "risks": ["env_leak"],
+                            "recommended_actions": [],
+                            "open_questions": [],
+                            "actual_model": "probe",
+                        }))
+                        sys.exit(2)
+                    print(json.dumps({
+                        "role": "architect",
+                        "verdict": "pass",
+                        "confidence": "high",
+                        "key_findings": ["clean-env"],
+                        "evidence": [f"keys={len(os.environ)}"],
+                        "risks": [],
+                        "recommended_actions": [],
+                        "open_questions": [],
+                        "actual_model": "probe",
+                    }))
+                    """
+                ),
+                encoding="utf-8",
+            )
+            probe.chmod(probe.stat().st_mode | stat.S_IXUSR)
+            parent = {
+                "PATH": os.environ.get("PATH", "/usr/bin"),
+                "HOME": str(root),
+                "OPENROUTER_API_KEY": "openrouter-secret",
+                "GITHUB_TOKEN": "ghp_leaked",
+                "MY_TOKEN": "super-secret-token",
+                "UNRELATED": "nope",
+            }
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    requested_model="probe",
+                    command_override=(sys.executable, str(probe)),
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="env scrub",
+                parent_env=parent,
+            )
+        self.assertTrue(result.lane_results[0].ok, result.lane_results[0].error)
+        self.assertIn("OPENROUTER_API_KEY", result.lane_results[0].stripped_env_names)
+        # Secret values must not appear in summaries/errors/packets.
+        blob = json.dumps(result.to_dict())
+        self.assertNotIn("openrouter-secret", blob)
+        self.assertNotIn("ghp_leaked", blob)
+        self.assertNotIn("super-secret-token", blob)
+
+    def test_native_only_host_lane_without_external_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lanes = [
+                LaneSpec(
+                    lane_id="host",
+                    role="architect",
+                    adapter="host-native",
+                    profile="host-native",
+                    requested_model=None,
+                    timeout_seconds=10.0,
+                )
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="native only",
+                target_quorum=1,
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin"), "HOME": str(root)},
+            )
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.successful_reports), 1)
+        self.assertEqual(result.successful_reports[0]["actual_model"], "host-native")
+
+    def test_required_quorum_met_with_host_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            a = _write_fake_lane_script(
+                root / "a.py", role="architect", actual_model="m1", sleep_s=0.02
+            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    requested_model="m1",
+                    command_override=(sys.executable, str(a)),
+                ),
+                LaneSpec(
+                    lane_id="host",
+                    role="tester",
+                    adapter="host-native",
+                    profile="host-native",
+                ),
+            ]
+            result = run_council_sync(
+                lanes,
+                repo_root=root,
+                task="required quorum",
+                phase_required=True,
+                required_quorum=2,
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin"), "HOME": str(root)},
+            )
+        self.assertTrue(result.ok)
+        self.assertTrue(result.council_verified)
+        self.assertFalse(result.blocked)
+
+
+class LightweightReviewTests(unittest.TestCase):
+    def test_lightweight_review_independent_of_council_and_not_a_vote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = _write_fake_lane_script(
+                root / "lr.py",
+                role="lightweight_review",
+                actual_model="cheap",
+                sleep_s=0.02,
+            )
+            result = run_lightweight_review_sync(
+                repo_root=root,
+                task="utility pass",
+                adapter="custom-cli",
+                profile="cheap",
+                requested_model="cheap",
+                command_override=(sys.executable, str(script)),
+                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            )
+        self.assertTrue(result.ok)
+        self.assertEqual(result.role, "lightweight_review")
+        # Not a council result — no council_verified field; single lane only.
+        self.assertIsNotNone(result.report)
+        self.assertEqual(result.report["role"], "lightweight_review")
+
+
+class AdapterBuilderTests(unittest.TestCase):
+    def test_readonly_builders_use_argv_not_shell_strings(self) -> None:
+        packet = Path("/tmp/packet.json")
+        prompt = Path("/tmp/prompt.txt")
+        for adapter in ("claude-code", "grok-build", "codex-fugu", "host-native"):
+            inv = build_readonly_invocation(
+                adapter=adapter,
+                profile=adapter,
+                packet_path=packet,
+                prompt_path=prompt,
+                requested_model="example-model" if adapter != "host-native" else None,
+            )
+            self.assertTrue(inv.read_only)
+            self.assertIsInstance(inv.argv, tuple)
+            self.assertTrue(all(isinstance(part, str) for part in inv.argv))
+            # No shell interpolation of task text.
+            joined = " ".join(inv.argv)
+            self.assertNotIn("$(", joined)
+            self.assertNotIn("`", joined)
+
+    def test_custom_cli_requires_executable(self) -> None:
+        with self.assertRaises(ValidationIssue) as ctx:
+            build_readonly_invocation(
+                adapter="custom-cli",
+                profile="worker",
+                packet_path=Path("/tmp/p.json"),
+                prompt_path=Path("/tmp/t.txt"),
+            )
+        self.assertEqual(ctx.exception.code, "missing_executable")
+
+    def test_parse_role_report_success_and_malformed(self) -> None:
+        good = json.dumps(
+            {
+                "role": "architect",
+                "verdict": "pass",
+                "confidence": "high",
+                "key_findings": ["x"],
+                "evidence": ["y"],
+                "risks": [],
+                "recommended_actions": [],
+                "open_questions": [],
+                "actual_model": "m",
+            }
+        )
+        report = parse_role_report(good, expected_role="architect", requested_model="m")
+        self.assertEqual(report["verdict"], "pass")
+
+        with self.assertRaises(ValidationIssue) as ctx:
+            parse_role_report("not json", expected_role="architect")
+        self.assertEqual(ctx.exception.code, "malformed_json")
 
     def test_context_module_exports_expected_symbols(self) -> None:
         for name in (
@@ -123,6 +677,8 @@ class DispatchPlaceholderTests(unittest.TestCase):
             "ensure_private_dir",
         ):
             self.assertTrue(hasattr(context_mod, name))
+        self.assertTrue(hasattr(dispatch_mod, "run_council"))
+        self.assertTrue(hasattr(dispatch_mod, "run_lightweight_review"))
 
 
 if __name__ == "__main__":
