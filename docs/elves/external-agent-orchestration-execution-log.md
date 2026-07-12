@@ -14,6 +14,12 @@ control in the Survival Guide; promote stable lessons to `docs/elves/learnings.m
 - **Docs promoted this run:** qualification lessons added to `docs/elves/learnings.md`
 - **Latest Elves Report:** not generated
 
+## Batch 4 Contract: 2026-07-12 ~11:03 EDT
+
+**Lease:** lease-batch-4-20260712-A base `675b85dd9fcabfbf3dde8abdf875fdce2c6871c6`
+
+---
+
 ## Batch 3 Close: 2026-07-12 ~11:02 EDT
 
 **Batch:** 3 Exact persistent sessions, discovery, usage

@@ -3,7 +3,7 @@
   "session_id": "elves-external-agent-orchestration-20260712",
   "status": "in_progress",
   "created_at": "2026-07-12T12:39:00Z",
-  "updated_at": "2026-07-12T15:02:36Z",
+  "updated_at": "2026-07-12T15:02:59Z",
   "run_mode": "finite",
   "execution_budget_hours": 8,
   "checkpoint": {
@@ -428,8 +428,13 @@
     }
   ],
   "external_writer": {
-    "status": "qualified_idle",
-    "active_lease": null,
+    "status": "active",
+    "active_lease": {
+      "id": "lease-batch-4-20260712-A",
+      "batch": 4,
+      "base_head": "675b85dd9fcabfbf3dde8abdf875fdce2c6871c6",
+      "session_id": "9927883a-0203-42e1-a3e4-710a02096d46"
+    },
     "next_action": "Issue Batch 4 lease",
     "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
     "sandbox_profile": "devbox",
@@ -626,10 +631,10 @@
     {
       "id": 4,
       "name": "Single external writer lease and Grok implementation adapter",
-      "status": "pending",
+      "status": "in_progress",
       "commit": null,
-      "rollback_tag": null,
-      "started_at": null,
+      "rollback_tag": "elves/pre-batch-4",
+      "started_at": "2026-07-12T15:02:59Z",
       "completed_at": null,
       "acceptance": []
     },
@@ -730,6 +735,6 @@
   "current_batch": {
     "id": 4,
     "name": "Single external writer lease and Grok implementation adapter",
-    "status": "pending"
+    "status": "in_progress"
   }
 }
