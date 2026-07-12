@@ -4,18 +4,24 @@
 
 **They work while you sleep.**
 
-Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default coordinator inside Elves: it decides whether to answer directly, ask independent reviewers, assign scoped worker agents, or record a run decision, then returns one clear recommendation.
+Elves is an open-source Agent Skill for **efficient, intelligent workflows** in agentic development
+and research. It turns large plans into unattended multi-batch runs (implement, test, review,
+document) that survive context compaction — for software work and for Cobbler-managed domain
+workflows such as math research. **Cobbler** is the default coordinator: it decides whether to
+answer directly, ask independent reviewers, assign scoped workers, or record a run decision, then
+returns one clear recommendation.
 
-**Current release: v2.0.0** — Cobbler-managed **multi-model orchestration** under a **native-first**
-rule. **Claude Code or Codex is the main driver** (orchestrator); Cobbler coordinates natively —
-no Grok, OpenRouter, or multi-provider setup required to run overnight. Optional **work drivers**,
-**plan/review lenses**, and **math-domain tools** (OpenCode, Grok Build, Antigravity, Gemini CLI,
-OpenRouter models, Muse Spark, Google AlphaEvolve, …) may help for labor, review, or evolutionary
-search when you already have them. That matrix is **not fully tested**; OpenCode/Antigravity as
-the **main driver** (Elves skill host) is exotic and **may or may not work**. If something breaks or
-you harden a path, **prefer a PR** (or [file an issue](https://github.com/aigorahub/elves/issues),
-no secrets). Operator helpers: `python3 scripts/cobbler_agents.py`. See
-[`CHANGELOG.md`](CHANGELOG.md) (`[2.0.0]`),
+**Current release: v2.0.0** — those workflows, coordinated by Cobbler, under a **native-first** rule
+and **without locking you into one model ecosystem**. **Claude Code or Codex is the main driver**
+(orchestrator); Cobbler coordinates natively — no Grok, OpenRouter, or multi-provider setup required
+to run overnight. Optional **work drivers**, **plan/review lenses**, and **math-domain tools**
+(OpenCode, Grok Build, Antigravity, Gemini CLI, OpenRouter models, Muse Spark, Google AlphaEvolve, …)
+may help for labor, review, or evolutionary search when you already have them. Route the best tool
+for the job; fall back to host-native when you don’t. That optional matrix is **not fully tested**;
+OpenCode/Antigravity as the **main driver** (Elves skill host) is exotic and **may or may not
+work**. If something breaks or you harden a path, **prefer a PR** (or
+[file an issue](https://github.com/aigorahub/elves/issues), no secrets). Operator helpers:
+`python3 scripts/cobbler_agents.py`. See [`CHANGELOG.md`](CHANGELOG.md) (`[2.0.0]`),
 [`references/model-onboarding.md`](references/model-onboarding.md), and
 [`references/math-alphaevolve.md`](references/math-alphaevolve.md).
 
