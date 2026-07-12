@@ -265,7 +265,19 @@ def _normalize_report(report: dict[str, Any], *, role: str, model: str) -> dict[
             out[key] = []
         elif isinstance(val, str):
             out[key] = [val]
-        elif not isinstance(val, list):
+        elif isinstance(val, list):
+            # Models often return structured evidence objects even when asked for
+            # strings. Normalize at the wrapper boundary so Cobbler receives the
+            # documented role-report contract instead of rejecting a useful lane.
+            out[key] = [
+                item
+                if isinstance(item, str)
+                else json.dumps(item, sort_keys=True, ensure_ascii=False)
+                if isinstance(item, (dict, list))
+                else str(item)
+                for item in val
+            ]
+        else:
             out[key] = [str(val)]
     out["actual_model"] = str(out.get("actual_model") or model)
     return out

@@ -36,6 +36,28 @@ class OpenRouterLensUnitTests(unittest.TestCase):
         self.assertEqual(norm["actual_model"], "qwen/qwen3-max")
         self.assertIsInstance(norm["key_findings"], list)
 
+    def test_normalize_structured_evidence_to_contract_strings(self) -> None:
+        import openrouter_lens as lens  # type: ignore  # noqa: E402
+
+        norm = lens._normalize_report(
+            {
+                "role": "review",
+                "verdict": "pass",
+                "confidence": 0.8,
+                "key_findings": ["ok"],
+                "evidence": [{"file": "README.md", "quote": "native-first"}],
+                "risks": [],
+                "recommended_actions": [],
+                "open_questions": [],
+            },
+            role="review",
+            model="z-ai/glm-5",
+        )
+
+        self.assertEqual(len(norm["evidence"]), 1)
+        self.assertIsInstance(norm["evidence"][0], str)
+        self.assertIn("README.md", norm["evidence"][0])
+
     def test_ambiguous_session_rejected(self) -> None:
         import openrouter_lens as lens  # type: ignore  # noqa: E402
 
