@@ -6,6 +6,12 @@
 
 Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default coordinator inside Elves: it decides whether to answer directly, ask independent reviewers, assign scoped worker agents, or record a run decision, then returns one clear recommendation.
 
+**Current release: v1.20.0.** This release adds Cobbler external-agent orchestration: a standard-library
+runtime for optional parallel planning/review councils, exact persistent sessions, a single audited
+external writer lease with host-owned binary-patch integration, setup helpers, and a master
+CouncilElves launch prompt—while native-only Elves remains complete with zero external tools or keys.
+See [`CHANGELOG.md`](CHANGELOG.md) and [`references/councilelves-launch-prompt.md`](references/councilelves-launch-prompt.md).
+
 You write the plan and own the merge decision. The agent does everything in between.
 
 **Running Elves is a two-stage process: first you _stage_ the run, then in a separate call you _start_ it.** Staging lines up the plan, branch, PR, and survival guide, then stops. Launching is a short second prompt that turns the agent loose. Keeping the two calls separate is the single biggest thing that prevents "the elves stopped" failures. See [Stage, then launch](#stage-then-launch).
@@ -261,7 +267,8 @@ python3 scripts/cobbler_agents.py setup --json --dry-run
 Setup writes only ignored local `.elves/models.toml` (never stage it; never paste keys). Claude Code:
 `/setup-cobbler` (primary) or `/setup-council` (compatibility). Codex: `$elves setup-cobbler` or
 `$elves setup-council` / natural language — not a top-level Codex slash command. Recipes:
-[`references/cobbler-setup-recipes.md] and the master loop in [`references/councilelves-launch-prompt.md`](references/councilelves-launch-prompt.md`](references/cobbler-setup-recipes.md).
+[`references/cobbler-setup-recipes.md`](references/cobbler-setup-recipes.md). Master unattended loop:
+[`references/councilelves-launch-prompt.md`](references/councilelves-launch-prompt.md).
 
 Run a native-only parallel read-only council smoke (host synthesis still owns the fitted answer):
 
@@ -272,8 +279,11 @@ python3 scripts/cobbler_agents.py council --json \
   --target-quorum 2
 python3 scripts/cobbler_agents.py lightweight-review --json \
   --task "quick utility check"
+```
 
-**Exact session registry helpers** (no paid launch on resume argv build)
+**Exact session registry helpers** (no paid launch on resume argv build):
+
+```bash
 python3 scripts/cobbler_agents.py session list --json
 python3 scripts/cobbler_agents.py session probe --json --session-id <exact-id>
 python3 scripts/cobbler_agents.py session resume --json \
@@ -526,7 +536,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Constitution and legality check**: human-authored deal-breaker behaviors (`docs/constitution.md`) verified by a read-only judge after each batch. Three quality layers: correctness (tests), plan compliance (review), legality (judge). Success criteria the agent didn't author.
 - **PR Loop**: poll PR comments, inline reviews, and check status after every push, not just at batch boundaries
 - **Readiness Gate**: branch-level checklist before declaring review-ready (plan Acceptance with proof, `elves_landing_check.py` clean, local proof on current tip, preview proof on exact runtime tip, final cumulative review, PR comments polled, legality check clean, strategic forgetting complete, git status clean, execution log current). Green CI + `status: complete` alone is not landable.
-- **Acceptance evidence (v1.19+)**: each complete batch records `acceptance: [{criterion, met, evidence}]` in `.elves-session.json`; god-file splits cannot close on structure/regex locks alone; prefer one batch per close commit
+- **Acceptance evidence (v1.19+/v1.20+)**: each complete batch records `acceptance: [{criterion, met, evidence}]` in `.elves-session.json`; god-file splits cannot close on structure/regex locks alone; prefer one batch per close commit. v1.20 adds external-agent orchestration under Cobbler without making external tools required.
 - **Structured session data** in `.elves-session.json` for tooling, dashboards, and analytics
 - **Install doctor and update advisory**: startup can flag newer published releases and explain
   when a project-local install differs from the global one that you thought you were using
@@ -1113,7 +1123,7 @@ and on any model after context compaction or late-run thrash:
 | `status: complete` in session JSON | The agent flipped a flag | Criteria were met with evidence |
 | Multi-batch "close remaining" commit | Something pushed | Each batch had its own validate pass |
 
-So v1.19 hardens both skill surfaces (Claude `SKILL.md` and Codex `AGENTS.md`) the same way:
+So v1.19+ hardens both skill surfaces (Claude `SKILL.md` and Codex `AGENTS.md`) the same way:
 
 1. **Per-batch acceptance rows** — `acceptance: [{criterion, met, evidence}]` before complete  
 2. **God-file rule** — locks lock; they do not complete a split unless the plan allows characterization-only  
