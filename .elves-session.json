@@ -7,7 +7,7 @@
   "branch": "codex/cobbler-runtime-hardening-v1.20.1",
   "owned_worktree": ".",
   "owned_worktree_resolution": "Resolve relative to the repository root containing .elves-session.json and verify the branch with git before use",
-  "owned_tip_expected": "c8029f218559382c1955d9317a22b166b6d740d5",
+  "owned_tip_expected": "2ca222c8da1e70bbe7e18780fe72a94f8fdc223e",
   "base_ref": "origin/main",
   "collision_tripwire": "fca15a9e6175c528079bc7ca87e0925f83b9f9b9",
   "plan_path": "docs/plans/v1.20.1-cobbler-runtime-hardening.md",
@@ -44,7 +44,7 @@
     "stop_allowed": false,
     "checkpoint_is_stop": false,
     "staging_boundary_active": false,
-    "next_required_action": "Send the synthesized blocking Batch 1 remediation packet to the same persistent Grok session, then rerun affected focused and closing gates"
+    "next_required_action": "Export the qualified five-commit Grok worker chain and import it as host-authored Batch 1 implementation commits"
   },
   "test_baseline": {
     "passed": 278,
@@ -58,7 +58,7 @@
   "current_batch": {
     "id": 1,
     "name": "Effective configuration and truthful read-only dispatch",
-    "status": "in_progress"
+    "status": "validated_worker_patch_ready_for_import"
   },
   "batches": [
     {
@@ -157,7 +157,7 @@
     {
       "phase": "review",
       "requested_route": "fast batch gates: one time-boxed native Codex reviewer in parallel with deterministic host validation; Grok excluded",
-      "actual_route": "Batch 1 sole native reviewer active on immutable d8024b5..0f6afe7; host validation passed; pre-existing Claude/Fable completed at cancellation and Fugu plus redundant native review were stopped",
+      "actual_route": "Batch 1 sole native reviewer completed the immutable first-draft gate in approximately 15 minutes; the host verified all remediation directly without a second council",
       "required": true,
       "required_quorum": 1,
       "fallback_reason": "Latest Run Control forbids paid/external and multi-reviewer councils between batches; full review is reserved for final readiness"
@@ -269,7 +269,26 @@
         "fallback and capability evidence",
         "native-only no-mutation evidence",
         "required route and quorum evidence"
-      ]
+      ],
+      "remediation_resolution": {
+        "worker_tip": "628d0d2ea6020f631d0a0c0a05dc904668682773",
+        "worker_commits": 5,
+        "host_focused_tests": "93 passed plus 14 explicit hostile-subset reruns",
+        "host_full_tests": "314 passed, 0 failed, 0 skipped",
+        "deterministic_gates": "consistency, compileall, shell syntax, config JSON, whitespace all pass",
+        "installed_help_probe": "Claude 2.1.207, Grok 0.2.93, Codex 0.144.1 emitted argv flags all present",
+        "review_rerun": "none; latest fast-gate policy permits direct host verification of remediation",
+        "reused_evidence": [
+          "installed CLI help/argv proof reused after final amend because adapters.py, fixtures, CLI versions, and invariant were unchanged"
+        ],
+        "rerun_evidence": [
+          "process timeout cancellation stubborn descendant and normal-exit cleanup",
+          "exact-secret artifacts and result containment",
+          "capability source and fallback classes",
+          "profile merge and adapter contract defaults",
+          "host executor call accounting and native no-mutation"
+        ]
+      }
     }
   },
   "staging_preflight": {
@@ -338,11 +357,20 @@
     "reasoning_effort": "high",
     "grok_cli_version": "0.2.93 (f00f96316d4b) [stable]",
     "session_id": "00b682ea-b3df-4c3f-8009-7a0f51dd8f63",
-    "session_status": "batch_1_review_blocked_idle",
+    "session_status": "batch_1_worker_chain_qualified_for_import",
     "qualification_turns": 2,
     "qualification_permission_finding": "dontAsk cancelled the first headless inspection; auto completed the same session inside the audited outer boundary",
     "worker_base_head": "d8024b58c34a948e0e214d74f35a6fe3b77e458f",
-    "worker_current_head": "0f6afe71b08551ed56105294832b04b252712458",
+    "worker_current_head": "628d0d2ea6020f631d0a0c0a05dc904668682773",
+    "worker_commit_count": 5,
+    "grok_turn_count": 6,
+    "host_validation": {
+      "focused": "93 passed",
+      "hostile_subsets": "14 passed",
+      "full": "314 passed, 0 failed, 0 skipped",
+      "deterministic": "pass",
+      "actual_cli_help": "pass"
+    },
     "worker_detached": true,
     "worker_remotes": [],
     "worker_baseline": {
