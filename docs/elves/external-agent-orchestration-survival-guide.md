@@ -84,11 +84,11 @@ acceptance, synthesis, and final integration.
 - **Time budget:** approximately 8 hours from launch, with judgment to complete a near-finished finite
   batch or stop cleanly at a genuine hard boundary
 - **Average batch time so far:** N/A; execution not launched
-- **Batches remaining:** 1 of 6
+- **Batches remaining:** 0 of 6
 
 ## Stop Gate
 
-- **Planned batches remaining:** 1
+- **Planned batches remaining:** 0
 - **Stop allowed right now:** no
 - **Why:** finite run in progress; Batches 1–3 complete with acceptance evidence; Batches 4–6 remain;
   no user stop and no true blocker
@@ -207,13 +207,13 @@ Promotion flow: execution log -> learnings -> `.ai-docs/*`.
 
 ## Current Phase
 
-**Status:** Batch 5 accepted; preparing Batch 6
+**Status:** All six batches product-complete; Final Readiness in progress
 
-**Active batch:** Batch 6: End-to-end CouncilElves qualification, release, and handoff
+**Active batch:** Final Completion
 
-**What was just finished:** Setup inventory/models.toml writer, setup-cobbler/council aliases, recipes docs; 276 tests.
+**What was just finished:** Batches 1–6 product surfaces at v1.20.0; 278 tests; consistency OK.
 
-**Single next action:** Close Batch 5, lease Batch 6 final qualification and release docs.
+**Single next action:** Final readiness review, Elves Report, operational-artifact cleanup; never merge.
 
 
 ## Active Compute
@@ -231,11 +231,9 @@ resources only:
 
 ## Next Exact Batch
 
-**Batch:** 6: End-to-end CouncilElves qualification, release, and handoff
+**Batch:** Final Completion
 
-**Scope:** live E2E experiment path, master CouncilElves launch prompt, release docs/versioning, landing readiness, final handoff.
-
-**Rollback tag:** `elves/pre-batch-6`
+**Scope:** Final Readiness Review, temporary Elves Report, remove session artifacts from PR, notify, never merge.
 
 
 ## Post-Checkpoint Control Loop

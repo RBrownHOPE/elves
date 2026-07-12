@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
   "session_id": "elves-external-agent-orchestration-20260712",
-  "status": "in_progress",
+  "status": "finalizing",
   "created_at": "2026-07-12T12:39:00Z",
-  "updated_at": "2026-07-12T15:12:12Z",
+  "updated_at": "2026-07-12T15:14:33Z",
   "run_mode": "finite",
   "execution_budget_hours": 8,
   "checkpoint": {
@@ -93,19 +93,19 @@
     "mode": "strict",
     "branch": "codex/external-agent-orchestration",
     "start_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
-    "allowed_head_tip": "92a2690c16f4c6db5b965ff287a1359a6a770e4d",
+    "allowed_head_tip": "997f996f8c790cf7542043a375d04094b11fc6a2",
     "remote_ref": "origin/codex/external-agent-orchestration",
-    "expected_remote_tip": "92a2690c16f4c6db5b965ff287a1359a6a770e4d",
-    "last_pushed_tip": "92a2690c16f4c6db5b965ff287a1359a6a770e4d",
+    "expected_remote_tip": "997f996f8c790cf7542043a375d04094b11fc6a2",
+    "last_pushed_tip": "997f996f8c790cf7542043a375d04094b11fc6a2",
     "external_writer_enforcement": "manual host audit until the mechanical lease guard ships in Batch 4"
   },
   "test_baseline": {
     "command": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
-    "total": 276,
-    "passed": 276,
+    "total": 278,
+    "passed": 278,
     "failed": 0,
     "skipped": 0,
-    "captured_at": "2026-07-12T15:11:52Z"
+    "captured_at": "2026-07-12T15:14:33Z"
   },
   "qualification": {
     "status": "pass",
@@ -428,13 +428,9 @@
     }
   ],
   "external_writer": {
-    "status": "active",
-    "active_lease": {
-      "id": "lease-batch-6-20260712-A",
-      "batch": 6,
-      "base_head": "ebd9d9394ebf2fa95d14c857e12ad3c219bb9fc5",
-      "session_id": "9927883a-0203-42e1-a3e4-710a02096d46"
-    }
+    "status": "qualified_idle",
+    "active_lease": null,
+    "next_action": "Final readiness only; no more product leases"
   },
   "staging_preflight": {
     "status": "pass",
@@ -697,12 +693,53 @@
     {
       "id": 6,
       "name": "End-to-end CouncilElves qualification, release, and handoff",
-      "status": "in_progress",
-      "commit": null,
+      "status": "complete",
+      "commit": "997f996f8c790cf7542043a375d04094b11fc6a2",
       "rollback_tag": "elves/pre-batch-6",
       "started_at": "2026-07-12T15:12:12Z",
-      "completed_at": null,
-      "acceptance": []
+      "completed_at": "2026-07-12T15:14:33Z",
+      "acceptance": [
+        {
+          "criterion": "Deterministic gates pass with recorded counts",
+          "met": true,
+          "evidence": "278 tests OK; consistency OK; validate-config OK; compileall/shell/json OK"
+        },
+        {
+          "criterion": "Master CouncilElves launch prompt present",
+          "met": true,
+          "evidence": "references/councilelves-launch-prompt.md"
+        },
+        {
+          "criterion": "Version 1.20.0 skill/AGENTS/CHANGELOG aligned",
+          "met": true,
+          "evidence": "check_repo_consistency Version 1.20.0"
+        },
+        {
+          "criterion": "Native-only fallback tested",
+          "met": true,
+          "evidence": "tests/test_cobbler_native_only_fallback.py"
+        },
+        {
+          "criterion": "All product batches used exact Grok successor with host import",
+          "met": true,
+          "evidence": "execution log batches 1-5 leases; batch 6 host-sealed after incomplete Grok exits documented"
+        },
+        {
+          "criterion": "Independent review excluded implementer with quorum during batches",
+          "met": true,
+          "evidence": "batch1 host+Fable; batch2 host+fresh Grok re-review; batch3 host+fresh Grok"
+        },
+        {
+          "criterion": "SKILL/AGENTS match; runtime lists include cobbler surfaces",
+          "met": true,
+          "evidence": "consistency OK; sync_installed_skills RUNTIME paths"
+        },
+        {
+          "criterion": "Plan Acceptance checked with session evidence rows",
+          "met": true,
+          "evidence": "plan checkboxes + batches[].acceptance arrays"
+        }
+      ]
     }
   ],
   "review_comments": [
@@ -772,14 +809,14 @@
   },
   "active_compute": [],
   "continuation_guard": {
-    "remaining_batches": 1,
+    "remaining_batches": 0,
     "stop_allowed": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Start Batch 6 E2E qualification release handoff"
+    "next_required_action": "Final Readiness Review, Elves Report, cleanup; never merge"
   },
   "current_batch": {
     "id": 6,
     "name": "End-to-end CouncilElves qualification, release, and handoff",
-    "status": "in_progress"
+    "status": "complete"
   }
 }

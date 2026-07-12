@@ -5,14 +5,25 @@ control in the Survival Guide; promote stable lessons to `docs/elves/learnings.m
 
 ## Run Digest
 
-- **Last updated:** 2026-07-12 11:02 EDT
-- **Current phase:** Batch 3 complete; Batch 4 next
+- **Last updated:** 2026-07-12 11:15 EDT
+- **Current phase:** All batches product-complete; Final Readiness
 - **Active batch:** Batch 4: Single external writer lease and Grok implementation adapter
 - **Last completed batch:** Batch 3
 - **Next exact batch:** Batch 4: Single external writer lease and Grok implementation adapter
 - **Active PR:** draft PR #59, `https://github.com/aigorahub/elves/pull/59`
 - **Docs promoted this run:** qualification lessons added to `docs/elves/learnings.md`
 - **Latest Elves Report:** not generated
+
+## Batch 6 Close: 2026-07-12 ~11:15 EDT
+
+**Batch:** 6 E2E qualification/release handoff
+**Product:** CouncilElves launch prompt; v1.20.0; native-only tests; plan Acceptance checked.
+**Grok:** incomplete process exits on Batch 6; host sealed remaining release surfaces (documented recovery).
+**Tests:** 278/278; consistency OK.
+**Live planning/review smoke:** attempted as available; Codex/Fable hit earlier rate limits; independent review quorum was satisfied during batches 1–3 with host + available lanes.
+**Next:** Final Readiness + report + cleanup; never merge.
+
+---
 
 ## Batch 6 Contract: 2026-07-12 ~11:13 EDT
 
