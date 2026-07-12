@@ -3,7 +3,7 @@
   "session_id": "elves-external-agent-orchestration-20260712",
   "status": "in_progress",
   "created_at": "2026-07-12T12:39:00Z",
-  "updated_at": "2026-07-12T14:41:37Z",
+  "updated_at": "2026-07-12T14:54:47Z",
   "run_mode": "finite",
   "execution_budget_hours": 8,
   "checkpoint": {
@@ -93,20 +93,20 @@
     "mode": "strict",
     "branch": "codex/external-agent-orchestration",
     "start_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
-    "allowed_head_tip": "98b0e07b20b8b864f648744d2210fe13f9f434d1",
+    "allowed_head_tip": "55fccae2afb834bcd5b5967edf5dff1f975f30c4",
     "remote_ref": "origin/codex/external-agent-orchestration",
-    "expected_remote_tip": "98b0e07b20b8b864f648744d2210fe13f9f434d1",
-    "last_pushed_tip": "98b0e07b20b8b864f648744d2210fe13f9f434d1",
+    "expected_remote_tip": "55fccae2afb834bcd5b5967edf5dff1f975f30c4",
+    "last_pushed_tip": "55fccae2afb834bcd5b5967edf5dff1f975f30c4",
     "external_writer_enforcement": "manual host audit until the mechanical lease guard ships in Batch 4"
   },
   "test_baseline": {
     "command": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
-    "total": 199,
-    "passed": 199,
+    "total": 227,
+    "passed": 227,
     "failed": 0,
     "skipped": 0,
-    "captured_at": "2026-07-12T14:40:56Z",
-    "prior_baseline": 170
+    "captured_at": "2026-07-12T14:54:47Z",
+    "prior_baseline": 199
   },
   "qualification": {
     "status": "pass",
@@ -311,7 +311,7 @@
       "parent_session_id": null,
       "worktree_id": "2026-07-12-e8fa7ada-e1507717b9a587a4",
       "worktree_path": "${HOME}/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada",
-      "worktree_head": "d7270403b907d4e183ef62b5d6bb2a77fca36fd0",
+      "worktree_head": "55fccae2afb834bcd5b5967edf5dff1f975f30c4",
       "worktree_state": "clean_detached",
       "sandbox_profile": "devbox",
       "roles": [
@@ -319,7 +319,7 @@
         "remediation",
         "detached_commit_handoff"
       ],
-      "status": "leased_active",
+      "status": "qualified_idle",
       "remaining_quota": "unknown"
     },
     "sakana_fugu_ultra": {
@@ -429,14 +429,8 @@
     }
   ],
   "external_writer": {
-    "status": "active",
-    "active_lease": {
-      "id": "lease-batch-2-20260712-A",
-      "batch": 2,
-      "base_head": "9d390ce92472efa18ed15b658ea9e15f658f9adc",
-      "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
-      "started_at": "2026-07-12T14:41:37Z"
-    },
+    "status": "qualified_idle",
+    "active_lease": null,
     "maximum_concurrent_leases": 1,
     "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
     "sandbox_profile": "devbox",
@@ -452,7 +446,7 @@
     "worker_may_join_independent_review": false,
     "integration_owner": "host-coordinator",
     "integration_method": "audit per-commit binary patches; no bare cherry-pick; host creates sanitized branch commits recording worker SHAs",
-    "next_action": "Issue Batch 2 lease after Close push and worker align"
+    "next_action": "Issue Batch 3 lease after Close push and worker align"
   },
   "staging_preflight": {
     "status": "pass",
@@ -551,12 +545,53 @@
     {
       "id": 2,
       "name": "Parallel read-only council dispatcher",
-      "status": "in_progress",
-      "commit": null,
+      "status": "complete",
+      "commit": "55fccae2afb834bcd5b5967edf5dff1f975f30c4",
       "rollback_tag": "elves/pre-batch-2",
       "started_at": "2026-07-12T14:41:37Z",
-      "completed_at": null,
-      "acceptance": []
+      "completed_at": "2026-07-12T14:54:47Z",
+      "acceptance": [
+        {
+          "criterion": ">=3 fake lanes wall-clock overlap",
+          "met": true,
+          "evidence": "ParallelDispatchTests.test_three_lanes_overlap_in_wall_clock_time"
+        },
+        {
+          "criterion": "Independent bounded schema-valid reports; host synthesis",
+          "met": true,
+          "evidence": "run_council host_synthesis_only; successful_reports from schema-valid lanes"
+        },
+        {
+          "criterion": "Tests: success/timeout/malformed/model mismatch/optional failure/quorum/cancel/stderr",
+          "met": true,
+          "evidence": "tests/test_cobbler_agents_dispatch.py 227 suite"
+        },
+        {
+          "criterion": "Secret parent env scrub; no secret values in packets/logs",
+          "met": true,
+          "evidence": "test_secret_parent_env_does_not_reach_child"
+        },
+        {
+          "criterion": "Native-only without external tools",
+          "met": true,
+          "evidence": "test_native_only_host_lane_without_external_tools"
+        },
+        {
+          "criterion": "lightweight_review not council vote",
+          "met": true,
+          "evidence": "LightweightReviewTests not_a_council_vote"
+        },
+        {
+          "criterion": "Read-only builders have structural scope; no permission-bypass",
+          "met": true,
+          "evidence": "claude --permission-mode plan; test_readonly_invocations_never_use_permission_bypass_tokens; Fable FAIL remediated"
+        },
+        {
+          "criterion": "Full suite not decreased",
+          "met": true,
+          "evidence": "227/227 OK (baseline 199)"
+        }
+      ]
     },
     {
       "id": 3,
@@ -635,6 +670,24 @@
       "surface": "Batch1 independent review",
       "status": "pass",
       "resolution": "PASS findings empty"
+    },
+    {
+      "id": "batch2-fable-fail",
+      "surface": "BATCH2-REVIEW",
+      "status": "fixed",
+      "resolution": "permission-bypass + exit-code remediation in 05684dc/55fccae"
+    },
+    {
+      "id": "batch2-host-pass",
+      "surface": "BATCH2-REVIEW",
+      "status": "pass",
+      "resolution": "host PASS pre and post remediation"
+    },
+    {
+      "id": "batch2-fresh-grok-pass",
+      "surface": "BATCH2-REREVIEW",
+      "status": "pass",
+      "resolution": "fresh non-implementer grok-4.5 read-only PASS; Fable/Codex rate-limited until ~11:16-11:20"
     }
   ],
   "staging_close": {
@@ -648,15 +701,15 @@
   },
   "active_compute": [],
   "continuation_guard": {
-    "remaining_batches": 5,
+    "remaining_batches": 4,
     "stop_allowed": false,
     "staging_stop": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Await Grok Batch 2 handoff then audit"
+    "next_required_action": "Start Batch 3: Exact persistent sessions, model discovery, usage ledger"
   },
   "current_batch": {
-    "id": 2,
-    "name": "Parallel read-only council dispatcher",
-    "status": "in_progress"
+    "id": 3,
+    "name": "Exact persistent sessions, model discovery, and usage ledger",
+    "status": "pending"
   }
 }

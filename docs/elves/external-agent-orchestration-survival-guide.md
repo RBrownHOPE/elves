@@ -84,16 +84,16 @@ acceptance, synthesis, and final integration.
 - **Time budget:** approximately 8 hours from launch, with judgment to complete a near-finished finite
   batch or stop cleanly at a genuine hard boundary
 - **Average batch time so far:** N/A; execution not launched
-- **Batches remaining:** 5 of 6
+- **Batches remaining:** 4 of 6
 
 ## Stop Gate
 
-- **Planned batches remaining:** 5
+- **Planned batches remaining:** 4
 - **Stop allowed right now:** no
-- **Why:** finite run in progress; Batch 1 complete with acceptance evidence; Batches 2–6 remain;
+- **Why:** finite run in progress; Batches 1–2 complete with acceptance evidence; Batches 3–6 remain;
   no user stop and no true blocker
-- **Next required action:** issue Batch 2 lease to exact Grok successor after host Close push and
-  clean worker alignment; continue through Batches 2–6 with review quorum 2
+- **Next required action:** issue Batch 3 lease to exact Grok successor after host Close push and
+  clean worker alignment; continue through Batches 3–6 with review quorum 2
 
 ## Effort Standard
 
@@ -207,17 +207,16 @@ Promotion flow: execution log -> learnings -> `.ai-docs/*`.
 
 ## Current Phase
 
-**Status:** Batch 1 accepted; preparing Batch 2
+**Status:** Batch 2 accepted; preparing Batch 3
 
-**Active batch:** Batch 2: Parallel read-only council dispatcher
+**Active batch:** Batch 3: Exact persistent sessions, model discovery, and usage ledger
 
-**What was just finished:** Batch 1 imported from audited Grok detached chain (4 commits), full
-validation 199/199, host+Fable independent review PASS (quorum 2). Fugu review still in flight as
-optional third lane. Product foundation: `scripts/cobbler_runtime/*`, `cobbler_agents.py`, models
-TOML example, handoff/progress-commit standards and consistency pins.
+**What was just finished:** Batch 2 parallel read-only council dispatcher imported (4+2 commits),
+227 tests, Fable FAIL on permission-bypass remediated, re-review quorum via host + fresh non-implementer
+Grok (Fable/Codex rate-limited).
 
-**Single next action:** Close Batch 1 run-memory commit/push, align clean Grok successor to new tip,
-write Batch 2 contract packet, and issue the next whole-batch lease.
+**Single next action:** Close Batch 2 run-memory, align Grok successor, lease Batch 3 sessions/usage work.
+
 
 ## Active Compute
 
@@ -234,25 +233,17 @@ resources only:
 
 ## Next Exact Batch
 
-**Batch:** 2: Parallel read-only council dispatcher
+**Batch:** 3: Exact persistent sessions, model discovery, and usage ledger
 
-**Scope:**
+**Scope:** session registry, exact create/resume, context digests, Grok lineage honesty, usage ledger
+with unknown quota, doctor discovery — via Grok successor lease (2–5 detached commits).
 
-- Host writes the complete Batch 2 contract and worker packet from the plan.
-- Grok successor implements parallel independent read-only council fan-out, redaction, adapter
-  command builders, lightweight-review dispatch, and quorum/fallback policy inside its detached
-  lease checkout (2–5 meaningful detached commits).
-- Host audits/imports binary patches, runs focused/full validation, and pushes sanitized host
-  commits recording worker SHAs.
-- Independent review: fresh host + Fable + Fugu concurrently; Grok excluded; quorum 2.
+**Acceptance criteria:** plan Batch 3 criteria with evidence rows.
 
-**Acceptance criteria:** use every Batch 2 criterion in the plan, with non-empty evidence rows in
-`.elves-session.json`; fake adapters must prove wall-clock overlap.
+**Risk:** stale context outranking disk state; ambiguous session selection.
 
-**Risk:** concurrency cleanup, credential inheritance, and treating exit-code-zero as inference
-success.
+**Rollback tag:** `elves/pre-batch-3`
 
-**Rollback tag:** `elves/pre-batch-2`
 
 ## Post-Checkpoint Control Loop
 

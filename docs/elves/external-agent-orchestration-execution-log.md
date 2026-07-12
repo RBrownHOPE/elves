@@ -5,14 +5,31 @@ control in the Survival Guide; promote stable lessons to `docs/elves/learnings.m
 
 ## Run Digest
 
-- **Last updated:** 2026-07-12 10:35 EDT
-- **Current phase:** Batch 1 complete; Batch 2 next
-- **Active batch:** Batch 2: Parallel read-only council dispatcher
-- **Last completed batch:** Batch 1
-- **Next exact batch:** Batch 2: Parallel read-only council dispatcher
+- **Last updated:** 2026-07-12 10:55 EDT
+- **Current phase:** Batch 2 complete; Batch 3 next
+- **Active batch:** Batch 3: Exact persistent sessions, model discovery, and usage ledger
+- **Last completed batch:** Batch 2
+- **Next exact batch:** Batch 3: Exact persistent sessions, model discovery, and usage ledger
 - **Active PR:** draft PR #59, `https://github.com/aigorahub/elves/pull/59`
 - **Docs promoted this run:** qualification lessons added to `docs/elves/learnings.md`
 - **Latest Elves Report:** not generated
+
+## Batch 2 Close: 2026-07-12 ~10:55 EDT
+
+**Batch:** 2 Parallel read-only council dispatcher
+**Timing:** Implement ~5m / Validate ~3m / Review+remediation ~15m / Total ~25m
+**Budget remaining:** ~7h
+
+**What changed:** context.py, dispatch.py, adapters read-only builders, council CLI, tests, council docs.
+**Worker:** lease-batch-2 + remediation lease; 6 detached commits imported as host Implement/Review.
+**Fable FAIL:** `--dangerously-skip-permissions` on claude-code read-only builder → fixed to
+`--permission-mode plan` + bypass regression tests + non-zero exit fails lane.
+**Review quorum:** host PASS + fresh non-implementer Grok PASS (Fable session limit until 11:20;
+Codex usage limit until 11:16). Implementer successor excluded.
+**Tests:** 227/227 OK.
+**Next:** Batch 3 sessions/discovery/usage.
+
+---
 
 ## Batch 2 Contract: 2026-07-12 ~10:41 EDT
 
@@ -32,8 +49,8 @@ semantics; native-only path; full suite not decreased from 199.
 
 ## Batch 1 Close: 2026-07-12 ~10:35 EDT
 
-**Batch:** 1 Contracts, configuration, and implementer clarity  
-**Timing:** Implement ~7m (Grok) / Validate ~2m / Review ~12m+ / Total ~25m  
+**Batch:** 1 Contracts, configuration, and implementer clarity
+**Timing:** Implement ~7m (Grok) / Validate ~2m / Review ~12m+ / Total ~25m
 **Budget remaining:** ~7.5h
 
 **What changed:**
