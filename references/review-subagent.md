@@ -93,8 +93,8 @@ For EACH acceptance criterion:
 
 ## Coordinator-to-implementer handoff obligations:
 
-When the batch used an external or less-capable worker, treat an incomplete handoff as a **blocking
-coordinator defect** before blaming the worker. The packet must carry:
+When the batch used an external or less-capable worker, treat an incomplete handoff as a
+**blocking coordinator defect** before blaming the worker. The packet must carry:
 
 1. intent / why
 2. non-obvious rationale

@@ -390,7 +390,8 @@ See [Installation](#installation) below for full details. The short version:
 - **Codex:** copy the skill bundle into `~/.codex/skills/elves/` (at minimum `SKILL.md`,
   `AGENTS.md`, `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
   `scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`,
-  `scripts/validate_survival_guide.py`, and `scripts/elves_landing_check.py`)
+  `scripts/validate_survival_guide.py`, `scripts/elves_landing_check.py`,
+  `scripts/cobbler_agents.py`, and `scripts/cobbler_runtime/*`)
 - **Claude.ai:** zip the `elves/` directory and upload via Settings > Features > Skills
 
 **2. Write a plan**
@@ -724,6 +725,8 @@ elves/
 │   ├── sync_installed_skills.py          # Local Claude/Codex install sync helper
 │   ├── validate_survival_guide.py        # Advisory survival-guide completeness check
 │   ├── elves_landing_check.py            # Pre-land plan Acceptance + acceptance evidence check
+│   ├── cobbler_agents.py                 # External-agent config validate/doctor CLI
+│   ├── cobbler_runtime/                  # Typed contracts and config resolution package
 │   └── workspace_guard.py                # Optional workspace owned-tip guard prototype
 └── .github/
     └── ISSUE_TEMPLATE/                   # Bug report, feature request, overnight run report
@@ -880,7 +883,8 @@ mkdir -p ~/.codex/skills/elves/scripts
 git clone https://github.com/aigorahub/elves.git /tmp/elves
 cp /tmp/elves/SKILL.md /tmp/elves/AGENTS.md /tmp/elves/config.json.example ~/.codex/skills/elves/
 cp -r /tmp/elves/references ~/.codex/skills/elves/
-cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/preflight_worktree.py /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py /tmp/elves/scripts/elves_landing_check.py ~/.codex/skills/elves/scripts/
+cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/preflight_worktree.py /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py /tmp/elves/scripts/elves_landing_check.py /tmp/elves/scripts/cobbler_agents.py ~/.codex/skills/elves/scripts/
+cp -r /tmp/elves/scripts/cobbler_runtime ~/.codex/skills/elves/scripts/
 rm -rf /tmp/elves
 ```
 
@@ -970,7 +974,8 @@ For Codex, the sync helper updates the main skill bundle only. Invoke Cobbler wi
 The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
 `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
 `scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`,
-`scripts/validate_survival_guide.py`, and `scripts/elves_landing_check.py`.
+`scripts/validate_survival_guide.py`, `scripts/elves_landing_check.py`,
+`scripts/cobbler_agents.py`, and `scripts/cobbler_runtime/*`.
 Repo-only maintenance
 helpers such as `scripts/check_repo_consistency.py`, `scripts/release_checklist.py`,
 `scripts/pr_portfolio_report.py`, and `scripts/workspace_guard.py` stay in the checkout.
