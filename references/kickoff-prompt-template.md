@@ -168,17 +168,19 @@ Keep going until the plan is done, I stop you, or you hit a true blocker.
 
 ## Tips
 
-**Stage and launch in separate calls**
-The split is the point. Staging should absorb plan cleanup and setup churn. Launch should begin
-with a short, behavior-heavy prompt.
+**Use separate calls only for the legacy path**
+Staging must still absorb plan cleanup and setup churn, but chat-to-work/chat-to-land continue into
+execution in the same run once launch-ready. A fresh launch call is for an explicitly chosen legacy
+handoff or a plan that is still too unstable to freeze.
 
-**If you only send one message, the agent should stage first**
-If you paste a large plan and also say "run now," the agent should treat that message as a staging
-request, not a launch request.
+**If you send one E2E kickoff, the agent should stage first and then continue**
+A large plan plus “run now” still forbids coding before launch readiness. It does not create a
+second human gate: finish staging, then enter the batch loop unless intent or merge policy remains
+genuinely ambiguous.
 
-**The agent should push back explicitly**
-When the prompt is overloaded, the agent should say some version of: "Hang on, we need to get
-this right. I'm going to stage the run and wait for your final launch command."
+**The agent should push back only on unresolved intent**
+Ask for clarification when scope, non-negotiables, or merge authorization cannot be inferred
+safely. Do not turn routine internal staging into an unnecessary second user call.
 
 **Don't repeat the whole plan in the launch prompt**
 Point to the plan by path. If the launch prompt starts looking like a second plan file, it is too

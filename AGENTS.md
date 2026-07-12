@@ -416,7 +416,11 @@ Elves starts with planning. There are two modes:
 
 **Autonomous planning:** If the user provides a brief prompt (1-4 sentences), expand it into a full spec with batches. Focus on product context and high-level design, not granular implementation details. The user must approve before execution begins.
 
-**If the user pastes a big plan and also says "run now," do not launch in that same call.** Slow it down. Say some version of: "Hang on, we need to get this right. I'm going to stage the run and wait for your final launch command." Then clean the plan, prepare the docs, line up the branch and PR, run preflight, and stop once the run is launch-ready.
+**If the user pastes a big plan and also says "run now," stage before coding.** Treat a clear
+end-to-end request as **chat-to-work** unless the user explicitly opts into chat-to-land/merge:
+clean the plan, prepare the docs, line up the branch and PR, run preflight, and then continue into
+execution in the same run once launch-ready. Stop for a separate launch message only when the user
+explicitly chose the legacy two-call path or the plan is still too ambiguous to freeze safely.
 
 ### Required inputs
 
@@ -446,7 +450,8 @@ Launch only when all of these are true:
 6. There are no unresolved planning questions that would obviously stall the overnight run.
 7. You can start from a short launch prompt without re-pasting the whole plan.
 
-If any item is false, keep staging. Execution starts only from a fresh short launch prompt in the next call.
+If any item is false, keep staging. Once all are true, continue immediately in single-kickoff E2E;
+wait for a fresh short launch prompt only in the explicit legacy two-call path.
 
 ## Preflight
 
@@ -518,7 +523,10 @@ gh pr create --title "<title>" --body "<plan summary with batch list>"
 PR_NUMBER=$(gh pr view --json number -q .number)
 ```
 
-4. Prepare the short launch prompt for the next call. Keep it behavior-heavy: don't stop unless genuinely blocked, use judgment, work in small batches, commit frequently, run all relevant validation including E2E where sensible, read PR comments/checks after every push, and watch for regressions.
+4. Prepare a short behavior-heavy execution body. In E2E mode, use it immediately (optionally via
+   `/goal`) after launch readiness; in legacy two-call mode, hand it to the user for the next call.
+   Reinforce: don't stop unless genuinely blocked, use judgment, work in small batches, commit
+   frequently, run relevant E2E validation, read PR feedback after every push, and watch regressions.
 
 If a PR already exists on the branch, detect it and skip.
 

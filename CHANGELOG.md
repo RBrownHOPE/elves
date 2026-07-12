@@ -4,17 +4,6 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
-### E2E chat-to-work / chat-to-land (recommended single kickoff)
-
-- **Default user path:** one kickoff after conceptual agreement (optional multi-planner) —
-  plan + stage + batch loop → landable PR (**chat-to-work**) or through reviewed-PR merge
-  (**chat-to-land**). Fixes the old failure mode where users never staged properly.
-- Agent still stages before coding; does not wait for a second human call once launch-ready.
-- Labor completeness: main driver re-drives lazy work drivers (e.g. partial Grok Build turns).
-- Optional `/goal` (Codex) as continuation seatbelt. Docs:
-  [`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md),
-  [`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md).
-
 ## [2.0.0] - 2026-07-12
 
 ### Efficient multi-model workflows under Cobbler (major)
@@ -41,6 +30,17 @@ pass. Host-native runs stay fully valid without any external provider.
 Canonical maps: [`references/model-onboarding.md`](references/model-onboarding.md),
 [`references/cobbler-setup-recipes.md`](references/cobbler-setup-recipes.md),
 [`references/math-alphaevolve.md`](references/math-alphaevolve.md).
+
+### E2E chat-to-work / chat-to-land (recommended single kickoff)
+
+- **Default user path:** one kickoff after conceptual agreement (optional multi-planner) —
+  plan + stage + batch loop → landable PR (**chat-to-work**) or through reviewed-PR merge
+  (**chat-to-land**). Fixes the old failure mode where users never staged properly.
+- Agent still stages before coding; does not wait for a second human call once launch-ready.
+- Labor completeness: main driver re-drives lazy work drivers (e.g. partial Grok Build turns).
+- Optional `/goal` (Codex) as continuation seatbelt. Docs:
+  [`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md),
+  [`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md).
 
 ### Grok implement: aliases, --check, humanized failures (community credit)
 

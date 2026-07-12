@@ -511,20 +511,28 @@ See [Installation](#installation) below for full details. The short version:
   `scripts/cobbler_agents.py`, and `scripts/cobbler_runtime/*`)
 - **Claude.ai:** zip the `elves/` directory and upload via Settings > Features > Skills
 
-**2. Write a plan**
+**2. Choose the outcome**
 
-Use [`references/plan-template.md`](references/plan-template.md) as your starting point. The plan describes what needs to be built, broken into logical batches. Commit it to your repo (e.g., `docs/plans/my-feature.md`).
+- **Chat-to-work:** plan, stage, and run to a landable PR; Elves never merges.
+- **Chat-to-land:** the same run plus reviewed-PR landing through a regular merge commit.
 
-**3. Stage the run**
+If you are unsure, choose **chat-to-work**. It preserves the human merge gate.
 
-Use [`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md) to stage the run first. This call cleans the plan up, generates or refreshes the survival guide, learnings file, and execution log, opens or updates the branch and PR, runs preflight, and leaves you with a short launch prompt for the next call.
+**3. Send one kickoff**
 
-**4. Launch in a new call**
+Copy the matching prompt from
+[`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md). Chat until the
+intent is clear, then send that one kickoff. The agent materializes the plan, stages the branch/PR
+and run documents, runs preflight, and continues into the batch loop once launch-ready.
 
-Use the launch template from the same reference file in a fresh call. The launch prompt should be short and behavior-heavy, not a second copy of the plan.
+If you are using Codex Goals, the agent may wrap the execution tail in `/goal`; Elves' Survival
+Guide Stop Gate and Readiness Gate still define completion.
 
-If you are using Codex Goals, wrap the same launch prompt in `/goal` and tell Codex that Elves'
-Readiness Gate, not goal continuation alone, defines completion.
+**4. Use legacy stage-then-launch only when needed**
+
+For a huge or still-unstable plan, you can deliberately use the two-call templates in the same
+reference: stage first, inspect the launch-ready state, then send the short launch prompt in a fresh
+call. This is the advanced fallback, not the normal first-run path.
 
 **5. Walk away**
 
@@ -535,7 +543,8 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 ## Features
 
 - **Multi-batch execution** with configurable batch sizing (default: 4 developers × 2-week sprint)
-- **Two-step operator flow**: stage the run first, then launch it in a fresh short call so the agent starts with momentum instead of a giant overloaded prompt
+- **Single-kickoff default**: chat-to-work or chat-to-land stages internally, then continues into
+  execution without a second human message; legacy two-call staging remains available for unstable plans
 - **Codex Goals compatibility**: use `/goal` as an optional continuation backend while Elves keeps
   ownership of planning, review, memory hygiene, and readiness
 - **Layered memory system**: reads survival guide, `.elves-session.json`, learnings, plan, execution log, and `.ai-docs/manifest.md` (if present) after compaction

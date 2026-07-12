@@ -139,6 +139,53 @@ FINAL_READINESS_REVIEW_PHRASES = {
     ],
 }
 
+SINGLE_KICKOFF_PHRASES = {
+    "SKILL.md": [
+        "Default user path (v2.0+): one kickoff",
+        "chat-to-work",
+        "chat-to-land",
+        "Legacy two-call handoff",
+    ],
+    "AGENTS.md": [
+        "Default user path (v2.0+): one kickoff",
+        "single-kickoff E2E",
+        "legacy two-call",
+    ],
+    "README.md": [
+        "Default (v2.0+): one kickoff",
+        "Chat-to-work",
+        "Chat-to-land",
+        "legacy stage-then-launch",
+    ],
+    "references/kickoff-prompt-template.md": [
+        "Recommended (v2.0+): one kickoff",
+        "Chat-to-work (E2E, no merge)",
+        "Chat-to-land (E2E through merge)",
+        "Use separate calls only for the legacy path",
+    ],
+    "references/e2e-chat-to-land.md": [
+        "recommended default user path (v2.0+)",
+        "without waiting for a second human call",
+        "Legacy / advanced",
+    ],
+}
+
+SINGLE_KICKOFF_FORBIDDEN_PHRASES = {
+    "AGENTS.md": [
+        "do not launch in that same call",
+        "Execution starts only from a fresh short launch prompt in the next call",
+    ],
+    "README.md": [
+        "Use the launch template from the same reference file in a fresh call",
+        "**Two-step operator flow**",
+    ],
+    "references/kickoff-prompt-template.md": [
+        "**Stage and launch in separate calls**",
+        "**If you only send one message, the agent should stage first**",
+        "wait for your final launch command",
+    ],
+}
+
 REPO_CONSISTENCY_WORKFLOW_PHRASES = {
     ".github/workflows/repo-consistency.yml": [
         '"config.json.example"',
@@ -2183,6 +2230,27 @@ def main() -> int:
             if phrase not in text:
                 errors.append(f"{label}: missing final-readiness-review phrase `{phrase}`")
 
+    single_kickoff_labels = set(SINGLE_KICKOFF_PHRASES) | set(
+        SINGLE_KICKOFF_FORBIDDEN_PHRASES
+    )
+    single_kickoff_texts = {
+        label: read_text(REPO_ROOT / label) for label in single_kickoff_labels
+    }
+    errors.extend(
+        find_missing_phrases(
+            single_kickoff_texts,
+            SINGLE_KICKOFF_PHRASES,
+            "single-kickoff E2E",
+        )
+    )
+    errors.extend(
+        find_forbidden_phrases(
+            single_kickoff_texts,
+            SINGLE_KICKOFF_FORBIDDEN_PHRASES,
+            "single-kickoff E2E",
+        )
+    )
+
     for label, phrases in ACCEPTANCE_EVIDENCE_PHRASES.items():
         path = REPO_ROOT / label
         text = read_text(path)
@@ -2520,6 +2588,7 @@ def main() -> int:
     print("- Non-stop guardrails are aligned across runtime and template docs")
     print("- Effort guardrails are aligned across runtime and template docs")
     print("- Final readiness review guardrails are aligned")
+    print("- Single-kickoff E2E and legacy handoff guidance are aligned")
     print("- Acceptance-evidence and landing-check guardrails are aligned")
     print("- Repo consistency workflow guardrails are aligned")
     print("- Strategic forgetting and memory hygiene guardrails are aligned")

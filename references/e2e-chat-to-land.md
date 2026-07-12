@@ -148,5 +148,5 @@ Copy-paste prompts: [`kickoff-prompt-template.md`](kickoff-prompt-template.md) s
 
 ---
 
-*Designed for Elves 2.0 multi-model workflows under Cobbler; keep classic stage-then-start as the
-safe default when the plan is still unstable.*
+*Designed for Elves 2.0 multi-model workflows under Cobbler; keep classic stage-then-start
+available when the plan is still unstable.*
