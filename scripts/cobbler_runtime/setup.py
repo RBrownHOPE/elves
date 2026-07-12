@@ -203,9 +203,43 @@ PROFILE_RECIPES: dict[str, dict[str, Any]] = {
         "adapter": "custom-cli",
         "apply_blocked": True,
         "notes": (
-            "OpenRouter is not a bare CLI. Configure a custom-cli wrapper profile "
-            "(see cobbler-setup-recipes.md) and apply that profile name."
+            "Bare token blocked. Use openrouter-lens or a named or-* preset "
+            "(scripts/openrouter_lens.py + OPENROUTER_API_KEY)."
         ),
+    },
+    # Apply-ready OpenRouter plan/review lenses (custom-cli → scripts/openrouter_lens.py).
+    "openrouter-lens": {
+        "adapter": "custom-cli",
+        "executable": "scripts/openrouter_lens.py",
+        "notes": (
+            "OpenRouter plan/review lens (read-only). Requires OPENROUTER_API_KEY. "
+            "Pin requested_model to a current OpenRouter id (e.g. qwen/qwen3-max, "
+            "z-ai/glm-5). Prefer exact session_id for plan→review; else attach plan "
+            "docs via packet/context files. Never main host or bulk implement."
+        ),
+        "plan_review_only": True,
+    },
+    "or-qwen-max": {
+        "adapter": "custom-cli",
+        "executable": "scripts/openrouter_lens.py",
+        "notes": (
+            "Named OpenRouter preset for a strong Qwen-class plan/review model. "
+            "Set requested_model to the current OpenRouter slug (re-check catalog). "
+            "Example dogfood: qwen/qwen3-max — update when OpenRouter renames."
+        ),
+        "plan_review_only": True,
+        "default_requested_model": "qwen/qwen3-max",
+    },
+    "or-glm": {
+        "adapter": "custom-cli",
+        "executable": "scripts/openrouter_lens.py",
+        "notes": (
+            "Named OpenRouter preset for a strong GLM-class plan/review model. "
+            "Set requested_model to the current OpenRouter slug (re-check catalog). "
+            "Example dogfood: z-ai/glm-5 — update when OpenRouter renames."
+        ),
+        "plan_review_only": True,
+        "default_requested_model": "z-ai/glm-5",
     },
     "meta-muse": {
         "adapter": "custom-cli",
@@ -437,6 +471,12 @@ def render_models_toml(preferences: SetupPreferences) -> str:
         if recipe and recipe.get("tier") in {"planning", "labor"}:
             lines.append(
                 '# requested_model = "…"  # optional: pin high-quality vs labor model for this tier'
+            )
+        default_model = (recipe or {}).get("default_requested_model")
+        if default_model:
+            lines.append(
+                f'# requested_model = "{default_model}"  '
+                "# pin current OpenRouter slug; re-check catalog after upgrades"
             )
         if recipe and recipe.get("plan_review_only"):
             lines.append(

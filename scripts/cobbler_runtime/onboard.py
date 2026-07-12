@@ -86,7 +86,9 @@ PURPOSE_CATALOG: tuple[dict[str, Any], ...] = (
             "codex-fugu",
             "gemini-cli",
             "antigravity-cli",
-            "openrouter",
+            "openrouter-lens",
+            "or-qwen-max",
+            "or-glm",
             "meta-muse",
         ),
         "required": False,
@@ -118,7 +120,9 @@ PURPOSE_CATALOG: tuple[dict[str, Any], ...] = (
             "claude-code",
             "gemini-cli",
             "antigravity-cli",
-            "openrouter",
+            "openrouter-lens",
+            "or-qwen-max",
+            "or-glm",
             "meta-muse",
         ),
         "required": False,
@@ -192,8 +196,18 @@ ROUTE_HELP: dict[str, str] = {
         "implement; not Lane A / not write-lease qualified; pin e.g. Gemini 3.5 Flash"
     ),
     "openrouter": (
-        "OpenRouter (API key) — not a bare CLI. Configure a custom-cli wrapper profile "
-        "(cobbler-setup-recipes.md); bare `onboard apply --review openrouter` is rejected"
+        "Bare token blocked — use openrouter-lens / or-qwen-max / or-glm "
+        "(scripts/openrouter_lens.py + OPENROUTER_API_KEY)"
+    ),
+    "openrouter-lens": (
+        "OpenRouter plan/review lens — pin requested_model to any current OR id; "
+        "prefer exact session_id for plan→review; else attach plan/docs"
+    ),
+    "or-qwen-max": (
+        "OpenRouter Qwen-class plan/review preset — pin current slug (e.g. qwen/qwen3-max)"
+    ),
+    "or-glm": (
+        "OpenRouter GLM-class plan/review preset — pin current slug (e.g. z-ai/glm-5)"
     ),
     "meta-muse": (
         "Meta Muse Spark (API key) — not a bare CLI. Configure a custom-cli wrapper profile "
@@ -438,6 +452,9 @@ def build_onboarding_packet(
             if route == "openrouter":
                 available = env_present.get("OPENROUTER_API_KEY", False)
                 apply_ready = False
+            if route in {"openrouter-lens", "or-qwen-max", "or-glm"}:
+                available = env_present.get("OPENROUTER_API_KEY", False)
+                apply_ready = available  # wrapper ships in-repo; key must be present
             if route == "meta-muse":
                 available = env_present.get("META_API_KEY", False) or env_present.get(
                     "MODEL_API_KEY", False

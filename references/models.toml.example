@@ -96,26 +96,33 @@ required = false
 # Geometry-exploration style: thin CLI wrappers + named presets, not prestige IDs in Elves core.
 # Keys live in ignored .env.local. Missing key → host-native fallback.
 #
-# [profiles.openrouter_lens]
+# OpenRouter plan/review (scripts/openrouter_lens.py + OPENROUTER_API_KEY):
+# [profiles.openrouter-lens]
 # adapter = "custom-cli"
-# executable = "node"
-# notes = "tools/openrouter_tools.mjs --model <provider/model-id>; env OPENROUTER_API_KEY"
+# executable = "scripts/openrouter_lens.py"
+# # requested_model = "qwen/qwen3-max"   # any current OpenRouter provider/model id
+#
+# [profiles.or-qwen-max]
+# adapter = "custom-cli"
+# executable = "scripts/openrouter_lens.py"
+# # requested_model = "qwen/qwen3-max"
+#
+# [profiles.or-glm]
+# adapter = "custom-cli"
+# executable = "scripts/openrouter_lens.py"
+# # requested_model = "z-ai/glm-5"
+#
+# [roles.review]
+# profile = "or-qwen-max"
+# required = false
+# fallback_chain = [
+#   { profile = "host-native", reason = "OPENROUTER_API_KEY missing; keep review available" },
+# ]
+#
+# Prefer exact session_id for plan→review continuity (openrouter_lens --session-id).
+# If no session id, attach plan/constitution via packet relevant_files or --context-file.
 #
 # [profiles.muse_spark]
 # adapter = "custom-cli"
 # executable = "node"
 # notes = "tools/meta_tools.mjs --model muse-spark-1.1; env META_API_KEY|MODEL_API_KEY; base api.meta.ai"
-#
-# [roles.planning]
-# profile = "muse_spark"
-# required = false
-# fallback_chain = [
-#   { profile = "host-native", reason = "META_API_KEY missing or Meta wrapper unavailable" },
-# ]
-#
-# [roles.review]
-# profile = "openrouter_lens"
-# required = false
-# fallback_chain = [
-#   { profile = "host-native", reason = "OPENROUTER_API_KEY missing; keep review available" },
-# ]

@@ -135,6 +135,8 @@ Same pattern with `codex-fugu-planning` / `codex-fugu-labor`.
 | `gemini-cli` | `gemini` (API key; `--skip-trust` headless) | planning, review, scout |
 | `antigravity-cli` | `agy` (fallback `antigravity`) | planning, review, scout — pin latest Gemini (e.g. 3.1 Pro) |
 | `antigravity-labor` | `agy` | **experimental** implement labor — pin Flash-class (e.g. 3.5 Flash); not Lane A |
+| `openrouter-lens` | `scripts/openrouter_lens.py` | OpenRouter plan/review — any `provider/model` via `requested_model` + `OPENROUTER_API_KEY` |
+| `or-qwen-max` / `or-glm` | same lens | Named OR presets for strong Qwen/GLM-class plan/review (pin current slug) |
 
 ### Session continuity (plan → review)
 

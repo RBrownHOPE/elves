@@ -78,6 +78,10 @@ All notable changes to the Elves skill are documented here.
     Survival Guide, constitution) — never invent `latest`/`continue`.
   - Review protocol: completeness (plan+contract), constitution deal-breakers, and regressions
     (indirect breakage), not only local correctness of the diff.
+- **OpenRouter plan/review lens:** `scripts/openrouter_lens.py` + apply-ready profiles
+  `openrouter-lens`, `or-qwen-max`, `or-glm` (custom-cli). Exact `--session-id` for plan→review
+  continuity; context files / packet when no session. Bare `openrouter` remains apply-blocked.
+  Pin current OpenRouter model slugs locally (examples: `qwen/qwen3-max`, `z-ai/glm-5`).
 
 ## [1.20.2] - 2026-07-12
 

@@ -91,10 +91,19 @@ class OnboardPacketTests(unittest.TestCase):
                 for q in packet.questions
                 if q["purpose_id"] == "review"
                 for o in q["options"]
-                if o["route"] == "openrouter"
+                if o["route"] == "openrouter-lens"
             ]
             self.assertTrue(openrouter_opts[0]["available_hint"])
-            self.assertFalse(openrouter_opts[0]["apply_ready"])
+            self.assertTrue(openrouter_opts[0]["apply_ready"])
+            self.assertIn(
+                "or-qwen-max",
+                {
+                    o["route"]
+                    for q in packet.questions
+                    if q["purpose_id"] == "review"
+                    for o in q["options"]
+                },
+            )
             # Google routes offered for review; gemini available when inventory says so
             gemini_opts = [
                 o

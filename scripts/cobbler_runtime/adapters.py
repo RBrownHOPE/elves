@@ -767,6 +767,16 @@ def build_readonly_invocation(
             f"custom-cli profile `{profile}` requires an executable",
             path=f"profiles.{profile}.executable",
         )
+    # Relative project scripts (e.g. scripts/openrouter_lens.py) resolve from repo root.
+    script_path = Path(exe) if exe else None
+    if (
+        work_cwd
+        and exe
+        and not Path(exe).is_absolute()
+        and (Path(work_cwd) / exe).is_file()
+    ):
+        script_path = Path(work_cwd) / exe
+        exe = str(script_path)
     envelope = {
         "role": role or profile,
         "task": task,
@@ -776,8 +786,25 @@ def build_readonly_invocation(
         "packet_path": str(packet_path),
         "execution_identity": packet_obj.get("execution_identity"),
         "output_contract": "custom-json-envelope",
+        "session_id": exact_session,
     }
-    argv_list = [exe, *extras]
+    # Run .py wrappers via the same Python as Cobbler (no +x / PATH dependency).
+    if script_path is not None and str(script_path).endswith(".py"):
+        import sys as _sys  # noqa: PLC0415
+
+        argv_list = [_sys.executable, str(script_path), *extras]
+        exe = _sys.executable
+    else:
+        argv_list = [exe, *extras]
+    # OpenRouter lens: pass --repo-root so session store lands in the checkout.
+    if script_path is not None and "openrouter_lens" in script_path.name.replace("-", "_"):
+        joined_extras = " ".join(str(x) for x in argv_list)
+        if work_cwd and "--repo-root" not in joined_extras:
+            argv_list.extend(["--repo-root", work_cwd])
+        if exact_session and "--session-id" not in joined_extras:
+            argv_list.extend(["--session-id", exact_session])
+        if requested_model and "--model" not in joined_extras:
+            argv_list.extend(["--model", str(requested_model)])
     return AdapterInvocation(
         adapter="custom-cli",
         executable=exe,
@@ -785,11 +812,16 @@ def build_readonly_invocation(
         read_only=True,
         tool_scope="read-only",
         sandbox_scope="ephemeral",
-        notes="JSON-stdio wrapper envelope; transport fields outer, report nested",
+        notes=(
+            "JSON-stdio wrapper envelope; transport fields outer, report nested. "
+            "For OpenRouter: scripts/openrouter_lens.py + OPENROUTER_API_KEY; "
+            "prefer exact session_id for plan→review; else attach plan/docs in packet."
+        ),
         stdin_text=json.dumps(envelope, sort_keys=True) + "\n",
         input_mode="json-stdio",
         decoder="custom-json-envelope",
         cwd=work_cwd,
+        session_id=exact_session,
     )
 
 

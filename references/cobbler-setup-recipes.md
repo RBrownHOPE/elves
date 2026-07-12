@@ -201,30 +201,77 @@ public defaults.
 - Qualify session/write capabilities before using implement
 - Keep `host-native` fallback
 
-## Recipe: OpenRouter models as planner / reviewer (experimental)
+## Recipe: OpenRouter models as planner / reviewer (smart multi-model)
 
-**Reference pattern:** production math runs (e.g. Aigora geometry-exploration) use a thin CLI
-wrapper plus named **presets**, not a hardcoded “best model” table in Elves core.
+Use OpenRouter when you want **other strong models** (Qwen, GLM, DeepSeek, etc.) as independent
+**plan/review/scout** lenses. Native host remains Claude Code or Codex. Missing key → skip OR
+lanes; never block overnight Elves.
 
-When the user has `OPENROUTER_API_KEY` (env or ignored `.env.local`):
+### In-repo lens (preferred)
 
-1. Call OpenRouter through a project wrapper (geometry shape:
-   `node tools/openrouter_tools.mjs --model <openrouter-model-id> --prompt-file …`).
-2. Register **named presets** for the models they care about (`or-gpt55`, `or-deepseek-v4-pro`,
-   …) that map to that wrapper + argv.
-3. Run them as **read-only** independent plan/review/scout lanes via a panel command
-   (`review_panel` / research panel) or Cobbler role routes — never as mathematical or merge
-   authority.
-4. Missing key → skip those presets; host-native continues.
+`scripts/openrouter_lens.py` is the Cobbler `custom-cli` wrapper:
 
-Optional Cobbler / Survival Guide wiring (still native-first):
+- Reads Cobbler JSON envelope on stdin **or** `--prompt` / `--prompt-file`
+- Calls OpenRouter chat completions with `OPENROUTER_API_KEY` (never prints the key)
+- Returns a **custom-json-envelope** role report for Cobbler dispatch
+- **Session continuity (preferred):** `--session-id <uuid>` stores turns under
+  `.elves/runtime/openrouter-sessions/` (gitignored). Reuse the same id for plan→review.
+- **No session id:** pass plan/contract/constitution with `--context-file` (repeatable) or put
+  paths in the Cobbler packet `relevant_files` so the model still sees repo documents
+
+```bash
+# One-shot review (dogfood)
+set -a && source .env.local && set +a
+python3 scripts/openrouter_lens.py \
+  --model qwen/qwen3-max \
+  --role review \
+  --prompt-file docs/plans/your-plan.md \
+  --context-file docs/constitution.md \
+  --new-session
+
+# Resume same chat for review (use session_id= printed on stderr)
+python3 scripts/openrouter_lens.py \
+  --model qwen/qwen3-max \
+  --session-id <exact-uuid> \
+  --role review \
+  --prompt "Review batch 3 for completeness, constitution, regressions." \
+  --context-file docs/plans/your-plan.md
+```
+
+### Onboard apply-ready profiles
+
+| Profile | Purpose |
+| --- | --- |
+| `openrouter-lens` | Generic OR plan/review — set `requested_model` to any current OpenRouter id |
+| `or-qwen-max` | Qwen-class plan/review preset (example slug `qwen/qwen3-max` — re-check catalog) |
+| `or-glm` | GLM-class plan/review preset (example slug `z-ai/glm-5` — re-check catalog) |
+
+Bare `openrouter` remains **apply-blocked**. Pin **current** model slugs in ignored models.toml;
+do not treat example ids as permanent prestige defaults.
+
+```bash
+python3 scripts/cobbler_agents.py onboard apply --json \
+  --review or-qwen-max \
+  --planning openrouter-lens \
+  --force
+# Then edit .elves/models.toml:
+#   [profiles.or-qwen-max]
+#   requested_model = "qwen/qwen3-max"   # or newer OpenRouter id
+```
+
+### Context rules (same as Google)
+
+1. **Preferred:** exact `session_id` so the planner chat resumes for review  
+2. **Fallback:** repo documents the agent can read  
+3. **Never:** `latest` / `continue`  
+4. Review bar: completeness + constitution + regressions, not only local diff correctness
+
+Optional Survival Guide:
 
 ```yaml
 cobbler-provider-backed-enabled: true
 cobbler-provider-backed-optional-env:
   - OPENROUTER_API_KEY
-# Role hints only — actual launch is the project wrapper + preset:
-# openrouter:<provider/model-id>  e.g. openrouter:deepseek/deepseek-v4-pro
 ```
 
 Rules:
