@@ -389,3 +389,246 @@ def parse_role_report(
             )
 
     return data
+
+
+# --- Exact session create/resume builders (Batch 3) -----------------------
+
+# Ambiguous session-selection forms that must never appear in generated argv.
+AMBIGUOUS_SESSION_FLAG_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(^|\s)--continue(\s|$)"),
+    re.compile(r"(^|\s)--last(\s|$)"),
+    re.compile(r"(^|\s)--resume(\s|$)"),  # bare --resume without following ID
+    re.compile(r"(^|\s)-c(\s|$)"),  # bare continue shorthand where used as session selector
+)
+
+
+def assert_no_ambiguous_session_flags(argv: tuple[str, ...] | list[str]) -> None:
+    """Fail if argv uses ambiguous session selection.
+
+    Bare ``--resume`` without a following non-flag token is forbidden. Exact
+    forms like ``--resume <session-id>`` or ``--session-id <id>`` are required.
+    """
+    tokens = list(argv)
+    joined = " ".join(tokens)
+    # Detect bare --resume / --continue / --last as standalone tokens without value.
+    for index, token in enumerate(tokens):
+        if token in {"--continue", "--last"}:
+            raise ValidationIssue(
+                "ambiguous_session_flag",
+                f"Forbidden ambiguous session flag `{token}` in argv",
+                hint="Use exact session IDs only",
+            )
+        if token == "--resume":
+            nxt = tokens[index + 1] if index + 1 < len(tokens) else None
+            if nxt is None or nxt.startswith("-"):
+                raise ValidationIssue(
+                    "ambiguous_session_flag",
+                    "Bare `--resume` without an exact session id is forbidden",
+                    hint="Use --resume <exact-session-id> or --session-id <id>",
+                )
+    # Extra pattern sweep on joined string for --continue/--last.
+    for pattern in AMBIGUOUS_SESSION_FLAG_PATTERNS:
+        if pattern.pattern.startswith(r"(^|\s)--resume"):
+            continue  # handled above with value check
+        if pattern.search(joined):
+            raise ValidationIssue(
+                "ambiguous_session_flag",
+                f"Forbidden ambiguous session selection pattern in: {joined}",
+            )
+
+
+def build_session_create_invocation(
+    *,
+    adapter: str,
+    profile: str,
+    executable: str | None = None,
+    requested_model: str | None = None,
+    extra_args: tuple[str, ...] | list[str] = (),
+) -> AdapterInvocation:
+    """Build argv for creating a new exact session (no ambiguous selectors)."""
+    name = adapter.strip().lower()
+    meta = _BUILTIN.get(name, _BUILTIN["custom-cli"])
+    exe = executable or meta.executable_hint
+    extras = tuple(extra_args)
+
+    if name == "host-native":
+        raise ValidationIssue(
+            "host_native_no_external_session",
+            "host-native does not create external provider sessions",
+        )
+
+    if name == "claude-code":
+        argv = [exe or "claude", "--print", "--output-format", "json"]
+        if requested_model:
+            argv.extend(["--model", requested_model])
+        argv.extend(["--session-create"])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="claude-code",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes="exact session create; no --continue/--last",
+        )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
+
+    if name == "grok-build":
+        argv = [exe or "grok", "--new-session"]
+        if requested_model:
+            argv.extend(["--model", requested_model])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="grok-build",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes="exact create; worktree child IDs are discovered after fork",
+        )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
+
+    if name == "codex-fugu":
+        argv = [exe or "codex", "exec", "--json", "--session-create"]
+        if requested_model:
+            argv.extend(["--model", requested_model])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="codex-fugu",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes="exact session create for fugu/codex path",
+        )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
+
+    # custom-cli
+    if not exe or exe == "(user-defined)":
+        raise ValidationIssue(
+            "missing_executable",
+            f"custom-cli profile `{profile}` requires an executable for session create",
+            path=f"profiles.{profile}.executable",
+        )
+    argv = [exe, "--session-create"]
+    if requested_model:
+        argv.extend(["--model", requested_model])
+    argv.extend(extras)
+    inv = AdapterInvocation(
+        adapter="custom-cli",
+        executable=exe,
+        argv=tuple(argv),
+        read_only=True,
+        notes="custom exact session create",
+    )
+    assert_no_ambiguous_session_flags(inv.argv)
+    return inv
+
+
+def build_session_resume_invocation(
+    *,
+    adapter: str,
+    profile: str,
+    session_id: str,
+    executable: str | None = None,
+    requested_model: str | None = None,
+    cwd: str | None = None,
+    extra_args: tuple[str, ...] | list[str] = (),
+) -> AdapterInvocation:
+    """Build argv that resumes an exact session ID (never bare --resume/--continue/--last)."""
+    sid = (session_id or "").strip()
+    if not sid:
+        raise ValidationIssue(
+            "missing_session_id",
+            "Exact session_id is required for resume",
+            hint="Never omit the id or use last/continue selection",
+        )
+
+    name = adapter.strip().lower()
+    meta = _BUILTIN.get(name, _BUILTIN["custom-cli"])
+    exe = executable or meta.executable_hint
+    extras = tuple(extra_args)
+
+    if name == "host-native":
+        raise ValidationIssue(
+            "host_native_no_external_session",
+            "host-native does not resume external provider sessions",
+        )
+
+    if name == "claude-code":
+        argv = [exe or "claude", "--print", "--output-format", "json", "--resume", sid]
+        if requested_model:
+            argv.extend(["--model", requested_model])
+        if cwd:
+            argv.extend(["--cwd", cwd])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="claude-code",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes="exact --resume <session-id>",
+        )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
+
+    if name == "grok-build":
+        # Exact child resume from verified worktree CWD. Never headless
+        # --worktree --resume as isolation for broken versions.
+        argv = [exe or "grok", "--resume", sid]
+        if requested_model:
+            argv.extend(["--model", requested_model])
+        if cwd:
+            argv.extend(["--cwd", cwd])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="grok-build",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes=(
+                "exact child resume; verify CWD/worktree registration; "
+                "do not use headless worktree-resume as isolation on 0.2.93"
+            ),
+        )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
+
+    if name == "codex-fugu":
+        argv = [exe or "codex", "exec", "--json", "--session-id", sid]
+        if requested_model:
+            argv.extend(["--model", requested_model])
+        if cwd:
+            argv.extend(["--cwd", cwd])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="codex-fugu",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes="exact --session-id <id>",
+        )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
+
+    if not exe or exe == "(user-defined)":
+        raise ValidationIssue(
+            "missing_executable",
+            f"custom-cli profile `{profile}` requires an executable for session resume",
+            path=f"profiles.{profile}.executable",
+        )
+    argv = [exe, "--session-id", sid]
+    if requested_model:
+        argv.extend(["--model", requested_model])
+    if cwd:
+        argv.extend(["--cwd", cwd])
+    argv.extend(extras)
+    inv = AdapterInvocation(
+        adapter="custom-cli",
+        executable=exe,
+        argv=tuple(argv),
+        read_only=True,
+        notes="custom exact session resume",
+    )
+    assert_no_ambiguous_session_flags(inv.argv)
+    return inv
