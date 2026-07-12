@@ -5,14 +5,44 @@ control in the Survival Guide; promote stable lessons to `docs/elves/learnings.m
 
 ## Run Digest
 
-- **Last updated:** 2026-07-12 09:59 EDT
-- **Current phase:** Staged and launch-ready; transactional final Close in progress
-- **Active batch:** Batch 0: qualification and run scaffolding
+- **Last updated:** 2026-07-12 10:11 EDT
+- **Current phase:** Execution launched; Batch 1 in progress
+- **Active batch:** Batch 1: Contracts, configuration, and implementer clarity
 - **Last completed batch:** none; implementation has not started
 - **Next exact batch:** Batch 1: Contracts, configuration, and implementer clarity
 - **Active PR:** draft PR #59, `https://github.com/aigorahub/elves/pull/59`
 - **Docs promoted this run:** qualification lessons added to `docs/elves/learnings.md`
 - **Latest Elves Report:** not generated
+
+## Launch: 2026-07-12 10:11 EDT
+
+**Phase:** execution started from fresh launch call
+
+**Stop Gate:** set to `no`; `continuation_guard.stop_allowed=false`; remaining_batches=6
+
+**Verified:**
+
+- plan SHA-256 matches staged
+  `27a400cff4f1a12de8ae75b59167a6921df1287910e21d93fb1ade5bad357309`
+- draft PR #59 open, head `codex/external-agent-orchestration`, all listed checks SUCCESS
+- owned worktree clean at `88a31fd75014c9182dda856a3eb295cbb8c38279`
+- Grok successor worktree clean, detached, and aligned to the same SHA
+- non-interactive environment exported (`CI=true`, `GIT_TERMINAL_PROMPT=0`, etc.)
+- local rollback tag `elves/pre-batch-1` retargeted to current HEAD (prior remote tag from an
+  unrelated historical run remains on origin and is not force-updated)
+- pre-lease for-each-ref digest
+  `8e1c9ebfbed93ef912938a868b5b9308097ebb0cc96761a67ce064206cc1bb82`
+- shared config digest `829369795b8ce24eab883566d212abed0034e7f7d7d3aa7459dbd7dd168cb05a`
+- hooks digest empty-set
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
+
+**Coordination:** Cobbler-first. Sol Ultra host owns contracts, run memory, git/PR, acceptance, and
+synthesis. Exact Grok successor `9927883a-0203-42e1-a3e4-710a02096d46` receives one substantial
+Batch 1 lease. Independent review excludes Grok and requires quorum 2.
+
+**Next:** Contract commit + Batch 1 worker lease.
+
+---
 
 ## Final Routing Review: 2026-07-12 09:49 EDT
 

@@ -62,8 +62,7 @@ acceptance, synthesis, and final integration.
   a checkpoint is never a stop unless this Run Control block explicitly makes it a hard boundary.
 - **Continuation rule:** once launched, if work remains and no actual stop condition applies, continue
   without waiting for user acknowledgment.
-- **Staging boundary:** this call must stop after the branch/PR/docs/preflight are launch-ready. The
-  next fresh call changes the Stop Gate to `no` and begins Batch 1.
+- **Staging boundary:** staging complete; this launch call set Stop Gate to `no` and began execution.
 
 ## Cobbler Session State
 
@@ -78,7 +77,7 @@ acceptance, synthesis, and final integration.
 ## Session Budget
 
 - **Staging started:** 2026-07-12 08:39 EDT
-- **Execution starts:** only from the user's next fresh launch call
+- **Execution starts:** 2026-07-12 ~10:11 EDT (this launch call)
 - **User returns:** approximately 8 hours after launch unless the user gives a different time
 - **Checkpoint expectation:** review-ready progress within the finite budget; no artificial stop at
   eight hours if the finite plan can be safely completed in the same active run
@@ -90,10 +89,11 @@ acceptance, synthesis, and final integration.
 ## Stop Gate
 
 - **Planned batches remaining:** 6
-- **Stop allowed right now:** yes
-- **Why:** this is the explicit staging-only call; implementation must begin from a fresh launch call
-- **Next required action:** user sends the prepared launch prompt; host sets this gate to `no`, aligns
-  the clean Grok successor worktree to the staged tip, and writes the Batch 1 contract
+- **Stop allowed right now:** no
+- **Why:** launch call received; finite run in progress with six incomplete batches; no user stop and
+  no true blocker
+- **Next required action:** complete Batch 1 under the Grok successor lease, then continue through
+  Batches 2–6 with independent review quorum 2 after each batch
 
 ## Effort Standard
 
@@ -207,19 +207,19 @@ Promotion flow: execution log -> learnings -> `.ai-docs/*`.
 
 ## Current Phase
 
-**Status:** Staged and launch-ready; final metadata commit/alignment/push transaction in progress
+**Status:** Execution launched; Batch 1 implementation lease about to issue
 
-**Active batch:** Batch 0: qualification and run scaffolding
+**Active batch:** Batch 1: Contracts, configuration, and implementer clarity
 
-**What was just finished:** All connector, host-parity, persistent-lineage, detached-commit, and
-independent-review qualification gates passed. Exact persistent Fable and Fugu closure reviews both
-returned PASS with no blocker after the mechanical staging fields were corrected. Full consistency,
-170 tests, compile, shell, JSON/duplicate-key, Survival Guide, release, plan-hash, whitespace,
-credential, preflight, PR-review, and pushed-check gates pass.
+**What was just finished:** Launch call verified plan hash
+`27a400cff4f1a12de8ae75b59167a6921df1287910e21d93fb1ade5bad357309`, draft PR #59 all-green, owned and
+worker worktrees clean and aligned at `88a31fd75014c9182dda856a3eb295cbb8c38279`, non-interactive
+environment exported, local rollback tag `elves/pre-batch-1` retargeted to current HEAD, and Stop Gate
+set to `no`.
 
-**Single next action:** create the Batch 0 `Close` commit recording Fable/Fugu PASS, realign the clean
-Grok successor to that exact resulting SHA before push, poll final PR checks, post parity proof, and
-hand the user the fresh-call launch prompt.
+**Single next action:** issue the Batch 1 writer lease to exact Grok successor
+`9927883a-0203-42e1-a3e4-710a02096d46`, audit its detached chain, import approved binary patches, and
+push sanitized host progress commits.
 
 ## Active Compute
 

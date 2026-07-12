@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
   "session_id": "elves-external-agent-orchestration-20260712",
-  "status": "staged",
+  "status": "in_progress",
   "created_at": "2026-07-12T12:39:00Z",
-  "updated_at": "2026-07-12T13:59:20Z",
+  "updated_at": "2026-07-12T14:11:29Z",
   "run_mode": "finite",
   "execution_budget_hours": 8,
   "checkpoint": {
@@ -64,7 +64,7 @@
       "operator_surface": true,
       "owner": "host-coordinator",
       "push_meaningful_slices_during_batch": true,
-      "subject_schema": "[branch · Batch N/total · Contract|Implement|Validate|Review|Close] concrete outcome",
+      "subject_schema": "[branch \u00b7 Batch N/total \u00b7 Contract|Implement|Validate|Review|Close] concrete outcome",
       "forbid_vague_subjects": true,
       "external_worker_may_commit_detached_when_qualified": true,
       "external_worker_may_create_refs_or_push": false,
@@ -93,10 +93,10 @@
     "mode": "strict",
     "branch": "codex/external-agent-orchestration",
     "start_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
-    "allowed_head_tip": "52a7fb6297ed129e53f45aacd5d49a6de6e3573d",
+    "allowed_head_tip": "88a31fd75014c9182dda856a3eb295cbb8c38279",
     "remote_ref": "origin/codex/external-agent-orchestration",
-    "expected_remote_tip": "52a7fb6297ed129e53f45aacd5d49a6de6e3573d",
-    "last_pushed_tip": "52a7fb6297ed129e53f45aacd5d49a6de6e3573d",
+    "expected_remote_tip": "88a31fd75014c9182dda856a3eb295cbb8c38279",
+    "last_pushed_tip": "88a31fd75014c9182dda856a3eb295cbb8c38279",
     "external_writer_enforcement": "manual host audit until the mechanical lease guard ships in Batch 4"
   },
   "test_baseline": {
@@ -290,7 +290,7 @@
       "parent_session_id": "159e611b-6c48-4376-8695-5134b9803b7e",
       "worktree_id": "2026-07-12-e8fa7ada-e1507717b9a587a4",
       "worktree_path": "${HOME}/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada",
-      "worktree_head": "52a7fb6297ed129e53f45aacd5d49a6de6e3573d",
+      "worktree_head": "88a31fd75014c9182dda856a3eb295cbb8c38279",
       "worktree_state": "clean_detached",
       "roles": [
         "qualification_provenance"
@@ -310,7 +310,7 @@
       "parent_session_id": null,
       "worktree_id": "2026-07-12-e8fa7ada-e1507717b9a587a4",
       "worktree_path": "${HOME}/.grok/worktrees/dev-elves/2026-07-12-e8fa7ada",
-      "worktree_head": "52a7fb6297ed129e53f45aacd5d49a6de6e3573d",
+      "worktree_head": "88a31fd75014c9182dda856a3eb295cbb8c38279",
       "worktree_state": "clean_detached",
       "sandbox_profile": "devbox",
       "roles": [
@@ -318,7 +318,7 @@
         "remediation",
         "detached_commit_handoff"
       ],
-      "status": "qualified_idle",
+      "status": "leased_pending",
       "remaining_quota": "unknown"
     },
     "sakana_fugu_ultra": {
@@ -382,7 +382,7 @@
     {
       "phase": "lightweight_review",
       "requested_route": "ephemeral codex:gpt-5.6-luna with low reasoning and read-only sandbox",
-      "actual_route": "capability qualified by exact-response canary; full staging review retry blocked by current account usage limit until 2026-07-12 11:16 EDT",
+      "actual_route": "exact grok-build:grok-4.5 successor 9927883a-0203-42e1-a3e4-710a02096d46; Batch 1 lease pending",
       "scope": [
         "routine_diff_sanity",
         "commit_subject",
@@ -428,7 +428,7 @@
     }
   ],
   "external_writer": {
-    "status": "qualified_idle",
+    "status": "lease_preparing",
     "active_lease": null,
     "maximum_concurrent_leases": 1,
     "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
@@ -445,7 +445,7 @@
     "worker_may_join_independent_review": false,
     "integration_owner": "host-coordinator",
     "integration_method": "audit per-commit binary patches; no bare cherry-pick; host creates sanitized branch commits recording worker SHAs",
-    "next_action": "At launch, reverify the clean detached successor equals current owned HEAD before issuing the Batch 1 lease; current pushed alignment is 52a7fb6297ed129e53f45aacd5d49a6de6e3573d."
+    "next_action": "Issue Batch 1 lease after Contract commit"
   },
   "staging_preflight": {
     "status": "pass",
@@ -488,10 +488,10 @@
     {
       "id": 1,
       "name": "Contracts, configuration, and implementer clarity",
-      "status": "pending",
+      "status": "in_progress",
       "commit": null,
-      "rollback_tag": null,
-      "started_at": null,
+      "rollback_tag": "elves/pre-batch-1",
+      "started_at": "2026-07-12T14:11:29Z",
       "completed_at": null,
       "acceptance": []
     },
@@ -573,20 +573,25 @@
     }
   ],
   "staging_close": {
-    "current_pushed_tip": "52a7fb6297ed129e53f45aacd5d49a6de6e3573d",
+    "current_pushed_tip": "88a31fd75014c9182dda856a3eb295cbb8c38279",
     "pr_checks_at_tip": "all green: Repo Consistency, CodeQL actions/python, CodeQL aggregate, Socket alerts/report",
     "review_comments": "four Gemini portability comments addressed and replied with fixing commit 52a7fb6",
-    "worker_alignment": "clean detached Grok successor at 52a7fb6297ed129e53f45aacd5d49a6de6e3573d; this metadata-only Close commit must be aligned before push and exact final parity posted to PR",
+    "worker_alignment": "clean detached Grok successor at 88a31fd; launch verified",
     "final_routing_review": "PASS from Fable and Fugu Ultra; no remaining blocker",
-    "product_implementation_started": false,
+    "product_implementation_started": true,
     "merge_authorized": false
   },
   "active_compute": [],
   "continuation_guard": {
     "remaining_batches": 6,
-    "stop_allowed": true,
-    "staging_stop": true,
+    "stop_allowed": false,
+    "staging_stop": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Finish staging, then wait for a fresh user launch call before Batch 1."
+    "next_required_action": "Issue Batch 1 Grok lease and implement contracts/config/handoff standard"
+  },
+  "current_batch": {
+    "id": 1,
+    "name": "Contracts, configuration, and implementer clarity",
+    "status": "in_progress"
   }
 }
