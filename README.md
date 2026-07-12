@@ -6,11 +6,12 @@
 
 Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default coordinator inside Elves: it decides whether to answer directly, ask independent reviewers, assign scoped worker agents, or record a run decision, then returns one clear recommendation.
 
-**Current release: v1.20.1.** This release adds Cobbler external-agent orchestration: a standard-library
-runtime for optional parallel planning/review councils, exact persistent sessions, a single audited
-external writer lease with host-owned binary-patch integration, setup helpers, and a master
-CouncilElves launch prompt—while native-only Elves remains complete with zero external tools or keys.
-See [`CHANGELOG.md`](CHANGELOG.md) and [`references/councilelves-launch-prompt.md`](references/councilelves-launch-prompt.md).
+**Current release: v1.20.1.** This is a corrective patch on top of v1.20.0 Cobbler external-agent
+orchestration. It makes council/dispatch, session rehydration, writer path/lease audits, and setup
+smoke **truthful and fail-closed** (no canned host quorum, no digest promotion before rehydration
+proof, no `.elves` path escapes via unsafe path stripping, no smoke-without-a-model-response), while
+native-only Elves stays complete with zero external tools or keys. See [`CHANGELOG.md`](CHANGELOG.md)
+and [`references/councilelves-launch-prompt.md`](references/councilelves-launch-prompt.md).
 
 You write the plan and own the merge decision. The agent does everything in between.
 
@@ -536,7 +537,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Constitution and legality check**: human-authored deal-breaker behaviors (`docs/constitution.md`) verified by a read-only judge after each batch. Three quality layers: correctness (tests), plan compliance (review), legality (judge). Success criteria the agent didn't author.
 - **PR Loop**: poll PR comments, inline reviews, and check status after every push, not just at batch boundaries
 - **Readiness Gate**: branch-level checklist before declaring review-ready (plan Acceptance with proof, `elves_landing_check.py` clean, local proof on current tip, preview proof on exact runtime tip, final cumulative review, PR comments polled, legality check clean, strategic forgetting complete, git status clean, execution log current). Green CI + `status: complete` alone is not landable.
-- **Acceptance evidence (v1.19+/v1.20+)**: each complete batch records `acceptance: [{criterion, met, evidence}]` in `.elves-session.json`; god-file splits cannot close on structure/regex locks alone; prefer one batch per close commit. v1.20 adds external-agent orchestration under Cobbler without making external tools required.
+- **Acceptance evidence (v1.19+/v1.20+)**: each complete batch records `acceptance: [{criterion, met, evidence}]` in `.elves-session.json`; god-file splits cannot close on structure/regex locks alone; prefer one batch per close commit. v1.20 adds optional external-agent orchestration under Cobbler; v1.20.1 hardens that runtime so green tests and schema-shaped reports cannot stand in for real model/session/write evidence.
 - **Structured session data** in `.elves-session.json` for tooling, dashboards, and analytics
 - **Install doctor and update advisory**: startup can flag newer published releases and explain
   when a project-local install differs from the global one that you thought you were using
