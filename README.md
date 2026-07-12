@@ -10,9 +10,12 @@ Elves is an open-source Agent Skill for autonomous, multi-batch development. It 
 driver**, out of the box, with Cobbler coordinating natively — no Grok, OpenRouter, Sakana, or
 multi-provider council required. Optional tools (Gemini/Antigravity/Muse/OpenRouter for
 plan/review, Grok implement, AlphaEvolve, host-import writer lease) may help when you already have
-them; **that is not our focus** and is not a claim those products work as the Elves host. Operator
-helpers live under `python3 scripts/cobbler_agents.py`. Built on v1.20.1 Cobbler runtime hardening.
-See [`CHANGELOG.md`](CHANGELOG.md) and [`references/model-onboarding.md`](references/model-onboarding.md).
+them; **that is not our focus**, is **not heavily tested** across every install, and is not a claim
+those products work as the Elves host. If an optional path breaks, **open a PR** with a fix or
+suggestion, or [file an issue](https://github.com/aigorahub/elves/issues). Operator helpers live
+under `python3 scripts/cobbler_agents.py`. Built on v1.20.1 Cobbler runtime hardening. See
+[`CHANGELOG.md`](CHANGELOG.md) and
+[`references/model-onboarding.md`](references/model-onboarding.md).
 
 You write the plan and own the merge decision. The agent does everything in between.
 

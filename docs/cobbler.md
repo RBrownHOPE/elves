@@ -167,7 +167,8 @@ and `/elves-council`. Codex supports `$elves council: <task>` and natural Counci
 
 Setup is optional. Native-only Elves needs no external tools or keys. **Supported main drivers are
 Claude Code and Codex** — they run Elves. Other CLIs (Antigravity, Gemini, etc.) are optional
-routes only; running Elves with those as the primary host is not our focus.
+routes only; running Elves with those as the primary host is not our focus, and those paths are
+**not heavily tested**. Prefer PRs (or issues) when something breaks.
 **Claude Code and Codex** share one onboarding protocol (`references/model-onboarding.md`):
 
 ```bash

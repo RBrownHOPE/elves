@@ -25,6 +25,20 @@ full overnight system if Antigravity (or another non-Claude/non-Codex product) i
 Prefer Claude Code or Codex as `host-native` for validate, synthesize, git/PR, and the unattended
 loop.
 
+### Testing honesty and contributions
+
+The **Claude Code / Codex host-native path** is what we design and dogfood against. Optional
+routes, tier profiles, Google CLIs, provider keys, and multi-model panels are **documented so people
+can try them**, but **not all of this has been heavily tested** across installs, versions, and
+subscriptions. Expect rough edges.
+
+If something does not work:
+
+1. **Prefer a PR** with a fix, a clearer error, a recipe note, or a test — that helps everyone.
+2. Or **open an issue** with host (Claude Code / Codex), OS, command, and what failed (no secrets).
+
+Issue tracker: [github.com/aigorahub/elves/issues](https://github.com/aigorahub/elves/issues).
+
 ## Operator CLI
 
 ```bash

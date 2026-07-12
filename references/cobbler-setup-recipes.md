@@ -10,6 +10,11 @@ These recipes map common host tool mixes onto Cobbler roles **without source cha
 
 Public default: **native-only** (no setup, no keys, no external executables).
 
+Recipes beyond host-native Claude Code / Codex are **best-effort**: useful when they match your
+install, but **not all combinations are heavily tested**. If a recipe fails, prefer a PR with a fix
+or a corrected recipe, or open an issue with host/OS/command (no secrets):
+https://github.com/aigorahub/elves/issues
+
 ## Operator commands
 
 Claude Code:

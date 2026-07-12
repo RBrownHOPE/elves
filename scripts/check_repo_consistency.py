@@ -1797,6 +1797,8 @@ SETUP_COBBLER_PHRASES = {
         "Claude Code + Codex",
         "Supported hosts (main drivers)",
         "not been our focus",
+        "not all of this has been heavily tested",
+        "Prefer a PR",
         "onboard plan",
         "onboard apply",
         "onboard probe",

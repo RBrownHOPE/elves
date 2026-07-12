@@ -118,7 +118,8 @@ silently deleting it.
   CLI are optional plan/review lenses, usually not cost-effective for the main implement batch.
 - [2026-07-12] **Supported Elves main drivers are Claude Code and Codex only.** Optional routes
   (Antigravity, Gemini CLI, Muse, OpenRouter, Grok, AlphaEvolve) may work as tools the host calls;
-  that is not our focus and is not support for those products as the overnight host.
+  that is not our focus, is not heavily tested, and is not support for those products as the
+  overnight host. Prefer contributor PRs (or issues) when optional paths fail.
 - [2026-07-12] When the user *does* have Grok Build and wants it, prefer
   `implementation_lane: fast` with one whole-batch launch
   (`--prompt-file <packet> --yolo --effort medium`, session create/resume, sensible `--max-turns`)

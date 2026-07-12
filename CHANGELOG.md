@@ -49,7 +49,8 @@ All notable changes to the Elves skill are documented here.
   implement can use a labor model (pin `requested_model` locally).
 - **Google subscription CLIs:** `gemini-cli` and `antigravity-cli` as optional **plan/review/scout**
   routes (usually not cost-effective for bulk implement). **Supported main drivers remain Claude
-  Code and Codex only**; other tools are optional lenses, not claimed Elves hosts.
+  Code and Codex only**; other tools are optional lenses, not claimed Elves hosts. Optional paths
+  are **not heavily tested** — prefer PRs (or issues) when something breaks.
 
 ## [1.20.2] - 2026-07-12
 
