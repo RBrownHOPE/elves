@@ -29,6 +29,14 @@ FORBIDDEN_DEFAULT_PERMISSION = "dontAsk"
 # Empirically required for unattended headless tool use (Grok Build 0.2.93 docs + dogfood).
 # --permission-mode auto alone does not auto-approve writes; --yolo / --always-approve does.
 
+# Operator model aliases for Grok Build implement labor.
+# Alias names inspired by stdevMac/grok-in-claude + grok-in-codex (Apache-2.0) companion
+# presets; slugs remain Elves-owned and should be re-checked against `grok models`.
+MODEL_ALIASES: dict[str, dict[str, str]] = {
+    "fast": {"model": "grok-composer-2.5-fast"},
+    "deep": {"model": "grok-4.5", "effort": "high"},
+}
+
 RUNTIME_REL = Path(".elves") / "runtime" / "implement"
 STATE_NAME = "state.json"
 GATES_DIRNAME = "gates"
@@ -203,7 +211,11 @@ def prepare_implement(
         "openrouter/qwen/qwen3-max" if is_opencode else DEFAULT_MODEL
     )
     default_exe = "opencode" if is_opencode else DEFAULT_EXECUTABLE
-    model_value = (model or "").strip() or default_model
+    raw_model = (model or "").strip() or default_model
+    resolved_model, _resolved_effort, alias_notes = resolve_implement_model(
+        raw_model, adapter=adapter_name
+    )
+    model_value = resolved_model
     exe_value = (executable or "").strip() or default_exe
     state = ImplementState(
         lane=(lane or DEFAULT_LANE).strip() or DEFAULT_LANE,
@@ -233,6 +245,7 @@ def prepare_implement(
                 if is_opencode
                 else "Never pass --no-subagents; never default permission to dontAsk"
             ),
+            *alias_notes,
         ],
     )
     path = save_state(repo_root, state)
@@ -260,6 +273,123 @@ def _normalize_permission(mode: str | None) -> str:
     return value
 
 
+def resolve_implement_model(
+    model: str | None,
+    *,
+    effort: str | None = None,
+    adapter: str = "grok-build",
+) -> tuple[str, str | None, list[str]]:
+    """Resolve operator model input to (model_id, effort_or_None, notes).
+
+    Grok aliases ``fast`` / ``deep`` expand to concrete slugs. OpenCode and
+    explicit provider/model ids pass through unchanged. Alias idea adapted from
+    stdevMac/grok-in-claude and grok-in-codex companion presets (Apache-2.0).
+
+    When ``effort`` is ``None``, aliases may supply a default (e.g. deep → high);
+    otherwise the caller-supplied effort wins.
+    """
+    notes: list[str] = []
+    adapter_name = (adapter or "grok-build").strip().lower() or "grok-build"
+    explicit_effort = (effort or "").strip() or None
+    raw = (model or "").strip()
+    if not raw:
+        if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
+            return "openrouter/qwen/qwen3-max", explicit_effort, notes
+        return DEFAULT_MODEL, explicit_effort or DEFAULT_EFFORT, notes
+
+    if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
+        return raw, explicit_effort, notes
+
+    key = raw.lower()
+    alias = MODEL_ALIASES.get(key)
+    if alias:
+        resolved_model = alias["model"]
+        resolved_effort = explicit_effort or alias.get("effort") or DEFAULT_EFFORT
+        notes.append(
+            f"Resolved model alias `{raw}` → model={resolved_model}"
+            + (f", effort={resolved_effort}" if resolved_effort else "")
+            + " (alias pattern credit: stdevMac/grok-in-claude, grok-in-codex)"
+        )
+        return resolved_model, resolved_effort, notes
+
+    return raw, explicit_effort or DEFAULT_EFFORT, notes
+
+
+def humanize_grok_failure(
+    *,
+    stderr: str | None = None,
+    stdout: str | None = None,
+    message: str | None = None,
+    exit_code: int | None = None,
+) -> str:
+    """Map noisy Grok CLI / Rust dumps to a short operator message.
+
+    Failure-mapping approach adapted from stdevMac/grok-in-claude and
+    grok-in-codex ``humanizeGrokFailure`` (Apache-2.0); wording is Elves-owned.
+    """
+    parts = [message, stderr, stdout]
+    blob = "\n".join(str(p).strip() for p in parts if p and str(p).strip())
+    if not blob:
+        if exit_code is not None and exit_code != 0:
+            return f"Grok exited with code {exit_code}."
+        return "Grok failed with no error details."
+
+    compact = re.sub(r"\s+", " ", blob).strip()
+
+    if re.search(r"RequirementError", blob, re.I) and re.search(
+        r"run_terminal_cmd|background|--tools", blob, re.I
+    ):
+        return (
+            "Grok CLI rejected the tool configuration while creating a session. "
+            "On Grok Build ~0.2.93 prefer default tools + `--disallowed-tools` denylists "
+            "for read-only/media modes; avoid `--tools` allowlists. "
+            "Lane A implement still uses the default toolset + `--yolo`."
+        )
+
+    if re.search(r"RequirementError", blob, re.I):
+        brief_match = re.search(r"RequirementError[:\s{]*([^}\n]{10,200})", blob, re.I)
+        brief = (brief_match.group(1).strip() if brief_match else compact[:180])
+        return (
+            f"Grok CLI requirement error: {brief}. "
+            "Check `grok version`, auth (`grok login`), and plan features."
+        )
+
+    if re.search(r"not logged in|unauthori[sz]ed|authentication required|auth.*fail", blob, re.I):
+        return "Grok is not authenticated. Run `grok login`."
+
+    if re.search(r"command not found|No such file or directory.*grok|Grok CLI not found", blob, re.I):
+        return "Grok CLI not found. Install Grok Build and ensure `grok` is on PATH."
+
+    if re.search(r"rate.?limit|too many requests|\b429\b", blob, re.I):
+        return "Grok rate-limited the request. Wait and retry."
+
+    if re.search(r"model .+ not found|unknown model|invalid model", blob, re.I):
+        return (
+            "Grok rejected the model id. Use a valid model (e.g. `grok-4.5`) "
+            "or an implement alias (`fast` / `deep`)."
+        )
+
+    first_useful = None
+    for line in blob.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if re.match(r"^\[stderr\]", line, re.I):
+            continue
+        if re.match(r"^thread '", line, re.I):
+            continue
+        if len(line) >= 400:
+            continue
+        first_useful = line
+        break
+    if not first_useful:
+        first_useful = compact[:280]
+
+    if exit_code is not None and exit_code != 0:
+        return f"Grok failed (exit {exit_code}): {first_useful}"
+    return first_useful
+
+
 def build_launch_argv(
     *,
     session_id: str | None = None,
@@ -269,11 +399,12 @@ def build_launch_argv(
     permission_mode: str = DEFAULT_PERMISSION_MODE,
     executable: str = DEFAULT_EXECUTABLE,
     create: bool = False,
-    effort: str = DEFAULT_EFFORT,
+    effort: str | None = None,
     yolo: bool = True,
     max_turns: int | None = 80,
     output_format: str | None = "json",
     adapter: str = "grok-build",
+    check: bool = False,
 ) -> list[str]:
     """Build headless implementer argv for Grok Build (Lane A) or OpenCode.
 
@@ -281,6 +412,7 @@ def build_launch_argv(
     - ``--prompt-file`` or ``-p`` both trigger headless multi-turn with tools.
     - ``--yolo`` / ``--always-approve`` is required for unattended edits.
     - Exact session id only; never bare continue.
+    - Optional ``--check`` asks Grok to verify before returning (CLI flag).
 
     OpenCode (opencode.ai):
     - ``opencode run`` with packet contents as message; ``--auto`` for unattended tools.
@@ -306,7 +438,7 @@ def build_launch_argv(
     if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
         # Attach packet via --file to avoid ARG_MAX (do not stuff full packet into argv).
         exe = (executable or "opencode").strip() or "opencode"
-        model_name = (model or "").strip()
+        model_name, _, _ = resolve_implement_model(model, adapter=adapter_name)
         argv: list[str] = [
             exe,
             "run",
@@ -335,8 +467,10 @@ def build_launch_argv(
     # Default: Grok Build Lane A
     perm = _normalize_permission(permission_mode)
     exe = (executable or DEFAULT_EXECUTABLE).strip() or DEFAULT_EXECUTABLE
-    model_name = (model or DEFAULT_MODEL).strip() or DEFAULT_MODEL
-    effort_name = (effort or DEFAULT_EFFORT).strip() or DEFAULT_EFFORT
+    model_name, effort_name, _alias_notes = resolve_implement_model(
+        model, effort=effort, adapter="grok-build"
+    )
+    effort_name = (effort_name or DEFAULT_EFFORT).strip() or DEFAULT_EFFORT
 
     argv = [exe]
     if create:
@@ -364,6 +498,9 @@ def build_launch_argv(
     )
     if yolo:
         argv.append("--yolo")
+    if check:
+        # Grok CLI post-work verification flag (also used by community companions).
+        argv.append("--check")
     if max_turns is not None and int(max_turns) > 0:
         argv.extend(["--max-turns", str(int(max_turns))])
     if output_format:
@@ -400,6 +537,8 @@ def launch_payload(
     create: bool = False,
     batch: int | None = None,
     exec_process: bool = False,
+    effort: str | None = None,
+    check: bool = False,
 ) -> dict[str, Any]:
     """Build (and optionally exec) Lane A launch argv. Default is print-only."""
     state = load_state(repo_root)
@@ -413,8 +552,11 @@ def launch_payload(
         )
     worktree = cwd or (state.worktree if state else None) or str(Path(repo_root).resolve())
     is_opencode = adapter_name in {"opencode-cli", "opencode-labor", "opencode"}
-    model_name = model or (state.model if state else None) or (
+    raw_model = model or (state.model if state else None) or (
         "openrouter/qwen/qwen3-max" if is_opencode else DEFAULT_MODEL
+    )
+    model_name, effort_name, alias_notes = resolve_implement_model(
+        raw_model, effort=effort, adapter=adapter_name
     )
     perm = permission_mode or (state.permission_mode if state else None) or DEFAULT_PERMISSION_MODE
     exe = executable or (state.executable if state else None) or (
@@ -425,23 +567,26 @@ def launch_payload(
         session_id=sid or None,
         packet=packet,
         cwd=worktree,
-        model=model_name,
+        # Pass raw model so aliases resolve once (deep → high effort).
+        model=raw_model,
         permission_mode=perm,
         executable=exe,
         create=create,
-        effort=DEFAULT_EFFORT,
+        effort=effort,
         yolo=True,
         max_turns=80,
         output_format="json",
         adapter=adapter_name,
+        check=bool(check) and not is_opencode,
     )
 
-    # Persist last launch pointers for status/resume.
+    # Persist last launch pointers for status/resume. Store resolved model id.
+    persist_model = model_name if not is_opencode else (model or model_name)
     if state is None:
         state = ImplementState(
             worktree=str(Path(worktree).expanduser().resolve()),
             adapter=adapter_name,
-            model=model_name,
+            model=persist_model,
             permission_mode=perm if is_opencode else _normalize_permission(perm),
             session_id=sid or None,
             executable=exe,
@@ -450,7 +595,7 @@ def launch_payload(
     else:
         state.session_id = sid or state.session_id
         state.worktree = str(Path(worktree).expanduser().resolve())
-        state.model = model_name
+        state.model = persist_model
         state.adapter = adapter_name
         state.permission_mode = perm if is_opencode else _normalize_permission(perm)
         state.executable = exe
@@ -458,6 +603,15 @@ def launch_payload(
     if batch is not None:
         state.last_batch = int(batch)
     save_state(repo_root, state)
+
+    notes = [
+        "Default is print-only; pass --exec to spawn the process",
+        "Grok Lane A: never dontAsk / no --no-subagents",
+        "OpenCode labor: opencode run --auto; exact --session preferred; OpenRouter provider/model",
+    ]
+    notes.extend(alias_notes)
+    if check and not is_opencode:
+        notes.append("Grok --check enabled (post-work verification; higher latency/cost)")
 
     payload: dict[str, Any] = {
         "ok": True,
@@ -468,24 +622,25 @@ def launch_payload(
         "argv_joined": " ".join(argv),
         "cwd": str(Path(worktree).expanduser().resolve()),
         "packet": str(Path(packet).expanduser().resolve()),
-        "model": model_name,
+        "model": model_name if not is_opencode else raw_model,
+        "effort": effort_name if not is_opencode else None,
+        "check": bool(check) and not is_opencode,
         "permission_mode": perm if is_opencode else _normalize_permission(perm),
         "create": create,
         "launched": False,
         "mutated_repo": False,
         "model_calls_made": False,
-        "notes": [
-            "Default is print-only; pass --exec to spawn the process",
-            "Grok Lane A: never dontAsk / no --no-subagents",
-            "OpenCode labor: opencode run --auto; exact --session preferred; OpenRouter provider/model",
-        ],
+        "notes": notes,
     }
 
     if exec_process:
         # Optional operator convenience; not the default host path.
         try:
             proc = subprocess.run(
-                argv, cwd=str(Path(worktree).expanduser().resolve())
+                argv,
+                cwd=str(Path(worktree).expanduser().resolve()),
+                capture_output=True,
+                text=True,
             )
         except OSError as exc:
             raise ValidationIssue(
@@ -497,6 +652,18 @@ def launch_payload(
         payload["model_calls_made"] = True
         payload["exit_code"] = int(proc.returncode)
         payload["ok"] = proc.returncode == 0
+        stdout = proc.stdout or ""
+        stderr = proc.stderr or ""
+        if stdout:
+            payload["stdout_tail"] = stdout[-4000:]
+        if stderr:
+            payload["stderr_tail"] = stderr[-4000:]
+        if not payload["ok"] and not is_opencode:
+            payload["error_human"] = humanize_grok_failure(
+                stderr=stderr,
+                stdout=stdout,
+                exit_code=int(proc.returncode),
+            )
         return payload
 
     return payload
@@ -513,6 +680,8 @@ def resume_batch_payload(
     permission_mode: str | None = None,
     executable: str | None = None,
     exec_process: bool = False,
+    effort: str | None = None,
+    check: bool = False,
 ) -> dict[str, Any]:
     """Print launch argv for the next batch packet (same session, resume)."""
     payload = launch_payload(
@@ -526,6 +695,8 @@ def resume_batch_payload(
         create=False,
         batch=batch,
         exec_process=exec_process,
+        effort=effort,
+        check=check,
     )
     payload["action"] = "resume-batch"
     payload["batch"] = int(batch)

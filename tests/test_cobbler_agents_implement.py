@@ -29,10 +29,12 @@ from cobbler_runtime.implement import (  # noqa: E402
     DEFAULT_MODEL,
     DEFAULT_PERMISSION_MODE,
     build_launch_argv,
+    humanize_grok_failure,
     implement_root,
     launch_payload,
     parse_unittest_output,
     prepare_implement,
+    resolve_implement_model,
     resume_batch_payload,
     run_gate,
     state_path,
@@ -120,6 +122,44 @@ class BuildLaunchArgvTests(unittest.TestCase):
                 )
         self.assertEqual(ctx.exception.code, "missing_session_id")
 
+    def test_model_alias_deep_and_check_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "p.md"
+            packet.write_text("x\n", encoding="utf-8")
+            argv = build_launch_argv(
+                session_id="s1",
+                packet=packet,
+                cwd=tmp,
+                model="deep",
+                check=True,
+            )
+        self.assertEqual(argv[argv.index("--model") + 1], "grok-4.5")
+        self.assertEqual(argv[argv.index("--effort") + 1], "high")
+        self.assertIn("--check", argv)
+
+    def test_model_alias_fast(self) -> None:
+        model, effort, notes = resolve_implement_model("fast")
+        self.assertEqual(model, "grok-composer-2.5-fast")
+        self.assertTrue(any("alias" in n.lower() for n in notes))
+        self.assertIsNotNone(effort)
+
+
+class HumanizeGrokFailureTests(unittest.TestCase):
+    def test_tools_allowlist_requirement_error(self) -> None:
+        msg = humanize_grok_failure(
+            stderr="RequirementError: run_terminal_cmd background param with --tools"
+        )
+        self.assertIn("disallowed-tools", msg)
+        self.assertNotIn("thread '", msg)
+
+    def test_auth_failure(self) -> None:
+        msg = humanize_grok_failure(stdout="Error: not logged in")
+        self.assertIn("not authenticated", msg.lower())
+
+    def test_empty_with_exit_code(self) -> None:
+        msg = humanize_grok_failure(exit_code=2)
+        self.assertIn("2", msg)
+
 
 class PrepareImplementTests(unittest.TestCase):
     def test_prepare_writes_state_and_private_dirs(self) -> None:
@@ -155,6 +195,15 @@ class PrepareImplementTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValidationIssue):
                 prepare_implement(Path(tmp), permission_mode="dontAsk")
+
+    def test_prepare_resolves_model_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = prepare_implement(root, model="deep", session_id="s")
+            self.assertEqual(payload["state"]["model"], "grok-4.5")
+            self.assertTrue(
+                any("alias" in n.lower() for n in payload["state"]["notes"])
+            )
 
 
 class LaunchAndResumeTests(unittest.TestCase):

@@ -14,6 +14,9 @@ advanced worker flow in [`councilelves-launch-prompt.md`](councilelves-launch-pr
 `python3 scripts/cobbler_agents.py worker …`. Do **not** use that lease path as the default
 overnight path.
 
+Future community-plugin ideas (not implemented):  
+[`community-grok-plugin-ideas.md`](community-grok-plugin-ideas.md).
+
 ## Survival Guide field (only when using an external implementer)
 
 ```text
@@ -58,7 +61,23 @@ for `prepare` / `status` / argv emission.
 | Unit of work | whole batch per packet | avoid mid-breath host tax |
 | Prompt | `--prompt-file` packet **or** `-p` text — never both | CLI rejects combining them |
 | Model default | `grok-4.5` | product default for this path |
+| Model aliases | `fast` → `grok-composer-2.5-fast`; `deep` → `grok-4.5` + `--effort high` | operator shorthand on `implement prepare/launch --model` (re-check `grok models`) |
+| Optional verify | `--check` on `implement launch` / `resume-batch` | passes Grok CLI `--check` (post-work verification; higher latency — opt-in) |
 | Git default | `branch_progress` (Mode A1) | Grok commits/pushes progress slices on the feature branch |
+| Failure UX | `error_human` on failed `--exec` | short mapped messages for auth / tool-config / rate-limit dumps |
+
+### Grok CLI 0.2.93 tool-gating note
+
+For **read-only review / media-style** Grok invocations (not Lane A implement), prefer the
+**default toolset + `--disallowed-tools` denylist** over a `--tools` allowlist. On Grok Build
+~0.2.93, allowlists have failed session create with `RequirementError` / `run_terminal_cmd`
+background constraints. Lane A implement still uses the default toolset + **`--yolo`** for
+unattended writes.
+
+This denylist guidance is informed by community companion battle-scars in
+[stdevMac/grok-in-claude](https://github.com/stdevMac/grok-in-claude) and
+[stdevMac/grok-in-codex](https://github.com/stdevMac/grok-in-codex) (Apache-2.0). Elves does not
+vendor those plugins; host-owned implement leases and run memory remain Elves-native.
 
 ### Headless recipe that worked in dogfood (Grok Build 0.2.93)
 
@@ -104,6 +123,7 @@ grok --model grok-4.5 \
 | Nested host loop (Codex drives every tool call) | Hours of ceremony tax |
 | `--reasoning-effort high` on volume implement | ~2× tiny-task latency; long thought streams |
 | `--permission-mode auto` without `--yolo` | May not auto-approve writes unattended |
+| `--tools` allowlist for read-only/media on 0.2.93 | Session-create `RequirementError` — use denylist instead |
 | Host re-audits / full suite between every amend | Recreates nested-driver slowness |
 
 ## Packet contract (versioned expectations)

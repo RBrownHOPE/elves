@@ -57,6 +57,11 @@ silently deleting it.
 
 ## Validation and Tooling
 
+- [2026-07-12] Grok Build ~0.2.93: for read-only/media-style CLI calls prefer default tools +
+  `--disallowed-tools` denylist; `--tools` allowlists can fail session create. Lane A implement
+  still uses default tools + `--yolo`. Model aliases `fast`/`deep` and optional `--check` are
+  supported on `implement prepare|launch`. Battle-scar credit: stdevMac/grok-in-claude and
+  grok-in-codex (Apache-2.0); backlog in `references/community-grok-plugin-ideas.md`.
 - [2026-07-12] Never update an accepted session context digest before rehydration proof. Store
   pending digests/heads on expected canonical drift and promote only after an exact resume matches
   the pending packet; otherwise a later resume silently erases the rehydration obligation.

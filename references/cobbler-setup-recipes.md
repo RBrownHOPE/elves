@@ -247,9 +247,24 @@ python3 scripts/cobbler_agents.py onboard apply --json \
 #   requested_model = "openrouter/qwen/qwen3-max"  # re-check OpenRouter catalog
 ```
 
-### Implement lifecycle (host-driven; parallel to Grok)
+### Implement lifecycle (host-driven; Grok or OpenCode)
 
 ```bash
+# Grok Build Lane A (default adapter) — model aliases fast|deep; optional --check
+python3 scripts/cobbler_agents.py implement prepare --json \
+  --adapter grok-build \
+  --model deep \
+  --session-id <uuid> \
+  --worktree <path>
+
+python3 scripts/cobbler_agents.py implement launch --json \
+  --packet .elves/runtime/packets/batch-N.md \
+  --session-id <uuid> \
+  --cwd <worktree>
+# Optional: --check (Grok post-work verify), --effort high, --model fast|deep|grok-4.5
+# See references/grok-implementer-launch-prompt.md (denylist note + community credit).
+
+# OpenCode work driver
 python3 scripts/cobbler_agents.py implement prepare --json \
   --adapter opencode-cli \
   --model openrouter/qwen/qwen3-max \
@@ -261,8 +276,9 @@ python3 scripts/cobbler_agents.py implement launch --json \
   --session-id <exact-id-if-known>
 ```
 
-**Session continuity:** prefer exact `--session <id>` (never bare `--continue`). Capture id via
-`opencode session list` after the first turn. If no id, attach plan/docs in the packet.
+**Session continuity:** prefer exact session id (Grok `--resume` / OpenCode `--session`; never bare
+`continue`/`latest`). Capture OpenCode id via `opencode session list` after the first turn. If no
+id, attach plan/docs in the packet.
 
 **Honesty:** work-driver and main-driver OpenCode configs are incomplete coverage; flags drift.
 Not host-import write-lease qualified. Prefer PRs/tests that make OpenCode more robust under a

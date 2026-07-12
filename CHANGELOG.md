@@ -4,6 +4,19 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Grok implement: aliases, --check, humanized failures (community credit)
+
+- Lane A `implement prepare|launch|resume-batch` accepts Grok model aliases **`fast`** /
+  **`deep`** and optional **`--check`** / **`--effort`**. Failed `--exec` surfaces short
+  `error_human` messages for common CLI dumps (auth, tool-config, rate limit).
+- Documented Grok Build ~0.2.93 **denylist vs allowlist** guidance for read-only/media-style
+  invocations in `references/grok-implementer-launch-prompt.md`.
+- Future backlog (structured review schema, review packet builder, concurrent job status, etc.):
+  [`references/community-grok-plugin-ideas.md`](references/community-grok-plugin-ideas.md).
+- **Credit:** patterns adapted from [stdevMac/grok-in-claude](https://github.com/stdevMac/grok-in-claude)
+  and [stdevMac/grok-in-codex](https://github.com/stdevMac/grok-in-codex) (Apache-2.0). Elves does
+  not vendor those plugins; host-owned leases and run memory remain Elves-native.
+
 ### Docs: native-first implement framing
 
 - Clarified that **vanilla Cobbler is host-native** (Claude Code or Codex out of the box). Grok

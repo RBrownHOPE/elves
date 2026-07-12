@@ -625,6 +625,8 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 create=bool(args.create),
                 batch=args.batch,
                 exec_process=bool(args.exec),
+                effort=getattr(args, "effort", None),
+                check=bool(getattr(args, "check", False)),
             )
             if args.json:
                 return _emit_json(
@@ -633,6 +635,8 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 )
             # Default human surface: exact argv line (host/human launches).
             print(payload["argv_joined"])
+            if payload.get("error_human"):
+                print(f"error: {payload['error_human']}", file=sys.stderr)
             if payload.get("launched"):
                 return int(payload.get("exit_code") or 0)
             return 0
@@ -648,6 +652,8 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 permission_mode=args.permission_mode,
                 executable=args.executable,
                 exec_process=bool(args.exec),
+                effort=getattr(args, "effort", None),
+                check=bool(getattr(args, "check", False)),
             )
             if args.json:
                 return _emit_json(
@@ -655,6 +661,8 @@ def cmd_implement(args: argparse.Namespace) -> int:
                     exit_code=0 if payload.get("ok") else int(payload.get("exit_code") or 1),
                 )
             print(payload["argv_joined"])
+            if payload.get("error_human"):
+                print(f"error: {payload['error_human']}", file=sys.stderr)
             if payload.get("launched"):
                 return int(payload.get("exit_code") or 0)
             return 0
@@ -1155,7 +1163,10 @@ def build_parser() -> argparse.ArgumentParser:
     i_prepare.add_argument(
         "--model",
         default=None,
-        help="Default model (Grok: grok-4.5; OpenCode: provider/model e.g. openrouter/qwen/qwen3-max)",
+        help=(
+            "Default model (Grok: grok-4.5, or aliases fast/deep; "
+            "OpenCode: provider/model e.g. openrouter/qwen/qwen3-max)"
+        ),
     )
     i_prepare.add_argument(
         "--lane",
@@ -1208,7 +1219,17 @@ def build_parser() -> argparse.ArgumentParser:
     i_launch.add_argument(
         "--model",
         default=None,
-        help="Model (default: prepare state or grok-4.5)",
+        help="Model (default: prepare state or grok-4.5; Grok aliases: fast, deep)",
+    )
+    i_launch.add_argument(
+        "--effort",
+        default=None,
+        help="Grok --effort (default: medium; deep alias forces high unless overridden)",
+    )
+    i_launch.add_argument(
+        "--check",
+        action="store_true",
+        help="Pass Grok --check for post-work verification (higher latency; Grok only)",
     )
     i_launch.add_argument(
         "--permission-mode",
@@ -1270,7 +1291,21 @@ def build_parser() -> argparse.ArgumentParser:
     i_resume.add_argument("--session-id", default=None, help="Exact session id")
     i_resume.add_argument("--cwd", default=None, help="Worktree / CWD")
     i_resume.add_argument("--worktree", default=None, help="Alias for --cwd")
-    i_resume.add_argument("--model", default=None, help="Model override")
+    i_resume.add_argument(
+        "--model",
+        default=None,
+        help="Model override (Grok aliases: fast, deep)",
+    )
+    i_resume.add_argument(
+        "--effort",
+        default=None,
+        help="Grok --effort override",
+    )
+    i_resume.add_argument(
+        "--check",
+        action="store_true",
+        help="Pass Grok --check (Grok only)",
+    )
     i_resume.add_argument(
         "--permission-mode",
         default=None,
