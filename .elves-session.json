@@ -3,7 +3,7 @@
   "session_id": "elves-external-agent-orchestration-20260712",
   "status": "in_progress",
   "created_at": "2026-07-12T12:39:00Z",
-  "updated_at": "2026-07-12T15:08:11Z",
+  "updated_at": "2026-07-12T15:11:52Z",
   "run_mode": "finite",
   "execution_budget_hours": 8,
   "checkpoint": {
@@ -93,19 +93,19 @@
     "mode": "strict",
     "branch": "codex/external-agent-orchestration",
     "start_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
-    "allowed_head_tip": "6edd8e7cba4442e84147022c9e4c4f2886bf40d5",
+    "allowed_head_tip": "92a2690c16f4c6db5b965ff287a1359a6a770e4d",
     "remote_ref": "origin/codex/external-agent-orchestration",
-    "expected_remote_tip": "6edd8e7cba4442e84147022c9e4c4f2886bf40d5",
-    "last_pushed_tip": "6edd8e7cba4442e84147022c9e4c4f2886bf40d5",
+    "expected_remote_tip": "92a2690c16f4c6db5b965ff287a1359a6a770e4d",
+    "last_pushed_tip": "92a2690c16f4c6db5b965ff287a1359a6a770e4d",
     "external_writer_enforcement": "manual host audit until the mechanical lease guard ships in Batch 4"
   },
   "test_baseline": {
     "command": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
-    "total": 261,
-    "passed": 261,
+    "total": 276,
+    "passed": 276,
     "failed": 0,
     "skipped": 0,
-    "captured_at": "2026-07-12T15:07:51Z"
+    "captured_at": "2026-07-12T15:11:52Z"
   },
   "qualification": {
     "status": "pass",
@@ -428,13 +428,9 @@
     }
   ],
   "external_writer": {
-    "status": "active",
-    "active_lease": {
-      "id": "lease-batch-5-20260712-A",
-      "batch": 5,
-      "base_head": "169368a34a108a604cad71d5ac98f38c7eb955cf",
-      "session_id": "9927883a-0203-42e1-a3e4-710a02096d46"
-    }
+    "status": "qualified_idle",
+    "active_lease": null,
+    "next_action": "Issue Batch 6 lease"
   },
   "staging_preflight": {
     "status": "pass",
@@ -661,12 +657,38 @@
     {
       "id": 5,
       "name": "Setup action, preferences, host parity, and custom recipes",
-      "status": "in_progress",
-      "commit": null,
+      "status": "complete",
+      "commit": "92a2690c16f4c6db5b965ff287a1359a6a770e4d",
       "rollback_tag": "elves/pre-batch-5",
       "started_at": "2026-07-12T15:08:11Z",
-      "completed_at": null,
-      "acceptance": []
+      "completed_at": "2026-07-12T15:11:52Z",
+      "acceptance": [
+        {
+          "criterion": "Setup inventory non-interactive no credentials",
+          "met": true,
+          "evidence": "tests/test_cobbler_agents_setup.py InventoryTests"
+        },
+        {
+          "criterion": "Local models.toml not staged; Survival Guide snapshot concept",
+          "met": true,
+          "evidence": "TomlGenerationTests + setup survival snapshot"
+        },
+        {
+          "criterion": "Claude setup aliases + Codex docs honest",
+          "met": true,
+          "evidence": "aliases/claude/setup-*; SKILL/AGENTS/README"
+        },
+        {
+          "criterion": "Custom recipes OpenRouter/Muse/host mixes",
+          "met": true,
+          "evidence": "references/cobbler-setup-recipes.md"
+        },
+        {
+          "criterion": "Full suite not decreased",
+          "met": true,
+          "evidence": "276/276 tests"
+        }
+      ]
     },
     {
       "id": 6,
@@ -746,14 +768,14 @@
   },
   "active_compute": [],
   "continuation_guard": {
-    "remaining_batches": 2,
+    "remaining_batches": 1,
     "stop_allowed": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Start Batch 5 setup/preferences/host parity"
+    "next_required_action": "Start Batch 6 E2E qualification release handoff"
   },
   "current_batch": {
-    "id": 5,
-    "name": "Setup action, preferences, host parity, and custom recipes",
-    "status": "in_progress"
+    "id": 6,
+    "name": "End-to-end CouncilElves qualification, release, and handoff",
+    "status": "pending"
   }
 }

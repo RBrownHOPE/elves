@@ -84,11 +84,11 @@ acceptance, synthesis, and final integration.
 - **Time budget:** approximately 8 hours from launch, with judgment to complete a near-finished finite
   batch or stop cleanly at a genuine hard boundary
 - **Average batch time so far:** N/A; execution not launched
-- **Batches remaining:** 2 of 6
+- **Batches remaining:** 1 of 6
 
 ## Stop Gate
 
-- **Planned batches remaining:** 2
+- **Planned batches remaining:** 1
 - **Stop allowed right now:** no
 - **Why:** finite run in progress; Batches 1–3 complete with acceptance evidence; Batches 4–6 remain;
   no user stop and no true blocker
@@ -207,13 +207,13 @@ Promotion flow: execution log -> learnings -> `.ai-docs/*`.
 
 ## Current Phase
 
-**Status:** Batch 4 accepted; preparing Batch 5
+**Status:** Batch 5 accepted; preparing Batch 6
 
-**Active batch:** Batch 5: Setup action, preferences, host parity, and custom recipes
+**Active batch:** Batch 6: End-to-end CouncilElves qualification, release, and handoff
 
-**What was just finished:** Writer lease + audit + Grok write profile + worker CLI; 261 tests.
+**What was just finished:** Setup inventory/models.toml writer, setup-cobbler/council aliases, recipes docs; 276 tests.
 
-**Single next action:** Close Batch 4, lease Batch 5.
+**Single next action:** Close Batch 5, lease Batch 6 final qualification and release docs.
 
 
 ## Active Compute
@@ -231,11 +231,11 @@ resources only:
 
 ## Next Exact Batch
 
-**Batch:** 5: Setup action, preferences, host parity, and custom recipes
+**Batch:** 6: End-to-end CouncilElves qualification, release, and handoff
 
-**Scope:** setup/doctor inventory UX, models.toml local prefs, Claude/Codex setup aliases, custom recipes, OpenRouter/API guidance.
+**Scope:** live E2E experiment path, master CouncilElves launch prompt, release docs/versioning, landing readiness, final handoff.
 
-**Rollback tag:** `elves/pre-batch-5`
+**Rollback tag:** `elves/pre-batch-6`
 
 
 ## Post-Checkpoint Control Loop
