@@ -41,6 +41,14 @@ Useful references:
 - [Codex changelog](https://developers.openai.com/codex/changelog)
 - [Codex best practices](https://developers.openai.com/codex/learn/best-practices)
 
+## E2E chat-to-work / chat-to-land
+
+For a single kickoff that plans, stages, and runs batches (and optionally lands the PR), see
+[`e2e-chat-to-land.md`](e2e-chat-to-land.md) and the **Chat-to-work** / **Chat-to-land** templates
+in [`kickoff-prompt-template.md`](kickoff-prompt-template.md). `/goal` is the recommended Codex
+continuation seatbelt for those modes after staging is solid; Elves memory and the Stop Gate remain
+authority. Work-driver partial completion still requires host re-drive (labor completeness).
+
 ## Launch Pattern
 
 Stage the Elves run first. The branch, PR, plan, survival guide, learnings file, execution log,

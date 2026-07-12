@@ -89,10 +89,12 @@ Native-only runs need none of this. When present, Cobbler may route:
 | **Plan/review lenses** | OpenRouter lens, Gemini CLI, Antigravity (`agy`), Muse Spark | Independent read-only evidence |
 | **Math domain tools** | OpenRouter math roles, Google **AlphaEvolve** (`evolutionary_search`) | Discovery / examples / counterexample *signals* — not proofs |
 | **Writer boundary** | Host-import `worker …` lease | Advanced isolation; not the default overnight path |
+| **E2E kickoffs (v2.0+)** | Chat-to-work / chat-to-land | One prompt: plan→stage→run to landable PR, or through merge; see [`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md) |
 
 Setup: `python3 scripts/cobbler_agents.py onboard …` and recipes in
 [`references/cobbler-setup-recipes.md`](references/cobbler-setup-recipes.md). AlphaEvolve details:
-[`references/math-alphaevolve.md`](references/math-alphaevolve.md).
+[`references/math-alphaevolve.md`](references/math-alphaevolve.md). Classic **stage then launch**
+remains the default for huge plans; E2E is the convenience path.
 
 ### Reviewed PR landing command
 

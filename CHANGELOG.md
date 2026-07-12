@@ -4,6 +4,15 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### E2E chat-to-work / chat-to-land (design + kickoff templates)
+
+- Design for single-kickoff flows: multi-planner chat → plan/stage → batch loop → landable PR
+  (**chat-to-work**, no merge) or through reviewed-PR landing (**chat-to-land**, explicit merge).
+- Labor completeness: main driver re-drives lazy work drivers (e.g. partial Grok Build turns).
+- Optional `/goal` (Codex) as continuation seatbelt. Docs:
+  [`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md),
+  [`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md).
+
 ## [2.0.0] - 2026-07-12
 
 ### Efficient multi-model workflows under Cobbler (major)
