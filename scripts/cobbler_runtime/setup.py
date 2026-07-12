@@ -37,10 +37,13 @@ SETUP_ROLE_SLOTS: tuple[str, ...] = (
 # Env var *names* only — never values.
 OPTIONAL_ENV_NAMES: tuple[str, ...] = (
     "OPENROUTER_API_KEY",
+    "META_API_KEY",
+    "MODEL_API_KEY",
     "ANTHROPIC_API_KEY",
     "XAI_API_KEY",
     "OPENAI_API_KEY",
     "GEMINI_API_KEY",
+    "EXA_API_KEY",
 )
 
 _SECRET_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (

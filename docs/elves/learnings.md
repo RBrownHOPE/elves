@@ -110,6 +110,9 @@ silently deleting it.
   numerical examples / counterexample signals: managed mutation + local deterministic evaluator,
   gcloud impersonation (no SA keys), independent replay before promotion. Role
   `evolutionary_search`. Not a proof engine. Guide: `references/math-alphaevolve.md`.
+- [2026-07-12] Model onboarding is host-mediated on both Claude Code and Codex: `onboard
+  plan → interview → apply → probe`. Preferences in ignored `.elves/models.toml`; structural probe
+  by default; live smoke opt-in; never print secrets. Protocol: `references/model-onboarding.md`.
 - [2026-07-12] When the user *does* have Grok Build and wants it, prefer
   `implementation_lane: fast` with one whole-batch launch
   (`--prompt-file <packet> --yolo --effort medium`, session create/resume, sensible `--max-turns`)

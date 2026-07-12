@@ -34,6 +34,17 @@ All notable changes to the Elves skill are documented here.
 - Wired into math workflow, provider config, plan/survival templates, ledgers, review prompts, and
   setup recipes. Still optional; missing AlphaEvolve never blocks native Discovery Sprint.
 
+### Model onboarding (Claude Code + Codex)
+
+- Host-mediated **purpose → route** interview with CLI support:
+  `python3 scripts/cobbler_agents.py onboard plan|show|apply|probe`.
+- Users choose (and later update) which tools handle planning, implement, review, scout, etc.;
+  defaults stay **host-native**.
+- Structural **probe** verifies PATH/`--help` and env **names** (OpenRouter/Meta/AlphaEvolve hints);
+  live smoke remains opt-in and never prints secrets.
+- Protocol: [`references/model-onboarding.md`](references/model-onboarding.md); wired into
+  `/setup-cobbler`, skill surfaces, and setup recipes for both Claude Code and Codex.
+
 ## [1.20.2] - 2026-07-12
 
 ### Optional external batch implementer

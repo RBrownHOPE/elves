@@ -273,6 +273,14 @@ python3 scripts/cobbler_agents.py doctor --json
 python3 scripts/cobbler_agents.py setup --json --dry-run
 ```
 
+**Model onboarding** (same on Claude Code and Codex): choose which tools handle planning /
+implement / review, update later, and probe that routes work — see
+[`references/model-onboarding.md`](references/model-onboarding.md).
+
+```bash
+python3 scripts/cobbler_agents.py onboard plan|show|apply|probe --json
+```
+
 Setup writes only ignored local `.elves/models.toml` (never stage it; never paste keys). Claude Code:
 `/setup-cobbler` (primary) or `/setup-council` (compatibility). Codex: `$elves setup-cobbler` or
 `$elves setup-council` / natural language — not a top-level Codex slash command. Recipes:

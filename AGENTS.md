@@ -220,19 +220,25 @@ operator helpers, not a second product:
 In Codex, use natural language or `$elves …` skill forms (for example `$elves setup-cobbler` or
 “Ask the Cobbler…”). Do not invent top-level Codex slash commands for implement, setup, or cobbler.
 
-### External-agent setup
+### External-agent setup and model onboarding
 
-Optional checkout setup for external harness preferences:
+Optional checkout setup for which tools handle planning, implement, review, scout, and related
+purposes. **Both Claude Code and Codex** use the same host-mediated flow (agent interviews the
+user; CLI stores and probes). Native-only remains fully valid without setup.
 
-- Claude Code: `/setup-cobbler` (primary) and `/setup-council` (compatibility)
+- Claude Code: `/setup-cobbler` (primary) and `/setup-council` (compatibility), or natural language
+  (“onboard models”, “update model routes”)
 - Codex: `$elves setup-cobbler`, `$elves setup-council`, or natural language — not a top-level
   Codex slash command
-- Operator CLI: `python3 scripts/cobbler_agents.py setup [--json] [--dry-run] ...`
+- Operator CLI:
+  - `python3 scripts/cobbler_agents.py onboard plan|show|apply|probe [--json]`
+  - `python3 scripts/cobbler_agents.py setup [--json] [--dry-run] ...` (apply/inventory)
 
-Setup inventories tools without printing credentials, does not launch paid model turns unless the
-user opts into smoke, and writes only ignored local `.elves/models.toml` (never stage it; never paste
-keys). Snapshot effective routes into the Survival Guide during staging. Recipes:
-`references/cobbler-setup-recipes.md`. Setup is not required for native-only Elves.
+**Flow:** `onboard plan` → interview purpose→route choices → `onboard apply` → `onboard probe`
+(structural; optional live `--smoke`). Re-run anytime to update. Never print credentials; write only
+ignored local `.elves/models.toml` (never stage it). Snapshot effective routes into the Survival
+Guide during staging. Full protocol: `references/model-onboarding.md`. Recipes:
+`references/cobbler-setup-recipes.md`.
 
 ## Strategic Forgetting
 

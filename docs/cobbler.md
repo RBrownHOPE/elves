@@ -163,21 +163,27 @@ slash command.
 Legacy Council aliases still work and now route to Cobbler. Claude Code supports `/council`, `/ec`,
 and `/elves-council`. Codex supports `$elves council: <task>` and natural Council references.
 
-## External-agent setup
+## External-agent setup and model onboarding
 
-Setup is optional. Native-only Elves needs no external tools or keys.
+Setup is optional. Native-only Elves needs no external tools or keys. **Claude Code and Codex**
+share one onboarding protocol (`references/model-onboarding.md`):
 
 ```bash
+python3 scripts/cobbler_agents.py onboard plan --json    # interview packet
+python3 scripts/cobbler_agents.py onboard apply --json --planning host-native --review claude-code --force
+python3 scripts/cobbler_agents.py onboard show --json
+python3 scripts/cobbler_agents.py onboard probe --json   # structural; optional --smoke
 python3 scripts/cobbler_agents.py setup --json --dry-run
-python3 scripts/cobbler_agents.py setup --json --implement grok-build --review claude-code
 ```
 
-Setup inventories tools without printing credentials, writes only ignored local
-`.elves/models.toml` (Never stage it), and never pastes API keys into TOML/chat/Survival Guide.
+Claude Code: `/setup-cobbler` or `/setup-council`. Codex: `$elves setup-cobbler` or
+`$elves setup-council` / natural language — not a top-level Codex slash.
+
+Onboarding interviews purpose→route choices, writes only ignored local `.elves/models.toml`
+(Never stage it), probes that routes work, and never pastes API keys into TOML/chat/Survival Guide.
 Host coordinators should snapshot effective routes into the Survival Guide during staging.
-Recipes for Claude-only, Grok-only, Sakana-only, custom wrappers, OpenRouter breadth, and API-only
-models live in `references/cobbler-setup-recipes.md`. Commit/push/PR remain host operations, not
-model roles. `remaining_quota` stays unknown unless a harness explicitly exposes it.
+Recipes: `references/cobbler-setup-recipes.md`. Commit/push/PR remain host operations, not model
+roles. `remaining_quota` stays unknown unless a harness explicitly exposes it.
 
 ## Provider routing
 

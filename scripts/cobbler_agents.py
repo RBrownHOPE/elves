@@ -13,6 +13,8 @@ Commands:
   implement prepare|launch|gate|resume-batch|status
                              Lane A fast implementer (default for "have Grok run it")
   setup [--json]             Inventory tools and write local .elves/models.toml
+  onboard plan|show|apply|probe
+                             Model onboarding: interview packet, update routes, probe
 
 This entry point stays thin; implementation lives under scripts/cobbler_runtime/.
 """
@@ -69,6 +71,12 @@ from cobbler_runtime.implement import (  # noqa: E402
 from cobbler_runtime.setup import (  # noqa: E402
     preferences_from_flags,
     run_setup,
+)
+from cobbler_runtime.onboard import (  # noqa: E402
+    apply_onboarding,
+    build_onboarding_packet,
+    probe_routes,
+    show_onboarding,
 )
 
 
@@ -320,6 +328,97 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print(f"  issue: [{issue.get('code')}] {issue.get('message')}")
     print("  note: never stage .elves/models.toml; snapshot routes into Survival Guide when staging")
     return 0 if result.ok else 1
+
+
+def cmd_onboard(args: argparse.Namespace) -> int:
+    """Model onboarding: plan / show / apply / probe (Claude Code + Codex)."""
+    repo_root = _repo_root_from_args(args)
+    action = getattr(args, "onboard_action", None) or "plan"
+
+    if action == "plan":
+        packet = build_onboarding_packet(repo_root)
+        payload = packet.to_dict()
+        payload["ok"] = True
+        payload["credentials_printed"] = False
+        if args.json:
+            return _emit_json(payload, exit_code=0)
+        print("onboard plan: interview packet ready")
+        print(f"  purposes: {len(packet.purposes)}")
+        print(f"  questions: {len(packet.questions)}")
+        for q in packet.questions:
+            print(f"  - {q['purpose_id']}: current={q['current']}")
+        for note in packet.notes[:5]:
+            print(f"  note: {note}")
+        print("  next: host agent asks questions, then onboard apply with chosen routes")
+        return 0
+
+    if action == "show":
+        payload = show_onboarding(repo_root)
+        if args.json:
+            return _emit_json(payload, exit_code=0)
+        print("onboard show:")
+        print(f"  models_toml_exists: {payload['models_toml_exists']}")
+        for role, profile in sorted(payload["roles"].items()):
+            print(f"  {role}: {profile}")
+        print(f"  update: {payload['update_hint']}")
+        return 0
+
+    if action == "apply":
+        required = [r.strip() for r in (getattr(args, "required", "") or "").split(",") if r.strip()]
+        role_flags = {
+            "implement": getattr(args, "implement", None),
+            "review": getattr(args, "review", None),
+            "planning": getattr(args, "planning", None),
+            "lightweight_review": getattr(args, "lightweight_review", None),
+            "validate": getattr(args, "validate", None),
+            "synthesize": getattr(args, "synthesize", None),
+            "scout": getattr(args, "scout", None),
+        }
+        payload = apply_onboarding(
+            repo_root,
+            role_flags=role_flags,
+            required=required,
+            force=bool(getattr(args, "force", False)),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            run_smoke=bool(getattr(args, "smoke", False)),
+        )
+        if args.json:
+            return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
+        print(f"onboard apply: {'OK' if payload.get('ok') else 'FAILED'}")
+        print(f"  models_toml_written: {payload.get('models_toml_written')}")
+        for rec in payload.get("recommendations") or []:
+            print(f"  recommend: {rec}")
+        for warning in payload.get("warnings") or []:
+            print(f"  warning: {warning}")
+        for issue in payload.get("issues") or []:
+            print(f"  issue: [{issue.get('code')}] {issue.get('message')}")
+        print("  next: python3 scripts/cobbler_agents.py onboard probe --json")
+        return 0 if payload.get("ok") else 1
+
+    if action == "probe":
+        payload = probe_routes(
+            repo_root,
+            live_smoke=bool(getattr(args, "smoke", False)),
+        )
+        if args.json:
+            return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
+        print(f"onboard probe: {'OK' if payload.get('ok') else 'FAILED'}")
+        summary = payload.get("summary") or {}
+        print(
+            f"  pass={summary.get('pass')} warn={summary.get('warn')} fail={summary.get('fail')}"
+        )
+        for probe in payload.get("probes") or []:
+            print(
+                f"  [{probe.get('status')}] {probe.get('route')}"
+                f"{'/' + probe['purpose'] if probe.get('purpose') else ''}: "
+                f"{probe.get('detail')}"
+            )
+        if payload.get("smoke", {}).get("requested") and not payload.get("smoke", {}).get("ran"):
+            print("  note: live smoke needs host-provided executor or follow-up host turns")
+        return 0 if payload.get("ok") else 1
+
+    print(f"unknown onboard action: {action}", file=sys.stderr)
+    return 2
 
 
 def cmd_worker(args: argparse.Namespace) -> int:
@@ -789,6 +888,57 @@ def build_parser() -> argparse.ArgumentParser:
         help="Opt into smoke acknowledgment (still does not print secrets or require paid turns)",
     )
     setup.set_defaults(func=cmd_setup)
+
+    onboard = sub.add_parser(
+        "onboard",
+        help="Model onboarding: plan interview, show/apply routes, probe (Claude Code + Codex)",
+    )
+    _add_common_flags(onboard)
+    onboard_sub = onboard.add_subparsers(dest="onboard_action", required=True)
+
+    onboard_plan = onboard_sub.add_parser(
+        "plan",
+        help="Emit interview packet (inventory, env presence, purpose questions)",
+    )
+    _add_common_flags(onboard_plan)
+    onboard_plan.set_defaults(func=cmd_onboard, onboard_action="plan")
+
+    onboard_show = onboard_sub.add_parser(
+        "show",
+        help="Show current role→route map from ignored models.toml",
+    )
+    _add_common_flags(onboard_show)
+    onboard_show.set_defaults(func=cmd_onboard, onboard_action="show")
+
+    onboard_apply = onboard_sub.add_parser(
+        "apply",
+        help="Write role preferences to ignored .elves/models.toml (same as setup)",
+    )
+    _add_common_flags(onboard_apply)
+    onboard_apply.add_argument("--implement", default=None)
+    onboard_apply.add_argument("--review", default=None)
+    onboard_apply.add_argument("--planning", default=None)
+    onboard_apply.add_argument("--lightweight-review", default=None)
+    onboard_apply.add_argument("--validate", default=None)
+    onboard_apply.add_argument("--synthesize", default=None)
+    onboard_apply.add_argument("--scout", default=None)
+    onboard_apply.add_argument("--required", default="")
+    onboard_apply.add_argument("--dry-run", action="store_true")
+    onboard_apply.add_argument("--force", action="store_true")
+    onboard_apply.add_argument("--smoke", action="store_true")
+    onboard_apply.set_defaults(func=cmd_onboard, onboard_action="apply")
+
+    onboard_probe = onboard_sub.add_parser(
+        "probe",
+        help="Structural probes for configured routes; optional --smoke (host executor)",
+    )
+    _add_common_flags(onboard_probe)
+    onboard_probe.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Request live smoke (needs host smoke_executor; never prints secrets)",
+    )
+    onboard_probe.set_defaults(func=cmd_onboard, onboard_action="probe")
 
     council = sub.add_parser(
         "council",

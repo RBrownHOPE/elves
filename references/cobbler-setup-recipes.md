@@ -14,16 +14,33 @@ Public default: **native-only** (no setup, no keys, no external executables).
 
 Claude Code:
 
-- Primary: `/setup-cobbler`
+- Primary: `/setup-cobbler` (also: “onboard models”, “update model routes”)
 - Compatibility: `/setup-council`
 
 Codex (not top-level slash commands):
 
 - `$elves setup-cobbler`
 - `$elves setup-council`
-- Natural language: "Set up Cobbler external-agent preferences"
+- Natural language: "Set up Cobbler external-agent preferences" / "onboard my models"
 
-CLI (deterministic / non-interactive):
+### Model onboarding (interview → apply → probe)
+
+Same protocol on both hosts — see [`model-onboarding.md`](model-onboarding.md):
+
+```bash
+python3 scripts/cobbler_agents.py onboard plan --json
+# host agent interviews user using the packet questions
+python3 scripts/cobbler_agents.py onboard apply --json \
+  --planning host-native \
+  --implement host-native \
+  --review claude-code \
+  --force
+python3 scripts/cobbler_agents.py onboard show --json
+python3 scripts/cobbler_agents.py onboard probe --json
+# optional paid check: onboard probe --json --smoke (host supplies real smoke)
+```
+
+### Apply-only / inventory (non-interactive)
 
 ```bash
 python3 scripts/cobbler_agents.py setup --json --dry-run
