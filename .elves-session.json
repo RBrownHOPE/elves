@@ -3,7 +3,7 @@
   "session_id": "elves-external-agent-orchestration-20260712",
   "status": "in_progress",
   "created_at": "2026-07-12T12:39:00Z",
-  "updated_at": "2026-07-12T15:02:59Z",
+  "updated_at": "2026-07-12T15:07:51Z",
   "run_mode": "finite",
   "execution_budget_hours": 8,
   "checkpoint": {
@@ -93,19 +93,19 @@
     "mode": "strict",
     "branch": "codex/external-agent-orchestration",
     "start_tip": "74c52d88868e39a9d4c5cca6dee46919011d2127",
-    "allowed_head_tip": "6ebbb9d98e8dd272e68487a89bf97dadeaf857f4",
+    "allowed_head_tip": "6edd8e7cba4442e84147022c9e4c4f2886bf40d5",
     "remote_ref": "origin/codex/external-agent-orchestration",
-    "expected_remote_tip": "6ebbb9d98e8dd272e68487a89bf97dadeaf857f4",
-    "last_pushed_tip": "6ebbb9d98e8dd272e68487a89bf97dadeaf857f4",
+    "expected_remote_tip": "6edd8e7cba4442e84147022c9e4c4f2886bf40d5",
+    "last_pushed_tip": "6edd8e7cba4442e84147022c9e4c4f2886bf40d5",
     "external_writer_enforcement": "manual host audit until the mechanical lease guard ships in Batch 4"
   },
   "test_baseline": {
     "command": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
-    "total": 245,
-    "passed": 245,
+    "total": 261,
+    "passed": 261,
     "failed": 0,
     "skipped": 0,
-    "captured_at": "2026-07-12T15:02:36Z"
+    "captured_at": "2026-07-12T15:07:51Z"
   },
   "qualification": {
     "status": "pass",
@@ -428,19 +428,9 @@
     }
   ],
   "external_writer": {
-    "status": "active",
-    "active_lease": {
-      "id": "lease-batch-4-20260712-A",
-      "batch": 4,
-      "base_head": "675b85dd9fcabfbf3dde8abdf875fdce2c6871c6",
-      "session_id": "9927883a-0203-42e1-a3e4-710a02096d46"
-    },
-    "next_action": "Issue Batch 4 lease",
-    "session_id": "9927883a-0203-42e1-a3e4-710a02096d46",
-    "sandbox_profile": "devbox",
-    "worker_may_commit_detached": true,
-    "worker_may_create_or_move_refs": false,
-    "worker_may_push": false
+    "status": "qualified_idle",
+    "active_lease": null,
+    "next_action": "Issue Batch 5 lease"
   },
   "staging_preflight": {
     "status": "pass",
@@ -631,12 +621,38 @@
     {
       "id": 4,
       "name": "Single external writer lease and Grok implementation adapter",
-      "status": "in_progress",
-      "commit": null,
+      "status": "complete",
+      "commit": "6edd8e7cba4442e84147022c9e4c4f2886bf40d5",
       "rollback_tag": "elves/pre-batch-4",
       "started_at": "2026-07-12T15:02:59Z",
-      "completed_at": null,
-      "acceptance": []
+      "completed_at": "2026-07-12T15:07:51Z",
+      "acceptance": [
+        {
+          "criterion": "Lease exclusivity and preflight matrix",
+          "met": true,
+          "evidence": "tests/test_cobbler_agents_leases.py"
+        },
+        {
+          "criterion": "Audit chain/ref/patch/apply-check",
+          "met": true,
+          "evidence": "AuditAndPatchTests"
+        },
+        {
+          "criterion": "Grok write profile forbids headless worktree-resume; workspace not commit-capable",
+          "met": true,
+          "evidence": "GrokWriteProfileTests"
+        },
+        {
+          "criterion": "Host-only branch commits/push path",
+          "met": true,
+          "evidence": "audit export + host apply-check; worker CLI has no push"
+        },
+        {
+          "criterion": "Full suite not decreased",
+          "met": true,
+          "evidence": "261/261 tests"
+        }
+      ]
     },
     {
       "id": 5,
@@ -726,15 +742,14 @@
   },
   "active_compute": [],
   "continuation_guard": {
-    "remaining_batches": 3,
+    "remaining_batches": 2,
     "stop_allowed": false,
-    "staging_stop": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Start Batch 4 writer lease and Grok adapter"
+    "next_required_action": "Start Batch 5 setup/preferences/host parity"
   },
   "current_batch": {
-    "id": 4,
-    "name": "Single external writer lease and Grok implementation adapter",
-    "status": "in_progress"
+    "id": 5,
+    "name": "Setup action, preferences, host parity, and custom recipes",
+    "status": "pending"
   }
 }

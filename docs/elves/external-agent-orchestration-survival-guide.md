@@ -84,11 +84,11 @@ acceptance, synthesis, and final integration.
 - **Time budget:** approximately 8 hours from launch, with judgment to complete a near-finished finite
   batch or stop cleanly at a genuine hard boundary
 - **Average batch time so far:** N/A; execution not launched
-- **Batches remaining:** 3 of 6
+- **Batches remaining:** 2 of 6
 
 ## Stop Gate
 
-- **Planned batches remaining:** 3
+- **Planned batches remaining:** 2
 - **Stop allowed right now:** no
 - **Why:** finite run in progress; Batches 1–3 complete with acceptance evidence; Batches 4–6 remain;
   no user stop and no true blocker
@@ -207,13 +207,13 @@ Promotion flow: execution log -> learnings -> `.ai-docs/*`.
 
 ## Current Phase
 
-**Status:** Batch 3 accepted; preparing Batch 4
+**Status:** Batch 4 accepted; preparing Batch 5
 
-**Active batch:** Batch 4: Single external writer lease and Grok implementation adapter
+**Active batch:** Batch 5: Setup action, preferences, host parity, and custom recipes
 
-**What was just finished:** Session registry, exact create/resume, digests, usage unknown-quota, doctor inventory; 245 tests; host+fresh Grok review PASS. Grok process-exit thrash host-sealed with documented handoff.
+**What was just finished:** Writer lease + audit + Grok write profile + worker CLI; 261 tests.
 
-**Single next action:** Close Batch 3, align worker, lease Batch 4.
+**Single next action:** Close Batch 4, lease Batch 5.
 
 
 ## Active Compute
@@ -231,11 +231,11 @@ resources only:
 
 ## Next Exact Batch
 
-**Batch:** 4: Single external writer lease and Grok implementation adapter
+**Batch:** 5: Setup action, preferences, host parity, and custom recipes
 
-**Scope:** one-writer lease, full pre/post audit, binary-patch import path, Grok write adapter fail-closed; mechanical enforcement of writer lease.
+**Scope:** setup/doctor inventory UX, models.toml local prefs, Claude/Codex setup aliases, custom recipes, OpenRouter/API guidance.
 
-**Rollback tag:** `elves/pre-batch-4`
+**Rollback tag:** `elves/pre-batch-5`
 
 
 ## Post-Checkpoint Control Loop
