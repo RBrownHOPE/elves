@@ -1,7 +1,8 @@
 """Cobbler external-agent runtime foundations.
 
-Batch 1 delivers typed contracts, config resolution, and capability/adapter
-registry stubs. Dispatch, session lifecycle, and writer leases land later.
+Typed contracts, config resolution, capability records, read-only adapter
+builders, context redaction, and parallel council dispatch. Session registry
+and writer leases land in later batches.
 """
 
 from .schema import (

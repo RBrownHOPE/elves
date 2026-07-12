@@ -617,6 +617,65 @@ class LightweightReviewTests(unittest.TestCase):
         self.assertEqual(result.report["role"], "lightweight_review")
 
 
+class CliCouncilTests(unittest.TestCase):
+    def test_council_cli_native_only_json(self) -> None:
+        cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            result = __import__("subprocess").run(
+                [
+                    sys.executable,
+                    str(cli),
+                    "council",
+                    "--json",
+                    "--repo-root",
+                    tmp,
+                    "--task",
+                    "cli native council smoke",
+                    "--roles",
+                    "architect,skeptic",
+                    "--target-quorum",
+                    "2",
+                    "--timeout",
+                    "15",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["host_synthesis_only"])
+        self.assertFalse(payload["mutated_repo"])
+        self.assertEqual(payload["successful_count"], 2)
+
+    def test_lightweight_review_cli_json(self) -> None:
+        cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            result = __import__("subprocess").run(
+                [
+                    sys.executable,
+                    str(cli),
+                    "lightweight-review",
+                    "--json",
+                    "--repo-root",
+                    tmp,
+                    "--task",
+                    "utility smoke",
+                    "--adapter",
+                    "host-native",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["not_a_council_vote"])
+        self.assertTrue(payload["cannot_close_high_risk_review"])
+
+
 class AdapterBuilderTests(unittest.TestCase):
     def test_readonly_builders_use_argv_not_shell_strings(self) -> None:
         packet = Path("/tmp/packet.json")

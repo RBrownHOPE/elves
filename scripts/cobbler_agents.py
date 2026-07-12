@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Thin operator CLI for Cobbler external-agent configuration.
 
-Batch 1 commands:
+Commands:
   validate-config [--json]   Resolve config with provenance; no model calls
   doctor [--json]            Read-only inventory of adapters/capabilities
+  council [--json]           Parallel read-only council fan-out (host synthesis)
+  lightweight-review [--json]
+                             Single bounded utility review (not a council vote)
 
-Later batches add council/session/worker subcommands. This entry point stays thin;
+Session/worker write leases land in later batches. This entry point stays thin;
 implementation lives under scripts/cobbler_runtime/.
 """
 
@@ -26,6 +29,11 @@ from cobbler_runtime.capabilities import summarize_capabilities  # noqa: E402
 from cobbler_runtime.config import (  # noqa: E402
     models_toml_is_local_only,
     resolve_from_repo,
+)
+from cobbler_runtime.dispatch import (  # noqa: E402
+    LaneSpec,
+    run_council_sync,
+    run_lightweight_review_sync,
 )
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 
@@ -143,10 +151,103 @@ def _add_common_flags(subparser: argparse.ArgumentParser) -> None:
     )
 
 
+def cmd_council(args: argparse.Namespace) -> int:
+    """Parallel read-only council fan-out. Host still owns fitted synthesis."""
+    repo_root = _repo_root_from_args(args)
+    resolved = resolve_from_repo(repo_root)
+
+    # Default lanes: host-native only unless profiles map planning/review externally.
+    # Deterministic and network-free unless executables exist for mapped adapters.
+    role_names = [name.strip() for name in (args.roles or "architect,skeptic,tester").split(",") if name.strip()]
+    lanes: list[LaneSpec] = []
+    for index, role in enumerate(role_names):
+        # Prefer host-native for CLI smoke so no paid providers are required.
+        profile_name = "host-native"
+        adapter_name = "host-native"
+        route = resolved.roles.get("review") or resolved.roles.get("planning")
+        if route and route.profile in resolved.profiles and args.use_resolved_routes:
+            profile = resolved.profiles[route.profile]
+            profile_name = profile.name
+            adapter_name = profile.adapter
+        lanes.append(
+            LaneSpec(
+                lane_id=f"{role}-{index}",
+                role=role,
+                adapter=adapter_name,
+                profile=profile_name,
+                requested_model=None,
+                timeout_seconds=float(args.timeout),
+            )
+        )
+
+    target = args.target_quorum
+    required = args.required_quorum
+    phase_required = bool(args.phase_required)
+    result = run_council_sync(
+        lanes,
+        repo_root=repo_root,
+        task=args.task,
+        phase=args.phase,
+        phase_required=phase_required,
+        target_quorum=target,
+        required_quorum=required if phase_required else None,
+        plan_path=args.plan_path,
+        head_sha=args.head,
+    )
+    payload = result.to_dict()
+    payload["model_calls_made"] = any(
+        lane.adapter != "host-native" for lane in result.lane_results
+    )
+    payload["mutated_repo"] = False
+    payload["host_synthesis_only"] = True
+    if args.json:
+        return _emit_json(payload, exit_code=0 if result.ok and not result.blocked else 1)
+
+    print(f"council: {'OK' if result.ok and not result.blocked else 'FAILED'}")
+    print(f"  run_id: {result.run_id}")
+    print(f"  council_verified: {result.council_verified}")
+    print(f"  blocked: {result.blocked}")
+    print(f"  confidence: {result.confidence}")
+    print(f"  successful_reports: {len(result.successful_reports)}")
+    for note in result.notes:
+        print(f"  note: {note}")
+    return 0 if result.ok and not result.blocked else 1
+
+
+def cmd_lightweight_review(args: argparse.Namespace) -> int:
+    """Single bounded utility review; not a council vote and not high-risk close."""
+    repo_root = _repo_root_from_args(args)
+    result = run_lightweight_review_sync(
+        repo_root=repo_root,
+        task=args.task,
+        adapter=args.adapter,
+        profile=args.profile,
+        executable=args.executable,
+        requested_model=args.model,
+        timeout_seconds=float(args.timeout),
+        head_sha=args.head,
+    )
+    payload = result.to_dict()
+    payload["not_a_council_vote"] = True
+    payload["cannot_close_high_risk_review"] = True
+    payload["mutated_repo"] = False
+    if args.json:
+        return _emit_json(payload, exit_code=0 if result.ok else 1)
+    print(f"lightweight-review: {'OK' if result.ok else 'FAILED'}")
+    print(f"  role: {result.role}")
+    print(f"  adapter: {result.adapter}")
+    if result.error:
+        print(f"  error: {result.error}")
+    return 0 if result.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cobbler_agents.py",
-        description="Cobbler external-agent operator CLI (config validation and doctor).",
+        description=(
+            "Cobbler external-agent operator CLI "
+            "(config validation, doctor, read-only council)."
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -163,6 +264,54 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_flags(doctor)
     doctor.set_defaults(func=cmd_doctor)
+
+    council = sub.add_parser(
+        "council",
+        help="Parallel read-only council fan-out; host owns fitted synthesis",
+    )
+    _add_common_flags(council)
+    council.add_argument("--task", required=True, help="Task text for every independent lane")
+    council.add_argument(
+        "--roles",
+        default="architect,skeptic,tester",
+        help="Comma-separated lens role names (default: architect,skeptic,tester)",
+    )
+    council.add_argument("--phase", default="review", help="Phase label for artifacts/quorum")
+    council.add_argument(
+        "--phase-required",
+        action="store_true",
+        help="Treat phase as required=true (enables required_quorum)",
+    )
+    council.add_argument("--target-quorum", type=int, default=None, help="Advisory quorum")
+    council.add_argument(
+        "--required-quorum",
+        type=int,
+        default=None,
+        help="Hard quorum when --phase-required is set",
+    )
+    council.add_argument("--timeout", type=float, default=30.0, help="Per-lane timeout seconds")
+    council.add_argument("--plan-path", default=None, help="Optional plan path for packets")
+    council.add_argument("--head", default=None, help="Optional HEAD sha for packets")
+    council.add_argument(
+        "--use-resolved-routes",
+        action="store_true",
+        help="Use resolved review/planning profile adapters (may require external CLIs)",
+    )
+    council.set_defaults(func=cmd_council)
+
+    light = sub.add_parser(
+        "lightweight-review",
+        help="Single bounded utility review; not a council vote",
+    )
+    _add_common_flags(light)
+    light.add_argument("--task", required=True, help="Utility review task")
+    light.add_argument("--adapter", default="host-native", help="Adapter name")
+    light.add_argument("--profile", default="host-native", help="Profile name")
+    light.add_argument("--executable", default=None, help="Optional executable override")
+    light.add_argument("--model", default=None, help="Optional requested model")
+    light.add_argument("--timeout", type=float, default=30.0, help="Timeout seconds")
+    light.add_argument("--head", default=None, help="Optional HEAD sha for packets")
+    light.set_defaults(func=cmd_lightweight_review)
 
     return parser
 
