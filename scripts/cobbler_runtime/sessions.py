@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import stat
+import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -102,6 +104,11 @@ class SessionRecord:
     resume_method: str | None = None
     source_head: str | None = None
     context_digest: str | None = None
+    # Pending values are recorded on expected canonical drift but must not replace
+    # active identity fields until an exact resume proves the new packet/digest.
+    pending_context_digest: str | None = None
+    pending_source_head: str | None = None
+    rehydration_reason: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
     lifecycle: SessionLifecycle = SessionLifecycle.NEW
@@ -111,6 +118,8 @@ class SessionRecord:
     # Write reuse is blocked when True (model/CWD/parent/worktree drift).
     write_reuse_blocked: bool = False
     block_reason: str | None = None
+    # Monotonic revision for compare-and-swap style registry updates.
+    revision: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -159,6 +168,9 @@ class SessionRecord:
             resume_method=data.get("resume_method"),
             source_head=data.get("source_head"),
             context_digest=data.get("context_digest"),
+            pending_context_digest=data.get("pending_context_digest"),
+            pending_source_head=data.get("pending_source_head"),
+            rehydration_reason=data.get("rehydration_reason"),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
             lifecycle=SessionLifecycle(
@@ -169,6 +181,7 @@ class SessionRecord:
             notes=str(data.get("notes") or ""),
             write_reuse_blocked=bool(data.get("write_reuse_blocked", False)),
             block_reason=data.get("block_reason"),
+            revision=int(data.get("revision") or 0),
         )
 
 
@@ -464,13 +477,60 @@ def evaluate_session_continuity(
     )
 
 
+def _atomic_write_text(path: Path, payload: str, *, mode: int = 0o600) -> None:
+    """Write ``payload`` via temp file + os.replace; set permission bits when possible."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+        try:
+            path.chmod(mode)
+        except OSError:
+            pass
+    except Exception:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
 class SessionRegistry:
     """Disk-backed exact session registry under ignored runtime path."""
 
-    def __init__(self, repo_root: Path) -> None:
+    def __init__(self, repo_root: Path, *, create: bool = True) -> None:
         self.repo_root = Path(repo_root)
-        self.root = ensure_sessions_dir(self.repo_root)
+        self._create = create
+        if create:
+            self.root = ensure_sessions_dir(self.repo_root)
+        else:
+            self.root = sessions_root(self.repo_root)
         self._index_path = self.root / "index.json"
+        self.malformed_records: list[dict[str, str]] = []
+
+    @classmethod
+    def open_readonly(cls, repo_root: Path) -> "SessionRegistry":
+        """List/doctor path that never creates runtime directories."""
+        return cls(Path(repo_root), create=False)
+
+    def _ensure_writable(self) -> None:
+        if not self._create:
+            raise ValidationIssue(
+                "registry_read_only",
+                "Session registry was opened read-only; refusing to create or mutate state",
+                path=str(self.root),
+            )
+        if not self.root.is_dir():
+            self.root = ensure_sessions_dir(self.repo_root)
 
     def _record_path(self, session_id: str) -> Path:
         safe = re.sub(r"[^A-Za-z0-9._-]+", "_", session_id)
@@ -478,14 +538,37 @@ class SessionRegistry:
 
     def list_sessions(self) -> list[SessionRecord]:
         records: list[SessionRecord] = []
+        self.malformed_records = []
+        if not self.root.is_dir():
+            return records
         for path in sorted(self.root.glob("*.json")):
             if path.name == "index.json":
                 continue
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 records.append(SessionRecord.from_dict(data))
-            except (OSError, json.JSONDecodeError, KeyError, ValueError):
-                continue
+            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                # Fail closed for callers that inspect malformed_records; do not silently drop.
+                self.malformed_records.append(
+                    {
+                        "path": str(path),
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+        return records
+
+    def list_sessions_strict(self) -> list[SessionRecord]:
+        """Like list_sessions, but raise when any record file is malformed."""
+        records = self.list_sessions()
+        if self.malformed_records:
+            detail = "; ".join(
+                f"{item['path']}: {item['error']}" for item in self.malformed_records
+            )
+            raise ValidationIssue(
+                "session_record_malformed",
+                f"Malformed session registry records: {detail}",
+                path=str(self.root),
+            )
         return records
 
     def get(self, session_id: str) -> SessionRecord:
@@ -505,19 +588,24 @@ class SessionRegistry:
                 f"Unable to read session `{session_id}`: {exc}",
                 path=str(path),
             ) from exc
-        return SessionRecord.from_dict(data)
+        try:
+            return SessionRecord.from_dict(data)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValidationIssue(
+                "session_record_malformed",
+                f"Session `{session_id}` record is malformed: {exc}",
+                path=str(path),
+            ) from exc
 
     def save(self, record: SessionRecord) -> SessionRecord:
+        self._ensure_writable()
+        record.revision = int(record.revision or 0) + 1
         record.updated_at = _utc_now()
         if not record.created_at:
             record.created_at = record.updated_at
         path = self._record_path(record.session_id)
         payload = json.dumps(record.to_dict(), indent=2, sort_keys=True) + "\n"
-        path.write_text(payload, encoding="utf-8")
-        try:
-            path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
+        _atomic_write_text(path, payload, mode=stat.S_IRUSR | stat.S_IWUSR)
         self._rewrite_index()
         return record
 
@@ -531,17 +619,15 @@ class SessionRegistry:
                 "lifecycle": rec.lifecycle.value,
                 "parent_id": rec.parent_id,
                 "actual_model": rec.actual_model,
+                "revision": rec.revision,
             }
             for rec in self.list_sessions()
         ]
-        self._index_path.write_text(
+        _atomic_write_text(
+            self._index_path,
             json.dumps({"sessions": index}, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+            mode=stat.S_IRUSR | stat.S_IWUSR,
         )
-        try:
-            self._index_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
 
     def create(
         self,
@@ -620,11 +706,23 @@ class SessionRegistry:
         record.lifecycle = transition_lifecycle(record.lifecycle, SessionLifecycle.ACTIVE)
         return self.save(record)
 
-    def mark_rehydration_required(self, session_id: str, reason: str) -> SessionRecord:
+    def mark_rehydration_required(
+        self,
+        session_id: str,
+        reason: str,
+        *,
+        pending_context_digest: str | None = None,
+        pending_source_head: str | None = None,
+    ) -> SessionRecord:
         record = self.get(session_id)
         record.lifecycle = transition_lifecycle(
             record.lifecycle, SessionLifecycle.REHYDRATION_REQUIRED
         )
+        record.rehydration_reason = reason
+        if pending_context_digest is not None:
+            record.pending_context_digest = pending_context_digest
+        if pending_source_head is not None:
+            record.pending_source_head = pending_source_head
         record.notes = (record.notes + f"\nrehydration: {reason}").strip()
         return self.save(record)
 
@@ -698,20 +796,94 @@ class SessionRegistry:
             record = self.mark_drifted(session_id, "; ".join(drift.reasons))
             return record, drift
 
+        # Expected canonical drift: record pending digest/head only. Active identity
+        # fields stay frozen until a later exact resume proves the pending packet.
         if drift.expected_change and drift.rehydration is not None:
-            record = self.mark_rehydration_required(session_id, drift.rehydration.reason)
-            record = self.get(session_id)
-            record.context_digest = digest.digest
-            if observed_head:
-                record.source_head = observed_head
+            if (
+                record.lifecycle == SessionLifecycle.REHYDRATION_REQUIRED
+                and record.pending_context_digest
+                and digest.digest == record.pending_context_digest
+            ):
+                # Proof: resumed turn still targets the pending packet/digest.
+                record.context_digest = record.pending_context_digest
+                if record.pending_source_head:
+                    record.source_head = record.pending_source_head
+                record.pending_context_digest = None
+                record.pending_source_head = None
+                record.rehydration_reason = None
+                record.lifecycle = transition_lifecycle(
+                    record.lifecycle, SessionLifecycle.ACTIVE
+                )
+                record.resume_method = "exact_id_rehydrated"
+                if observed_model:
+                    record.actual_model = observed_model
+                if observed_cwd:
+                    record.cwd = observed_cwd
+                if observed_worktree:
+                    record.worktree = observed_worktree
+                if usage_payload is not None:
+                    record.usage = parse_usage_payload(usage_payload)
+                self.save(record)
+                return record, drift
+
+            record = self.mark_rehydration_required(
+                session_id,
+                drift.rehydration.reason,
+                pending_context_digest=digest.digest,
+                pending_source_head=observed_head,
+            )
             if usage_payload is not None:
+                record = self.get(session_id)
                 record.usage = parse_usage_payload(usage_payload)
-            self.save(record)
+                self.save(record)
             return record, drift
+
+        # Already waiting for rehydration proof with no new drift signal: still blocked
+        # unless the observed digest matches the pending challenge.
+        if record.lifecycle == SessionLifecycle.REHYDRATION_REQUIRED:
+            if (
+                record.pending_context_digest
+                and digest.digest == record.pending_context_digest
+            ):
+                record.context_digest = record.pending_context_digest
+                if record.pending_source_head:
+                    record.source_head = record.pending_source_head
+                record.pending_context_digest = None
+                record.pending_source_head = None
+                record.rehydration_reason = None
+                record.lifecycle = transition_lifecycle(
+                    record.lifecycle, SessionLifecycle.ACTIVE
+                )
+                record.resume_method = "exact_id_rehydrated"
+                if observed_model:
+                    record.actual_model = observed_model
+                if observed_cwd:
+                    record.cwd = observed_cwd
+                if observed_worktree:
+                    record.worktree = observed_worktree
+                if usage_payload is not None:
+                    record.usage = parse_usage_payload(usage_payload)
+                self.save(record)
+                return record, drift
+            raise ValidationIssue(
+                "rehydration_proof_required",
+                (
+                    f"Session `{session_id}` cannot activate until rehydration proof "
+                    "matches the pending context digest"
+                ),
+                path=str(self._record_path(session_id)),
+                hint=(
+                    "Re-read canonical run documents, resume the exact session, and "
+                    "acknowledge the pending digest before write reuse"
+                ),
+            )
 
         record.lifecycle = transition_lifecycle(record.lifecycle, SessionLifecycle.ACTIVE)
         record.resume_method = "exact_id"
         record.context_digest = digest.digest
+        record.pending_context_digest = None
+        record.pending_source_head = None
+        record.rehydration_reason = None
         if observed_model:
             record.actual_model = observed_model
         if observed_cwd:
