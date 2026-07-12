@@ -58,3 +58,12 @@
   satisfy independent review quorum by itself.
 - `target_quorum` degrades with a confidence drop; `required_quorum` only applies when the phase is
   explicitly `required=true` and blocks when unmet after fallback.
+- Never use bare `--resume`, `--continue`, or `--last` for session selection. Exact session IDs only.
+  Canonical disk state (plan/Survival Guide/session registry) outranks chat memory.
+- Grok parent→worktree child lineage uses a **new** child UUID. Headless `--worktree --resume` on
+  Grok Build 0.2.93 is broken (retains source CWD); fail closed without verified CWD/worktree
+  registration, then resume the discovered child exactly from that worktree.
+- `remaining_quota` is `unknown` unless a harness explicitly sets `quota_known`. Never invent limits
+  from token counts, and never treat unknown as zero.
+- Unexpected model/CWD/parent/worktree drift blocks write reuse; expected HEAD/plan digest change
+  yields rehydration, not silent continuation on stale assumptions.

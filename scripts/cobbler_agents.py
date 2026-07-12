@@ -3,13 +3,14 @@
 
 Commands:
   validate-config [--json]   Resolve config with provenance; no model calls
-  doctor [--json]            Read-only inventory of adapters/capabilities
+  doctor [--json]            Read-only inventory of adapters/capabilities/sessions
   council [--json]           Parallel read-only council fan-out (host synthesis)
   lightweight-review [--json]
                              Single bounded utility review (not a council vote)
+  session list|probe|resume  Exact persistent session registry helpers
 
-Session/worker write leases land in later batches. This entry point stays thin;
-implementation lives under scripts/cobbler_runtime/.
+Writer leases land in later batches. This entry point stays thin; implementation
+lives under scripts/cobbler_runtime/.
 """
 
 from __future__ import annotations
@@ -24,8 +25,14 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from cobbler_runtime.adapters import registry_snapshot  # noqa: E402
-from cobbler_runtime.capabilities import summarize_capabilities  # noqa: E402
+from cobbler_runtime.adapters import (  # noqa: E402
+    build_session_resume_invocation,
+    registry_snapshot,
+)
+from cobbler_runtime.capabilities import (  # noqa: E402
+    doctor_inventory,
+    summarize_capabilities,
+)
 from cobbler_runtime.config import (  # noqa: E402
     models_toml_is_local_only,
     resolve_from_repo,
@@ -36,6 +43,7 @@ from cobbler_runtime.dispatch import (  # noqa: E402
     run_lightweight_review_sync,
 )
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
+from cobbler_runtime.sessions import SessionRegistry  # noqa: E402
 
 
 def _repo_root_from_args(args: argparse.Namespace) -> Path:
@@ -104,20 +112,28 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     """Read-only inventory. Never launches paid model turns."""
     repo_root = _repo_root_from_args(args)
     resolved = resolve_from_repo(repo_root)
+    inventory = doctor_inventory(resolved.profiles)
+    registry = SessionRegistry(repo_root)
+    sessions = [rec.to_dict() for rec in registry.list_sessions()]
     payload: dict[str, Any] = {
         "ok": resolved.ok,
         "repo_root": str(repo_root),
         "model_calls_made": False,
         "mutated_repo": False,
-        "adapters": registry_snapshot(),
+        "adapters": inventory["adapters"],
+        "adapter_registry": registry_snapshot(),
         "capabilities": summarize_capabilities(resolved.profiles),
         "roles": {name: route.to_dict() for name, route in resolved.roles.items()},
+        "sessions": sessions,
+        "session_count": len(sessions),
         "issues": [issue.to_dict() for issue in resolved.issues],
         "warnings": list(resolved.warnings),
         "local_models_toml": models_toml_is_local_only(repo_root),
-        "notes": [
-            "Doctor reports advertised/unknown capabilities without launching models.",
-            "Qualification probes land in later batches.",
+        "notes": inventory.get("notes", [])
+        + [
+            "Doctor reports executable/version/auth/models/session_support separately.",
+            "remaining_quota is unknown unless a harness exposes it.",
+            "Exact session IDs only; bare --resume/--continue/--last are forbidden.",
             "Git and PR operations never dispatch model inference.",
         ],
     }
@@ -128,14 +144,103 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     print(f"  repo_root: {repo_root}")
     print(f"  model_calls_made: false")
     print(f"  ok: {resolved.ok}")
+    print(f"  session_count: {len(sessions)}")
     print("  adapters:")
-    for name in sorted(payload["adapters"]):
-        print(f"    - {name}")
+    for name, info in sorted(payload["adapters"].items()):
+        print(
+            f"    - {name}: version={info.get('version')} auth={info.get('auth')} "
+            f"session_support={info.get('session_support', {}).get('status')} "
+            f"remaining_quota={info.get('remaining_quota')}"
+        )
     if resolved.issues:
         print("  issues:")
         for issue in resolved.issues:
             print(f"    - [{issue.code}] {issue.message}")
     return 0 if resolved.ok else 1
+
+
+def cmd_session(args: argparse.Namespace) -> int:
+    """Exact session registry helpers (list / probe / resume argv)."""
+    repo_root = _repo_root_from_args(args)
+    registry = SessionRegistry(repo_root)
+    action = args.session_action
+
+    if action == "list":
+        records = [rec.to_dict() for rec in registry.list_sessions()]
+        payload = {
+            "ok": True,
+            "repo_root": str(repo_root),
+            "sessions": records,
+            "count": len(records),
+            "mutated_repo": False,
+        }
+        if args.json:
+            return _emit_json(payload, exit_code=0)
+        print(f"session list: {len(records)} record(s)")
+        for rec in records:
+            print(
+                f"  - {rec['session_id']} harness={rec['harness']} "
+                f"lifecycle={rec['lifecycle']} parent={rec.get('parent_id')}"
+            )
+        return 0
+
+    if action == "probe":
+        try:
+            rec = registry.get(args.session_id)
+        except ValidationIssue as issue:
+            payload = {"ok": False, "issues": [issue.to_dict()]}
+            if args.json:
+                return _emit_json(payload, exit_code=1)
+            print(f"session probe: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+            return 1
+        payload = {"ok": True, "session": rec.to_dict(), "mutated_repo": False}
+        if args.json:
+            return _emit_json(payload, exit_code=0)
+        print(f"session probe: {rec.session_id}")
+        print(f"  lifecycle: {rec.lifecycle.value}")
+        print(f"  harness: {rec.harness}")
+        print(f"  actual_model: {rec.actual_model}")
+        print(f"  parent_id: {rec.parent_id}")
+        print(f"  cwd: {rec.cwd}")
+        print(f"  write_reuse_blocked: {rec.write_reuse_blocked}")
+        return 0
+
+    if action == "resume":
+        # Build exact resume argv only — does not launch paid inference.
+        try:
+            inv = build_session_resume_invocation(
+                adapter=args.adapter,
+                profile=args.profile or args.adapter,
+                session_id=args.session_id,
+                executable=args.executable,
+                requested_model=args.model,
+                cwd=args.cwd,
+            )
+        except ValidationIssue as issue:
+            payload = {"ok": False, "issues": [issue.to_dict()]}
+            if args.json:
+                return _emit_json(payload, exit_code=1)
+            print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+            return 1
+        payload = {
+            "ok": True,
+            "session_id": args.session_id,
+            "invocation": inv.to_dict(),
+            "launched": False,
+            "mutated_repo": False,
+            "notes": [
+                "Exact session resume argv only; no process was launched",
+                "Verify CWD/worktree registration before any write role",
+            ],
+        }
+        if args.json:
+            return _emit_json(payload, exit_code=0)
+        print("session resume: argv built (not launched)")
+        print("  " + " ".join(inv.argv))
+        return 0
+
+    print(f"unknown session action: {action}", file=sys.stderr)
+    return 2
 
 
 def _add_common_flags(subparser: argparse.ArgumentParser) -> None:
@@ -312,6 +417,34 @@ def build_parser() -> argparse.ArgumentParser:
     light.add_argument("--timeout", type=float, default=30.0, help="Timeout seconds")
     light.add_argument("--head", default=None, help="Optional HEAD sha for packets")
     light.set_defaults(func=cmd_lightweight_review)
+
+    session = sub.add_parser(
+        "session",
+        help="Exact persistent session registry helpers (list|probe|resume)",
+    )
+    session_sub = session.add_subparsers(dest="session_action", required=True)
+
+    session_list = session_sub.add_parser("list", help="List registry sessions")
+    _add_common_flags(session_list)
+    session_list.set_defaults(func=cmd_session)
+
+    session_probe = session_sub.add_parser("probe", help="Probe one exact session id")
+    _add_common_flags(session_probe)
+    session_probe.add_argument("--session-id", required=True, help="Exact session id")
+    session_probe.set_defaults(func=cmd_session)
+
+    session_resume = session_sub.add_parser(
+        "resume",
+        help="Build exact resume argv (does not launch models)",
+    )
+    _add_common_flags(session_resume)
+    session_resume.add_argument("--session-id", required=True, help="Exact session id")
+    session_resume.add_argument("--adapter", default="claude-code", help="Adapter name")
+    session_resume.add_argument("--profile", default=None, help="Profile name")
+    session_resume.add_argument("--executable", default=None, help="Executable override")
+    session_resume.add_argument("--model", default=None, help="Requested model")
+    session_resume.add_argument("--cwd", default=None, help="Verified CWD/worktree path")
+    session_resume.set_defaults(func=cmd_session)
 
     return parser
 

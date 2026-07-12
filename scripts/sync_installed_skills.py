@@ -40,6 +40,7 @@ RUNTIME_SCRIPT_PATHS = [
     "scripts/cobbler_runtime/adapters.py",
     "scripts/cobbler_runtime/context.py",
     "scripts/cobbler_runtime/dispatch.py",
+    "scripts/cobbler_runtime/sessions.py",
 ]
 REPO_ONLY_SCRIPT_PATHS = [
     "scripts/check_repo_consistency.py",

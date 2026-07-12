@@ -30,13 +30,16 @@ managed inside the Elves run, not a separate Council or Cobbler memory system.
 
 - `schema.py` / `config.py` / `capabilities.py`: provider-neutral contracts and route resolution
 - `context.py`: redacted context packets and minimal child environments
-- `adapters.py`: read-only argv command builders and structured role-report parsing
+- `adapters.py`: read-only argv command builders, structured role-report parsing, exact session
+  create/resume builders (no bare `--resume` / `--continue` / `--last`)
 - `dispatch.py`: parallel read-only council fan-out, quorum policy, lightweight-review utility
+- `sessions.py`: exact session registry, lifecycle transitions, context digests, usage ledger,
+  Grok parent→child lineage helpers
 
 The thin CLI is `scripts/cobbler_agents.py` (`validate-config`, `doctor`, `council`,
-`lightweight-review`). Private council artifacts belong under ignored
-`.elves/runtime/council/<run-id>/`. Session registry and writer leases land in later batches; this
-layer remains read-only for external lanes.
+`lightweight-review`, `session list|probe|resume`). Private runtime state belongs under ignored
+`.elves/runtime/` (`council/<run-id>/`, `sessions/`). Writer leases land in a later batch; external
+lanes remain untrusted until host audit/import.
 
 The survival guide remains the home for live run control, checkpoint semantics, active compute, next exact batch, and operator constraints; the Cobbler session state extends that live layer.
 

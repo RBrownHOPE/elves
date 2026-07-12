@@ -266,12 +266,23 @@ python3 scripts/cobbler_agents.py council --json \
   --target-quorum 2
 python3 scripts/cobbler_agents.py lightweight-review --json \
   --task "quick utility check"
+
+# Exact session registry helpers (no paid launch on resume argv build)
+python3 scripts/cobbler_agents.py session list --json
+python3 scripts/cobbler_agents.py session probe --json --session-id <exact-id>
+python3 scripts/cobbler_agents.py session resume --json \
+  --session-id <exact-id> --adapter grok-build --cwd /verified/worktree
 ```
 
 Copy schema ideas from [`references/models.toml.example`](references/models.toml.example) into the
 ignored checkout file `.elves/models.toml` (never stage it). Effective routes for a real run still
-belong in the Survival Guide snapshot. Private council transcripts stay under ignored
-`.elves/runtime/council/`.
+belong in the Survival Guide snapshot. Private council transcripts and session registry files stay
+under ignored `.elves/runtime/` (`council/`, `sessions/`). Never commit transcripts or auth stores.
+
+**Session troubleshooting:** always use exact session IDs. Bare `--resume` / `--continue` / `--last`
+are forbidden. Grok worktree children get a new UUID — resume the child from its registered
+worktree, and do not treat headless worktree-resume on Grok 0.2.93 as isolation. Remaining
+subscription quota is `unknown` unless a harness explicitly exposes it.
 
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
 model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
