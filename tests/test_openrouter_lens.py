@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest import mock
 
@@ -207,10 +208,10 @@ class OpenRouterLensUnitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             context = root / "review.md"
-            exact_secret = "sentinel-secret-value-12345"
-            shaped_secret = "sk-abcdefghijklmnopqrstuvwxyz"
+            exact_marker = f"fixture-{uuid.uuid4().hex}"
+            pattern_marker = "sk-" + uuid.uuid4().hex
             context.write_text(
-                f"exact={exact_secret}\nshaped={shaped_secret}\n", encoding="utf-8"
+                f"exact={exact_marker}\nshaped={pattern_marker}\n", encoding="utf-8"
             )
             session_path = (
                 root
@@ -224,9 +225,9 @@ class OpenRouterLensUnitTests(unittest.TestCase):
                 json.dumps(
                     {
                         "messages": [
-                            {"role": "user", "content": f"legacy {exact_secret}"}
+                            {"role": "user", "content": f"legacy {exact_marker}"}
                         ],
-                        "legacy_note": exact_secret,
+                        "legacy_note": exact_marker,
                     }
                 ),
                 encoding="utf-8",
@@ -241,7 +242,7 @@ class OpenRouterLensUnitTests(unittest.TestCase):
                                     "role": "review",
                                     "verdict": "pass",
                                     "confidence": 0.9,
-                                    "key_findings": [f"echo {exact_secret}"],
+                                    "key_findings": [f"echo {exact_marker}"],
                                 }
                             )
                         }
@@ -256,7 +257,7 @@ class OpenRouterLensUnitTests(unittest.TestCase):
 
             with mock.patch.dict(
                 os.environ,
-                {"REVIEW_SECRET_TOKEN": exact_secret},
+                {"REVIEW_SECRET_TOKEN": exact_marker},
                 clear=False,
             ):
                 with mock.patch.object(lens, "_openrouter_chat", side_effect=fake_chat):
@@ -265,10 +266,10 @@ class OpenRouterLensUnitTests(unittest.TestCase):
                             repo_root=root,
                             model="qwen/qwen3-max",
                             role="review",
-                            task=f"review with {exact_secret}",
+                            task=f"review with {exact_marker}",
                             session_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
                             context_files=[context],
-                            packet={"constraints": [f"never expose {exact_secret}"]},
+                            packet={"constraints": [f"never expose {exact_marker}"]},
                             max_tokens=256,
                             temperature=0.0,
                             timeout_s=5.0,
@@ -278,8 +279,8 @@ class OpenRouterLensUnitTests(unittest.TestCase):
             persisted = session_path.read_text(encoding="utf-8")
             returned = json.dumps(result)
             for material in (transmitted, persisted, returned):
-                self.assertNotIn(exact_secret, material)
-                self.assertNotIn(shaped_secret, material)
+                self.assertNotIn(exact_marker, material)
+                self.assertNotIn(pattern_marker, material)
                 self.assertIn("[REDACTED:", material)
 
 
