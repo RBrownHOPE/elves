@@ -12,11 +12,9 @@ committed as product state.
 from __future__ import annotations
 
 import hashlib
-import json
-import os
+import math
 import re
 import stat
-import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -24,6 +22,20 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .schema import UsageRecord, ValidationIssue
+from .storage import (
+    StorageError,
+    assert_embedded_id,
+    atomic_write_json,
+    directory_lock,
+    digest_key,
+    ensure_private_dir,
+    guard_repo_path,
+    list_repo_store_files,
+    read_json,
+    record_filename,
+    repo_regular_file_exists,
+    snapshot_path as storage_snapshot_path,
+)
 
 
 class SessionLifecycle(str, Enum):
@@ -104,6 +116,9 @@ class SessionRecord:
     resume_method: str | None = None
     source_head: str | None = None
     context_digest: str | None = None
+    # Persist the canonical disk inputs used to compute ``context_digest`` so a
+    # later write-qualified resume can recompute it from disk, not trust memory.
+    context_components: dict[str, str] = field(default_factory=dict)
     # Pending values are recorded on expected canonical drift but must not replace
     # active identity fields until an exact resume proves the new packet/digest.
     pending_context_digest: str | None = None
@@ -130,28 +145,66 @@ class SessionRecord:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> SessionRecord:
-        usage_raw = data.get("usage") or {}
+        if not isinstance(data, Mapping):
+            raise TypeError("session record must be a mapping")
+        for field_name in ("session_id", "harness", "profile"):
+            value = data.get(field_name)
+            if not isinstance(value, str) or not value:
+                raise TypeError(f"{field_name} must be a non-empty string")
+        optional_strings = (
+            "role",
+            "requested_model",
+            "actual_model",
+            "parent_id",
+            "cwd",
+            "worktree",
+            "creation_method",
+            "resume_method",
+            "source_head",
+            "context_digest",
+            "pending_context_digest",
+            "pending_source_head",
+            "rehydration_reason",
+            "created_at",
+            "updated_at",
+            "lifecycle",
+            "last_qualification",
+            "notes",
+            "block_reason",
+        )
+        for field_name in optional_strings:
+            value = data.get(field_name)
+            if value is not None and not isinstance(value, str):
+                raise TypeError(f"{field_name} must be a string or null")
+        for field_name in ("write_reuse_blocked",):
+            value = data.get(field_name)
+            if field_name in data and not isinstance(value, bool):
+                raise TypeError(f"{field_name} must be a boolean")
+        revision_raw = data.get("revision", 0)
+        if (
+            not isinstance(revision_raw, int)
+            or isinstance(revision_raw, bool)
+            or revision_raw < 0
+        ):
+            raise TypeError("revision must be a non-negative integer")
+        components_raw = data.get("context_components", {})
+        if not isinstance(components_raw, Mapping) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in components_raw.items()
+        ):
+            raise TypeError("context_components must be a string mapping")
+        creation_method_raw = data.get(
+            "creation_method", CreationMethod.CREATE.value
+        )
+        lifecycle_raw = data.get("lifecycle", SessionLifecycle.NEW.value)
+        if not isinstance(creation_method_raw, str) or not creation_method_raw:
+            raise TypeError("creation_method must be a non-empty string")
+        if not isinstance(lifecycle_raw, str) or not lifecycle_raw:
+            raise TypeError("lifecycle must be a non-empty string")
+        usage_raw = data.get("usage", {})
         if isinstance(usage_raw, UsageRecord):
-            usage = usage_raw
-        else:
-            usage = UsageRecord(
-                input_tokens=usage_raw.get("input_tokens"),
-                output_tokens=usage_raw.get("output_tokens"),
-                total_tokens=usage_raw.get("total_tokens"),
-                cost_usd=usage_raw.get("cost_usd"),
-                remaining_quota=usage_raw.get("remaining_quota", "unknown"),
-                quota_known=bool(usage_raw.get("quota_known", False)),
-            )
-            # Never invent known quota from tokens alone.
-            if not usage.quota_known:
-                usage = UsageRecord(
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
-                    total_tokens=usage.total_tokens,
-                    cost_usd=usage.cost_usd,
-                    remaining_quota="unknown",
-                    quota_known=False,
-                )
+            usage_raw = usage_raw.to_dict()
+        usage = _usage_record_from_persisted(usage_raw)
         return cls(
             session_id=str(data["session_id"]),
             harness=str(data["harness"]),
@@ -162,27 +215,93 @@ class SessionRecord:
             parent_id=data.get("parent_id"),
             cwd=data.get("cwd"),
             worktree=data.get("worktree"),
-            creation_method=CreationMethod(
-                str(data.get("creation_method") or CreationMethod.CREATE.value)
-            ),
+            creation_method=CreationMethod(creation_method_raw),
             resume_method=data.get("resume_method"),
             source_head=data.get("source_head"),
             context_digest=data.get("context_digest"),
+            context_components=dict(components_raw),
             pending_context_digest=data.get("pending_context_digest"),
             pending_source_head=data.get("pending_source_head"),
             rehydration_reason=data.get("rehydration_reason"),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
-            lifecycle=SessionLifecycle(
-                str(data.get("lifecycle") or SessionLifecycle.NEW.value)
-            ),
+            lifecycle=SessionLifecycle(lifecycle_raw),
             usage=usage,
             last_qualification=data.get("last_qualification"),
             notes=str(data.get("notes") or ""),
             write_reuse_blocked=bool(data.get("write_reuse_blocked", False)),
             block_reason=data.get("block_reason"),
-            revision=int(data.get("revision") or 0),
+            revision=revision_raw,
         )
+
+
+def _usage_record_from_persisted(raw: Any) -> UsageRecord:
+    """Strictly parse untrusted registry usage without inventing quota state."""
+    if not isinstance(raw, Mapping):
+        raise TypeError("usage must be a mapping")
+
+    def optional_count(name: str) -> int | None:
+        value = raw.get(name)
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise TypeError(f"usage {name} must be a non-negative integer or null")
+        return value
+
+    cost_raw = raw.get("cost_usd")
+    if cost_raw is None:
+        cost_usd = None
+    elif (
+        not isinstance(cost_raw, (int, float))
+        or isinstance(cost_raw, bool)
+        or not math.isfinite(float(cost_raw))
+        or float(cost_raw) < 0
+    ):
+        raise TypeError("usage cost_usd must be a finite non-negative number or null")
+    else:
+        cost_usd = float(cost_raw)
+
+    quota_known_raw = raw.get("quota_known", False)
+    if not isinstance(quota_known_raw, bool):
+        raise TypeError("usage quota_known must be a boolean")
+    remaining = raw.get("remaining_quota", "unknown")
+    if (
+        isinstance(remaining, bool)
+        or not isinstance(remaining, (str, int, type(None)))
+        or (isinstance(remaining, int) and remaining < 0)
+    ):
+        raise TypeError("usage remaining_quota must be a non-negative integer, string, or null")
+    if quota_known_raw and (
+        remaining is None
+        or (isinstance(remaining, str) and remaining.strip().lower() in {"", "unknown"})
+    ):
+        raise TypeError("known usage quota requires an explicit remaining value")
+
+    return UsageRecord(
+        input_tokens=optional_count("input_tokens"),
+        output_tokens=optional_count("output_tokens"),
+        total_tokens=optional_count("total_tokens"),
+        cost_usd=cost_usd,
+        remaining_quota=remaining if quota_known_raw else "unknown",
+        quota_known=quota_known_raw,
+    )
+
+
+_RECORD_PARSE_ERRORS = (
+    AttributeError,
+    KeyError,
+    OverflowError,
+    RecursionError,
+    TypeError,
+    ValueError,
+)
+
+
+def _record_error_category(exc: BaseException) -> str:
+    """Return a stable diagnostic category without attacker-controlled values."""
+    if isinstance(exc, StorageError):
+        return f"storage:{exc.code}"
+    return f"schema:{type(exc).__name__}"
 
 
 @dataclass(frozen=True)
@@ -218,17 +337,17 @@ def _utc_now() -> str:
 
 
 def sessions_root(repo_root: Path) -> Path:
-    return Path(repo_root) / ".elves" / "runtime" / "sessions"
+    repo = Path(repo_root).expanduser().resolve()
+    return guard_repo_path(repo, repo / ".elves" / "runtime" / "sessions")
 
 
 def ensure_sessions_dir(repo_root: Path) -> Path:
-    path = sessions_root(repo_root)
-    path.mkdir(parents=True, exist_ok=True)
-    try:
-        path.chmod(stat.S_IRWXU)
-    except OSError:
-        pass
-    return path
+    repo = Path(repo_root).expanduser().resolve()
+    return ensure_private_dir(
+        sessions_root(repo),
+        mode=stat.S_IRWXU,
+        repo_root=repo,
+    )
 
 
 def file_sha256(path: Path) -> str | None:
@@ -295,6 +414,46 @@ def compute_context_digest(
     return ContextDigest(digest=digest, components=components)
 
 
+def recompute_context_digest(
+    record: SessionRecord,
+    *,
+    actual_model: str | None = None,
+    parent_id: str | None = None,
+    cwd: str | None = None,
+    worktree: str | None = None,
+    source_head: str | None = None,
+) -> ContextDigest:
+    """Recompute a session digest from its persisted canonical disk paths."""
+    components = dict(record.context_components or {})
+
+    def _path(label: str) -> Path | None:
+        value = components.get(f"{label}_path")
+        return Path(value) if value else None
+
+    extras = {
+        key.removeprefix("extra."): value
+        for key, value in components.items()
+        if key.startswith("extra.")
+    }
+    return compute_context_digest(
+        session_id=record.session_id,
+        harness=record.harness,
+        profile=record.profile,
+        role=record.role,
+        requested_model=record.requested_model,
+        actual_model=actual_model if actual_model is not None else record.actual_model,
+        parent_id=parent_id if parent_id is not None else record.parent_id,
+        cwd=cwd if cwd is not None else record.cwd,
+        worktree=worktree if worktree is not None else record.worktree,
+        source_head=source_head if source_head is not None else record.source_head,
+        plan_path=_path("plan"),
+        survival_guide_path=_path("survival_guide"),
+        execution_log_path=_path("execution_log"),
+        session_json_path=_path("session_json"),
+        extra_stable=extras,
+    )
+
+
 def transition_lifecycle(
     current: SessionLifecycle,
     target: SessionLifecycle,
@@ -319,19 +478,25 @@ def parse_usage_payload(raw: Mapping[str, Any] | None) -> UsageRecord:
         value = raw.get(key)
         if value is None:
             return None
+        if isinstance(value, bool):
+            return None
         try:
-            return int(value)
+            parsed = int(value)
         except (TypeError, ValueError):
             return None
+        return parsed if parsed >= 0 else None
 
     def _float(key: str) -> float | None:
         value = raw.get(key)
         if value is None:
             return None
+        if isinstance(value, bool):
+            return None
         try:
-            return float(value)
+            parsed = float(value)
         except (TypeError, ValueError):
             return None
+        return parsed if math.isfinite(parsed) and parsed >= 0 else None
 
     input_tokens = _num("input_tokens")
     if input_tokens is None:
@@ -346,7 +511,7 @@ def parse_usage_payload(raw: Mapping[str, Any] | None) -> UsageRecord:
     if cost_usd is None:
         cost_usd = _float("cost")
 
-    quota_known = bool(raw.get("quota_known", False))
+    quota_known = raw.get("quota_known", False) is True
     remaining = raw.get("remaining_quota")
     if remaining is None:
         remaining = raw.get("quota_remaining")
@@ -360,17 +525,24 @@ def parse_usage_payload(raw: Mapping[str, Any] | None) -> UsageRecord:
             remaining_quota="unknown",
             quota_known=False,
         )
-    try:
-        remaining_val: str | int | None = int(remaining)
-    except (TypeError, ValueError):
-        remaining_val = str(remaining)
+    if isinstance(remaining, bool) or not isinstance(remaining, (str, int)):
+        remaining_val: str | int | None = None
+    else:
+        try:
+            parsed_remaining = int(remaining)
+        except (TypeError, ValueError):
+            remaining_val = str(remaining)
+        else:
+            remaining_val = parsed_remaining if parsed_remaining >= 0 else None
+    if remaining_val is None:
+        quota_known = False
     return UsageRecord(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
         cost_usd=cost_usd,
-        remaining_quota=remaining_val,
-        quota_known=True,
+        remaining_quota=remaining_val if quota_known else "unknown",
+        quota_known=quota_known,
     )
 
 
@@ -477,38 +649,11 @@ def evaluate_session_continuity(
     )
 
 
-def _atomic_write_text(path: Path, payload: str, *, mode: int = 0o600) -> None:
-    """Write ``payload`` via temp file + os.replace; set permission bits when possible."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=str(path.parent),
-    )
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_path, path)
-        try:
-            path.chmod(mode)
-        except OSError:
-            pass
-    except Exception:
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
-
-
 class SessionRegistry:
     """Disk-backed exact session registry under ignored runtime path."""
 
     def __init__(self, repo_root: Path, *, create: bool = True) -> None:
-        self.repo_root = Path(repo_root)
+        self.repo_root = Path(repo_root).expanduser().resolve()
         self._create = create
         if create:
             self.root = ensure_sessions_dir(self.repo_root)
@@ -529,30 +674,82 @@ class SessionRegistry:
                 "Session registry was opened read-only; refusing to create or mutate state",
                 path=str(self.root),
             )
-        if not self.root.is_dir():
-            self.root = ensure_sessions_dir(self.repo_root)
+        # Re-open the whole chain on every mutation so a post-construction
+        # replacement of `.elves` or a runtime ancestor fails closed.
+        self.root = ensure_sessions_dir(self.repo_root)
+
+    def _read_candidate(self, *paths: Path) -> tuple[Path, dict[str, Any]] | None:
+        for path in paths:
+            try:
+                return path, read_json(path, repo_root=self.repo_root)
+            except StorageError as exc:
+                if exc.code == "not_found":
+                    continue
+                raise ValidationIssue(
+                    "session_storage_unsafe",
+                    f"Unsafe session registry path ({exc.code})",
+                    path=str(self.root),
+                ) from exc
+        return None
 
     def _record_path(self, session_id: str) -> Path:
+        """Digest-keyed path; never use raw session ids (collision/traversal safe)."""
+        return self.root / record_filename(session_id, prefix="sess")
+
+    def _legacy_record_path(self, session_id: str) -> Path:
+        """Legacy sanitized path for read-only migration of pre-digest records."""
         safe = re.sub(r"[^A-Za-z0-9._-]+", "_", session_id)
         return self.root / f"{safe}.json"
 
     def list_sessions(self) -> list[SessionRecord]:
         records: list[SessionRecord] = []
+        seen_ids: set[str] = set()
         self.malformed_records = []
-        if not self.root.is_dir():
+        try:
+            paths = list_repo_store_files(self.repo_root, self.root, suffix=".json")
+        except StorageError as exc:
+            self.malformed_records.append(
+                {"path": str(self.root), "error": _record_error_category(exc)}
+            )
             return records
-        for path in sorted(self.root.glob("*.json")):
-            if path.name == "index.json":
+        for path in paths:
+            if path.name in {"index.json", "store.lock"}:
                 continue
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                records.append(SessionRecord.from_dict(data))
-            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                data = read_json(path, repo_root=self.repo_root)
+                record = SessionRecord.from_dict(data)
+                assert_embedded_id(data, record.session_id, id_field="session_id")
+                expected_names = {
+                    record_filename(record.session_id, prefix="sess"),
+                    self._legacy_record_path(record.session_id).name,
+                }
+                if path.name not in expected_names:
+                    raise StorageError(
+                        "record_filename_mismatch",
+                        "Session record filename does not match its embedded identity",
+                    )
+                if record.session_id in seen_ids:
+                    raise StorageError(
+                        "duplicate_record_id",
+                        "Duplicate session record identity",
+                    )
+                seen_ids.add(record.session_id)
+                records.append(record)
+            except (
+                OSError,
+                AttributeError,
+                KeyError,
+                OverflowError,
+                RecursionError,
+                TypeError,
+                ValueError,
+                StorageError,
+            ) as exc:
                 # Fail closed for callers that inspect malformed_records; do not silently drop.
                 self.malformed_records.append(
                     {
-                        "path": str(path),
-                        "error": f"{type(exc).__name__}: {exc}",
+                        "path": str(self.root),
+                        "error": _record_error_category(exc),
                     }
                 )
         return records
@@ -561,53 +758,150 @@ class SessionRegistry:
         """Like list_sessions, but raise when any record file is malformed."""
         records = self.list_sessions()
         if self.malformed_records:
-            detail = "; ".join(
-                f"{item['path']}: {item['error']}" for item in self.malformed_records
+            categories = ", ".join(
+                sorted({item["error"] for item in self.malformed_records})
             )
             raise ValidationIssue(
                 "session_record_malformed",
-                f"Malformed session registry records: {detail}",
+                "Malformed session registry records "
+                f"({len(self.malformed_records)} record(s); categories: {categories})",
                 path=str(self.root),
             )
         return records
 
     def get(self, session_id: str) -> SessionRecord:
-        path = self._record_path(session_id)
-        if not path.is_file():
-            raise ValidationIssue(
-                "session_not_found",
-                f"No session record for exact id `{session_id}`",
-                path=str(path),
-                hint="Exact session IDs are required; never use last/continue selection",
-            )
+        record, _kind = self.get_with_storage_kind(session_id)
+        return record
+
+    def get_with_storage_kind(
+        self, session_id: str
+    ) -> tuple[SessionRecord, str]:
+        """Read one exact record and bind its parsed bytes to source provenance."""
+        kind, _chosen, data = self._load_exact_record(session_id)
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            assert_embedded_id(data, session_id, id_field="session_id")
+            return SessionRecord.from_dict(data), kind
+        except StorageError as exc:
             raise ValidationIssue(
-                "session_read_error",
-                f"Unable to read session `{session_id}`: {exc}",
-                path=str(path),
+                "session_embedded_id_mismatch",
+                "Session record embedded id does not match the requested exact identity",
+                path=str(self.root),
             ) from exc
-        try:
-            return SessionRecord.from_dict(data)
-        except (KeyError, TypeError, ValueError) as exc:
+        except _RECORD_PARSE_ERRORS as exc:
             raise ValidationIssue(
                 "session_record_malformed",
-                f"Session `{session_id}` record is malformed: {exc}",
-                path=str(path),
+                f"Session record is malformed ({_record_error_category(exc)})",
+                path=str(self.root),
             ) from exc
 
-    def save(self, record: SessionRecord) -> SessionRecord:
+    def _load_exact_record(
+        self, session_id: str
+    ) -> tuple[str, Path, dict[str, Any]]:
+        path = self._record_path(session_id)
+        legacy = self._legacy_record_path(session_id)
+        canonical_loaded = self._read_candidate(path)
+        legacy_loaded = self._read_candidate(legacy)
+        if canonical_loaded is not None and legacy_loaded is not None:
+            raise ValidationIssue(
+                "session_record_ambiguous",
+                "Multiple session records claim the same exact identity",
+                path=str(self.root),
+            )
+        loaded = canonical_loaded or legacy_loaded
+        if loaded is None:
+            raise ValidationIssue(
+                "session_not_found",
+                "No session record for the requested exact id",
+                path=str(self.root),
+                hint="Exact session IDs are required; never use last/continue selection",
+            )
+        chosen, data = loaded
+        kind = "canonical" if canonical_loaded is not None else "legacy"
+        return kind, chosen, data
+
+    def save(self, record: SessionRecord, *, expected_revision: int | None = None) -> SessionRecord:
+        """Persist a session record with optional compare-and-swap on revision."""
         self._ensure_writable()
-        record.revision = int(record.revision or 0) + 1
-        record.updated_at = _utc_now()
-        if not record.created_at:
-            record.created_at = record.updated_at
-        path = self._record_path(record.session_id)
-        payload = json.dumps(record.to_dict(), indent=2, sort_keys=True) + "\n"
-        _atomic_write_text(path, payload, mode=stat.S_IRUSR | stat.S_IWUSR)
-        self._rewrite_index()
-        return record
+        # Validate every authority-bearing leaf before publishing the record.
+        repo_regular_file_exists(self.repo_root, self._index_path)
+        with directory_lock(self.root, repo_root=self.repo_root):
+            repo_regular_file_exists(self.repo_root, self._index_path)
+            # Any malformed or aliased authority record blocks every mutation;
+            # never rewrite the index from a silently partial listing.
+            self.list_sessions_strict()
+            try:
+                SessionRecord.from_dict(record.to_dict())
+            except _RECORD_PARSE_ERRORS as exc:
+                raise ValidationIssue(
+                    "session_record_malformed",
+                    f"Session record cannot be saved ({_record_error_category(exc)})",
+                    path=str(self.root),
+                ) from exc
+            path = self._record_path(record.session_id)
+            legacy = self._legacy_record_path(record.session_id)
+            canonical_loaded = self._read_candidate(path)
+            legacy_loaded = self._read_candidate(legacy)
+            if legacy_loaded is not None:
+                raise ValidationIssue(
+                    "session_legacy_read_only",
+                    "Legacy session records are read-only until explicitly migrated",
+                    path=str(self.root),
+                )
+            current = canonical_loaded[1] if canonical_loaded is not None else None
+            if current is not None:
+                try:
+                    current_rev = int(current.get("revision") or 0)
+                except (TypeError, ValueError) as exc:
+                    raise ValidationIssue(
+                        "session_record_malformed",
+                        "Cannot CAS-save over a malformed session record",
+                        path=str(self.root),
+                    ) from exc
+                if expected_revision is not None and current_rev != int(expected_revision):
+                    raise ValidationIssue(
+                        "session_revision_conflict",
+                        f"Stale session write: expected revision {expected_revision}, "
+                        f"disk has {current_rev}",
+                        path=str(path),
+                        hint="Reload the record and retry",
+                    )
+                if int(record.revision or 0) != current_rev:
+                    raise ValidationIssue(
+                        "session_revision_conflict",
+                        f"Stale session write: in-memory revision {record.revision} "
+                        f"!= disk {current_rev}",
+                        path=str(path),
+                    )
+                next_revision = current_rev + 1
+            else:
+                if expected_revision is not None or int(record.revision or 0) != 0:
+                    raise ValidationIssue(
+                        "session_revision_conflict",
+                        "New session records must begin at unpublished revision zero",
+                        path=str(path),
+                    )
+                next_revision = 1
+            record.revision = next_revision
+            record.updated_at = _utc_now()
+            if not record.created_at:
+                record.created_at = record.updated_at
+            atomic_write_json(
+                path,
+                record.to_dict(),
+                mode=stat.S_IRUSR | stat.S_IWUSR,
+                repo_root=self.repo_root,
+            )
+            self._rewrite_index()
+            return record
+
+    def snapshot_dir(self, session_id: str) -> Path:
+        """Store-owned snapshot path for a session (safe against traversal ids)."""
+        return storage_snapshot_path(
+            self.root,
+            session_id,
+            kind="sess",
+            repo_root=self.repo_root,
+        )
 
     def _rewrite_index(self) -> None:
         index = [
@@ -621,12 +915,13 @@ class SessionRegistry:
                 "actual_model": rec.actual_model,
                 "revision": rec.revision,
             }
-            for rec in self.list_sessions()
+            for rec in self.list_sessions_strict()
         ]
-        _atomic_write_text(
+        atomic_write_json(
             self._index_path,
-            json.dumps({"sessions": index}, indent=2, sort_keys=True) + "\n",
+            {"sessions": index},
             mode=stat.S_IRUSR | stat.S_IWUSR,
+            repo_root=self.repo_root,
         )
 
     def create(
@@ -656,7 +951,7 @@ class SessionRegistry:
             )
         # Reject overwrite of closed/existing without explicit path.
         path = self._record_path(session_id)
-        if path.is_file():
+        if repo_regular_file_exists(self.repo_root, path):
             raise ValidationIssue(
                 "session_exists",
                 f"Session `{session_id}` already exists; use resume/update paths",
@@ -691,6 +986,7 @@ class SessionRegistry:
             creation_method=creation_method,
             source_head=source_head,
             context_digest=digest.digest,
+            context_components=dict(digest.components),
             lifecycle=SessionLifecycle.NEW,
             notes=notes,
         )
@@ -806,6 +1102,7 @@ class SessionRegistry:
             ):
                 # Proof: resumed turn still targets the pending packet/digest.
                 record.context_digest = record.pending_context_digest
+                record.context_components = dict(digest.components)
                 if record.pending_source_head:
                     record.source_head = record.pending_source_head
                 record.pending_context_digest = None
@@ -846,6 +1143,7 @@ class SessionRegistry:
                 and digest.digest == record.pending_context_digest
             ):
                 record.context_digest = record.pending_context_digest
+                record.context_components = dict(digest.components)
                 if record.pending_source_head:
                     record.source_head = record.pending_source_head
                 record.pending_context_digest = None
@@ -881,6 +1179,7 @@ class SessionRegistry:
         record.lifecycle = transition_lifecycle(record.lifecycle, SessionLifecycle.ACTIVE)
         record.resume_method = "exact_id"
         record.context_digest = digest.digest
+        record.context_components = dict(digest.components)
         record.pending_context_digest = None
         record.pending_source_head = None
         record.rehydration_reason = None
@@ -965,22 +1264,49 @@ def verify_grok_child_summary(
             "grok_parent_mismatch",
             f"Child parent_id `{summary.parent_id}` != expected `{expected_parent_id}`",
         )
-    if expected_model and summary.model and summary.model != expected_model:
-        raise ValidationIssue(
-            "grok_model_mismatch",
-            f"Child model `{summary.model}` != expected `{expected_model}`",
-        )
-    if expected_cwd and summary.cwd:
+    if expected_model:
+        if not summary.model:
+            raise ValidationIssue(
+                "grok_model_missing",
+                "Child summary must include the observed model",
+            )
+        if summary.model != expected_model:
+            raise ValidationIssue(
+                "grok_model_mismatch",
+                f"Child model `{summary.model}` != expected `{expected_model}`",
+            )
+    if expected_cwd:
+        if not summary.cwd:
+            raise ValidationIssue(
+                "grok_cwd_missing",
+                "Child summary must include the observed CWD",
+            )
         if Path(summary.cwd).resolve() != Path(expected_cwd).resolve():
             raise ValidationIssue(
                 "grok_cwd_mismatch",
                 f"Child cwd `{summary.cwd}` != expected `{expected_cwd}`",
             )
-    if expected_head and summary.head and summary.head != expected_head:
-        raise ValidationIssue(
-            "grok_head_mismatch",
-            f"Child head `{summary.head}` != expected `{expected_head}`",
-        )
+        if not summary.worktree:
+            raise ValidationIssue(
+                "grok_worktree_missing",
+                "Child summary must include the observed worktree",
+            )
+        if Path(summary.worktree).resolve() != Path(expected_cwd).resolve():
+            raise ValidationIssue(
+                "grok_worktree_mismatch",
+                f"Child worktree `{summary.worktree}` != expected `{expected_cwd}`",
+            )
+    if expected_head:
+        if not summary.head:
+            raise ValidationIssue(
+                "grok_head_missing",
+                "Child summary must include the observed source HEAD",
+            )
+        if summary.head != expected_head:
+            raise ValidationIssue(
+                "grok_head_mismatch",
+                f"Child head `{summary.head}` != expected `{expected_head}`",
+            )
 
 
 def grok_headless_worktree_resume_supported(version: str | None) -> bool:

@@ -4,12 +4,16 @@ import json
 import os
 import signal
 import stat
+import subprocess
 import sys
 import tempfile
 import textwrap
 import time
 import unittest
+from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +49,7 @@ from cobbler_runtime.context import (  # noqa: E402
     create_exclusive_artifact_root,
     ensure_private_dir,
     new_run_id,
+    redact_structure,
     redact_text,
     scrub_environment,
     write_json_artifact,
@@ -53,8 +58,8 @@ from cobbler_runtime.dispatch import (  # noqa: E402
     LaneSpec,
     evaluate_quorum,
     host_evidence_binding,
-    run_council_sync,
-    run_lightweight_review_sync,
+    run_council_sync as _run_council_sync,
+    run_lightweight_review_sync as _run_lightweight_review_sync,
 )
 from cobbler_runtime.schema import (  # noqa: E402
     EffectiveAttempt,
@@ -150,6 +155,208 @@ def _write_fake_lane_script(
     return path
 
 
+def _track_external_fixture_files(
+    repo_root: Path,
+    *,
+    lanes: list[LaneSpec] | tuple[LaneSpec, ...] = (),
+    command_override: tuple[str, ...] | None = None,
+) -> None:
+    """Make declared fake executables honest tracked-only isolation inputs."""
+    root = Path(repo_root).resolve()
+    candidates: list[Path] = []
+    commands = [command_override] if command_override else []
+    for lane in lanes:
+        if lane.command_override:
+            commands.append(lane.command_override)
+        for attempt in lane.attempts:
+            if attempt.executable:
+                commands.append((attempt.executable,))
+    for command in commands:
+        for token in command or ():
+            path = Path(str(token)).expanduser()
+            if not path.is_absolute():
+                path = root / path
+            try:
+                resolved = path.resolve(strict=True)
+                resolved.relative_to(root)
+            except (FileNotFoundError, ValueError, OSError):
+                continue
+            if resolved.is_file() and resolved not in candidates:
+                candidates.append(resolved)
+    # Wrapper fixtures may run another adjacent Python module via runpy. Admit
+    # only code/executable fixtures, never arbitrary hidden data or credentials.
+    for path in root.rglob("*"):
+        if any(part.startswith(".") for part in path.relative_to(root).parts):
+            continue
+        if not path.is_file():
+            continue
+        if path.suffix == ".py" or os.access(path, os.X_OK):
+            resolved = path.resolve()
+            if resolved not in candidates:
+                candidates.append(resolved)
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "t"], check=True)
+    if candidates:
+        subprocess.run(
+            ["git", "-C", str(root), "add", "-f", "--", *map(str, candidates)],
+            check=True,
+        )
+
+async def _terminate_trusted_fixture_process_group(
+    proc,
+    *,
+    grace_seconds: float = 0.5,
+    known_pgid: int | None = None,
+    supervisor=None,
+) -> dict[str, object]:
+    """Bounded cleanup for direct fixture leaders with no descendants.
+
+    The direct child remains the authority. Its PGID is captured and signaled
+    only while that exact child is known live; after reap, the numeric identity
+    is never probed or signaled because it may already have been reused.
+    """
+    import asyncio
+
+    del supervisor
+    pgid = known_pgid
+    if pgid is None and proc.returncode is None:
+        try:
+            pgid = os.getpgid(proc.pid)
+        except (OSError, ProcessLookupError):
+            pgid = None
+    cleanup: dict[str, object] = {
+        "signaled_group": False,
+        "sigterm_sent": False,
+        "sigkill_sent": False,
+        "reaped": proc.returncode is not None,
+        "group_absent": proc.returncode is not None,
+        "pid": proc.pid,
+        "pgid": pgid,
+        "error": None,
+    }
+
+    def signal_live_leader(signum: int) -> bool:
+        if proc.returncode is not None:
+            return False
+        try:
+            if pgid is not None:
+                os.killpg(pgid, signum)
+            else:
+                proc.send_signal(signum)
+            return True
+        except ProcessLookupError:
+            return False
+
+    if proc.returncode is None:
+        cleanup["signaled_group"] = True
+        cleanup["sigterm_sent"] = signal_live_leader(signal.SIGTERM)
+        try:
+            await asyncio.wait_for(
+                proc.wait(),
+                timeout=max(grace_seconds, 0.05),
+            )
+        except (asyncio.TimeoutError, ProcessLookupError):
+            if proc.returncode is None:
+                cleanup["sigkill_sent"] = signal_live_leader(signal.SIGKILL)
+                try:
+                    await asyncio.wait_for(
+                        proc.wait(),
+                        timeout=max(grace_seconds, 0.05),
+                    )
+                except (asyncio.TimeoutError, ProcessLookupError):
+                    pass
+
+    cleanup["reaped"] = proc.returncode is not None
+    # Fixture contract: every bypassed transport command is a trusted direct
+    # leader with no descendants. Recursive containment is tested only through
+    # the unpatched production no-spawn path below.
+    cleanup["group_absent"] = cleanup["reaped"]
+    if not cleanup["group_absent"]:
+        cleanup["error"] = "fixture_direct_leader_reap_unproved"
+    return cleanup
+
+
+@contextmanager
+def _portable_external_test_boundary():
+    """Opt transport fixtures into a qualified internal test boundary.
+
+    Production external launches fail closed before spawn because the asyncio
+    launcher cannot atomically bind a child generation. Dedicated isolation
+    tests prove that gate. These parser/transport fixtures deliberately use a
+    test-only process-group authority while retaining disposable snapshots and
+    the runtime's result, fallback, and cleanup paths.
+    """
+    from cobbler_runtime import dispatch_external as external
+    from cobbler_runtime.isolation import (
+        IsolationSpec,
+        IsolatedLane,
+        QualifiedSandboxBackend,
+        resolve_fs_sandbox_backend,
+    )
+
+    real_create = external.create_tracked_snapshot
+
+    def create_without_live_backend(specification: IsolationSpec) -> IsolatedLane:
+        return real_create(
+            replace(
+                specification,
+                require_fs_sandbox=False,
+                qualified_backend=None,
+            )
+        )
+
+    with mock.patch.object(
+        external,
+        "_require_darwin_recursive_containment",
+        return_value=None,
+    ), mock.patch.object(
+        external,
+        "_require_linux_recursive_containment",
+        return_value=None,
+    ), mock.patch.object(
+        external,
+        "_require_qualified_process_boundary",
+        return_value="pid-namespace",
+    ), mock.patch.object(
+        external,
+        "terminate_process_group",
+        new=_terminate_trusted_fixture_process_group,
+    ):
+        if resolve_fs_sandbox_backend() is not None:
+            yield
+            return
+
+        with mock.patch.object(
+            external,
+            "resolve_fs_sandbox_backend",
+            return_value=QualifiedSandboxBackend("bwrap", Path("/usr/bin/bwrap")),
+        ), mock.patch.object(
+            external,
+            "create_tracked_snapshot",
+            side_effect=create_without_live_backend,
+        ):
+            yield
+
+
+def run_council_sync(lanes, *args, **kwargs):
+    repo_root = kwargs.get("repo_root")
+    if repo_root is None and args:
+        repo_root = args[0]
+    _track_external_fixture_files(Path(repo_root), lanes=tuple(lanes))
+    with _portable_external_test_boundary():
+        return _run_council_sync(lanes, *args, **kwargs)
+
+
+def run_lightweight_review_sync(*args, **kwargs):
+    repo_root = kwargs.get("repo_root") or args[0]
+    _track_external_fixture_files(
+        Path(repo_root), command_override=kwargs.get("command_override")
+    )
+    with _portable_external_test_boundary():
+        return _run_lightweight_review_sync(*args, **kwargs)
+
+
 def _host_executor(
     role: str = "architect",
     actual_model: str = "host-native",
@@ -184,6 +391,53 @@ def _host_executor(
     return _exec
 
 
+class PortableExternalTestBoundaryTests(unittest.TestCase):
+    def test_reaped_fixture_never_probes_or_signals_reused_pgid(self) -> None:
+        import asyncio
+
+        class FakeProcess:
+            pid = 4242
+            returncode = None
+
+            async def wait(self) -> int:
+                self.returncode = 0
+                return 0
+
+            def send_signal(self, signum: int) -> None:
+                raise AssertionError(f"unexpected direct signal {signum}")
+
+        process = FakeProcess()
+        signals: list[tuple[int, int]] = []
+
+        def signal_group(pgid: int, signum: int) -> None:
+            if process.returncode is not None:
+                raise AssertionError("numeric PGID used after leader reap")
+            signals.append((pgid, signum))
+
+        with mock.patch.object(
+            os,
+            "getpgid",
+            return_value=4242,
+        ) as getpgid, mock.patch.object(
+            os,
+            "killpg",
+            side_effect=signal_group,
+        ) as killpg:
+            cleanup = asyncio.run(
+                _terminate_trusted_fixture_process_group(
+                    process,
+                    grace_seconds=0.01,
+                )
+            )
+
+        getpgid.assert_called_once_with(4242)
+        killpg.assert_called_once_with(4242, signal.SIGTERM)
+        self.assertEqual(signals, [(4242, signal.SIGTERM)])
+        self.assertFalse(cleanup["sigkill_sent"], cleanup)
+        self.assertTrue(cleanup["reaped"], cleanup)
+        self.assertTrue(cleanup["group_absent"], cleanup)
+
+
 class ContextRedactionTests(unittest.TestCase):
     def test_redact_text_masks_secret_values_and_reports_pattern_names(self) -> None:
         raw = "Authorization: Bearer supersecrettoken123 and sk-abcdefghijklmnop"
@@ -209,6 +463,58 @@ class ContextRedactionTests(unittest.TestCase):
         self.assertEqual(packet.plan_path, "docs/plans/example.md")
         payload = packet.to_dict()
         self.assertNotIn("sk-thisisnotarealkey0001", json.dumps(payload))
+
+    def test_redact_structure_redacts_nested_keys_and_fails_closed_on_collision(self) -> None:
+        opaque = "opaque-grant-value-991177-zz"
+        patterned = "xai-SYNTHETICKEY1234567890"
+        payload = redact_structure(
+            {"outer": {opaque: {patterned: opaque}}},
+            exact_values={opaque},
+        )
+        blob = json.dumps(payload, sort_keys=True)
+        self.assertNotIn(opaque, blob)
+        self.assertNotIn(patterned, blob)
+        self.assertEqual(
+            payload["outer"]["[REDACTED:exact_grant]"]["[REDACTED:xai_token]"],
+            "[REDACTED:exact_grant]",
+        )
+
+        with self.assertRaises(ValidationIssue) as ctx:
+            redact_structure(
+                {
+                    opaque: "first",
+                    "[REDACTED:exact_grant]": "second",
+                },
+                exact_values={opaque},
+            )
+        self.assertEqual(ctx.exception.code, "redaction_key_collision")
+        self.assertNotIn(opaque, str(ctx.exception))
+
+    def test_cli_json_emitter_redacts_nested_exact_and_patterned_keys(self) -> None:
+        import cobbler_agents as cli_mod
+
+        opaque = "opaque-cli-grant-value-662244"
+        patterned = "xai-SYNTHETICCLIKEY1234567890"
+        stream = __import__("io").StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_API_KEY": opaque}), mock.patch.object(
+            sys,
+            "stdout",
+            stream,
+        ):
+            code = cli_mod._emit_json(
+                {"outer": {opaque: {patterned: opaque}}},
+                exit_code=7,
+            )
+
+        self.assertEqual(code, 7)
+        blob = stream.getvalue()
+        self.assertNotIn(opaque, blob)
+        self.assertNotIn(patterned, blob)
+        payload = json.loads(blob)
+        self.assertEqual(
+            payload["outer"]["[REDACTED:exact_grant]"]["[REDACTED:xai_token]"],
+            "[REDACTED:exact_grant]",
+        )
 
     def test_scrub_environment_strips_secret_names_keeps_allowlist(self) -> None:
         parent = {
@@ -261,6 +567,30 @@ class ContextRedactionTests(unittest.TestCase):
         self.assertNotIn(sentinel, meta)
         self.assertNotIn("xai-should-not-pass", meta)
         self.assertIn("SAKANA_API_KEY", result.kept_names)
+
+    def test_direct_grants_reject_isolation_control_names(self) -> None:
+        reserved_names = (
+            "HOME",
+            "PATH",
+            "TMPDIR",
+            "TMP",
+            "TEMP",
+            "XDG_STATE_HOME",
+            "GROK_HOME",
+            "GROK_AUTH_PATH",
+            "ELVES_ISOLATED_SNAPSHOT",
+        )
+        for name in reserved_names:
+            with self.subTest(name=name):
+                with self.assertRaises(ValidationIssue) as ctx:
+                    scrub_environment(
+                        {name: "synthetic-control-value"},
+                        secret_grants={name},
+                    )
+                self.assertEqual(
+                    ctx.exception.code,
+                    "isolation_control_grant_forbidden",
+                )
 
     def test_artifact_paths_are_under_ignored_runtime_tree(self) -> None:
         root = council_artifact_root(REPO_ROOT, "run-test")
@@ -332,7 +662,7 @@ class QuorumPolicyTests(unittest.TestCase):
 
 
 class ParallelDispatchTests(unittest.TestCase):
-    def test_three_lanes_overlap_in_wall_clock_time(self) -> None:
+    def test_three_lanes_have_overlapping_execution_spans(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             scripts = []
@@ -370,19 +700,19 @@ class ParallelDispatchTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertTrue(result.council_verified)
         self.assertEqual(len(result.successful_reports), 3)
-        # Sequential would take ~0.75s+; parallel should be well under 0.65s.
-        self.assertLess(
-            elapsed,
-            0.65,
-            f"lanes appear sequential: elapsed={elapsed:.3f}s",
-        )
-        # Also assert pairwise start/end overlap evidence.
+        # Use the recorded execution spans as the concurrency proof. An absolute
+        # wall-clock ceiling is runner-speed dependent and was flaky on loaded
+        # macOS CI despite all three lanes demonstrably overlapping.
+        self.assertLess(elapsed, 5.0, f"parallel dispatch was unexpectedly slow: {elapsed:.3f}s")
         spans = [(lane.start_time, lane.end_time) for lane in result.lane_results]
         self.assertEqual(len(spans), 3)
         # Each lane should start before the earliest end (true concurrency).
         earliest_end = min(end for _, end in spans)
         for start, _end in spans:
             self.assertLessEqual(start, earliest_end + 0.05)
+        concurrent_makespan = max(end for _, end in spans) - min(start for start, _ in spans)
+        sequential_span_sum = sum(end - start for start, end in spans)
+        self.assertLess(concurrent_makespan, sequential_span_sum)
 
     def test_optional_lane_failure_preserves_other_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -489,7 +819,7 @@ class ParallelDispatchTests(unittest.TestCase):
         self.assertFalse(result.lane_results[0].ok)
         self.assertIn("timeout", result.lane_results[0].error or "")
 
-    def test_timeout_kills_spawned_descendant_process_group(self) -> None:
+    def test_production_gate_blocks_descendant_spawn(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             marker = root / "descendant.pid"
@@ -513,42 +843,26 @@ class ParallelDispatchTests(unittest.TestCase):
                     timeout_seconds=0.6,
                 )
             ]
-            result = run_council_sync(
-                lanes,
-                repo_root=root,
-                task="timeout descendants",
-                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+            _track_external_fixture_files(root, lanes=tuple(lanes))
+            with mock.patch(
+                "cobbler_runtime.dispatch_external.asyncio.create_subprocess_exec",
+                new_callable=mock.AsyncMock,
+            ) as spawn:
+                result = _run_council_sync(
+                    lanes,
+                    repo_root=root,
+                    task="timeout descendants",
+                    parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+                )
+            lane = result.lane_results[0]
+            self.assertFalse(lane.ok)
+            self.assertFalse(lane.process_launched)
+            self.assertFalse(marker.exists())
+            self.assertIn(
+                "isolation_recursive_containment_unavailable",
+                lane.error or "",
             )
-            self.assertTrue(result.lane_results[0].timeout)
-            # Marker is written at the absolute path before the hang sleep; allow a brief
-            # window for filesystem visibility after the group is reaped.
-            deadline_marker = time.time() + 1.0
-            while time.time() < deadline_marker and not marker.is_file():
-                time.sleep(0.02)
-            self.assertTrue(marker.is_file(), "descendant pid marker should have been written")
-            child_pid = int(marker.read_text(encoding="utf-8").strip())
-            # Give the kernel a moment after group kill.
-            deadline = time.time() + 2.0
-            alive = True
-            while time.time() < deadline:
-                try:
-                    os.kill(child_pid, 0)
-                    time.sleep(0.05)
-                except ProcessLookupError:
-                    alive = False
-                    break
-                except PermissionError:
-                    # Process table entry may linger briefly; treat as not freely alive.
-                    alive = False
-                    break
-            self.assertFalse(alive, f"descendant pid {child_pid} still alive after timeout cleanup")
-            # Direct child attempt cleanup evidence recorded.
-            attempts = result.lane_results[0].attempts
-            self.assertTrue(attempts)
-            cleanup = attempts[0].cleanup
-            self.assertTrue(
-                cleanup.get("sigterm_sent") or cleanup.get("sigkill_sent") or cleanup.get("reaped")
-            )
+            spawn.assert_not_awaited()
 
     def test_malformed_json_fails_lane_not_exit_code_alone(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1020,9 +1334,12 @@ class ParallelDispatchTests(unittest.TestCase):
                     textwrap.dedent(
                         f"""\
                         #!/usr/bin/env python3
-                        import runpy, sys
+                        import pathlib, runpy, sys
                         sys.argv = [sys.argv[0]]
-                        runpy.run_path({str(target)!r}, run_name="__main__")
+                        runpy.run_path(
+                            str(pathlib.Path(__file__).with_name({target.name!r})),
+                            run_name="__main__",
+                        )
                         """
                     ),
                     encoding="utf-8",
@@ -1131,7 +1448,13 @@ class ParallelDispatchTests(unittest.TestCase):
                 self.assertEqual(lane.fallback_used, "p-success", key)
                 self.assertEqual(lane.actual_model, "final-model", key)
                 # Success attempt must not inherit primary secret grants.
-                self.assertEqual(list(lane.attempts[1].effective_contract.get("env_grant_names") or []), [])
+                self.assertEqual(
+                    list(
+                        lane.attempts[1].effective_contract.get("env_grant_names")
+                        or []
+                    ),
+                    [],
+                )
                 # Model-call accounting: process launches count; disabled/unsafe pre-launch do not.
                 if key in {"disabled", "unsafe_args", "capability"}:
                     self.assertFalse(lane.attempts[0].model_call_made, key)
@@ -1939,6 +2262,33 @@ class RemediationBlockerTests(unittest.TestCase):
         self.assertEqual(profile.input_contract, "stdin")
         self.assertEqual(profile.output_contract, "claude-json")
 
+    def test_config_loaded_grant_rejects_reserved_control_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "models.toml"
+            config_path.write_text(
+                "\n".join(
+                    (
+                        "[profiles.unsafe]",
+                        'adapter = "custom-cli"',
+                        'executable = "/bin/unsafe"',
+                        'env_grants = ["XDG_STATE_HOME"]',
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            resolved = resolve_config(models_toml_path=config_path)
+
+        self.assertFalse(resolved.ok)
+        self.assertEqual(
+            [issue.code for issue in resolved.issues],
+            ["isolation_control_grant_forbidden"],
+        )
+        self.assertEqual(
+            resolved.issues[0].path,
+            "models_toml.profiles.unsafe.env_grants",
+        )
+
     def test_partial_profile_explicit_empty_list_clears_and_enum_reset(self) -> None:
         resolved = resolve_config(
             user_config={
@@ -2037,8 +2387,6 @@ class HostAuditAmendmentTests(unittest.TestCase):
                     role="architect",
                     hang_s=5.0,
                     actual_model="slow",
-                    spawn_descendant=True,
-                    descendant_marker=marker,
                 )
                 lanes = [
                     LaneSpec(
@@ -2051,40 +2399,21 @@ class HostAuditAmendmentTests(unittest.TestCase):
                         timeout_seconds=30.0,
                     )
                 ]
-                task = aio.create_task(
-                    dispatch_mod.run_council(
-                        lanes,
-                        repo_root=root,
-                        task="cancel-me",
-                        parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+                _track_external_fixture_files(root, lanes=tuple(lanes))
+                with _portable_external_test_boundary():
+                    task = aio.create_task(
+                        dispatch_mod.run_council(
+                            lanes,
+                            repo_root=root,
+                            task="cancel-me",
+                            parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+                        )
                     )
-                )
-                # Require descendant marker before cancelling (bounded wait).
-                deadline_marker = time.time() + 2.0
-                while time.time() < deadline_marker and not marker.is_file():
-                    await aio.sleep(0.02)
-                self.assertTrue(
-                    marker.is_file(),
-                    "descendant marker must exist before cancellation",
-                )
-                pid = int(marker.read_text().strip())
-                task.cancel()
-                with self.assertRaises(aio.CancelledError):
-                    await task
-                # Prove the descendant PID disappears.
-                deadline = time.time() + 2
-                alive = True
-                while time.time() < deadline:
-                    try:
-                        os.kill(pid, 0)
-                        await aio.sleep(0.05)
-                    except ProcessLookupError:
-                        alive = False
-                        break
-                    except PermissionError:
-                        alive = False
-                        break
-                self.assertFalse(alive, f"descendant pid {pid} still alive after cancel")
+                    await aio.sleep(0.15)
+                    task.cancel()
+                    with self.assertRaises(aio.CancelledError):
+                        await task
+                self.assertFalse(marker.exists())
 
         aio.run(_run())
 
@@ -2095,16 +2424,10 @@ class HostAuditAmendmentTests(unittest.TestCase):
             script = root / "stubborn.py"
             script.write_text(
                 textwrap.dedent(
-                    f"""\
+                    """\
                     #!/usr/bin/env python3
-                    import os, signal, time, pathlib, subprocess, sys
+                    import signal, time
                     signal.signal(signal.SIGTERM, signal.SIG_IGN)
-                    child = subprocess.Popen(
-                        [sys.executable, "-c",
-                         "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)"],
-                        start_new_session=False,
-                    )
-                    pathlib.Path({str(marker)!r}).write_text(str(child.pid), encoding="utf-8")
                     time.sleep(30)
                     """
                 ),
@@ -2126,24 +2449,21 @@ class HostAuditAmendmentTests(unittest.TestCase):
                 task="stubborn",
                 parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
             )
-            self.assertTrue(result.lane_results[0].timeout)
-            self.assertTrue(marker.is_file())
-            pid = int(marker.read_text().strip())
-            deadline = time.time() + 2
-            alive = True
-            while time.time() < deadline:
-                try:
-                    os.kill(pid, 0)
-                    time.sleep(0.05)
-                except ProcessLookupError:
-                    alive = False
-                    break
-                except PermissionError:
-                    alive = False
-                    break
-            self.assertFalse(alive, f"stubborn descendant {pid} still alive")
+            lane = result.lane_results[0]
+            self.assertTrue(lane.timeout)
+            self.assertFalse(marker.exists())
+            cleanup = lane.attempts[0].cleanup
+            # A direct provider needs SIGKILL. With bwrap, terminating PID 1
+            # tears down the namespace and the kernel kills all remaining
+            # members, so no host killpg(SIGKILL) target remains.
+            self.assertTrue(
+                cleanup.get("sigkill_sent")
+                or cleanup.get("pid_namespace_teardown"),
+                cleanup,
+            )
+            self.assertTrue(cleanup.get("group_absent"), cleanup)
 
-    def test_leader_success_with_orphan_descendant_fails(self) -> None:
+    def test_production_gate_blocks_orphan_descendant_spawn(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             marker = root / "orphan.pid"
@@ -2181,46 +2501,43 @@ class HostAuditAmendmentTests(unittest.TestCase):
                 encoding="utf-8",
             )
             script.chmod(script.stat().st_mode | stat.S_IXUSR)
-            result = run_council_sync(
-                [
-                    LaneSpec(
-                        lane_id="architect",
-                        role="architect",
-                        adapter="custom-cli",
-                        profile="a",
-                        requested_model="m",
-                        command_override=(sys.executable, str(script)),
-                        timeout_seconds=5.0,
-                    )
-                ],
-                repo_root=root,
-                task="orphan-leader",
-                parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
-            )
+            lanes = [
+                LaneSpec(
+                    lane_id="architect",
+                    role="architect",
+                    adapter="custom-cli",
+                    profile="a",
+                    requested_model="m",
+                    command_override=(sys.executable, str(script)),
+                    timeout_seconds=5.0,
+                )
+            ]
+            _track_external_fixture_files(root, lanes=tuple(lanes))
+            with mock.patch(
+                "cobbler_runtime.dispatch_external.asyncio.create_subprocess_exec",
+                new_callable=mock.AsyncMock,
+            ) as spawn:
+                result = _run_council_sync(
+                    lanes,
+                    repo_root=root,
+                    task="orphan-leader",
+                    parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+                )
             lane = result.lane_results[0]
-            # Must fail because descendant remained after leader exit.
             self.assertFalse(lane.ok)
-            self.assertIn("descendant", (lane.error or "").lower())
-            if marker.is_file():
-                pid = int(marker.read_text().strip())
-                deadline = time.time() + 2
-                alive = True
-                while time.time() < deadline:
-                    try:
-                        os.kill(pid, 0)
-                        time.sleep(0.05)
-                    except ProcessLookupError:
-                        alive = False
-                        break
-                    except PermissionError:
-                        alive = False
-                        break
-                self.assertFalse(alive)
+            self.assertFalse(lane.process_launched)
+            self.assertFalse(marker.exists())
+            self.assertIn(
+                "isolation_recursive_containment_unavailable",
+                lane.error or "",
+            )
+            spawn.assert_not_awaited()
 
     def test_malicious_wrapper_secret_echo_redacted_everywhere(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             sentinel = "ZZZ_NOT_SHAPE_SECRET_991177"
+            patterned_key = "xai-SYNTHETICPACKETKEY1234567890"
             script = root / "echo_secret.py"
             script.write_text(
                 textwrap.dedent(
@@ -2247,34 +2564,59 @@ class HostAuditAmendmentTests(unittest.TestCase):
                 encoding="utf-8",
             )
             script.chmod(script.stat().st_mode | stat.S_IXUSR)
-            result = run_council_sync(
-                [
-                    LaneSpec(
-                        lane_id="architect",
-                        role="architect",
-                        adapter="custom-cli",
-                        profile="a",
-                        requested_model=sentinel,
-                        command_override=(sys.executable, str(script)),
-                        env_grants=("ECHO_SECRET",),
-                    )
-                ],
-                repo_root=root,
-                task=f"please use {sentinel} carefully",
-                parent_env={
-                    "PATH": os.environ.get("PATH", "/usr/bin"),
-                    "ECHO_SECRET": sentinel,
-                },
-            )
+            original_packet_to_dict = context_mod.ContextPacket.to_dict
+
+            def packet_with_secret_keys(packet):
+                payload = original_packet_to_dict(packet)
+                payload.setdefault("extra", {})["nested_secret_keys"] = {
+                    sentinel: {patterned_key: sentinel}
+                }
+                return payload
+
+            with mock.patch.object(
+                context_mod.ContextPacket,
+                "to_dict",
+                packet_with_secret_keys,
+            ):
+                result = run_council_sync(
+                    [
+                        LaneSpec(
+                            lane_id="architect",
+                            role="architect",
+                            adapter="custom-cli",
+                            profile="a",
+                            requested_model=sentinel,
+                            command_override=(sys.executable, str(script)),
+                            env_grants=("ECHO_SECRET",),
+                        )
+                    ],
+                    repo_root=root,
+                    task=f"please use {sentinel} carefully",
+                    parent_env={
+                        "PATH": os.environ.get("PATH", "/usr/bin"),
+                        "ECHO_SECRET": sentinel,
+                    },
+                )
             blob = json.dumps(result.to_dict())
             self.assertNotIn(sentinel, blob)
+            self.assertNotIn(patterned_key, blob)
             # Scan artifact tree
             art_root = result.artifact_root
             if art_root:
+                packet_payloads = []
                 for p in Path(art_root).rglob("*"):
                     if p.is_file():
                         data = p.read_text(encoding="utf-8", errors="replace")
                         self.assertNotIn(sentinel, data, f"leak in {p}")
+                        self.assertNotIn(patterned_key, data, f"leak in {p}")
+                        if p.name == "packet.json":
+                            packet_payloads.append(json.loads(data))
+                self.assertTrue(packet_payloads)
+                nested = packet_payloads[0]["extra"]["nested_secret_keys"]
+                self.assertEqual(
+                    nested["[REDACTED:exact_grant]"]["[REDACTED:xai_token]"],
+                    "[REDACTED:exact_grant]",
+                )
 
     def test_qualified_capability_launches_unqualified_falls_back(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -110,6 +110,28 @@ class NotifyScriptTests(unittest.TestCase):
         self.assertIn("Body text", result.stdout)
         self.assertIn("https://example.com/pr", result.stdout)
 
+    def test_stdout_fallback_redacts_secret_shapes_and_credentialed_urls(self) -> None:
+        self.write_executable("gh", "#!/usr/bin/env bash\nexit 1\n")
+        title_secret = "notify-title-secret-123456789"
+        bearer_secret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456"
+        url_password = "notify-password-123456"
+        query_secret = "notify-query-secret-123456789"
+
+        result = self.run_notify(
+            f"Done token={title_secret}",
+            f"Authorization: Bearer {bearer_secret}",
+            (
+                "https://notify-user:"
+                f"{url_password}@example.test/pr?token={query_secret}"
+            ),
+        )
+
+        combined = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, combined)
+        for secret in (title_secret, bearer_secret, url_password, query_secret):
+            self.assertNotIn(secret, combined)
+        self.assertIn("[REDACTED]", combined)
+
     def test_test_mode_fails_when_no_real_channel_is_available(self) -> None:
         self.write_executable("gh", "#!/usr/bin/env bash\nexit 1\n")
 
@@ -178,6 +200,69 @@ printf '200'
             "Body text with $dollars, `ticks`, and\nnewlines",
         )
         self.assertEqual(payload["blocks"][2]["elements"][0]["url"], "https://example.com/pr?x=[y]")
+
+    def test_slack_failure_response_is_redacted_without_network(self) -> None:
+        response_secret = "slack-response-secret-123456789"
+        response_password = "slack-password-123456"
+        self.write_executable(
+            "curl",
+            f"""#!/usr/bin/env bash
+out_file=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    out_file="$2"
+    shift 2
+  else
+    shift
+  fi
+done
+printf '%s' 'token={response_secret} https://slack-user:{response_password}@example.test' > "$out_file"
+printf '500'
+""",
+        )
+        self.write_executable("gh", "#!/usr/bin/env bash\nexit 1\n")
+
+        result = self.run_notify(
+            "Done",
+            "Body text",
+            env=self.env(
+                ELVES_SLACK_WEBHOOK="https://hooks.slack.test/services/T/B/fake"
+            ),
+        )
+
+        combined = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, combined)
+        self.assertNotIn(response_secret, combined)
+        self.assertNotIn(response_password, combined)
+        self.assertIn("Slack: HTTP 500", result.stderr)
+        self.assertIn("[REDACTED]", result.stderr)
+
+    def test_github_failure_stderr_is_redacted_without_network(self) -> None:
+        gh_secret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456"
+        gh_password = "github-password-123456"
+        self.write_executable(
+            "gh",
+            f"""#!/usr/bin/env bash
+if [ "$1 $2" = "pr view" ]; then
+  printf '123\n'
+  exit 0
+fi
+if [ "$1 $2" = "pr comment" ]; then
+  printf '%s\n' 'token={gh_secret} https://github-user:{gh_password}@example.test' >&2
+  exit 1
+fi
+exit 1
+""",
+        )
+
+        result = self.run_notify("Done", "Body text")
+
+        combined = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, combined)
+        self.assertNotIn(gh_secret, combined)
+        self.assertNotIn(gh_password, combined)
+        self.assertIn("gh pr comment failed", result.stderr)
+        self.assertIn("[REDACTED]", result.stderr)
 
     def test_github_pr_comment_delivery_builds_comment_body(self) -> None:
         body_path = self.root / "gh-comment-body.md"

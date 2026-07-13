@@ -24,7 +24,8 @@ the runtime surfaces, and the checks that usually matter before editing.
 
 ## Reference Docs
 
-- `references/kickoff-prompt-template.md`: stage-then-launch prompt structure.
+- `references/kickoff-prompt-template.md`: recommended single-kickoff prompts plus the explicitly
+  labeled legacy two-call alternative.
 - `references/survival-guide-template.md`: run-control, Stop Gate, active compute, and launch
   readiness template.
 - `references/execution-log-template.md`: batch logging and regression-attestation template.
@@ -42,9 +43,14 @@ the runtime surfaces, and the checks that usually matter before editing.
 
 ## Scripts
 
-- `scripts/check_repo_consistency.py`: narrow cross-file drift checker for high-value guardrails.
+- `scripts/verify_repo.py`: canonical aggregate repository verification entrypoint; combines
+  consistency, release, Python/shell/JSON, installed-link, test, and final-readiness checks.
+- `scripts/check_repo_consistency.py` plus `consistency_engine.py` / `consistency_policy.py`:
+  cross-file drift engine and high-value guardrail policy.
 - `scripts/sync_installed_skills.py`: syncs the installable runtime surface into Claude/Codex skill
   directories.
+- `scripts/installed_bundle_smoke.py`: verifies both installed host bundles and rejects broken
+  installed-only Markdown links.
 - `scripts/install_doctor.py`: advisory install/update diagnostics for startup and doctor mode.
 - `scripts/release_checklist.py`: read-only release sweep for version alignment, changelog
   promotion, current-version examples, and changed human-facing docs.
@@ -55,26 +61,30 @@ the runtime surfaces, and the checks that usually matter before editing.
 - `scripts/preflight_worktree.py`: explicit dedicated-worktree helper used by
   `./scripts/preflight.sh --create-worktree`.
 - `scripts/validate_survival_guide.py`: advisory validator for required survival-guide sections.
-- `scripts/workspace_guard.py`: optional repo-only owned-tip guard prototype for candidate write
-  commands.
+- `scripts/elves_landing_check.py`: acceptance/readiness proof gate for a live session.
+- `scripts/cobbler_agents.py`: thin CLI for onboarding, routing, sessions, trusted full-run
+  supervision, legacy bounded implementation, and untrusted writer leases.
+- `scripts/cobbler_runtime/`: typed provider-neutral runtime for routing, isolation, delegated Git,
+  full-run supervision, evidence review, sessions, storage, and public API snapshots.
+- `scripts/openrouter_lens.py`: optional read-only OpenRouter role wrapper.
+- `scripts/workspace_guard.py`: installed optional owned-tip guard for candidate write commands.
 - `scripts/notify.sh`: Slack/custom-command/GitHub fallback notification helper.
 
 ## Tests
 
-- `tests/test_check_repo_consistency.py`: unit tests for cross-file phrase and guardrail checks.
-- `tests/test_install_doctor.py`: tests for release-cache and install-diagnostic helpers.
-- `tests/test_notify_sh.py`: tests for notification helper channels and environment handling.
-- `tests/test_preflight_sh.py`: smoke tests for preflight launch-readiness behavior.
-- `tests/test_preflight_worktree.py`: tests for dedicated-worktree dry-run, create mode, branch
-  collisions, base-ref handling, and generated paths.
-- `tests/test_release_checklist.py`: tests for release-sweep parsing and failure modes.
-- `tests/test_pr_portfolio_report.py`: tests for PR selection, check classification, and report
-  formatting.
-- `tests/test_sync_installed_skills.py`: tests for managed install sync, alias safety, config
-  template install, and repo-only cleanup.
-- `tests/test_validate_survival_guide.py`: tests for advisory survival-guide validation.
-- `tests/test_workspace_guard.py`: tests for command classification, advisory/strict modes, and
-  owned-tip recording.
+- Repository/release/install: `test_check_repo_consistency.py`, `test_verify_repo.py`,
+  `test_release_checklist.py`, `test_sync_installed_skills.py`, `test_installed_bundle_smoke.py`,
+  `test_install_doctor.py`, and `test_architecture_evidence.py`.
+- Cobbler routing/config: `test_cobbler_agents_config.py`, `test_cobbler_agents_dispatch.py`,
+  `test_dispatch_isolation.py`, `test_cobbler_native_only_fallback.py`,
+  `test_cobbler_agents_onboard.py`, `test_cobbler_agents_setup.py`,
+  `test_cobbler_agents_sessions.py`, and `test_cobbler_executables.py`.
+- Worker/supervisor/Git: `test_cobbler_agents_implement.py`, `test_full_run_supervisor.py`,
+  `test_cobbler_agents_leases.py`, `test_worker_cli_lifecycle.py`,
+  `test_storage_isolation_git.py`, and `test_public_api_snapshot.py`.
+- Operator surfaces: `test_elves_landing_check.py`, `test_preflight_sh.py`,
+  `test_preflight_worktree.py`, `test_validate_survival_guide.py`, `test_workspace_guard.py`,
+  `test_notify_sh.py`, `test_pr_portfolio_report.py`, and `test_openrouter_lens.py`.
 
 ## Common Survey Paths
 
@@ -97,17 +107,17 @@ the runtime surfaces, and the checks that usually matter before editing.
 
 ## Validation Baseline
 
-For this repo, the usual local proof set is:
+For this repo, use the canonical aggregate verifier instead of maintaining a duplicate command
+list:
 
 ```bash
-python3 scripts/check_repo_consistency.py
-python3 -m unittest discover -v
-python3 -m unittest discover -s tests -p 'test_*.py'
-python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/preflight_worktree.py scripts/pr_portfolio_report.py scripts/release_checklist.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py scripts/workspace_guard.py
-bash -n scripts/preflight.sh scripts/notify.sh
-python3 -m json.tool config.json.example >/dev/null
-git diff --check
+python3 scripts/verify_repo.py --version 2.1.0
 ```
 
-Feature branches can add more scripts or tests. Prefer running focused new tests plus the baseline
-before opening or updating a PR.
+Before final readiness on an active run, use:
+
+```bash
+python3 scripts/verify_repo.py --version 2.1.0 --final-readiness --session <session-path>
+```
+
+The aggregate verifier includes `git diff --check`; focused tests remain useful while iterating.

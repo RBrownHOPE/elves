@@ -10,8 +10,11 @@ Commands:
   session list|probe|resume  Exact persistent session registry helpers
   worker prepare|audit|export|refresh
                              Single external writer lease lifecycle (host-owned)
+  implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop
+                             Trusted persistent external full-run supervisor
   implement prepare|launch|gate|resume-batch|status
-                             Optional external batch implementer (e.g. Grok Build under host import)
+                             Legacy bounded external batch implementer
+  implement rollback-ref    Host-owned run/session-scoped safety ref
   setup [--json]             Inventory tools and write local .elves/models.toml
   onboard plan|show|apply|probe
                              Model onboarding: interview packet, update routes, probe
@@ -23,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -40,9 +44,17 @@ from cobbler_runtime.adapters import (  # noqa: E402
 )
 from cobbler_runtime.audit import (  # noqa: E402
     audit_lease_turn,
+    build_audit_evidence,
+    build_worker_pre_snapshot,
+    build_worker_credential_grant_context,
     export_binary_patches,
     host_apply_check,
-    pre_turn_snapshots,
+    host_import_patches,
+    normalize_worker_credential_grant_names,
+    validate_worker_pre_snapshot,
+    verify_patch_manifest,
+    verify_worker_credential_grant_context,
+    worker_credential_grant_context_digest,
 )
 from cobbler_runtime.capabilities import (  # noqa: E402
     doctor_inventory,
@@ -58,7 +70,16 @@ from cobbler_runtime.dispatch import (  # noqa: E402
     run_council_sync,
     run_lightweight_review_sync,
 )
-from cobbler_runtime.leases import LeaseStore, build_write_task_packet  # noqa: E402
+from cobbler_runtime.context import (  # noqa: E402
+    is_secret_env_name,
+    redact_structure,
+    redact_text,
+)
+from cobbler_runtime.leases import (  # noqa: E402
+    LIVE_LEASE_STATES,
+    LeaseStore,
+    build_write_task_packet,
+)
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.sessions import SessionRegistry  # noqa: E402
 from cobbler_runtime.implement import (  # noqa: E402
@@ -68,6 +89,16 @@ from cobbler_runtime.implement import (  # noqa: E402
     run_gate,
     status_payload,
 )
+from cobbler_runtime.full_run import (  # noqa: E402
+    _assert_bounded_json_structure,
+    _loads_bounded_json,
+    launch_full_run,
+    logs_full_run,
+    monitor_full_run,
+    prepare_full_run,
+    stop_full_run,
+)
+from cobbler_runtime.delegated_git import create_rollback_ref  # noqa: E402
 from cobbler_runtime.setup import (  # noqa: E402
     preferences_from_flags,
     run_setup,
@@ -78,6 +109,91 @@ from cobbler_runtime.onboard import (  # noqa: E402
     probe_routes,
     show_onboarding,
 )
+from cobbler_runtime.storage import (  # noqa: E402
+    StorageError,
+    atomic_write_json,
+    read_repo_regular_bytes,
+)
+
+
+WORKER_SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024
+
+
+def _secret_env_values() -> frozenset[str]:
+    return frozenset(
+        value
+        for name, value in os.environ.items()
+        if is_secret_env_name(name) and isinstance(value, str) and len(value) >= 8
+    )
+
+
+def _redacted_storage_issue(error: StorageError) -> dict[str, Any]:
+    message = redact_text(
+        error.message,
+        exact_values=_secret_env_values(),
+    ).text
+    return {
+        "code": f"storage_{error.code}",
+        "message": message,
+        "category": "storage",
+    }
+
+
+def _emit_storage_error(
+    args: argparse.Namespace,
+    error: StorageError,
+    *,
+    command: str,
+) -> int:
+    issue = _redacted_storage_issue(error)
+    payload = {
+        "ok": False,
+        "issues": [issue],
+        "mutated_repo": False,
+        "model_calls_made": False,
+    }
+    if getattr(args, "json", False):
+        return _emit_json(payload, exit_code=1)
+    print(
+        f"{command}: FAILED [{issue['code']}] {issue['message']}",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _read_worker_snapshot(repo_root: Path, path: Path) -> dict[str, Any]:
+    """Read one bounded store snapshot without following links."""
+    raw = read_repo_regular_bytes(
+        repo_root,
+        path,
+        max_bytes=WORKER_SNAPSHOT_MAX_BYTES,
+    )
+    try:
+        payload = _loads_bounded_json(
+            raw.decode("utf-8"),
+            label="worker snapshot",
+        )
+        _assert_bounded_json_structure(payload, label="worker_snapshot")
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError, StorageError) as exc:
+        raise StorageError(
+            "malformed_json",
+            f"Worker snapshot at {path} exceeds canonical JSON resource limits or is malformed",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise StorageError(
+            "malformed_json",
+            f"Worker snapshot must be a JSON object: {path}",
+        )
+    return payload
+
+
+def _write_worker_snapshot(
+    repo_root: Path,
+    path: Path,
+    payload: dict[str, Any],
+) -> None:
+    """Atomically publish one repo-anchored worker snapshot."""
+    atomic_write_json(path, payload, repo_root=repo_root)
 
 
 def _repo_root_from_args(args: argparse.Namespace) -> Path:
@@ -86,10 +202,51 @@ def _repo_root_from_args(args: argparse.Namespace) -> Path:
     return Path.cwd().resolve()
 
 
-def _emit_json(payload: dict[str, Any], *, exit_code: int) -> int:
-    json.dump(payload, sys.stdout, indent=2, sort_keys=True)
+def _emit_json(
+    payload: dict[str, Any],
+    *,
+    exit_code: int,
+    exact_secret_values: frozenset[str] | None = None,
+) -> int:
+    safe = redact_structure(
+        payload,
+        exact_values=(
+            exact_secret_values
+            if exact_secret_values is not None
+            else _secret_env_values()
+        ),
+    )
+    json.dump(safe, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
     return exit_code
+
+
+def _redacted_validation_issue(issue: ValidationIssue) -> dict[str, Any]:
+    payload = redact_structure(
+        issue.to_dict(),
+        exact_values=_secret_env_values(),
+    )
+    return dict(payload) if isinstance(payload, dict) else issue.to_dict()
+
+
+def _reject_live_worker_lease(
+    store: LeaseStore,
+    lease_id: str,
+    reason: object,
+) -> None:
+    """Best-effort terminalization after a partially published worker transition."""
+    safe_reason = redact_text(
+        str(reason),
+        exact_values=_secret_env_values(),
+    ).text
+    try:
+        lease = store.get(lease_id)
+        if lease.state in LIVE_LEASE_STATES:
+            store.reject(lease_id, safe_reason or "worker lifecycle transition failed")
+    except Exception:
+        # Preserve the primary exception. A secondary storage failure is surfaced
+        # by subsequent strict store reads and must not replace the root cause.
+        pass
 
 
 def _emit_text_validate(payload: dict[str, Any]) -> int:
@@ -147,20 +304,35 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     repo_root = _repo_root_from_args(args)
     resolved = resolve_from_repo(repo_root)
     inventory = doctor_inventory(resolved.profiles)
-    registry = SessionRegistry(repo_root)
-    sessions = [rec.to_dict() for rec in registry.list_sessions()]
+    try:
+        registry = SessionRegistry.open_readonly(repo_root)
+    except StorageError as error:
+        return _emit_storage_error(args, error, command="doctor")
+    session_issue: dict[str, Any] | None = None
+    try:
+        sessions = [rec.to_dict() for rec in registry.list_sessions_strict()]
+    except ValidationIssue as issue:
+        sessions = []
+        session_issue = _redacted_validation_issue(issue)
+    issues = [
+        _redacted_validation_issue(issue) for issue in resolved.issues
+    ]
+    if session_issue is not None:
+        issues.append(session_issue)
+    doctor_ok = resolved.ok and session_issue is None
     payload: dict[str, Any] = {
-        "ok": resolved.ok,
+        "ok": doctor_ok,
         "repo_root": str(repo_root),
         "model_calls_made": False,
         "mutated_repo": False,
+        "read_only": True,
         "adapters": inventory["adapters"],
         "adapter_registry": registry_snapshot(),
         "capabilities": summarize_capabilities(resolved.profiles),
         "roles": {name: route.to_dict() for name, route in resolved.roles.items()},
         "sessions": sessions,
         "session_count": len(sessions),
-        "issues": [issue.to_dict() for issue in resolved.issues],
+        "issues": issues,
         "warnings": list(resolved.warnings),
         "local_models_toml": models_toml_is_local_only(repo_root),
         "notes": inventory.get("notes", [])
@@ -172,12 +344,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         ],
     }
     if args.json:
-        return _emit_json(payload, exit_code=0 if resolved.ok else 1)
+        return _emit_json(payload, exit_code=0 if doctor_ok else 1)
 
     print("cobbler doctor")
     print(f"  repo_root: {repo_root}")
     print(f"  model_calls_made: false")
-    print(f"  ok: {resolved.ok}")
+    print(f"  ok: {doctor_ok}")
     print(f"  session_count: {len(sessions)}")
     print("  adapters:")
     for name, info in sorted(payload["adapters"].items()):
@@ -186,27 +358,59 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             f"session_support={info.get('session_support', {}).get('status')} "
             f"remaining_quota={info.get('remaining_quota')}"
         )
-    if resolved.issues:
+    if issues:
         print("  issues:")
-        for issue in resolved.issues:
-            print(f"    - [{issue.code}] {issue.message}")
-    return 0 if resolved.ok else 1
+        for issue in issues:
+            print(f"    - [{issue['code']}] {issue['message']}")
+    return 0 if doctor_ok else 1
 
 
 def cmd_session(args: argparse.Namespace) -> int:
     """Exact session registry helpers (list / probe / resume argv)."""
     repo_root = _repo_root_from_args(args)
-    registry = SessionRegistry(repo_root)
     action = args.session_action
 
+    if action in {"list", "probe"}:
+        # Truly read-only: never create runtime directories.
+        try:
+            registry = SessionRegistry.open_readonly(repo_root)
+        except StorageError as error:
+            return _emit_storage_error(args, error, command=f"session {action}")
+    else:
+        try:
+            registry = SessionRegistry(repo_root)
+        except StorageError as error:
+            return _emit_storage_error(args, error, command=f"session {action}")
+
     if action == "list":
-        records = [rec.to_dict() for rec in registry.list_sessions()]
+        try:
+            records = [rec.to_dict() for rec in registry.list_sessions_strict()]
+        except ValidationIssue as issue:
+            safe_issue = _redacted_validation_issue(issue)
+            payload = {
+                "ok": False,
+                "repo_root": str(repo_root),
+                "sessions": [],
+                "count": 0,
+                "issues": [safe_issue],
+                "mutated_repo": False,
+                "read_only": True,
+            }
+            if args.json:
+                return _emit_json(payload, exit_code=1)
+            print(
+                f"session list: FAILED [{safe_issue['code']}] "
+                f"{safe_issue['message']}",
+                file=sys.stderr,
+            )
+            return 1
         payload = {
             "ok": True,
             "repo_root": str(repo_root),
             "sessions": records,
             "count": len(records),
             "mutated_repo": False,
+            "read_only": True,
         }
         if args.json:
             return _emit_json(payload, exit_code=0)
@@ -222,12 +426,22 @@ def cmd_session(args: argparse.Namespace) -> int:
         try:
             rec = registry.get(args.session_id)
         except ValidationIssue as issue:
-            payload = {"ok": False, "issues": [issue.to_dict()]}
+            safe_issue = _redacted_validation_issue(issue)
+            payload = {"ok": False, "issues": [safe_issue], "read_only": True}
             if args.json:
                 return _emit_json(payload, exit_code=1)
-            print(f"session probe: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+            print(
+                f"session probe: FAILED [{safe_issue['code']}] "
+                f"{safe_issue['message']}",
+                file=sys.stderr,
+            )
             return 1
-        payload = {"ok": True, "session": rec.to_dict(), "mutated_repo": False}
+        payload = {
+            "ok": True,
+            "session": rec.to_dict(),
+            "mutated_repo": False,
+            "read_only": True,
+        }
         if args.json:
             return _emit_json(payload, exit_code=0)
         print(f"session probe: {rec.session_id}")
@@ -240,15 +454,215 @@ def cmd_session(args: argparse.Namespace) -> int:
         return 0
 
     if action == "resume":
-        # Build exact resume argv only — does not launch paid inference.
+        # Exact registered record only — never construct argv for unregistered IDs.
+        try:
+            rec, record_storage_kind = registry.get_with_storage_kind(args.session_id)
+        except ValidationIssue as issue:
+            safe_issue = _redacted_validation_issue(issue)
+            payload = {"ok": False, "issues": [safe_issue]}
+            if args.json:
+                return _emit_json(payload, exit_code=1)
+            print(
+                f"session resume: FAILED [{safe_issue['code']}] "
+                f"{safe_issue['message']}",
+                file=sys.stderr,
+            )
+            return 1
+        adapter = args.adapter or rec.harness
+        profile = args.profile or rec.profile or adapter
+        model = args.model or rec.actual_model or rec.requested_model
+        cwd = args.cwd or rec.cwd
+        # Reject contradictory overrides.
+        if args.adapter and rec.harness and args.adapter != rec.harness:
+            issue = ValidationIssue(
+                "session_resume_adapter_mismatch",
+                f"Override adapter `{args.adapter}` != registered `{rec.harness}`",
+            )
+            payload = {"ok": False, "issues": [issue.to_dict()]}
+            if args.json:
+                return _emit_json(payload, exit_code=1)
+            print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+            return 1
+        if getattr(args, "require_write", False):
+            if record_storage_kind != "canonical":
+                issue = ValidationIssue(
+                    "session_legacy_read_only",
+                    "Legacy session records cannot qualify for write reuse until explicitly migrated",
+                    path=str(registry.root),
+                )
+                safe_issue = _redacted_validation_issue(issue)
+                payload = {"ok": False, "issues": [safe_issue]}
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(
+                    f"session resume: FAILED [{safe_issue['code']}] "
+                    f"{safe_issue['message']}",
+                    file=sys.stderr,
+                )
+                return 1
+            # Observations must come from flags/probe — never substitute stored values.
+            from cobbler_runtime.sessions import (  # noqa: PLC0415
+                SessionLifecycle,
+                evaluate_session_continuity,
+                recompute_context_digest,
+            )
+
+            if (
+                rec.lifecycle != SessionLifecycle.ACTIVE
+                or rec.write_reuse_blocked
+                or rec.pending_context_digest
+                or rec.pending_source_head
+                or rec.rehydration_reason
+                or not rec.context_components
+            ):
+                issue = ValidationIssue(
+                    "session_write_reuse_unqualified",
+                    "Write reuse requires an exact ACTIVE session with persisted "
+                    "canonical digest inputs and no drift/rehydration state",
+                    hint=f"lifecycle={rec.lifecycle.value}",
+                )
+                payload = {"ok": False, "issues": [issue.to_dict()]}
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+                return 1
+
+            observed_model = getattr(args, "model", None) or None
+            observed_cwd = getattr(args, "cwd", None) or None
+            observed_worktree = getattr(args, "worktree", None) or None
+            observed_parent = getattr(args, "parent_id", None) or None
+            observed_head = getattr(args, "source_head", None) or getattr(
+                args, "head", None
+            )
+            observed_adapter = getattr(args, "adapter", None) or None
+            observed_profile = getattr(args, "profile", None) or None
+            missing = []
+            for field_name, value in (
+                ("adapter", observed_adapter),
+                ("profile", observed_profile),
+                ("model", observed_model),
+                ("cwd", observed_cwd),
+                ("worktree", observed_worktree),
+                ("parent_id", observed_parent),
+                ("source_head", observed_head),
+            ):
+                if not value:
+                    missing.append(field_name)
+            if missing:
+                issue = ValidationIssue(
+                    "session_write_reuse_unqualified",
+                    "Write reuse refused: missing observations from flags/probe "
+                    f"(required: {', '.join(missing)}); never substitute stored values",
+                    hint=",".join(missing),
+                )
+                payload = {"ok": False, "issues": [issue.to_dict()]}
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+                return 1
+            if observed_adapter and rec.harness and observed_adapter != rec.harness:
+                issue = ValidationIssue(
+                    "session_resume_adapter_mismatch",
+                    f"Observed adapter `{observed_adapter}` != registered `{rec.harness}`",
+                )
+                payload = {"ok": False, "issues": [issue.to_dict()]}
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+                return 1
+            if observed_profile and rec.profile and observed_profile != rec.profile:
+                issue = ValidationIssue(
+                    "session_resume_profile_mismatch",
+                    f"Observed profile `{observed_profile}` != registered `{rec.profile}`",
+                )
+                payload = {"ok": False, "issues": [issue.to_dict()]}
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+                return 1
+            if observed_model and rec.actual_model and observed_model != rec.actual_model:
+                if rec.requested_model and observed_model != rec.requested_model:
+                    issue = ValidationIssue(
+                        "session_resume_model_mismatch",
+                        f"Contradictory model: observed={observed_model} "
+                        f"recorded actual={rec.actual_model} requested={rec.requested_model}",
+                    )
+                    payload = {"ok": False, "issues": [issue.to_dict()]}
+                    if args.json:
+                        return _emit_json(payload, exit_code=1)
+                    print(
+                        f"session resume: FAILED [{issue.code}] {issue.message}",
+                        file=sys.stderr,
+                    )
+                    return 1
+            digest = recompute_context_digest(
+                rec,
+                actual_model=observed_model,
+                parent_id=observed_parent,
+                cwd=observed_cwd,
+                worktree=observed_worktree,
+                source_head=observed_head,
+            )
+            if not rec.context_digest or digest.digest != rec.context_digest:
+                issue = ValidationIssue(
+                    "session_write_reuse_unqualified",
+                    "Write reuse refused: canonical on-disk context digest changed",
+                )
+                payload = {
+                    "ok": False,
+                    "issues": [issue.to_dict()],
+                    "recorded_digest": rec.context_digest,
+                    "observed_digest": digest.digest,
+                }
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+                return 1
+            continuity = evaluate_session_continuity(
+                rec,
+                observed_model=observed_model,
+                observed_cwd=observed_cwd,
+                observed_worktree=observed_worktree,
+                observed_parent_id=observed_parent,
+                observed_head=observed_head,
+                current_digest=digest,
+            )
+            if (
+                not continuity.ok
+                or continuity.expected_change
+                or continuity.rehydration is not None
+                or continuity.write_reuse_blocked
+                or rec.write_reuse_blocked
+            ):
+                issue = ValidationIssue(
+                    "session_write_reuse_unqualified",
+                    "Write reuse refused by exact registry continuity: "
+                    + ("; ".join(continuity.reasons) or rec.block_reason or "blocked"),
+                )
+                payload = {
+                    "ok": False,
+                    "issues": [issue.to_dict()],
+                    "continuity": continuity.to_dict()
+                    if hasattr(continuity, "to_dict")
+                    else {"reasons": continuity.reasons},
+                }
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+                return 1
+            # Use observed (flag) values only for resume argv when require_write.
+            adapter = observed_adapter or adapter
+            profile = observed_profile or profile
+            model = observed_model or model
+            cwd = observed_cwd or cwd
         try:
             inv = build_session_resume_invocation(
-                adapter=args.adapter,
-                profile=args.profile or args.adapter,
+                adapter=adapter,
+                profile=profile,
                 session_id=args.session_id,
                 executable=args.executable,
-                requested_model=args.model,
-                cwd=args.cwd,
+                requested_model=model,
+                cwd=cwd,
             )
         except ValidationIssue as issue:
             payload = {"ok": False, "issues": [issue.to_dict()]}
@@ -260,10 +674,11 @@ def cmd_session(args: argparse.Namespace) -> int:
             "ok": True,
             "session_id": args.session_id,
             "invocation": inv.to_dict(),
+            "registered": True,
             "launched": False,
             "mutated_repo": False,
             "notes": [
-                "Exact session resume argv only; no process was launched",
+                "Exact registered session resume argv only; no process was launched",
                 "Verify CWD/worktree registration before any write role",
             ],
         }
@@ -285,6 +700,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
 
     base_roles = None
     existing_profiles = None
+    existing_top_level = None
     session_mode = args.session_mode or "ephemeral"
     sharing_policy = args.sharing_policy or "local-only"
     document_owner = "host-coordinator"
@@ -298,6 +714,8 @@ def cmd_setup(args: argparse.Namespace) -> int:
         state = load_models_toml_state(repo_root)
         base_roles = state.roles
         existing_profiles = state.profiles
+        if state.parse_ok:
+            existing_top_level = state.unknown_top_level
         session_mode = args.session_mode or state.session_mode
         sharing_policy = args.sharing_policy or state.sharing_policy
         document_owner = state.document_owner
@@ -330,6 +748,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
             force_toml=bool(args.force),
             run_smoke=bool(args.smoke),
             existing_profiles=existing_profiles,
+            existing_top_level=existing_top_level,
         )
     except ValidationIssue as issue:
         payload = {"ok": False, "issues": [issue.to_dict()], "credentials_printed": False}
@@ -460,14 +879,44 @@ def cmd_onboard(args: argparse.Namespace) -> int:
 def cmd_worker(args: argparse.Namespace) -> int:
     """Writer lease prepare/audit/export/refresh — host-owned lifecycle."""
     repo_root = _repo_root_from_args(args)
-    store = LeaseStore(repo_root)
     action = args.worker_action
 
     try:
+        store = LeaseStore(repo_root)
         if action == "prepare":
+            grant_names = normalize_worker_credential_grant_names(
+                list(getattr(args, "grant_env", None) or [])
+            )
+            grant_context = build_worker_credential_grant_context(
+                args.lease_id,
+                grant_names,
+            )
+            grant_context_digest = worker_credential_grant_context_digest(
+                grant_context
+            )
             profile = grok_write_profile(args.grok_version)
             if args.sandbox_profile == "workspace":
                 profile = workspace_sandbox_write_profile()
+            # Host-issued qualification: private evidence file or registry id (not booleans).
+            qualification = None
+            qual_file = getattr(args, "qualification_file", None)
+            qual_id = getattr(args, "qualification_id", None)
+            if qual_file:
+                qpath = Path(qual_file)
+                qualification = json.loads(qpath.read_text(encoding="utf-8"))
+            elif qual_id:
+                # Store-owned digest path under leases/qualifications/
+                qpath = store.snapshot_dir(qual_id) / "qualification.json"
+                try:
+                    qualification = _read_worker_snapshot(repo_root, qpath)
+                except StorageError as exc:
+                    if exc.code != "not_found":
+                        raise
+                    raise ValidationIssue(
+                        "qualification_id_not_found",
+                        f"No host qualification record for id `{qual_id}`",
+                        path=str(qpath),
+                    ) from exc
             lease = store.prepare(
                 lease_id=args.lease_id,
                 host_checkout=Path(args.host_checkout),
@@ -481,20 +930,32 @@ def cmd_worker(args: argparse.Namespace) -> int:
                 detached_commits_permitted=profile.detached_commits_permitted,
                 write_profile_qualified=profile.qualified and not args.unqualified,
                 grok_version=args.grok_version,
+                qualification_evidence=qualification,
+                credential_grant_names=grant_names,
+                credential_grant_context_digest=grant_context_digest,
             )
-            store.activate(lease.lease_id)
-            # Capture pre-turn snapshots beside lease record for later audit.
-            snaps = pre_turn_snapshots(Path(lease.worker_checkout))
-            snap_path = Path(repo_root) / ".elves" / "runtime" / "leases" / f"{lease.lease_id}.pre.json"
-            snap_path.write_text(json.dumps(snaps, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            inv = None
-            if args.adapter == "grok-build":
-                inv = build_write_resume_invocation(
-                    adapter="grok-build",
-                    session_id=args.session_id,
-                    cwd=args.worker_checkout,
-                    version=args.grok_version,
-                ).to_dict()
+            try:
+                # Publish all prepare-time evidence before ACTIVE authority. Any
+                # failure terminalizes the already-published PREPARED record so
+                # exclusivity cannot deadlock future work.
+                snaps = build_worker_pre_snapshot(lease)
+                snap_dir = store.snapshot_dir(lease.lease_id)
+                grant_context_path = snap_dir / "credential_grants.json"
+                _write_worker_snapshot(repo_root, grant_context_path, grant_context)
+                snap_path = snap_dir / "pre.json"
+                _write_worker_snapshot(repo_root, snap_path, snaps)
+                inv = None
+                if args.adapter == "grok-build":
+                    inv = build_write_resume_invocation(
+                        adapter="grok-build",
+                        session_id=args.session_id,
+                        cwd=args.worker_checkout,
+                        version=args.grok_version,
+                    ).to_dict()
+                store.activate(lease.lease_id)
+            except BaseException as exc:
+                _reject_live_worker_lease(store, lease.lease_id, exc)
+                raise
             payload = {
                 "ok": True,
                 "lease": store.get(lease.lease_id).to_dict(),
@@ -509,61 +970,242 @@ def cmd_worker(args: argparse.Namespace) -> int:
 
         if action == "audit":
             lease = store.get(args.lease_id)
-            store.mark_auditing(lease.lease_id)
-            pre_path = (
-                Path(repo_root) / ".elves" / "runtime" / "leases" / f"{args.lease_id}.pre.json"
+            # Capture once so the same exact grant set protects the live audit,
+            # immutable evidence (including pre-snapshots), and CLI response.
+            supplied_grant_names = normalize_worker_credential_grant_names(
+                list(getattr(args, "grant_env", None) or [])
             )
-            pre = {}
-            if pre_path.is_file():
-                pre = json.loads(pre_path.read_text(encoding="utf-8"))
-            result = audit_lease_turn(
-                store.get(args.lease_id),
-                pre_refs_digest=pre.get("refs_digest"),
-                pre_remotes=pre.get("remotes"),
-                pre_config=pre.get("config"),
-                pre_hooks=pre.get("hooks"),
-                pre_common_config=pre.get("common_config"),
-                pre_common_hooks=pre.get("common_hooks"),
-                observed_commands=list(args.observed_command or []),
+            try:
+                if lease.credential_grant_context_digest is None:
+                    if supplied_grant_names or lease.credential_grant_names:
+                        raise ValidationIssue(
+                            "worker_credential_context_missing",
+                            "Lease has no prepare-time credential grant authority",
+                        )
+                    verified_grant_values = frozenset()
+                else:
+                    grant_context_path = (
+                        store.snapshot_dir(args.lease_id) / "credential_grants.json"
+                    )
+                    grant_context = _read_worker_snapshot(
+                        repo_root,
+                        grant_context_path,
+                    )
+                    verified_grant_values = verify_worker_credential_grant_context(
+                        lease,
+                        grant_context,
+                        supplied_grant_names,
+                    )
+            except BaseException as exc:
+                _reject_live_worker_lease(store, lease.lease_id, exc)
+                raise
+            exact_secret_values = frozenset(
+                set(_secret_env_values()) | set(verified_grant_values)
             )
-            if not result.ok:
-                store.reject(args.lease_id, "; ".join(result.reasons))
-            payload = {"ok": result.ok, "audit": result.to_dict(), "mutated_repo": False}
+            pre_path = store.snapshot_dir(args.lease_id) / "pre.json"
+            try:
+                # Missing or unsafe pre.json is terminal for this lease: audit
+                # cannot be retried honestly without prepare-time evidence.
+                pre = validate_worker_pre_snapshot(
+                    lease,
+                    _read_worker_snapshot(repo_root, pre_path),
+                )
+            except BaseException as exc:
+                _reject_live_worker_lease(store, lease.lease_id, exc)
+                if not isinstance(exc, StorageError) or exc.code != "not_found":
+                    raise
+                raise ValidationIssue(
+                    "audit_missing_pre_snapshot",
+                    "Missing pre.json snapshot; refuse audit without prepare-time evidence",
+                    path=str(pre_path),
+                ) from exc
+            try:
+                store.mark_auditing(lease.lease_id)
+                result = audit_lease_turn(
+                    store.get(args.lease_id),
+                    pre_refs_digest=pre.get("refs_digest"),
+                    pre_remotes=pre.get("remotes"),
+                    pre_config=pre.get("config"),
+                    pre_hooks=pre.get("hooks"),
+                    pre_common_config=pre.get("common_config"),
+                    pre_common_hooks=pre.get("common_hooks"),
+                    pre_ref_storage=pre.get("ref_storage"),
+                    pre_git_dir=pre.get("git_dir"),
+                    pre_git_common_dir=pre.get("git_common_dir"),
+                    pre_authority=pre.get("authority"),
+                    pre_static_control=pre.get("static_control"),
+                    observed_commands=list(args.observed_command or []),
+                    exact_secret_values=exact_secret_values,
+                )
+                if not result.ok:
+                    store.reject(args.lease_id, "; ".join(result.reasons))
+                else:
+                    # Persist immutable evidence + atomic audited_pass transition.
+                    evidence = build_audit_evidence(
+                        result,
+                        pre_snapshots=pre,
+                        exact_secret_values=exact_secret_values,
+                    )
+                    store.mark_audited_pass(args.lease_id, evidence=evidence)
+            except BaseException as exc:
+                _reject_live_worker_lease(store, lease.lease_id, exc)
+                raise
+            payload = {
+                "ok": result.ok,
+                "audit": result.to_dict(exact_secret_values=exact_secret_values),
+                "mutated_repo": False,
+            }
             if args.json:
-                return _emit_json(payload, exit_code=0 if result.ok else 1)
+                return _emit_json(
+                    payload,
+                    exit_code=0 if result.ok else 1,
+                    exact_secret_values=exact_secret_values,
+                )
             print(f"worker audit: {'OK' if result.ok else 'FAILED'}")
-            for reason in result.reasons:
-                print(f"  - {reason}")
+            if result.reasons:
+                # Never send free-form worker/Git material to a terminal logging
+                # sink. The JSON mode above applies the exact-value redactor and
+                # is the explicit structured diagnostic surface.
+                print(
+                    f"  - {len(result.reasons)} audit finding(s); "
+                    "details omitted from text output (use --json for redacted details)"
+                )
             return 0 if result.ok else 1
 
         if action == "export":
             lease = store.get(args.lease_id)
             out = Path(args.output_dir)
-            audit = audit_lease_turn(lease)
-            if not audit.ok:
-                store.reject(args.lease_id, "; ".join(audit.reasons))
-                payload = {"ok": False, "audit": audit.to_dict()}
-                if args.json:
-                    return _emit_json(payload, exit_code=1)
-                print("worker export: FAILED audit", file=sys.stderr)
-                return 1
+            # Load persisted audit evidence; never rerun a weaker audit without snapshots.
+            evidence_path = store.snapshot_dir(args.lease_id) / "audit_evidence.json"
+            try:
+                evidence = _read_worker_snapshot(repo_root, evidence_path)
+            except StorageError as exc:
+                if exc.code != "not_found":
+                    raise
+                raise ValidationIssue(
+                    "export_missing_audit_evidence",
+                    "Export requires persisted audit evidence from an AUDITED_PASS lease",
+                    path=str(evidence_path),
+                ) from exc
+            required_evidence_fields = {
+                "ok",
+                "lease_id",
+                "worker_tip",
+                "base_head",
+                "commit_chain",
+                "audited_git_surfaces",
+                "patch_transport_digests",
+                "evidence_digest",
+            }
+            missing_evidence = sorted(required_evidence_fields - set(evidence))
+            if missing_evidence:
+                raise ValidationIssue(
+                    "export_evidence_incomplete",
+                    "Persisted audit evidence missing fields: "
+                    + ", ".join(missing_evidence),
+                )
+            if not evidence.get("ok") or lease.state.value not in {
+                "audited_pass",
+                "exported",
+                "apply_checked",
+            }:
+                raise ValidationIssue(
+                    "export_requires_audited_pass",
+                    f"Export refused: lease state={lease.state.value} evidence.ok={evidence.get('ok')}",
+                )
+            if evidence.get("lease_id") != lease.lease_id:
+                raise ValidationIssue(
+                    "export_evidence_lease_mismatch",
+                    "Persisted audit evidence lease_id does not match",
+                )
+            if str(evidence.get("base_head") or "") != lease.base_head:
+                raise ValidationIssue(
+                    "export_evidence_base_mismatch",
+                    "Persisted audit evidence base_head does not match lease",
+                )
+            if str(evidence.get("worker_tip") or "") != str(lease.worker_tip or ""):
+                raise ValidationIssue(
+                    "export_evidence_tip_mismatch",
+                    "Persisted audit evidence worker_tip does not match audited lease tip",
+                )
+            # Recompute evidence digest over canonical payload (excluding digest field).
+            import hashlib
+
+            stored_digest = str(evidence.get("evidence_digest") or "")
+            canonical = {k: v for k, v in evidence.items() if k != "evidence_digest"}
+            recomputed = hashlib.sha256(
+                json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            if len(stored_digest) != 64 or any(
+                ch not in "0123456789abcdef" for ch in stored_digest.lower()
+            ):
+                raise ValidationIssue(
+                    "export_evidence_digest_missing",
+                    "Persisted audit evidence requires a complete SHA-256 evidence digest",
+                )
+            if stored_digest != recomputed:
+                raise ValidationIssue(
+                    "export_evidence_digest_mismatch",
+                    "Persisted audit evidence digest does not match recomputed canonical payload "
+                    "(tampered evidence)",
+                )
+            if stored_digest != str(lease.audit_evidence_digest or ""):
+                raise ValidationIssue(
+                    "export_evidence_lease_digest_mismatch",
+                    "Persisted audit evidence digest does not match the lease's audited digest",
+                )
+            chain = evidence.get("commit_chain") or []
+            from cobbler_runtime.audit import CommitInfo  # noqa: PLC0415
+
+            commit_objs = [
+                CommitInfo(
+                    sha=str(c["sha"]),
+                    parents=list(c.get("parents") or []),
+                    tree=str(c.get("tree") or ""),
+                    subject=str(c.get("subject") or ""),
+                    author=str(c.get("author") or ""),
+                    paths=list(c.get("paths") or []),
+                )
+                for c in chain
+                if isinstance(c, dict)
+            ]
+            # Do not mark EXPORTED until patch export and optional apply-check succeed.
             patches = export_binary_patches(
                 lease,
                 output_dir=out,
-                chain=audit.commit_chain,
+                chain=commit_objs,
+                audit_evidence=evidence,
             )
-            store.mark_exported(args.lease_id, str(out))
+            # Re-open and verify the complete directory immediately before any
+            # host apply-check. Producer-side hashes are not authority until a
+            # separate consumer rejects tampering, extras, and reorderings.
+            patches = verify_patch_manifest(lease, output_dir=out)
             apply_result = None
             if args.host_apply_check:
                 apply_result = host_apply_check(
                     Path(lease.host_checkout),
                     patches,
                     base_head=lease.base_head,
+                    cumulative=True,
+                    disposable=True,
+                    lease=lease,
+                    manifest_dir=out,
                 )
+                if not apply_result.get("ok"):
+                    raise ValidationIssue(
+                        "export_apply_check_failed",
+                        "Host apply-check failed; refusing EXPORTED state: "
+                        + str(apply_result.get("error") or apply_result.get("reasons") or apply_result),
+                    )
+            store.mark_exported(args.lease_id, str(out))
+            if apply_result is not None and apply_result.get("ok"):
+                lease2 = store.get(args.lease_id)
+                if lease2.state.value == "exported":
+                    store.mark_apply_checked(args.lease_id, evidence=apply_result)
             payload = {
                 "ok": True,
                 "patches": [str(p) for p in patches],
-                "audit": audit.to_dict(),
+                "audit": evidence,
                 "host_apply_check": apply_result,
                 "mutated_repo": False,
                 "note": "Host creates sanitized branch commits after apply-check",
@@ -573,11 +1215,49 @@ def cmd_worker(args: argparse.Namespace) -> int:
             print(f"worker export: {len(patches)} patch(es) -> {out}")
             return 0
 
+        if action == "import":
+            lease = store.get(args.lease_id)
+            if not lease.exported_patch_dir:
+                raise ValidationIssue(
+                    "host_import_export_path_missing",
+                    "Worker import requires the store-owned exported patch directory",
+                )
+            result = host_import_patches(
+                lease,
+                manifest_dir=Path(lease.exported_patch_dir),
+            )
+            payload = {
+                "ok": True,
+                "import": result,
+                "mutated_repo": True,
+            }
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(
+                f"worker import: {len(result['checked'])} patch(es) staged; "
+                f"tree={result['resulting_tree']}"
+            )
+            return 0
+
         if action == "refresh":
-            store.mark_integrated(args.lease_id)
+            lease = store.get(args.lease_id)
+            if lease.state.value != "apply_checked" and lease.state.value != "integrated":
+                raise ValidationIssue(
+                    "refresh_requires_apply_checked",
+                    f"refresh requires APPLY_CHECKED (got {lease.state.value}); "
+                    "never synthesize from EXPORTED alone",
+                    path=f"leases.{args.lease_id}.state",
+                )
+            if lease.state.value == "apply_checked":
+                store.mark_integrated(args.lease_id, new_tip=args.new_tip)
+            elif not lease.integrated_tip or lease.integrated_tip != args.new_tip:
+                raise ValidationIssue(
+                    "refresh_tip_mismatch",
+                    "Worker refresh tip must match the recorded integrated host tip",
+                )
             result = store.refresh_worker_to_tip(args.lease_id, new_tip=args.new_tip)
             store.close(args.lease_id)
-            payload = {"ok": True, "refresh": result, "mutated_repo": False}
+            payload = {"ok": True, "refresh": result, "mutated_repo": True}
             if args.json:
                 return _emit_json(payload, exit_code=0)
             print(f"worker refresh: tip={result['worker_tip']}")
@@ -588,14 +1268,24 @@ def cmd_worker(args: argparse.Namespace) -> int:
             packet = build_write_task_packet(lease, task=args.task)
             if args.json:
                 return _emit_json({"ok": True, "packet": packet}, exit_code=0)
-            print(json.dumps(packet, indent=2, sort_keys=True))
+            safe_packet = redact_structure(
+                packet,
+                exact_values=_secret_env_values(),
+            )
+            print(json.dumps(safe_packet, indent=2, sort_keys=True))
             return 0
 
+    except StorageError as error:
+        return _emit_storage_error(args, error, command=f"worker {action}")
     except ValidationIssue as issue:
-        payload = {"ok": False, "issues": [issue.to_dict()]}
+        safe_issue = _redacted_validation_issue(issue)
+        payload = {"ok": False, "issues": [safe_issue]}
         if args.json:
             return _emit_json(payload, exit_code=1)
-        print(f"worker {action}: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+        print(
+            f"worker {action}: FAILED [{safe_issue['code']}] {safe_issue['message']}",
+            file=sys.stderr,
+        )
         return 1
 
     print(f"unknown worker action: {action}", file=sys.stderr)
@@ -603,11 +1293,118 @@ def cmd_worker(args: argparse.Namespace) -> int:
 
 
 def cmd_implement(args: argparse.Namespace) -> int:
-    """Optional external batch implementer: prepare|launch|gate|resume-batch|status."""
+    """Optional external batch implementer + full-run supervisor."""
     repo_root = _repo_root_from_args(args)
     action = args.implement_action
 
     try:
+        if action == "rollback-ref":
+            payload = create_rollback_ref(
+                repo_root,
+                run_id=args.run_id,
+                session_id=args.session_id,
+                batch=args.batch,
+                head=args.head,
+                push_remote=args.remote if args.push else None,
+            )
+            payload.update(
+                {
+                    "action": "rollback_ref",
+                    "model_calls_made": False,
+                    "mutated_repo": bool(
+                        payload.get("local_ref_created") or payload.get("pushed")
+                    ),
+                }
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(f"rollback ref: {payload['ref']} -> {payload['head']}")
+            return 0
+
+        if action == "full-run-prepare":
+            payload = prepare_full_run(
+                repo_root,
+                session_id=args.session_id,
+                branch=args.branch,
+                start_head=args.start_head,
+                worktree=args.worktree or repo_root,
+                packet_path=args.packet,
+                adapter=getattr(args, "adapter", None) or "grok-build",
+                model=getattr(args, "model", None) or "grok-4.5",
+                permission_mode=getattr(args, "permission_mode", None) or "auto",
+                effort=getattr(args, "effort", None) or "medium",
+                executable=getattr(args, "executable", None),
+                create=not bool(getattr(args, "resume", False)),
+                check=bool(getattr(args, "check", False)),
+                max_turns=int(getattr(args, "max_turns", 80) or 80),
+                fixture_script=getattr(args, "fixture_script", None),
+                credential_grant_names=list(getattr(args, "grant_env", None) or []) or None,
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+
+        if action == "full-run-launch":
+            payload = launch_full_run(
+                repo_root,
+                session_id=args.session_id,
+                resume=bool(getattr(args, "resume", False)),
+                credential_grant_names=list(getattr(args, "grant_env", None) or []) or None,
+                grant_grok_auth=bool(getattr(args, "grant_grok_auth", False)),
+                grant_github_push=bool(
+                    getattr(args, "grant_github_push", False)
+                ),
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
+            print(
+                f"full-run launch: session={payload.get('session_id')} "
+                f"pid={payload.get('pid')} adapter={payload.get('adapter')} "
+                f"status={payload.get('status')}"
+            )
+            return 0 if payload.get("ok") else 1
+
+        if action == "full-run-monitor":
+            payload = monitor_full_run(
+                repo_root,
+                session_id=args.session_id,
+                stale_after_seconds=int(getattr(args, "stale_after", 300) or 300),
+                acknowledge_high_risk_checkpoint=getattr(
+                    args, "ack_high_risk_checkpoint", None
+                ),
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(
+                f"full-run monitor: state={payload.get('state')} "
+                f"batch={payload.get('batch')} head={payload.get('head')} "
+                f"next={payload.get('next_action')}"
+            )
+            return 0
+
+        if action == "full-run-logs":
+            payload = logs_full_run(
+                repo_root,
+                session_id=args.session_id,
+                raw_tail=bool(getattr(args, "raw_tail", False)),
+                tail_lines=int(getattr(args, "tail", 40) or 40),
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+
+        if action == "full-run-stop":
+            payload = stop_full_run(repo_root, session_id=args.session_id)
+            if args.json:
+                return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
+            print(
+                f"full-run stop: session={payload.get('session_id')} "
+                f"signaled={payload.get('signaled')} still_alive={payload.get('still_alive')}"
+            )
+            return 0 if payload.get("ok") else 1
+
         if action == "prepare":
             payload = prepare_implement(
                 repo_root,
@@ -725,12 +1522,17 @@ def cmd_implement(args: argparse.Namespace) -> int:
             return 0
 
     except ValidationIssue as issue:
-        payload = {"ok": False, "issues": [issue.to_dict()]}
+        safe_issue = _redacted_validation_issue(issue)
+        payload = {"ok": False, "issues": [safe_issue]}
         if args.json:
             return _emit_json(payload, exit_code=1)
-        print(f"implement {action}: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
-        if issue.hint:
-            print(f"  hint: {issue.hint}", file=sys.stderr)
+        print(
+            f"implement {action}: FAILED [{safe_issue['code']}] "
+            f"{safe_issue['message']}",
+            file=sys.stderr,
+        )
+        if safe_issue.get("hint"):
+            print(f"  hint: {safe_issue['hint']}", file=sys.stderr)
         return 1
 
     print(f"unknown implement action: {action}", file=sys.stderr)
@@ -1068,11 +1870,40 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_flags(session_resume)
     session_resume.add_argument("--session-id", required=True, help="Exact session id")
-    session_resume.add_argument("--adapter", default="claude-code", help="Adapter name")
+    session_resume.add_argument(
+        "--adapter",
+        default="claude-code",
+        help=(
+            "Adapter name (default: claude-code; must match the registered harness, "
+            "so pass an explicit adapter for non-Claude sessions)"
+        ),
+    )
     session_resume.add_argument("--profile", default=None, help="Profile name")
     session_resume.add_argument("--executable", default=None, help="Executable override")
-    session_resume.add_argument("--model", default=None, help="Requested model")
-    session_resume.add_argument("--cwd", default=None, help="Verified CWD/worktree path")
+    session_resume.add_argument("--model", default=None, help="Requested/actual model observation")
+    session_resume.add_argument("--cwd", default=None, help="Verified CWD observation")
+    session_resume.add_argument(
+        "--worktree",
+        default=None,
+        help="Verified worktree observation (required with --require-write)",
+    )
+    session_resume.add_argument(
+        "--parent-id",
+        default=None,
+        dest="parent_id",
+        help="Observed parent session id (required with --require-write)",
+    )
+    session_resume.add_argument(
+        "--source-head",
+        default=None,
+        dest="source_head",
+        help="Observed source HEAD (required with --require-write)",
+    )
+    session_resume.add_argument(
+        "--require-write",
+        action="store_true",
+        help="Fail closed unless flag/probe observations pass exact registry continuity",
+    )
     session_resume.set_defaults(func=cmd_session)
 
     worker = sub.add_parser(
@@ -1092,17 +1923,45 @@ def build_parser() -> argparse.ArgumentParser:
     w_prepare.add_argument("--profile", default="grok-build-write")
     w_prepare.add_argument("--sandbox-profile", default="devbox")
     w_prepare.add_argument("--allowed-path", action="append", default=[])
+    w_prepare.add_argument(
+        "--grant-env",
+        action="append",
+        default=[],
+        help=(
+            "Launch-scoped credential grant by NAME only; repeat the exact names "
+            "and values for worker audit (never KEY=VALUE)"
+        ),
+    )
     w_prepare.add_argument("--grok-version", default="0.2.93")
     w_prepare.add_argument(
         "--unqualified",
         action="store_true",
         help="Mark write profile unqualified (should fail)",
     )
+    w_prepare.add_argument(
+        "--qualification-file",
+        default=None,
+        help="Host-owned private qualification evidence JSON (required for prepare)",
+    )
+    w_prepare.add_argument(
+        "--qualification-id",
+        default=None,
+        help="Host-owned qualification registry id under store-owned snapshot path",
+    )
     w_prepare.set_defaults(func=cmd_worker)
 
     w_audit = worker_sub.add_parser("audit", help="Post-turn audit of worker checkout")
     _add_common_flags(w_audit)
     w_audit.add_argument("--lease-id", required=True)
+    w_audit.add_argument(
+        "--grant-env",
+        action="append",
+        default=[],
+        help=(
+            "Exact prepare-time credential grant NAME set; current values must "
+            "match private prepare authority (never KEY=VALUE)"
+        ),
+    )
     w_audit.add_argument(
         "--observed-command",
         action="append",
@@ -1125,6 +1984,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     w_export.set_defaults(func=cmd_worker)
 
+    w_import = worker_sub.add_parser(
+        "import",
+        help="Apply the descriptor-verified audited bundle to the clean host",
+    )
+    _add_common_flags(w_import)
+    w_import.add_argument("--lease-id", required=True)
+    w_import.set_defaults(func=cmd_worker)
+
     w_refresh = worker_sub.add_parser(
         "refresh",
         help="After integration, move clean detached worker to new host tip",
@@ -1146,11 +2013,140 @@ def build_parser() -> argparse.ArgumentParser:
     implement = sub.add_parser(
         "implement",
         help=(
-            "Optional external batch implementer lifecycle "
-            "(prepare|launch|gate|resume-batch|status); Grok Build or OpenCode"
+            "Optional external implementer: trusted full-run-prepare/launch/monitor/logs/stop "
+            "or legacy bounded prepare/launch/gate/resume-batch/status; Grok Build or OpenCode"
         ),
     )
     implement_sub = implement.add_subparsers(dest="implement_action", required=True)
+
+    i_fr_prepare = implement_sub.add_parser(
+        "full-run-prepare",
+        help="Prepare trusted full-run supervisor artifacts for one exact session",
+    )
+    _add_common_flags(i_fr_prepare)
+    i_fr_prepare.add_argument("--session-id", required=True)
+    i_fr_prepare.add_argument("--branch", required=True)
+    i_fr_prepare.add_argument("--start-head", required=True)
+    i_fr_prepare.add_argument("--packet", required=True, help="Path to full-run packet")
+    i_fr_prepare.add_argument(
+        "--adapter",
+        default="grok-build",
+        help="grok-build (default) or fixture (explicit test mode only)",
+    )
+    i_fr_prepare.add_argument("--model", default="grok-4.5")
+    i_fr_prepare.add_argument("--permission-mode", default="auto")
+    i_fr_prepare.add_argument("--effort", default="medium")
+    i_fr_prepare.add_argument(
+        "--executable",
+        default=None,
+        help="CLI executable (default: grok; fixture mode uses python3)",
+    )
+    i_fr_prepare.add_argument("--worktree", default=None)
+    i_fr_prepare.add_argument("--check", action="store_true")
+    i_fr_prepare.add_argument("--max-turns", type=int, default=80)
+    i_fr_prepare.add_argument(
+        "--resume",
+        action="store_true",
+        help="Prepare for resume (exact --resume) instead of create (--session-id)",
+    )
+    i_fr_prepare.add_argument(
+        "--fixture-script",
+        default=None,
+        help="Explicit test fixture script (only with --adapter fixture)",
+    )
+    i_fr_prepare.add_argument(
+        "--grant-env",
+        action="append",
+        default=[],
+        help="Credential grant by NAME only (value from private env; never KEY=VALUE)",
+    )
+    i_fr_prepare.set_defaults(func=cmd_implement)
+
+    i_fr_launch = implement_sub.add_parser(
+        "full-run-launch",
+        help="Background-launch Grok (or explicit fixture) for one exact session",
+    )
+    _add_common_flags(i_fr_launch)
+    i_fr_launch.add_argument("--session-id", required=True)
+    i_fr_launch.add_argument(
+        "--resume",
+        action="store_true",
+        help="Force resume argv (--resume) even if prepare stored create=true",
+    )
+    i_fr_launch.add_argument(
+        "--grant-env",
+        action="append",
+        default=[],
+        help="Credential grant by NAME only (never KEY=VALUE on argv)",
+    )
+    i_fr_launch.add_argument(
+        "--grant-grok-auth",
+        action="store_true",
+        help=(
+            "Trusted Lane A only: isolated credential-free Grok probe plus one "
+            "exact bound native executable + ancestor chain and validated host auth.json "
+            "(owner/mode/ancestor/ACL) through native GROK_AUTH_PATH"
+        ),
+    )
+    i_fr_launch.add_argument(
+        "--grant-github-push",
+        action="store_true",
+        help=(
+            "Trusted Lane A only: project the authenticated host gh token into "
+            "the isolated worker through a launch-scoped Git credential helper"
+        ),
+    )
+    i_fr_launch.set_defaults(func=cmd_implement)
+
+    i_fr_monitor = implement_sub.add_parser(
+        "full-run-monitor",
+        help="Classify full-run health (healthy/complete/failed/blocked/stale)",
+    )
+    _add_common_flags(i_fr_monitor)
+    i_fr_monitor.add_argument("--session-id", required=True)
+    i_fr_monitor.add_argument(
+        "--stale-after",
+        type=int,
+        default=300,
+        help="Seconds without heartbeat before stale (default: 300)",
+    )
+    i_fr_monitor.add_argument(
+        "--ack-high-risk-checkpoint",
+        default=None,
+        help="Acknowledge the exact pending staged checkpoint after host review",
+    )
+    i_fr_monitor.set_defaults(func=cmd_implement)
+
+    i_fr_logs = implement_sub.add_parser(
+        "full-run-logs",
+        help="Bounded events; opt-in raw transcript tail only with --raw-tail",
+    )
+    _add_common_flags(i_fr_logs)
+    i_fr_logs.add_argument("--session-id", required=True)
+    i_fr_logs.add_argument("--raw-tail", action="store_true")
+    i_fr_logs.add_argument("--tail", type=int, default=40)
+    i_fr_logs.set_defaults(func=cmd_implement)
+
+    i_fr_stop = implement_sub.add_parser(
+        "full-run-stop",
+        help="Terminate the recorded full-run process group",
+    )
+    _add_common_flags(i_fr_stop)
+    i_fr_stop.add_argument("--session-id", required=True)
+    i_fr_stop.set_defaults(func=cmd_implement)
+
+    i_rollback = implement_sub.add_parser(
+        "rollback-ref",
+        help="Create a collision-safe host rollback ref; optionally push it",
+    )
+    _add_common_flags(i_rollback)
+    i_rollback.add_argument("--run-id", required=True)
+    i_rollback.add_argument("--session-id", required=True)
+    i_rollback.add_argument("--batch", type=int, required=True)
+    i_rollback.add_argument("--head", default=None)
+    i_rollback.add_argument("--push", action="store_true")
+    i_rollback.add_argument("--remote", default="origin")
+    i_rollback.set_defaults(func=cmd_implement)
 
     i_prepare = implement_sub.add_parser(
         "prepare",
@@ -1268,7 +2264,10 @@ def build_parser() -> argparse.ArgumentParser:
     i_launch.add_argument(
         "--exec",
         action="store_true",
-        help="Actually spawn the process (default: print argv only)",
+        help=(
+            "Request bounded spawn; fails closed unless a qualified recursive "
+            "boundary exists (default: print argv only)"
+        ),
     )
     i_launch.set_defaults(func=cmd_implement)
 
@@ -1328,7 +2327,10 @@ def build_parser() -> argparse.ArgumentParser:
     i_resume.add_argument(
         "--exec",
         action="store_true",
-        help="Actually spawn the process (default: print argv only)",
+        help=(
+            "Request bounded spawn; fails closed unless a qualified recursive "
+            "boundary exists (default: print argv only)"
+        ),
     )
     i_resume.set_defaults(func=cmd_implement)
 
@@ -1345,7 +2347,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except StorageError as error:
+        command = str(getattr(args, "command", "cobbler"))
+        return _emit_storage_error(args, error, command=command)
 
 
 if __name__ == "__main__":

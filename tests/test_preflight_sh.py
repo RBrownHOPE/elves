@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shlex
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -160,6 +162,33 @@ exit 1
         self.assertEqual(result.returncode, 1)
         self.assertIn("No git remote 'origin' found", result.stdout)
         self.assertIn("Elves Preflight Summary", result.stdout)
+
+    def test_push_diagnostic_redacts_secret_and_credentialed_url(self) -> None:
+        self.write_fake_gh()
+        real_git = shutil.which("git")
+        self.assertIsNotNone(real_git)
+        push_secret = "push-diagnostic-secret-123456789"
+        push_password = "push-password-123456"
+        self.write_executable(
+            "git",
+            f"""#!/usr/bin/env bash
+if [ "${{1:-}}" = "push" ] && [ "${{2:-}}" = "--dry-run" ]; then
+  printf '%s\n' 'fatal: unable to access https://push-user:{push_password}@example.test/repo token={push_secret}' >&2
+  exit 1
+fi
+exec {shlex.quote(str(real_git))} "$@"
+""",
+        )
+        repo = self.create_repo(with_remote=True)
+
+        result = self.run_preflight(repo)
+
+        combined = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, combined)
+        self.assertIn("Push dry-run failed", result.stdout)
+        self.assertNotIn(push_secret, combined)
+        self.assertNotIn(push_password, combined)
+        self.assertIn("[REDACTED]", result.stdout)
 
     def test_preflight_reports_feature_branch_ahead_of_base_without_unpushed_label(self) -> None:
         self.write_fake_gh()

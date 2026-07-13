@@ -4,10 +4,14 @@ This is the default review mechanism for Elves. It works out of the box with zer
 
 ## What It Does
 
-After each batch, the coordinator spawns this subagent to perform an independent review. The subagent:
+For host-native and legacy bounded execution, the coordinator spawns this subagent after each
+batch. For a healthy trusted full-run, the coordinator stays parked while the worker runs its
+internal batches and invokes this reviewer once, cumulatively, at terminal/safety wake. The
+subagent:
 
 1. Reads all PR comments, review threads, and CI status via `gh api`
-2. Reads the diff for the current batch
+2. Reads the current batch diff (host-native/legacy) or the cumulative full-run diff (trusted
+   full-run wake)
 3. Reads the plan to understand the broader goal
 4. **Reads the batch contract** (from the execution log) to know exactly what was supposed to be delivered — specific behaviors and testable acceptance criteria
 5. **Evaluates code quality** against the Code Quality Philosophy (see SKILL.md)
@@ -24,7 +28,9 @@ A bug-free batch that only implements half its contract is incomplete. A fully-i
 
 **Correct changes can still break things.** Prefer finding indirect breakage over congratulating a clean-looking patch.
 
-The coordinator then acts on the findings. It fixes blockers, finishes missing contract items, logs decisions, pushes fixes. New pushes trigger new bot reviews. The coordinator runs the review subagent again. This loop continues until the batch is clean and the contract is fully delivered.
+The coordinator then acts on the findings. On host-native/legacy routes it fixes blockers, pushes,
+and repeats until the batch is clean. On trusted full-run it does this cumulative fix/review loop
+only after terminal/safety wake; it does not wake after healthy worker batches or pushes.
 
 ## How to Invoke
 
@@ -42,7 +48,8 @@ Review the current state of PR #[NUMBER] for repo [OWNER/REPO].
 3. All issue comments (focus on comments **without a reply from the agent** — replied comments have been addressed)
 4. CI check status: gh api "repos/OWNER/REPO/commits/HEAD/check-runs"
 5. The plan at [PLAN_PATH] — full batch list and Acceptance, not only the current batch narrative
-6. The batch contract in the execution log at [EXECUTION_LOG_PATH] under the current batch heading
+6. The batch contract in the execution log at [EXECUTION_LOG_PATH] under the current batch heading,
+   or every delegated batch contract for a cumulative trusted full-run review
 7. The **constitution** at `docs/constitution.md` or `CONSTITUTION.md` if it exists — deal-breaker
    flows/invariants that must still work even when not directly edited
 8. Any full-run `model-routing` preferences in the survival guide, execution-log contract, or
@@ -59,10 +66,11 @@ Review the current state of PR #[NUMBER] for repo [OWNER/REPO].
 11. The `review_comments` array in [SESSION_JSON_PATH] to see what was already handled in previous cycles
 
 ```bash
-# Commit history for the batch
-git log --format='%H %s' elves/pre-batch-N..HEAD
+# Route start is bN for host-native/legacy batch review, b0 for trusted full-run cumulative review
+ROUTE_START_REF=refs/elves/rollback/<run>/<session>/<bN-or-b0>-<digest>
+git log --format='%H %s' "$ROUTE_START_REF"..HEAD
 # Read full commit messages (subject + body) for context
-git log elves/pre-batch-N..HEAD
+git log "$ROUTE_START_REF"..HEAD
 # Fetch review threads — filter for unresolved
 gh api "repos/OWNER/REPO/pulls/NUMBER/comments" --paginate
 gh api "repos/OWNER/REPO/pulls/NUMBER/reviews" --paginate
@@ -151,10 +159,13 @@ Also verify **Git history as operator UI**:
   `[branch · Batch N/total · Contract|Implement|Validate|Review|Close] concrete outcome`
   (or the documented legacy host-only form).
 - Subjects are not vague (`Updates`, `progress`, `WIP`, bare `fixes`).
-- External workers created only audited detached handoff commits and never owned refs, remotes,
-  push, PRs, or run memory.
+- Authority matched the selected lane: trusted `branch_progress` full-run workers touched only the
+  assigned feature branch and never owned protected refs, PR actions, run memory, final review, or
+  merge; untrusted lease workers created only audited detached handoff commits and never owned
+  refs, remotes, push, PRs, or run memory.
 - `Close` appears only with acceptance evidence.
-- Git and PR operations did not dispatch model inference.
+- Protected refs, PR operations, and merge did not dispatch model inference. Trusted
+  assigned-feature-branch commit/push is the explicit full-run exception.
 
 ## Code quality review (the Code Quality Philosophy):
 
@@ -282,7 +293,8 @@ Or for dismissals: "Dismissed: false positive. Function is a straightforward swi
 
 ### The Work Queue
 
-After resolution, the work queue for the next review cycle is simply:
+For host-native/legacy routes, after resolution the work queue for the next per-batch review cycle
+is simply:
 - Unresolved review threads (GitHub is the source of truth)
 - Issue comments with no reply from the agent
 - Any `PENDING-DOCS` items not yet cleared
@@ -290,15 +302,19 @@ After resolution, the work queue for the next review cycle is simply:
 
 If the queue is empty, `PENDING-DOCS` is clear, and the contract is fully ✅, the batch is clean.
 
-After fixing, the coordinator pushes and runs the review subagent again. The loop repeats until the report comes back with zero blocking items, every contract item is ✅, and the work queue is empty.
+After fixing, the coordinator pushes and runs the review subagent again. The loop repeats until the
+report has zero blockers, every contract item is ✅, and the queue is empty. For trusted full-run,
+apply this same queue cumulatively after terminal/safety wake; never turn a healthy internal batch
+into a host review/re-drive cycle.
 
 ## Final Readiness Review
 
 Run this once after the final summary and strategic-forgetting pass, before operational-artifact
 cleanup, and before the agent declares the branch review-ready. **This is the mandatory final step
 of every finite run — never skip it.** It is a cumulative performance and merge-readiness guard: it
-catches anything that slipped between per-batch reviews and makes sure the user returns to a clean
-PR and a clean memory workspace, confident the branch is green to merge.
+catches anything that slipped between host per-batch reviews or worker-internal batches and makes
+sure the user returns to a clean PR and a clean memory workspace, confident the branch is green to
+merge.
 
 Spawn a fresh review subagent if the platform supports subagents. If not, do the same analysis
 directly.
@@ -352,7 +368,12 @@ If everything is clean, say: "Final readiness review clean."
 
 The coordinator fixes blocking findings, resolves or replies to PR comments, updates
 `.elves-session.json`, reruns relevant validation, pushes, and repeats this final review until it
-is clean. After the operational-artifact cleanup commit, poll comments and checks one last time.
+is clean. Before cleanup, require the target project's broad gates plus
+`python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session <session-path> --repo-root .`
+from a clean worktree. A repository-specific aggregate verifier is additional proof only when the
+target checkout itself provides one; installed Elves never depends on a repo-only helper. After the
+operational-artifact cleanup commit, rerun project-native broad gates on the clean tip, then poll
+comments and checks one last time.
 Then hand the user the Elves Report and tell them to review it, and either stop for the user to
 merge or — only if the user set a merge-on-green preference or invoked the reviewed-PR landing
 command — land a regular merge commit (never a squash).
@@ -414,7 +435,9 @@ Today's date is [DATE]. The codebase is the source of truth, not your training d
 
 Read:
 1. The diff for PR #[NUMBER]
-2. The commit history: git log elves/pre-batch-N..HEAD (read the full messages — the coding agent explains decisions here)
+2. The commit history from the route start (`bN..HEAD` for host-native/legacy, `b0..HEAD` for a
+   trusted full-run cumulative review); read full messages because the coding agent explains
+   decisions there
 3. The plan at [PLAN_PATH]
 4. The batch contract in the execution log at [EXECUTION_LOG_PATH]
 

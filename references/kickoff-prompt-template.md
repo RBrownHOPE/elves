@@ -1,6 +1,7 @@
 # Kickoff Prompt Template
 
-> **Recommended (v2.0+): one kickoff after conceptual agreement.**
+> **Recommended (v2.0+): one kickoff after conceptual agreement.** v2.1 adds the trusted Grok
+> full-run / parked-monitor route.
 >
 > Chat with the main agent (optional multi-planner lenses) until the work is clear, then send
 > **Chat-to-work** (landable PR, no merge) or **Chat-to-land** (through merge) — templates at the
@@ -13,9 +14,9 @@
 > then a short launch prompt. Most historical "elves stopped" failures were incomplete staging —
 > single-kickoff E2E puts staging on the agent.
 >
-> Think of staging as winding the spring: clean the docs, line up the branch and PR, run
-> preflight, and stop only when the runway is clear. Then use a fresh launch call to start the
-> unattended run with momentum.
+> Think of staging as winding the spring: clean the docs, line up the branch and PR, and run
+> preflight before implementation. In the recommended single-kickoff path, continue immediately
+> once the runway is clear. A fresh launch call belongs only to explicit legacy two-call runs.
 >
 > **The Daily Briefing.** Block time at the end of your workday (even 30 minutes) to brief your
 > agents. Friday afternoons deserve more deliberate treatment: the weekend is roughly 60 hours of
@@ -24,10 +25,11 @@
 
 ---
 
-## Step 1: Stage Template
+## Legacy Step 1: Stage-Only Template
 
-> Use this first. The goal is to get everything lined up and then stop. Do not let the agent start
-> implementation in the same call that is still cleaning up the plan or initializing the run.
+> Use this only after explicitly choosing legacy two-call. The goal is to get everything lined up
+> and then stop. For normal chat-to-work/chat-to-land, use the E2E templates below; the agent stages
+> first and then continues in the same run.
 
 ```
 Stage this Elves run. Do not start implementing the batches in this call.
@@ -57,7 +59,6 @@ Stage this Elves run. Do not start implementing the batches in this call.
   explicitly opt in, and keep snapshot artifacts under ignored `.elves/api-surface/`.
 - Run preflight and log any warnings or blockers
 - Record any durable-doc paths the run should use (`.ai-docs/*`) if the repo keeps them
-- Prepare a short launch prompt for the next call
 
 **Non-negotiables:**
 - [Hard rule 1]
@@ -65,7 +66,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - [Hard rule 3]
 
 **Stop condition for this call:**
-- Stop only after the run is launch-ready and you have handed me the launch prompt for the next call
+- This is an explicit legacy two-call run: stop only after launch readiness is proven
 ```
 
 **Example:**
@@ -98,7 +99,6 @@ Stage this Elves run. Do not start implementing the batches in this call.
   explicitly opt in, and keep snapshot artifacts under ignored `.elves/api-surface/`.
 - Run preflight and log any warnings or blockers
 - Record any durable-doc paths the run should use (`.ai-docs/*`) if the repo keeps them
-- Prepare a short launch prompt for the next call
 
 **Non-negotiables:**
 - Never modify public /api/* response shapes
@@ -107,14 +107,14 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - You never merge by default. The PR is for me to review, unless I explicitly opt into merge-on-green or ask for the reviewed-PR landing command.
 
 **Stop condition for this call:**
-- Stop only after the run is launch-ready and you have handed me the launch prompt for the next call
+- This is an explicit legacy two-call run: stop only after launch readiness is proven
 ```
 
 ---
 
-## Step 2: Hard Launch Template
+## Legacy Step 2: Hard Launch Template
 
-> Use this in a fresh call after staging is done. Keep it short. The plan already carries the
+> In the explicit legacy path, use this in a fresh call after staging is done. Keep it short. The plan already carries the
 > project detail; the launch prompt should reinforce behavior and momentum.
 
 ```
@@ -127,16 +127,19 @@ Do not stop unless you hit a genuine blocker with no reasonable workaround.
 Do not be lazy. Work as hard as you can for the entire run.
 Do not coast after the first success, first green check, or first useful checkpoint. Push each batch to a thoroughly verified state, then continue immediately.
 If the remaining work feels like a lot for one turn, that is the point: the volume is the reason this run exists, not a reason to stop.
-Every completed batch must end with a commit and push before you start anything else.
-Immediately after every commit and push, re-read the survival guide before any other action.
+On host-native and legacy bounded routes: Every completed batch must end with a commit and push before you start anything else.
+Immediately after every commit and push, re-read the survival guide before any other action. During a healthy
+trusted `branch_progress` full-run, the worker commits/pushes its internal batches while the host
+stays parked with no per-batch run-memory edit, commit, push, or re-read; reconcile once at a
+terminal or safety wake.
 If this is a delivery checkpoint, log it, push it, and continue immediately. Do not stop at the checkpoint.
 Do not wait for me to acknowledge checkpoints, summaries, or clean commits. If work remains, keep going.
 Do not send a final response unless the survival guide Stop Gate says stopping is allowed or a true blocker forces it.
 Use your judgment. Work in small batches and commit frequently.
 Make the commit subjects read like progress reports.
 Run every relevant validation gate, including E2E or browser checks wherever they make sense.
-After every push, read PR comments and checks, fix blockers, and re-check for regressions against earlier verified work.
-If the run uses paid compute, remote jobs, or long-lived servers, keep the survival guide's `Active Compute` section current after every push and topology change.
+After every host-owned or legacy bounded push, read PR comments and checks, fix blockers, and re-check for regressions against earlier verified work. During a healthy trusted full-run, do this once at terminal/safety wake, never once per worker push.
+If the run uses paid compute, remote jobs, or long-lived servers, keep the survival guide's `Active Compute` section current after every host-owned push and topology change; use bounded worker telemetry while a trusted full-run remains healthy.
 Keep going until the plan is done, I stop you, or you hit a true blocker.
 ```
 
@@ -151,16 +154,19 @@ Do not stop unless you hit a genuine blocker with no reasonable workaround.
 Do not be lazy. Work as hard as you can for the entire run.
 Do not coast after the first success, first green check, or first useful checkpoint. Push each batch to a thoroughly verified state, then continue immediately.
 If the remaining work feels like a lot for one turn, that is the point: the volume is the reason this run exists, not a reason to stop.
-Every completed batch must end with a commit and push before you start anything else.
-Immediately after every commit and push, re-read the survival guide before any other action.
+On host-native and legacy bounded routes: Every completed batch must end with a commit and push before you start anything else.
+Immediately after every commit and push, re-read the survival guide before any other action. During a healthy
+trusted `branch_progress` full-run, the worker commits/pushes its internal batches while the host
+stays parked with no per-batch run-memory edit, commit, push, or re-read; reconcile once at a
+terminal or safety wake.
 This checkpoint is for delivery only. Log it, push it, and continue immediately. Do not stop at 7:30am ET.
 Do not wait for me to acknowledge checkpoints, summaries, or clean commits. If work remains, keep going.
 Do not send a final response unless the survival guide Stop Gate says stopping is allowed or a true blocker forces it.
 Use your judgment. Work in small batches and commit frequently.
 Make the commit subjects read like progress reports.
 Run every relevant validation gate, including E2E or browser checks wherever they make sense.
-After every push, read PR comments and checks, fix blockers, and re-check for regressions against earlier verified work.
-If the run uses paid compute, remote jobs, or long-lived servers, keep the survival guide's `Active Compute` section current after every push and topology change.
+After every host-owned or legacy bounded push, read PR comments and checks, fix blockers, and re-check for regressions against earlier verified work. During a healthy trusted full-run, do this once at terminal/safety wake, never once per worker push.
+If the run uses paid compute, remote jobs, or long-lived servers, keep the survival guide's `Active Compute` section current after every host-owned push and topology change; use bounded worker telemetry while a trusted full-run remains healthy.
 Keep going until the plan is done, I stop you, or you hit a true blocker.
 ```
 
@@ -213,11 +219,17 @@ the survival guide concise, archive old execution-log entries in place, promote 
 stop idle resources, and write a fresh-thread handoff if the active chat or app becomes sluggish.
 
 **Require a final readiness review**
-The final step of every run is a final readiness review, and it is not optional. Before the final
-handoff, the agent should run a fresh cumulative review of `git diff <default-branch>...HEAD`, read
+The acceptance-bearing Final Readiness review is mandatory before operational-artifact cleanup. If
+the run then commits that narrow cleanup, a strict current-tip attestation is the final gate. Before
+the final handoff, the agent should run a fresh cumulative review of `git diff <default-branch>...HEAD`, read
 every PR review comment, run every test that makes sense, and confirm checks, docs, and memory
-hygiene are clean. Use a review subagent when the platform supports one; otherwise do the review
-directly. Fix blockers and repeat until you are confident the branch is green. Then hand the user
+hygiene are clean. Before cleanup, run the target project's broad gates plus
+`python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session <session-path> --repo-root .`.
+After cleanup, rerun the project-native broad gates on a clean current tip and verify the cleanup
+commit removed only the recorded session artifacts. Run a repository-specific aggregate verifier
+only when the target checkout itself provides one; installed Elves never depends on a repo-only
+helper. Use a review subagent when the platform supports one; otherwise do the review directly. Fix
+blockers and repeat until you are confident the branch is green. Then hand the user
 the HTML Elves Report and tell them to review it. Stop for the user to merge unless they explicitly
 set a merge-on-green preference or asked for the reviewed-PR landing command; in either opt-in path,
 perform a regular merge commit (never a squash).
@@ -234,8 +246,9 @@ the run, prefix your message with `ra:`. `ride-along:` and `[ride-along]` also w
 will respond briefly and keep going without stopping.
 
 **Friday staging is leverage**
-Use Friday afternoon to build a clear plan, stage the run, and make sure preflight is green. Then
-launch in a clean second call and let the agent work through the weekend.
+Use Friday afternoon to build a clear plan and make sure preflight is green. In the recommended
+single-kickoff path, let the same run continue through the weekend; use a clean second call only
+when you deliberately selected legacy two-call.
 
 ---
 
@@ -254,6 +267,7 @@ Elves E2E: chat-to-work (no merge).
 
 **Repo / branch preference:** [auto or feat/…]
 **Work driver:** [host-native | grok-build | opencode-cli | …]
+**Delegation scope:** [none | batch | full_run]
 **Multi-planner:** [optional host Cobbler only | also use available plan/review lenses]
 
 **Your job (one continuous run after planning is solid):**
@@ -262,12 +276,15 @@ Elves E2E: chat-to-work (no merge).
 2. Stage fully (you own staging quality): survival guide, learnings, execution log, branch, PR,
    preflight, Cobbler session state. Set Run Control: `e2e mode: chat-to-work`,
    `merge policy: never-merge`, labor re-drive budget 3.
-3. **Do not stop for a second human “launch” message.** Once launch-ready, execute every planned
-   batch: contract → implement → validate → review PR feedback → document → commit/push. Re-read
-   survival guide after every push.
-4. If a work driver returns incomplete work (common with Grok Build): gap-packet + re-drive up to
-   budget; if still incomplete, host finishes the gap or hard-stop with remaining contract. Never
-   mark complete on partial labor.
+3. **Do not stop for a second human “launch” message.** For host-native or bounded delegation,
+   execute the ordinary per-batch loop. If `work driver: grok-build` and `delegation scope:
+   full_run`, create the host-owned run/session `b0` rollback ref at the launch head before the
+   packet/launch, write one complete packet, launch one exact persistent session, then park on
+   bounded telemetry; do not re-enter per-batch implementation/review/PR chatter while the worker
+   commits and pushes. Wake only for safety/blocked/terminal events or explicit user input.
+4. Check labor completeness after each bounded return, or once at trusted full-run wake/exit. If
+   incomplete: gap-packet + exact-session re-drive up to budget; then host finish or hard-stop.
+   Never mark partial labor complete or turn a healthy full-run into per-batch prompting.
 5. Run Final Readiness / Readiness Gate. Leave a landable PR for me. Generate Elves Report if the
    run is substantial.
 
@@ -297,6 +314,7 @@ Elves E2E: chat-to-land (merge when green).
 
 **Repo / branch preference:** [auto or feat/…]
 **Work driver:** [host-native | grok-build | opencode-cli | …]
+**Delegation scope:** [none | batch | full_run]
 **Multi-planner:** [optional host Cobbler only | also use available plan/review lenses]
 
 **Your job (one continuous run after planning is solid):**
@@ -305,10 +323,13 @@ Elves E2E: chat-to-land (merge when green).
 2. Stage fully (you own staging quality): survival guide, learnings, execution log, branch, PR,
    preflight, Cobbler session state. Set Run Control: `e2e mode: chat-to-land`,
    `merge policy: reviewed-pr-landing-command`, labor re-drive budget 3.
-3. **Do not stop for a second human “launch” message.** Once launch-ready, execute every planned
-   batch end-to-end (same quality bar as a normal Elves run).
-4. Labor completeness: after every work-driver return, verify contract + evidence; re-drive gaps
-   (budget 3) or host-complete / hard-stop. Never accept partial Grok/OpenCode labor as done.
+3. **Do not stop for a second human “launch” message.** For host-native or bounded delegation,
+   execute every batch end-to-end. If `work driver: grok-build` and `delegation scope: full_run`,
+   create the host-owned run/session `b0` rollback ref at the launch head before the packet/launch,
+   launch one complete packet into one exact session, and park on bounded telemetry until a
+   safety/blocked/terminal wake; no per-batch host prompting or PR loop.
+4. Labor completeness: verify each bounded return, or verify the whole trusted full-run once at
+   wake/exit; re-drive gaps (budget 3) or host-complete / hard-stop. Never accept partial labor.
 5. Final Readiness Gate on the tip. Elves Report for substantial runs.
 6. **Reviewed PR landing (explicit merge opt-in):** fresh cumulative review of
    `git diff <default-branch>...HEAD`, every PR comment/check, fix blockers, re-poll async review/CI,
@@ -326,6 +347,6 @@ Authority remains Stop Gate until Readiness; then landing rules above.
 **Stop when:** PR is merged with a merge commit, or a true blocker prevents safe merge (report exactly what remains).
 ```
 
-**Codex tip:** after stage inside the same E2E run (or in a second call), you can wrap the
+**Codex tip:** after stage inside the same E2E run (or in an explicit legacy second call), you can wrap the
 execution tail with `/goal` using the short launch body from [`codex-goals.md`](codex-goals.md),
 plus the e2e mode and merge policy from the survival guide.

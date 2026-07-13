@@ -6,18 +6,18 @@ Precedence (highest wins):
 3. Installed/user `config.json`
 4. Native host defaults
 
-Local TOML preference requires Python 3.11+ (`tomllib`). On older Python, absence
-of the file is fine; presence fails with an actionable upgrade diagnostic.
+Local TOML preference uses stdlib ``tomllib`` when available and the shipped,
+stdlib-only generated-subset parser on Python 3.10.
 """
 
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .adapters import default_profiles, get_adapter
+from .context import validate_credential_grant_names
 from .schema import (
     DEFAULT_ROLES,
     NATIVE_PROFILE_NAME,
@@ -34,11 +34,7 @@ from .schema import (
     build_effective_attempts,
     parse_role_name,
 )
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python < 3.11
-    tomllib = None  # type: ignore[assignment]
+from .toml_compat import loads as load_toml_text
 
 
 SOURCE_RANK: dict[ConfigSource, int] = {
@@ -307,12 +303,17 @@ def _parse_profiles(
             body_map.get("extra_args") or body_map.get("args") or body_map.get("extra-args"),
             path=f"{profile_path}.extra_args",
         )
+        env_grants_path = f"{profile_path}.env_grants"
         env_grants = _parse_str_tuple(
             body_map.get("env_grants")
             or body_map.get("env")
             or body_map.get("environment")
             or body_map.get("named_env"),
-            path=f"{profile_path}.env_grants",
+            path=env_grants_path,
+        )
+        env_grants = validate_credential_grant_names(
+            env_grants,
+            path=env_grants_path,
         )
         capabilities = _parse_str_tuple(
             body_map.get("capabilities"),
@@ -517,19 +518,6 @@ def load_json_file(path: Path) -> dict[str, Any]:
 
 
 def load_toml_file(path: Path) -> dict[str, Any]:
-    if tomllib is None:
-        raise ValidationIssue(
-            "toml_requires_python_311",
-            (
-                f"Local models preference file `{path}` is present, but this Python "
-                f"({sys.version.split()[0]}) has no stdlib tomllib."
-            ),
-            path=str(path),
-            hint=(
-                "Upgrade to Python 3.11+ to use `.elves/models.toml`, or remove the file "
-                "and rely on Survival Guide / config.json / native defaults."
-            ),
-        )
     try:
         raw = path.read_bytes()
     except OSError as exc:
@@ -540,8 +528,8 @@ def load_toml_file(path: Path) -> dict[str, Any]:
             hint=str(exc),
         ) from exc
     try:
-        data = tomllib.loads(raw.decode("utf-8"))
-    except Exception as exc:  # tomllib.TOMLDecodeError
+        data = load_toml_text(raw.decode("utf-8"))
+    except Exception as exc:
         raise ValidationIssue(
             "invalid_toml",
             f"Invalid TOML in `{path}`: {exc}",
@@ -644,7 +632,6 @@ def resolve_config(
     if user_config is None and user_config_path is not None and user_config_path.is_file():
         user_config = load_json_file(user_config_path)
     if models_toml is None and models_toml_path is not None and models_toml_path.is_file():
-        # Presence on disk is enough to require tomllib even before parsing.
         models_toml = load_toml_file(models_toml_path)
 
     if repo_root is not None:

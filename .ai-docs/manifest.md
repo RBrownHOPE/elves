@@ -15,10 +15,11 @@ curated layer above the run-specific `docs/elves/*` memory surfaces.
 
 ## Relationship to other docs
 
-- `docs/plans/*`: authoritative scope for the current run
-- `docs/elves/survival-guide.md`: active run brief
-- `docs/elves/execution-log.md`: chronological run record
-- `docs/elves/learnings.md`: durable promotion inbox for reusable lessons
+- `<plan_path>` from `.elves-session.json` (`docs/plans/*`): authoritative scope for the current run
+- `<survival_guide_path>` from `.elves-session.json` (`docs/elves/*`): active run brief
+- `<execution_log_path>` from `.elves-session.json` (`docs/elves/*`): chronological run record
+- `<learnings_path>` from `.elves-session.json` (`docs/elves/*`): durable promotion inbox for
+  reusable lessons
 - `.ai-docs/*`: curated durable truths worth keeping beyond one run
 
 Promotion flow: `execution log -> learnings -> .ai-docs`

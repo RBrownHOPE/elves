@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO_ROOT / "scripts"
+CLI = SCRIPTS / "cobbler_agents.py"
 
 
 def _ensure_import_path() -> None:
@@ -39,6 +42,7 @@ from cobbler_runtime.sessions import (  # noqa: E402
     register_grok_child,
     transition_lifecycle,
 )
+from cobbler_runtime.storage import StorageError, record_filename  # noqa: E402
 
 
 class LifecycleTests(unittest.TestCase):
@@ -173,6 +177,40 @@ class DigestAndContinuityTests(unittest.TestCase):
 
 
 class RegistryLifecycleTests(unittest.TestCase):
+    def test_explicit_cas_rejects_caller_revision_mismatch_and_increments_disk(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            reg = SessionRegistry(Path(tmp))
+            current = reg.create(
+                session_id="cas-explicit",
+                harness="grok-build",
+                profile="grok-build-write",
+                role="implement",
+            )
+            stale = type(current).from_dict(current.to_dict())
+            stale.revision = 0
+            with self.assertRaises(ValidationIssue) as ctx:
+                reg.save(stale, expected_revision=current.revision)
+            self.assertEqual(ctx.exception.code, "session_revision_conflict")
+            fresh = reg.get("cas-explicit")
+            prior = fresh.revision
+            saved = reg.save(fresh, expected_revision=prior)
+            self.assertEqual(saved.revision, prior + 1)
+
+    def test_revision_zero_cannot_overwrite_existing_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            reg = SessionRegistry(Path(tmp))
+            current = reg.create(
+                session_id="cas-zero",
+                harness="grok-build",
+                profile="grok-build-write",
+                role="implement",
+            )
+            stale = type(current).from_dict(current.to_dict())
+            stale.revision = 0
+            with self.assertRaises(ValidationIssue) as ctx:
+                reg.save(stale)
+            self.assertEqual(ctx.exception.code, "session_revision_conflict")
+
     def test_exact_create_resume_and_closed_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             reg = SessionRegistry(Path(tmp))
@@ -381,6 +419,381 @@ class RegistryLifecycleTests(unittest.TestCase):
             self.assertTrue(rec.write_reuse_blocked)
 
 
+class RegistryStorageContainmentTests(unittest.TestCase):
+    @staticmethod
+    def _create(registry: SessionRegistry, session_id: str) -> None:
+        registry.create(
+            session_id=session_id,
+            harness="grok-build",
+            profile="grok-build",
+            role="implementer",
+        )
+
+    def test_symlinked_elves_ancestor_fails_before_outside_directory_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo = base / "repo"
+            outside = base / "outside"
+            repo.mkdir()
+            outside.mkdir()
+            sentinel = outside / "sentinel.txt"
+            sentinel.write_text("unchanged\n", encoding="utf-8")
+            (repo / ".elves").symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaises(StorageError) as ctx:
+                SessionRegistry(repo)
+            self.assertEqual(ctx.exception.code, "symlink_component")
+            self.assertFalse((outside / "runtime").exists())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged\n")
+
+    def test_record_index_and_lock_symlink_leaves_fail_without_target_mutation(self) -> None:
+        for leaf_kind in ("record", "index", "lock"):
+            with self.subTest(leaf_kind=leaf_kind), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                repo = base / "repo"
+                outside = base / "outside"
+                repo.mkdir()
+                outside.mkdir()
+                registry = SessionRegistry(repo)
+                session_id = f"unsafe-{leaf_kind}"
+                record_path = registry.root / record_filename(session_id, prefix="sess")
+                leaf_path = {
+                    "record": record_path,
+                    "index": registry.root / "index.json",
+                    "lock": registry.root / "store.lock",
+                }[leaf_kind]
+                target = outside / f"{leaf_kind}.json"
+                original = '{"sentinel": "unchanged"}\n'
+                target.write_text(original, encoding="utf-8")
+                leaf_path.symlink_to(target)
+
+                with self.assertRaises(StorageError):
+                    self._create(registry, session_id)
+                self.assertEqual(target.read_text(encoding="utf-8"), original)
+                if leaf_kind != "record":
+                    self.assertFalse(record_path.exists())
+
+
+class SessionListCliTests(unittest.TestCase):
+    @staticmethod
+    def _invoke(root: Path, *, json_output: bool = True) -> subprocess.CompletedProcess[str]:
+        argv = [
+            sys.executable,
+            str(CLI),
+            "session",
+            "list",
+            "--repo-root",
+            str(root),
+        ]
+        if json_output:
+            argv.append("--json")
+        return subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    @staticmethod
+    def _invoke_action(
+        root: Path,
+        action: str,
+        *,
+        session_id: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        argv = [sys.executable, str(CLI)]
+        if action == "doctor":
+            argv.extend(["doctor", "--repo-root", str(root), "--json"])
+        else:
+            argv.extend(["session", action, "--repo-root", str(root), "--json"])
+            if session_id is not None:
+                argv.extend(["--session-id", session_id])
+        return subprocess.run(argv, capture_output=True, text=True, check=False)
+
+    @staticmethod
+    def _regular_files(root: Path) -> dict[str, bytes]:
+        return {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in root.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        }
+
+    def test_valid_list_preserves_read_only_output_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry = SessionRegistry(root)
+            registry.create(
+                session_id="valid-list",
+                harness="claude-code",
+                profile="claude-code",
+                role="review",
+            )
+            before = self._regular_files(root)
+
+            result = self._invoke(root)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertTrue(payload["read_only"])
+            self.assertFalse(payload["mutated_repo"])
+            self.assertEqual(payload["count"], 1)
+            self.assertEqual(payload["sessions"][0]["session_id"], "valid-list")
+            self.assertEqual(self._regular_files(root), before)
+
+    def test_malformed_record_returns_structured_exit_one_without_mutation(self) -> None:
+        malformed_payloads = (
+            "{not-json",
+            '{"usage": []}',
+            '{"session_id":"bad","harness":"x","profile":"x","revision":1e100000}',
+        )
+        for malformed in malformed_payloads:
+            with self.subTest(malformed=malformed), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                registry = SessionRegistry(root)
+                registry.create(
+                    session_id="good-list",
+                    harness="claude-code",
+                    profile="claude-code",
+                    role="review",
+                )
+                (registry.root / "broken.json").write_text(
+                    malformed,
+                    encoding="utf-8",
+                )
+                before = self._regular_files(root)
+
+                result = self._invoke(root)
+
+                self.assertEqual(result.returncode, 1, result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertFalse(payload["ok"])
+                self.assertTrue(payload["read_only"])
+                self.assertFalse(payload["mutated_repo"])
+                self.assertEqual(payload["sessions"], [])
+                self.assertEqual(payload["count"], 0)
+                self.assertEqual(
+                    payload["issues"][0]["code"],
+                    "session_record_malformed",
+                )
+                self.assertEqual(self._regular_files(root), before)
+
+    def test_malformed_values_never_leak_from_list_probe_or_doctor(self) -> None:
+        mutations = {
+            "lifecycle": "super-secret-value-123456789",
+            "usage": "opaque-legacy-credential-987654321",
+        }
+        for field_name, sentinel in mutations.items():
+            with self.subTest(field_name=field_name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_id = f"malformed-{field_name}"
+                registry = SessionRegistry(root)
+                registry.create(
+                    session_id=session_id,
+                    harness="claude-code",
+                    profile="claude-code",
+                    role="review",
+                )
+                record_path = registry._record_path(session_id)
+                payload = json.loads(record_path.read_text(encoding="utf-8"))
+                payload[field_name] = sentinel
+                record_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+                before = self._regular_files(root)
+
+                for action in ("list", "probe", "doctor"):
+                    with self.subTest(action=action):
+                        result = self._invoke_action(
+                            root,
+                            action,
+                            session_id=session_id if action == "probe" else None,
+                        )
+                        self.assertEqual(result.returncode, 1, result.stderr)
+                        response = json.loads(result.stdout)
+                        self.assertFalse(response["ok"])
+                        surfaced = result.stdout + result.stderr
+                        self.assertNotIn(sentinel, surfaced)
+                        self.assertNotIn("Traceback", surfaced)
+                        self.assertIn(
+                            response["issues"][0]["code"],
+                            {"session_record_malformed"},
+                        )
+                self.assertEqual(self._regular_files(root), before)
+
+    def test_listing_binds_filenames_and_rejects_duplicate_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_id = "bound-session-record"
+            registry = SessionRegistry(root)
+            registry.create(
+                session_id=session_id,
+                harness="codex",
+                profile="codex",
+                role="review",
+            )
+            canonical = registry._record_path(session_id)
+            misnamed = registry.root / "attacker.json"
+            canonical.rename(misnamed)
+            with self.assertRaises(ValidationIssue) as ctx:
+                registry.list_sessions_strict()
+            self.assertEqual(ctx.exception.code, "session_record_malformed")
+            misnamed.rename(canonical)
+
+            legacy = registry._legacy_record_path(session_id)
+            legacy.write_bytes(canonical.read_bytes())
+            with self.assertRaises(ValidationIssue) as ctx:
+                registry.list_sessions_strict()
+            self.assertEqual(ctx.exception.code, "session_record_malformed")
+            with self.assertRaises(ValidationIssue) as ctx:
+                registry.get(session_id)
+            self.assertEqual(ctx.exception.code, "session_record_ambiguous")
+
+    def test_empty_enums_and_boolean_revision_are_not_defaulted(self) -> None:
+        for field_name, bad_value in (
+            ("creation_method", ""),
+            ("lifecycle", ""),
+            ("revision", False),
+        ):
+            with self.subTest(field_name=field_name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_id = f"strict-{field_name}"
+                registry = SessionRegistry(root)
+                registry.create(
+                    session_id=session_id,
+                    harness="codex",
+                    profile="codex",
+                    role="review",
+                )
+                path = registry._record_path(session_id)
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                payload[field_name] = bad_value
+                path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+                with self.assertRaises(ValidationIssue) as ctx:
+                    registry.list_sessions_strict()
+                self.assertEqual(ctx.exception.code, "session_record_malformed")
+
+    def test_malformed_nested_usage_is_rejected_without_leak_or_mutation(self) -> None:
+        cases = (
+            {"input_tokens": []},
+            {
+                "quota_known": "false",
+                "remaining_quota": "opaque-usage-sentinel-123456789",
+            },
+            {"cost_usd": float("inf")},
+            {"quota_known": True, "remaining_quota": None},
+        )
+        for index, malformed_usage in enumerate(cases):
+            with self.subTest(index=index), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_id = f"strict-usage-{index}"
+                registry = SessionRegistry(root)
+                registry.create(
+                    session_id=session_id,
+                    harness="codex",
+                    profile="codex",
+                    role="review",
+                )
+                path = registry._record_path(session_id)
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                payload["usage"] = malformed_usage
+                path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+                before = self._regular_files(root)
+
+                for action in ("list", "probe", "doctor"):
+                    result = self._invoke_action(
+                        root,
+                        action,
+                        session_id=session_id if action == "probe" else None,
+                    )
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    response = json.loads(result.stdout)
+                    self.assertFalse(response["ok"])
+                    self.assertEqual(
+                        response["issues"][0]["code"],
+                        "session_record_malformed",
+                    )
+                    self.assertNotIn("opaque-usage-sentinel", result.stdout)
+                    self.assertNotIn("Traceback", result.stdout + result.stderr)
+                self.assertEqual(self._regular_files(root), before)
+
+    def test_legacy_session_is_readable_but_cannot_gain_write_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_id = "legacy-read-only-session"
+            registry = SessionRegistry(root)
+            registry.create(
+                session_id=session_id,
+                harness="claude-code",
+                profile="claude-code",
+                role="review",
+            )
+            canonical = registry._record_path(session_id)
+            legacy = registry._legacy_record_path(session_id)
+            canonical.rename(legacy)
+            before = self._regular_files(root)
+
+            with mock.patch.object(
+                registry,
+                "_load_exact_record",
+                wraps=registry._load_exact_record,
+            ) as load_exact:
+                record, storage_kind = registry.get_with_storage_kind(session_id)
+            self.assertEqual(record.session_id, session_id)
+            self.assertEqual(storage_kind, "legacy")
+            load_exact.assert_called_once_with(session_id)
+            with self.assertRaises(ValidationIssue) as ctx:
+                registry.activate(session_id)
+            self.assertEqual(ctx.exception.code, "session_legacy_read_only")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CLI),
+                    "session",
+                    "resume",
+                    "--repo-root",
+                    str(root),
+                    "--session-id",
+                    session_id,
+                    "--require-write",
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            response = json.loads(result.stdout)
+            self.assertEqual(
+                response["issues"][0]["code"],
+                "session_legacy_read_only",
+            )
+            self.assertEqual(self._regular_files(root), before)
+            self.assertFalse(canonical.exists())
+            self.assertTrue(legacy.is_file())
+
+    def test_unsafe_store_returns_structured_exit_one_without_following_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "repo"
+            outside = base / "outside"
+            root.mkdir()
+            outside.mkdir()
+            sentinel = outside / "sentinel.txt"
+            sentinel.write_text("unchanged\n", encoding="utf-8")
+            (root / ".elves").symlink_to(outside, target_is_directory=True)
+
+            result = self._invoke(root)
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertFalse(payload["ok"])
+            self.assertFalse(payload["mutated_repo"])
+            self.assertEqual(payload["issues"][0]["code"], "storage_symlink_component")
+            self.assertTrue((root / ".elves").is_symlink())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged\n")
+            self.assertFalse((outside / "runtime").exists())
+
+
 class UsageLedgerTests(unittest.TestCase):
     def test_unknown_quota_not_zero(self) -> None:
         usage = parse_usage_payload(
@@ -404,6 +817,16 @@ class UsageLedgerTests(unittest.TestCase):
         usage2 = parse_usage_payload({"total_tokens": 1000, "remaining_quota": 0})
         self.assertFalse(usage2.quota_known)
         self.assertEqual(usage2.remaining_quota, "unknown")
+        usage3 = parse_usage_payload(
+            {
+                "input_tokens": [],
+                "remaining_quota": 0,
+                "quota_known": "false",
+            }
+        )
+        self.assertIsNone(usage3.input_tokens)
+        self.assertFalse(usage3.quota_known)
+        self.assertEqual(usage3.remaining_quota, "unknown")
 
 
 class GrokLineageTests(unittest.TestCase):
@@ -441,6 +864,137 @@ class GrokLineageTests(unittest.TestCase):
                 {"child_id": "same", "parent_id": "same", "model": "m", "cwd": "/x", "head": "h"}
             )
         self.assertEqual(ctx.exception.code, "grok_lineage_same_uuid")
+
+    def test_child_registration_requires_observed_model_cwd_worktree_and_head(self) -> None:
+        base = {
+            "child_id": "child-uuid",
+            "parent_id": "parent-uuid",
+            "model": "grok-model",
+            "cwd": "/verified/worktree",
+            "worktree": "/verified/worktree",
+            "head": "a" * 40,
+        }
+        for missing in ("model", "cwd", "worktree", "head"):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as tmp:
+                payload = dict(base)
+                payload.pop(missing)
+                summary = parse_grok_child_summary(payload)
+                with self.assertRaises(ValidationIssue):
+                    register_grok_child(
+                        SessionRegistry(Path(tmp)),
+                        summary=summary,
+                        profile="grok-build-write",
+                        role="implement",
+                        expected_parent_id="parent-uuid",
+                        expected_model="grok-model",
+                        expected_cwd="/verified/worktree",
+                        expected_head="a" * 40,
+                    )
+
+
+class WriteResumeCliTests(unittest.TestCase):
+    def _invoke(self, root: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(CLI),
+                "session",
+                "resume",
+                "--repo-root",
+                str(root),
+                "--json",
+                "--session-id",
+                "write-session",
+                "--adapter",
+                "grok-build",
+                "--model",
+                "grok-model",
+                "--cwd",
+                str(root),
+                "--worktree",
+                str(root),
+                "--parent-id",
+                "parent-1",
+                "--source-head",
+                "a" * 40,
+                "--require-write",
+                *extra,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_write_resume_requires_observed_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry = SessionRegistry(root)
+            registry.create(
+                session_id="write-session",
+                harness="grok-build",
+                profile="grok-build-write",
+                role="implement",
+                actual_model="grok-model",
+                parent_id="parent-1",
+                cwd=str(root),
+                worktree=str(root),
+                source_head="a" * 40,
+            )
+            registry.activate("write-session")
+            result = self._invoke(root)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            payload = json.loads(result.stdout)
+            self.assertIn("profile", payload["issues"][0]["message"])
+
+    def test_write_resume_blocks_expected_head_change(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry = SessionRegistry(root)
+            registry.create(
+                session_id="write-session",
+                harness="grok-build",
+                profile="grok-build-write",
+                role="implement",
+                actual_model="grok-model",
+                parent_id="parent-1",
+                cwd=str(root),
+                worktree=str(root),
+                source_head="b" * 40,
+            )
+            registry.activate("write-session")
+            result = self._invoke(root, "--profile", "grok-build-write")
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            payload = json.loads(result.stdout)
+            self.assertEqual(
+                payload["issues"][0]["code"], "session_write_reuse_unqualified"
+            )
+
+    def test_write_resume_recomputes_canonical_disk_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "plan.md"
+            plan.write_text("stable\n", encoding="utf-8")
+            registry = SessionRegistry(root)
+            registry.create(
+                session_id="write-session",
+                harness="grok-build",
+                profile="grok-build-write",
+                role="implement",
+                actual_model="grok-model",
+                parent_id="parent-1",
+                cwd=str(root),
+                worktree=str(root),
+                source_head="a" * 40,
+                plan_path=plan,
+            )
+            registry.activate("write-session")
+            exact = self._invoke(root, "--profile", "grok-build-write")
+            self.assertEqual(exact.returncode, 0, exact.stdout)
+            plan.write_text("changed on disk\n", encoding="utf-8")
+            drifted = self._invoke(root, "--profile", "grok-build-write")
+            self.assertNotEqual(drifted.returncode, 0, drifted.stdout)
+            payload = json.loads(drifted.stdout)
+            self.assertIn("canonical on-disk context digest changed", payload["issues"][0]["message"])
 
     def test_headless_worktree_resume_broken_on_0_2_93(self) -> None:
         self.assertFalse(grok_headless_worktree_resume_supported("0.2.93"))

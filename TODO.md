@@ -37,7 +37,13 @@ Project backlog and deferred tasks.
   `required: true` must be an explicit survival-guide opt-in.
 
 ### Secret redaction layer
-Elves has "don't commit .env files" and "never git add -A" but no automated scanning of what gets sent to LLM prompts. A pre-prompt filter that strips API keys, tokens, and credentials from context before sending to the model would close a real security gap. This is infrastructure, not process — probably belongs as a separate tool or MCP server rather than in the skill itself. Factory AI calls theirs "Droid Shield."
+
+- [x] Redact built-in external model transports before dispatch. Context, OpenRouter, worker
+  evidence, and structured output paths now redact secret-shaped values, sensitive mapping keys,
+  and exact launch-scoped credential values without persisting the credentials themselves.
+- [ ] Investigate host-native UI prompts and arbitrary third-party tools that bypass Elves'
+  transport helpers. Those surfaces cannot honestly be described as covered by the built-in
+  external-lane filter and may require host or MCP-level interception.
 
 ### Codebase context indexing
 The pre-implementation survey (step 5) relies on the agent searching the codebase in real time. For large repos, a pre-computed index of utilities, patterns, conventions, and module boundaries would make the survey faster and more reliable. Could be generated once during planning and updated incrementally per batch. Similar in spirit to Factory AI's "HyperCode" but implemented as a Markdown file the agent reads rather than proprietary tooling.
@@ -54,9 +60,8 @@ The pre-implementation survey (step 5) relies on the agent searching the codebas
 ### Public API surface snapshot
 For projects with APIs (REST, GraphQL, exported library interfaces), capture the API surface at session start: route list, response shapes, exported types and functions. At the end of each batch, diff the snapshot against the current state. Any unintended change to the public API surface is a finding. This complements the test baseline (which catches removed tests) and the regression attestation (which catches shared-surface changes). It catches changes that pass all tests but alter the contract with consumers.
 
-- [x] Add guardrail docs, config examples, ignored artifact paths, and repo consistency checks for
-  optional public API surface snapshots. The helper/scanner remains deferred until a focused
-  implementation batch.
+- [x] Add guardrail docs, config examples, ignored artifact paths, repository checks, and the
+  implemented `cobbler_runtime.public_api_snapshot` compatibility gate for public API surfaces.
 
 - [x] Make regression preservation an explicit acceptance-criteria rule.
   `SKILL.md`, `AGENTS.md`, `README.md`, and `references/plan-template.md` now require at least one

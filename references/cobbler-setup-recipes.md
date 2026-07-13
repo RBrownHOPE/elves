@@ -10,6 +10,10 @@ These recipes map common host tool mixes onto Cobbler roles **without source cha
 
 Public default: **native-only** (no setup, no keys, no external executables).
 
+The `python3 scripts/...` forms below are source-checkout shorthand. From an installed Claude Code
+or Codex skill, invoke the helper from the active Elves skill root while keeping the target
+repository as the working directory; see [`runtime-helper-paths.md`](runtime-helper-paths.md).
+
 Recipes beyond host-native Claude Code / Codex are **best-effort**. We have **not** fully tested
 every work-driver matrix (OpenCode, Antigravity, Gemini CLI, OpenRouter models, Grok, …), and we
 are **not** treating OpenCode/Antigravity as supported **main drivers**. Those paths **may or may
@@ -90,9 +94,12 @@ Then set `requested_model` on each profile to the high-quality vs volume model y
 exposes. Same idea works when the **host** is Claude Code (`host-native` implement) and only
 review uses an external high model.
 
-## Recipe: Grok-only (experimental write; verified isolation rules)
+## Recipe: Advanced untrusted Grok writer lease
 
-- implement: `grok-build` under a **writer lease** with detached registered worktree
+- Use this only when the run explicitly selects the stricter host-import lease. For ordinary
+  optional Grok labor, prefer the trusted full-run / parked-driver recipe later in this guide.
+- implement: `grok-build` under an **untrusted writer lease** with a detached registered worktree;
+  the host audits and imports exact retained patch bytes, then owns validation, commit, and push
 - review/planning: `host-native` or other independent lens
 - Never use headless `--worktree --resume` as isolation on Grok Build `0.2.93`
 - Sandbox: prefer `devbox` for detached commit handoff; `workspace` is not assumed commit-capable
@@ -194,7 +201,7 @@ headless)—Claude Code–like, with **OpenRouter** and 75+ providers (Qwen, GLM
 
 | Term | Who | OpenCode? |
 | --- | --- | --- |
-| **Main driver** (orchestrator) | Claude Code or Codex — owns Elves, git/PR, gates, Cobbler | **No** (not the skill host) |
+| **Main driver** (orchestrator) | Claude Code or Codex — owns canonical memory, protected refs, PR actions, final gates/review, any authorized merge, and Cobbler; host-native/legacy routes also own feature-branch commit/push | **No** (not the skill host) |
 | **Work driver** (laborer) | Does the batch coding under that session | **Yes** — e.g. GLM 5.x via OpenRouter + OpenCode |
 
 **Supported shape:** from Claude Code/Codex, set implement to OpenCode and pin an OpenRouter model:
@@ -205,6 +212,10 @@ Main driver: Claude Code or Codex
   → Work driver: opencode run --auto --model openrouter/…/glm-…
   → Main driver: validate, review, push, PR
 ```
+
+The exact registered trusted `branch_progress` full-run worker is the only feature-branch
+commit/push exception. OpenCode labor in this bounded recipe does not receive that authority;
+untrusted lease writers stay detached and host-imported.
 
 **Exotic main driver:** running Elves *inside* OpenCode as the overnight orchestrator is
 **unsupported / untested** — it may or may not work. Prefer PRs if you make that path real.
@@ -250,7 +261,7 @@ file. Implement labor already uses `--dir`, places the message before
 | Profile | Use |
 | --- | --- |
 | `opencode-cli` | Plan/review (headless `opencode run --agent plan`) |
-| `opencode-labor` | **Main implement driver** (`opencode run --auto` + tools) |
+| `opencode-labor` | **Implement work driver** (`opencode run --auto` + tools) |
 
 ```bash
 # Host is still Claude Code or Codex; OpenCode does implement labor
@@ -265,7 +276,70 @@ python3 scripts/cobbler_agents.py onboard apply --json \
 #   requested_model = "openrouter/qwen/qwen3-max"  # re-check OpenRouter catalog
 ```
 
-### Implement lifecycle (host-driven; Grok or OpenCode)
+### Trusted Grok full-run lifecycle (primary)
+
+One host-created launch rollback ref, one exact worker session, then a parked host:
+
+```bash
+python3 scripts/cobbler_agents.py implement rollback-ref --json \
+  --run-id <run-id> --session-id <exact-uuid> --batch 0 \
+  --head <start-head> --push
+
+python3 scripts/cobbler_agents.py implement full-run-prepare --json \
+  --session-id <exact-uuid> --branch <feature-branch> --start-head <start-head> \
+  --worktree <path> --packet <packet.json> --adapter grok-build
+
+python3 scripts/cobbler_agents.py implement full-run-launch --json \
+  --session-id <exact-uuid> --grant-grok-auth --grant-github-push
+
+python3 scripts/cobbler_agents.py implement full-run-monitor --json \
+  --session-id <exact-uuid>
+
+python3 scripts/cobbler_agents.py implement full-run-logs --json \
+  --session-id <exact-uuid>
+
+# Cancellation/recovery only; omit on normal successful completion.
+python3 scripts/cobbler_agents.py implement full-run-stop --json \
+  --session-id <exact-uuid>
+```
+
+After a healthy launch, the host reads bounded telemetry only and does not shadow worker batches.
+The host creates no per-batch refs while parked; worker commit SHAs are internal rollback points.
+Wake for terminal/safety conditions or actual exit, then perform one cumulative review.
+`full-run-stop` is only for explicit cancellation or recovery of a live/wedged worker; it is not a
+normal completion or close command.
+
+`--grant-grok-auth` explicitly reuses a local Grok subscription login in trusted Lane A. The run
+keeps isolated `HOME`/`GROK_HOME` state and exposes only the validated canonical owner-private
+`auth.json` through Grok's native `GROK_AUTH_PATH`, so native locking and refresh-token rotation
+operate on one file. Raw transcript tails are disabled for this route. API-key users should replace
+it with `--grant-env XAI_API_KEY`; prefer that route for CI or untrusted lanes. Shared OAuth
+requires Grok Build 0.2.93+ with the native capability marker; older or unsupported binaries fail
+before spawn and must upgrade or use the API-key route. The strategies are mutually exclusive, and
+no supported auth means launch fails before any provider process starts.
+
+The feature-branch push route is separate from Grok login. With a canonical GitHub HTTPS origin,
+`--grant-github-push` privately projects the authenticated host `gh` token into one isolated
+launch-scoped Git credential helper. Alternatively grant exactly one of `GH_TOKEN` or
+`GITHUB_TOKEN` by name. Elves never inherits the host HOME/Git config/SSH agent, stores no raw
+token, binds explicit host `user.name` / `user.email` values into the isolated commit environment,
+and rejects missing identity or unsupported network push transports before provider spawn.
+
+The capability probe requires an exact native Mach-O/ELF Grok executable, runs it in an isolated
+credential-free environment, binds its full safe ancestor chain through child pre-spawn, and
+rejects replacement or scripts. The canonical
+auth file and every ancestor must also pass owner, mode, link, and supported-platform ACL checks.
+
+Hard external subprocess lanes require a recursive boundary acquired atomically with the child.
+The current Python runtime cannot prove that boundary on Linux or macOS—even with bubblewrap—so
+optional external routes fall back to the host-native lane and required routes block before
+snapshot creation or spawn. Legacy bounded `launch --exec` and
+`resume-batch --exec` have no qualified boundary on either supported OS and fail before spawn; use
+their default print-only argv workflow or the separate trusted full-run route. Trusted full-run
+remains an explicit same-user policy boundary and does not claim malicious-worker recursive
+containment.
+
+### Legacy bounded lifecycle (Grok or OpenCode)
 
 ```bash
 # Grok Build Lane A (default adapter) — model aliases fast|deep; optional --check
@@ -288,7 +362,8 @@ python3 scripts/cobbler_agents.py implement prepare --json \
   --model openrouter/qwen/qwen3-max \
   --executable opencode
 
-# Host prints argv (add --exec to spawn from Claude Code / Codex):
+# Host prints argv. Legacy --exec currently fails closed before spawn because
+# neither supported OS has a qualified recursive boundary for this direct path:
 python3 scripts/cobbler_agents.py implement launch --json \
   --packet .elves/runtime/packets/batch-N.md \
   --session-id <exact-id-if-known>

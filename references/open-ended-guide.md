@@ -15,9 +15,12 @@ This includes checkpointed open-ended runs where the user says some version of:
 
 In those cases, the checkpoint is a delivery target, not a stop boundary.
 
-In open-ended mode, a completed batch must still be closed properly: update the run docs, commit,
-push, re-read the survival guide, and continue. A pushed checkpoint is evidence of progress, not
-permission to stop.
+In open-ended mode, route selection still controls who closes a batch. Host-native/legacy batches
+update run docs, commit, push, re-read the survival guide, and continue. During a healthy trusted
+`branch_progress` full-run, the worker closes internal batches in commits/events/report while the
+host remains parked: no per-batch host memory update, commit, push, or re-read. The host reconciles
+canonical memory once at terminal/safety wake, then continues or enters cumulative readiness. A
+pushed checkpoint is evidence of progress, not permission to stop.
 
 ## Sustain Effort
 

@@ -4,6 +4,72 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-07-13
+
+### Trusted full-run delegation (major stabilization)
+
+Elves **2.1.0** ships a real delegated full-run mode: after Claude Code or Codex stages a trusted
+Grok Build run, one persistent worker owns feature-branch implementation, tests, commits, pushes,
+and structured progress while the driver parks on bounded events. Host-native remains the default;
+Grok Build stays optional and explicit.
+
+### Runtime, install, and adapter truth
+
+- Recursive shipment of `scripts/cobbler_runtime/` plus `openrouter_lens.py` into installed bundles
+- Fresh Claude Code and Codex installed-bundle smokes from outside the source tree
+- Built-in adapter registry preserves Gemini/Antigravity/OpenCode identities and contracts
+- Python 3.10 local-model TOML support through the bundled strict compatibility parser
+- Canonical `scripts/verify_repo.py` gate; CI triggers on `scripts/**`
+- Exactly seven managed Claude aliases; Codex installs no Claude alias tree
+
+### Parity, isolation, and security
+
+- Structured behavior policy and full-run supervisor (prepare/launch/monitor/logs/stop)
+- Versioned full-run event/report v1 contract, exact-session/branch validation, and cumulative
+  terminal review while the Claude Code or Codex driver remains quietly parked: unchanged health is
+  silent and nonterminal updates are host-coalesced
+- Digest-keyed private session/lease storage, locks, write qualification fail-closed
+- Disposable tracked-source isolation, minimal implement env grants, generation-bound signaling,
+  pre-snapshot/pre-spawn fallback or blocking for hard external routes on Linux and Darwin where
+  the runtime cannot acquire recursive authority atomically, plus fail-closed legacy bounded
+  `--exec` where recursive absence cannot be proven
+- Explicit headless Grok authentication: named `XAI_API_KEY` grants or trusted-Lane-A
+  `--grant-grok-auth`, which combines isolated per-run Grok state with one validated canonical
+  owner-private OAuth file through native `GROK_AUTH_PATH`, preserving rotating refresh tokens;
+  the exact native Mach-O/ELF Grok artifact and its safe ancestor chain are probed credential-free
+  and bound through spawn, while full-ancestor owner/mode/link/ACL validation fails closed
+- Explicit GitHub HTTPS branch-push authentication through either `--grant-github-push` or one
+  named `GH_TOKEN`/`GITHUB_TOKEN` grant; the isolated worker receives one reset, launch-scoped Git
+  credential helper while raw credentials, host Git config, HOME/XDG state, and SSH agents remain
+  outside persisted/public state; explicit host author/committer identity is projected and missing
+  identity fails before Git can guess
+- Packet-bound `high_risk_checkpoint` events and exact host acknowledgements gate both active runs
+  and completed-provider final readiness, so omitted or emit-and-complete checkpoint races fail
+  closed
+- Export only from `AUDITED_PASS`, with bound Git config/ref/index/object authority, sealed
+  per-commit patch transport digests, and post-audit refs/remotes/config/hooks revalidation;
+  public `worker import` descriptor-reads the retained bundle, proves its final tree in a disposable
+  checkout, and applies those same bytes to the clean host before host-owned validation,
+  commit, and push, while exact prepare/audit HMACs protect named credential grants
+- Delegated feature-branch Git contract with a narrow verified descendant-progress collision
+  exception; host-owned `bN` refs for bounded routes and one `b0` launch ref plus worker commit SHAs
+  for trusted parked full-run rollback
+- One-to-one plan acceptance IDs with Master Acceptance evidence
+
+### Evidence-aware validation and architecture
+
+- Attempt path decomposed into transport/artifact/result helpers
+- Preflight evidence reuse keyed by HEAD/config; final readiness never cache-only
+- Evidence-aware focused review selection with high-risk escalation
+- Public-API snapshot compatibility gate with cycle-safe literal-helper exit resolution and a
+  tracked, release-scoped approval manifest for intentional contract changes; CI path filters
+  include that approval manifest on both pull requests and pushes to `main`
+
+### Documentation and release
+
+- Host-honest Claude/Codex invocation, full-run Run Control fields, corrected test-integrity and
+  rollback guidance, progressive README disclosure, v2.1.0 metadata
+
 ## [2.0.0] - 2026-07-12
 
 ### Efficient multi-model workflows under Cobbler (major)
@@ -582,7 +648,7 @@ Acceptance (LOC cuts, facades, real splits) is still open.
 - **Execution log template updated** with structured regression attestation section.
 
 #### Test baseline (new)
-- **Test baseline capture in Verify Green (step 2).** Agent records test count (passed, total, skipped) in `.elves-session.json` at session start. At the end of each batch, total tests must only go up or stay flat. A decrease means tests were removed or disabled, violating test integrity.
+- **Test baseline capture in Verify Green (step 2).** Agent records test count (passed, total, skipped) in `.elves-session.json` at session start. At the end of each batch, legitimate behavior-driven count changes are allowed with preserved/improved coverage and explanation; green-seeking weaken/delete/skip is forbidden.
 
 #### Blast radius (new)
 - **Blast radius section added to Contract (step 4).** Contract now has four required sections (was three): behaviors, Build on, acceptance criteria, and blast radius. Agent must list shared files being modified, count consumers, and assess risk before writing code. Shifts regression thinking into the contract where it's cheapest to address.
@@ -733,7 +799,7 @@ Acceptance (LOC cuts, facades, real splits) is still open.
 - Subagent delegation for long runs (Claude Code): implementer, validator, reviewer, scout
 - Scout mode for bonus improvements after planned batches are done
 - Time-aware pacing with session budgets
-- Rollback safety with `elves/pre-batch-N` git tags
+- Rollback safety with scoped Git refs at `refs/elves/rollback/<run>/<session>/bN-<digest>`
 - Structured session data in `.elves-session.json`
 - Persistent preferences via `config.json`
 - Skill memory: execution logs improve over time

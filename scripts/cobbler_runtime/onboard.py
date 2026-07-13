@@ -30,6 +30,7 @@ from .setup import (
     run_setup,
     which_executable,
 )
+from .toml_compat import loads as load_toml_text
 
 
 # Purposes the user assigns tools to. Core map to setup role slots.
@@ -297,6 +298,7 @@ class ModelsTomlState:
     sharing_policy: str = "local-only"
     document_owner: str = "host-coordinator"
     usage_budget_warning: int | None = None
+    unknown_top_level: dict[str, Any] = field(default_factory=dict)
 
 
 def _utc_now() -> str:
@@ -378,23 +380,7 @@ def load_models_toml_state(repo_root: Path) -> ModelsTomlState:
             required_roles=required_roles,
         )
     try:
-        import tomllib
-    except ModuleNotFoundError:
-        warnings.append(
-            f"`{path}` exists but this Python has no tomllib (need 3.11+); "
-            "falling back to host-native roles for display/probe"
-        )
-        return ModelsTomlState(
-            roles=roles,
-            profiles=profiles,
-            warnings=warnings,
-            path=path,
-            exists=True,
-            parse_ok=False,
-            required_roles=required_roles,
-        )
-    try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        data = load_toml_text(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001 — surface parse failure, do not crash
         warnings.append(
             f"`{path}` could not be parsed ({type(exc).__name__}: {exc}); "
@@ -444,6 +430,19 @@ def load_models_toml_state(repo_root: Path) -> ModelsTomlState:
             if isinstance(data.get("usage_budget_warning_tokens"), int)
             else None
         ),
+        unknown_top_level={
+            str(key): value
+            for key, value in data.items()
+            if key
+            not in {
+                "roles",
+                "profiles",
+                "session_mode_default",
+                "sharing_policy",
+                "document_owner",
+                "usage_budget_warning_tokens",
+            }
+        },
     )
 
 
@@ -589,6 +588,7 @@ def apply_onboarding(
     """
     base_roles = None
     existing_profiles: Mapping[str, Mapping[str, Any]] | None = None
+    existing_top_level: Mapping[str, Any] | None = None
     session_mode = "ephemeral"
     sharing_policy = "local-only"
     document_owner = "host-coordinator"
@@ -601,6 +601,8 @@ def apply_onboarding(
         state = load_models_toml_state(repo_root)
         base_roles = state.roles
         existing_profiles = state.profiles
+        if state.parse_ok:
+            existing_top_level = state.unknown_top_level
         session_mode = state.session_mode
         sharing_policy = state.sharing_policy
         document_owner = state.document_owner
@@ -634,6 +636,7 @@ def apply_onboarding(
         dry_run=dry_run,
         fake_presence=fake_presence,
         existing_profiles=existing_profiles,
+        existing_top_level=existing_top_level,
     )
     payload = result.to_dict()
     changed = {

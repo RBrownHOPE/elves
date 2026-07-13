@@ -8,23 +8,22 @@ on:
       - "README.md"
       - "CHANGELOG.md"
       - "TODO.md"
+      - "api-break-approvals.json"
       - "config.json.example"
+      - ".env*"
+      - "openapi.json"
+      - "openapi.yaml"
+      - "swagger.json"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/workflows/repo-consistency.yml"
       - "aliases/**"
       - "references/**"
       - ".ai-docs/**"
       - "docs/cobbler.md"
-      - "docs/elves/learnings.md"
-      - "scripts/check_repo_consistency.py"
-      - "scripts/install_doctor.py"
-      - "scripts/preflight_worktree.py"
-      - "scripts/pr_portfolio_report.py"
-      - "scripts/release_checklist.py"
-      - "scripts/sync_installed_skills.py"
-      - "scripts/validate_survival_guide.py"
-      - "scripts/elves_landing_check.py"
-      - "scripts/workspace_guard.py"
+      - "docs/openapi.json"
+      - "docs/elves/**"
+      - "docs/plans/**"
+      - "scripts/**"
       - "tests/**"
   push:
     branches:
@@ -35,52 +34,89 @@ on:
       - "README.md"
       - "CHANGELOG.md"
       - "TODO.md"
+      - "api-break-approvals.json"
       - "config.json.example"
+      - ".env*"
+      - "openapi.json"
+      - "openapi.yaml"
+      - "swagger.json"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/workflows/repo-consistency.yml"
       - "aliases/**"
       - "references/**"
       - ".ai-docs/**"
       - "docs/cobbler.md"
-      - "docs/elves/learnings.md"
-      - "scripts/check_repo_consistency.py"
-      - "scripts/install_doctor.py"
-      - "scripts/preflight_worktree.py"
-      - "scripts/pr_portfolio_report.py"
-      - "scripts/release_checklist.py"
-      - "scripts/sync_installed_skills.py"
-      - "scripts/validate_survival_guide.py"
-      - "scripts/elves_landing_check.py"
-      - "scripts/workspace_guard.py"
+      - "docs/openapi.json"
+      - "docs/elves/**"
+      - "docs/plans/**"
+      - "scripts/**"
       - "tests/**"
 
 permissions:
   contents: read
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  # Matrix expands check-run names to "verify (os, py)". Branch protection on main
+  # still requires the exact context name "check", so a non-matrix aggregator job
+  # below re-exports that name after every matrix cell succeeds.
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.10"
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.14"
+          - os: macos-latest
+            python-version: "3.12"
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
-      - name: Validate helper scripts
-        run: python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/preflight_worktree.py scripts/pr_portfolio_report.py scripts/release_checklist.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py scripts/elves_landing_check.py scripts/workspace_guard.py
+      - name: Install Linux filesystem isolation backend
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          bwrap --version
+          if bwrap --die-with-parent --unshare-all --share-net \
+              --ro-bind /usr /usr --ro-bind /bin /bin \
+              --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64 \
+              --dev /dev --proc /proc --chdir / /bin/true; then
+            echo "bubblewrap capability probe: usable"
+          else
+            echo "::notice::bubblewrap is installed but user namespaces are unavailable; the suite will exercise unavailable-backend fallback paths"
+          fi
 
-      - name: Run repo consistency checker
-        run: python3 scripts/check_repo_consistency.py
+      - name: Canonical repository verification
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          BASE_REF="$EVENT_BASE_SHA"
+          if ! git rev-parse --verify --quiet "${BASE_REF}^{commit}"; then
+            BASE_REF="HEAD^"
+          fi
+          python3 scripts/verify_repo.py --ci --version 2.1.0 --base-ref "$BASE_REF"
 
-      - name: Run release checklist
-        run: python3 scripts/release_checklist.py --allow-unreleased
-
-      - name: Run helper script regression tests
-        run: python3 -m unittest discover -s tests -p 'test_*.py'
-
-      - name: Run default unittest discovery
-        run: python3 -m unittest discover
+  check:
+    needs: verify
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    steps:
+      - name: Require every matrix verify cell
+        run: |
+          result='${{ needs.verify.result }}'
+          echo "verify matrix result: ${result}"
+          test "${result}" = "success"

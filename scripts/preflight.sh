@@ -15,6 +15,40 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
+# Diagnostic redaction boundary
+# ---------------------------------------------------------------------------
+redact_stream() {
+  LC_ALL=C awk '
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/ {
+      print "[REDACTED]"
+      in_pem_block = 1
+      next
+    }
+    in_pem_block && /-----END [A-Z ]*PRIVATE KEY-----/ {
+      in_pem_block = 0
+      next
+    }
+    in_pem_block { next }
+    { print }
+  ' | LC_ALL=C sed -E \
+    -e 's#([a-z][a-z0-9+.-]*://)[^/@[:space:]]+@#\1[REDACTED]@#gI' \
+    -e 's#(https://hooks\.slack\.[^/[:space:]]+/services/)[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]?]+#\1[REDACTED]#gI' \
+    -e 's#((api[_-]?key|[A-Za-z0-9_-]*token|jwt|bearer|authorization|auth|password|passwd|secret|credential|cookie|private[_-]?key)"?[[:space:]]*[:=][[:space:]]*(bearer[[:space:]]+)?"?)[^[:space:],;"}&]{8,}#\1[REDACTED]#gI' \
+    -e 's#(Bearer[[:space:]]+)[A-Za-z0-9._+=/-]{8,}#\1[REDACTED]#gI' \
+    -e 's#sk-(proj-|svcacct-)?[A-Za-z0-9_-]{10,}#[REDACTED]#g' \
+    -e 's#xai-[A-Za-z0-9]{10,}#[REDACTED]#g' \
+    -e 's#ghp_[A-Za-z0-9]{20,}#[REDACTED]#g' \
+    -e 's#gho_[A-Za-z0-9]{20,}#[REDACTED]#g' \
+    -e 's#gh[usr]_[A-Za-z0-9]{20,}#[REDACTED]#g' \
+    -e 's#github_pat_[A-Za-z0-9_]{20,}#[REDACTED]#g' \
+    -e 's#AKIA[0-9A-Z]{16}#[REDACTED]#g'
+}
+
+redact_text() {
+  printf '%s' "${1:-}" | redact_stream
+}
+
+# ---------------------------------------------------------------------------
 # Colour helpers (disabled automatically when not a tty)
 # ---------------------------------------------------------------------------
 if [ -t 1 ]; then
@@ -47,11 +81,40 @@ fi
 declare -a SUMMARY_LINES=()
 HARD_FAILURES=0
 
-pass()  { echo -e "  ${PASS} $*"; SUMMARY_LINES+=("${GREEN}✓${RESET} $*"); }
-warn()  { echo -e "  ${WARN} $*"; SUMMARY_LINES+=("${YELLOW}⚠${RESET} $*"); }
-fail()  { echo -e "  ${FAIL} $*"; SUMMARY_LINES+=("${RED}✗${RESET} $*"); HARD_FAILURES=$(( HARD_FAILURES + 1 )); }
-info()  { echo -e "    ${CYAN}→${RESET} $*"; }
-header(){ echo; echo -e "${BOLD}── $* ──────────────────────────────────────────${RESET}"; }
+pass() {
+  local MESSAGE
+  MESSAGE=$(redact_text "$*")
+  echo -e "  ${PASS} ${MESSAGE}"
+  SUMMARY_LINES+=("${GREEN}✓${RESET} ${MESSAGE}")
+}
+
+warn() {
+  local MESSAGE
+  MESSAGE=$(redact_text "$*")
+  echo -e "  ${WARN} ${MESSAGE}"
+  SUMMARY_LINES+=("${YELLOW}⚠${RESET} ${MESSAGE}")
+}
+
+fail() {
+  local MESSAGE
+  MESSAGE=$(redact_text "$*")
+  echo -e "  ${FAIL} ${MESSAGE}"
+  SUMMARY_LINES+=("${RED}✗${RESET} ${MESSAGE}")
+  HARD_FAILURES=$(( HARD_FAILURES + 1 ))
+}
+
+info() {
+  local MESSAGE
+  MESSAGE=$(redact_text "$*")
+  echo -e "    ${CYAN}→${RESET} ${MESSAGE}"
+}
+
+header() {
+  local MESSAGE
+  MESSAGE=$(redact_text "$*")
+  echo
+  echo -e "${BOLD}── ${MESSAGE} ──────────────────────────────────────────${RESET}"
+}
 
 # ---------------------------------------------------------------------------
 # 0. Skill installation advisory

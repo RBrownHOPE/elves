@@ -44,8 +44,11 @@ If Work scope is read-only lens: inspect and reason, but do not edit files, crea
 PRs, install packages, or mutate run state.
 
 If Work scope is worker edit: edit only the assigned files or modules, do not revert unrelated
-changes, and report the files changed. The main coordinator owns git operations, durable memory,
-PRs, and final synthesis unless it explicitly delegates a narrower action.
+changes, and report the files changed. The main coordinator always owns canonical run memory,
+protected refs, PR actions, final gates/review, any authorized merge, and final synthesis.
+Host-native and legacy bounded routes also keep feature-branch commit/push in the host. Only an
+exact registered trusted `branch_progress` full-run worker may commit/push its assigned feature
+branch; untrusted writers remain detached and host-imported.
 
 Return a bounded JSON-compatible report:
 role:

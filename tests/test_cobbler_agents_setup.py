@@ -381,7 +381,10 @@ class AliasDelegationTests(unittest.TestCase):
         spec.loader.exec_module(mod)
         self.assertIn("setup-cobbler", mod.CLAUDE_ALIAS_NAMES)
         self.assertIn("setup-council", mod.CLAUDE_ALIAS_NAMES)
-        self.assertIn("scripts/cobbler_runtime/setup.py", mod.RUNTIME_SCRIPT_PATHS)
+        # Package is shipped recursively; individual modules need no allowlist entry.
+        self.assertIn("scripts/cobbler_runtime", mod.RUNTIME_SCRIPT_PATHS)
+        self.assertIn("scripts/openrouter_lens.py", mod.RUNTIME_SCRIPT_PATHS)
+        self.assertEqual(len(mod.CLAUDE_ALIAS_NAMES), 7)
 
 
 if __name__ == "__main__":

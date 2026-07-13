@@ -7,6 +7,7 @@ import argparse
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,7 +41,9 @@ HUMAN_FACING_EXACT_PATHS = {
     "README.md",
     "CHANGELOG.md",
     "TODO.md",
+    "api-break-approvals.json",
     "config.json.example",
+    "docs/cobbler.md",
     "docs/elves/learnings.md",
     "docs/elves-report-proof-of-concept.html",
 }
@@ -51,6 +54,23 @@ HUMAN_FACING_PREFIXES = (
     "aliases/claude/",
     "docs/plans/",
     "references/",
+)
+
+EXPECTED_CLAUDE_ALIASES = frozenset(
+    {
+        "cobbler",
+        "cobbler-mode",
+        "council",
+        "ec",
+        "elves-council",
+        "setup-cobbler",
+        "setup-council",
+    }
+)
+
+REQUIRED_RUNTIME_HELPERS = (
+    Path("scripts/openrouter_lens.py"),
+    Path("scripts/workspace_guard.py"),
 )
 
 
@@ -208,6 +228,73 @@ def build_release_checklist(
     example_failures, example_warnings = current_version_examples(repo_root, active_version)
     result.failures.extend(example_failures)
     result.warnings.extend(example_warnings)
+
+    # Alias inventory + installed import smoke when the full skill tree is present.
+    alias_root = repo_root / "aliases" / "claude"
+    runtime_pkg = repo_root / "scripts" / "cobbler_runtime"
+    runtime_helpers = [repo_root / path for path in REQUIRED_RUNTIME_HELPERS]
+    full_tree = alias_root.is_dir() and runtime_pkg.is_dir()
+    if full_tree:
+        found = {p.name for p in alias_root.iterdir() if p.is_dir()}
+        if found != EXPECTED_CLAUDE_ALIASES:
+            result.failures.append(
+                "aliases/claude: expected exactly seven managed aliases "
+                f"{sorted(EXPECTED_CLAUDE_ALIASES)}; found {sorted(found)}"
+            )
+        for name in sorted(EXPECTED_CLAUDE_ALIASES):
+            skill = alias_root / name / "SKILL.md"
+            if not skill.is_file():
+                result.failures.append(f"aliases/claude/{name}: missing SKILL.md")
+        py_modules = [p for p in runtime_pkg.rglob("*.py") if "__pycache__" not in p.parts]
+        if len(py_modules) < 5:
+            result.failures.append(
+                f"scripts/cobbler_runtime: expected recursive modules, found {len(py_modules)}"
+            )
+        missing_helpers = [
+            relative
+            for relative, helper in zip(REQUIRED_RUNTIME_HELPERS, runtime_helpers)
+            if not helper.is_file()
+        ]
+        for relative in missing_helpers:
+            result.failures.append(f"{relative}: missing required runtime helper")
+        if not missing_helpers:
+            import py_compile
+
+            try:
+                compile_inputs = [*runtime_helpers, *py_modules]
+                # Keep this maintainer check read-only with respect to the
+                # checkout.  py_compile's default cfile lives in a source-tree
+                # __pycache__, so send every artifact to disposable storage.
+                with tempfile.TemporaryDirectory(
+                    prefix="elves-release-compile-"
+                ) as compile_dir:
+                    for index, path in enumerate(compile_inputs):
+                        py_compile.compile(
+                            str(path),
+                            cfile=str(Path(compile_dir) / f"{index}.pyc"),
+                            doraise=True,
+                        )
+                result.notes.append(
+                    "Alias inventory (7) + required runtime helpers "
+                    "(openrouter_lens.py, workspace_guard.py) + recursive compile smoke: OK"
+                )
+            except py_compile.PyCompileError as exc:
+                result.failures.append(f"installed-import compile smoke failed: {exc}")
+    elif alias_root.is_dir() or runtime_pkg.is_dir() or any(
+        helper.is_file() for helper in runtime_helpers
+    ):
+        result.warnings.append(
+            "Partial skill tree detected; skipped full alias/import inventory enforcement"
+        )
+
+    # README version line alignment (when the repo has a README).
+    readme_path = repo_root / "README.md"
+    if readme_path.is_file():
+        readme = read_text(readme_path)
+        if f"v{active_version}" not in readme and f"{active_version}" not in readme:
+            result.failures.append(
+                f"README.md: missing current version marker `{active_version}`"
+            )
 
     if base_ref:
         changes, warning = changed_files_since(repo_root, base_ref)

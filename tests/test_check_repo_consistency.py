@@ -110,6 +110,22 @@ class ConsistencyPhraseTests(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertIn(label, self.consistency.SINGLE_KICKOFF_PHRASES)
 
+        e2e_phrases = self.consistency.SINGLE_KICKOFF_PHRASES[
+            "references/e2e-chat-to-land.md"
+        ]
+        self.assertIn("recommended default user path (v2.0+)", e2e_phrases)
+        self.assertIn("v2.1 adds trusted", e2e_phrases)
+        for label in (
+            "SKILL.md",
+            "AGENTS.md",
+            "README.md",
+            "references/kickoff-prompt-template.md",
+        ):
+            with self.subTest(version_attribution=label):
+                phrases = self.consistency.SINGLE_KICKOFF_PHRASES[label]
+                self.assertTrue(any("v2.0+" in phrase for phrase in phrases))
+                self.assertTrue(any("v2.1" in phrase for phrase in phrases))
+
     def test_single_kickoff_forbidden_corpus_catches_legacy_default_drift(self) -> None:
         label = "README.md"
         stale = "**Two-step operator flow**"
@@ -122,6 +138,148 @@ class ConsistencyPhraseTests(unittest.TestCase):
             errors,
             [f"{label}: stale single-kickoff E2E phrase `{stale}`"],
         )
+
+    def test_semantic_single_kickoff_mutation_fails_without_legacy_scope(self) -> None:
+        label = "README.md"
+        mutation = (
+            "Single kickoff is recommended. Stop after staging, then wait for another "
+            "launch command."
+        )
+        errors = self.consistency.find_unscoped_patterns(
+            {label: mutation},
+            {label: self.consistency.SINGLE_KICKOFF_UNSCOPED_PATTERNS[label]},
+            "single-kickoff contradiction",
+            scope_word="legacy",
+        )
+        self.assertTrue(errors)
+
+        scoped = "Legacy two-call only: stop after staging, then wait for another launch command."
+        self.assertEqual(
+            self.consistency.find_unscoped_patterns(
+                {label: scoped},
+                {label: self.consistency.SINGLE_KICKOFF_UNSCOPED_PATTERNS[label]},
+                "single-kickoff contradiction",
+                scope_word="legacy",
+            ),
+            [],
+        )
+
+    def test_full_run_command_wildcard_is_rejected(self) -> None:
+        label = "README.md"
+        errors = self.consistency.find_forbidden_patterns(
+            {label: "run implement full-run-* now"},
+            {label: self.consistency.EXACT_FULL_RUN_COMMAND_FORBIDDEN_PATTERNS[label]},
+            "full-run command wildcard",
+        )
+        self.assertTrue(errors)
+
+    def test_installed_helper_path_contract_covers_both_hosts_and_readiness(self) -> None:
+        for label in ("SKILL.md", "AGENTS.md"):
+            with self.subTest(label=label):
+                phrases = self.consistency.INSTALLED_HELPER_PATH_PHRASES[label]
+                self.assertIn("~/.claude/skills/elves", phrases)
+                self.assertIn("~/.codex/skills/elves", phrases)
+                self.assertIn(
+                    "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py",
+                    phrases,
+                )
+                self.assertIn(
+                    "installed Elves bundle never requires a repo-only helper",
+                    phrases,
+                )
+
+    def test_installed_surfaces_reject_executable_repo_only_helper(self) -> None:
+        label = "SKILL.md"
+        errors = self.consistency.find_forbidden_patterns(
+            {label: "python3 scripts/verify_repo.py --ci --version 9.9.9"},
+            {
+                label: self.consistency.INSTALLED_REPO_ONLY_HELPER_FORBIDDEN_PATTERNS[
+                    label
+                ]
+            },
+            "installed repo-only helper",
+        )
+        self.assertEqual(len(errors), 1)
+        self.assertIn("installed repo-only helper", errors[0])
+
+    def test_main_rejects_repo_only_helper_regression_in_installed_docs(self) -> None:
+        skill_path = self.consistency.REPO_ROOT / "SKILL.md"
+        original_read_text = self.consistency.read_text
+
+        def fake_read_text(path: Path) -> str:
+            text = original_read_text(path)
+            if path == skill_path:
+                return text + "\npython3 scripts/verify_repo.py --ci --version 9.9.9\n"
+            return text
+
+        self.consistency.read_text = fake_read_text
+        output = io.StringIO()
+        try:
+            with redirect_stdout(output):
+                exit_code = self.consistency.main()
+        finally:
+            self.consistency.read_text = original_read_text
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("installed repo-only helper", output.getvalue())
+
+    def test_landing_check_contract_requires_installed_exact_session_form(self) -> None:
+        for label, phrases in self.consistency.LANDING_CHECK_CONTRACT_PHRASES.items():
+            with self.subTest(label=label):
+                self.assertIn(
+                    "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py", phrases
+                )
+                self.assertIn("--session <session-path> --repo-root .", phrases)
+                self.assertIn("equality assertion", phrases)
+
+    def test_normative_surfaces_reject_bare_landing_check_path(self) -> None:
+        for label, patterns in self.consistency.LANDING_CHECK_BARE_FORBIDDEN_PATTERNS.items():
+            with self.subTest(label=label):
+                errors = self.consistency.find_forbidden_patterns(
+                    {label: "Run python3 scripts/elves_landing_check.py before landing."},
+                    {label: patterns},
+                    "bare landing-check path",
+                )
+                self.assertEqual(len(errors), 1)
+
+    def test_codex_goals_exact_paths_are_section_scoped(self) -> None:
+        label = "README.md"
+        valid_section = """### Codex Goals
+Read `.elves-session.json` first and resolve `survival_guide_path`, `learnings_path`,
+`plan_path`, and `execution_log_path`; do not substitute generic filenames.
+"""
+        errors = self.consistency.find_missing_section_phrases(
+            {label: valid_section},
+            self.consistency.CODEX_GOALS_SECTION_PHRASES,
+            self.consistency.CODEX_GOALS_SECTION_HEADINGS,
+            "Codex Goals exact-path",
+        )
+        self.assertEqual(errors, [])
+
+        misplaced = """### Codex Goals
+Use Goals for continuation.
+
+### Other
+Read `.elves-session.json` first and resolve `survival_guide_path`, `learnings_path`,
+`plan_path`, and `execution_log_path`; do not substitute generic filenames.
+"""
+        errors = self.consistency.find_missing_section_phrases(
+            {label: misplaced},
+            self.consistency.CODEX_GOALS_SECTION_PHRASES,
+            self.consistency.CODEX_GOALS_SECTION_HEADINGS,
+            "Codex Goals exact-path",
+        )
+        self.assertTrue(errors)
+
+    def test_codex_goals_section_rejects_generic_paths(self) -> None:
+        label = "README.md"
+        section = "### Codex Goals\nRead docs/elves/survival-guide.md first.\n"
+        errors = self.consistency.find_forbidden_phrases(
+            {label: section},
+            self.consistency.CODEX_GOALS_SECTION_FORBIDDEN_PHRASES,
+            "Codex Goals generic-path",
+        )
+        self.assertEqual(len(errors), 1)
 
     def test_implementer_handoff_phrases_cover_skill_and_templates(self) -> None:
         for label in (
@@ -192,6 +350,30 @@ class ConsistencyPhraseTests(unittest.TestCase):
             "Codex Goals are not required for Quick Cobbler",
             self.consistency.COUNCIL_MODULE_PHRASES["references/codex-goals.md"],
         )
+        codex_goal_phrases = self.consistency.COUNCIL_MODULE_PHRASES[
+            "references/codex-goals.md"
+        ]
+        for field in (
+            "survival_guide_path",
+            "learnings_path",
+            "plan_path",
+            "execution_log_path",
+        ):
+            with self.subTest(session_field=field):
+                self.assertIn(f"`{field}`", codex_goal_phrases)
+        self.assertIn("do not substitute generic filenames", codex_goal_phrases)
+        for stale_path in (
+            "docs/elves/survival-guide.md",
+            "docs/plans/my-plan.md",
+            "docs/elves/execution-log.md",
+        ):
+            with self.subTest(stale_path=stale_path):
+                self.assertIn(
+                    stale_path,
+                    self.consistency.COUNCIL_FORBIDDEN_PHRASES[
+                        "references/codex-goals.md"
+                    ],
+                )
         self.assertIn(
             "Do not document Codex as having a top-level `/cobbler`",
             self.consistency.COUNCIL_MODULE_PHRASES["references/council-workflow.md"],
@@ -763,22 +945,25 @@ Cobbler
         )
 
     def test_config_domain_workflow_validator_reports_stale_openrouter_defaults(self) -> None:
-        original_read_text = self.consistency.read_text
+        # Policy validator lives in consistency_engine; patch its read_text.
+        import consistency_engine  # noqa: PLC0415
+
+        original_read_text = consistency_engine.read_text
         stale_config = json.loads((REPO_ROOT / "config.json.example").read_text())
         stale_config["math"]["provider_policy"] = "openrouter-first"
         stale_config["math"]["required_env"] = ["OPENROUTER_API_KEY"]
         stale_config["math"]["role_models"]["proof_critic"] = "openrouter:<model-id>"
 
         def fake_read_text(path: Path) -> str:
-            if path == self.consistency.REPO_ROOT / "config.json.example":
+            if path == consistency_engine.REPO_ROOT / "config.json.example":
                 return json.dumps(stale_config)
             return original_read_text(path)
 
-        self.consistency.read_text = fake_read_text
+        consistency_engine.read_text = fake_read_text
         try:
-            errors = self.consistency.validate_config_domain_workflow()
+            errors = consistency_engine.validate_config_domain_workflow()
         finally:
-            self.consistency.read_text = original_read_text
+            consistency_engine.read_text = original_read_text
 
         self.assertIn(
             "config.json.example: `math.provider_policy` must not be `openrouter-first`",
@@ -799,13 +984,40 @@ Cobbler
         ]
 
         self.assertIn('"config.json.example"', phrases)
+        self.assertIn('"api-break-approvals.json"', phrases)
+        self.assertIn('".env*"', phrases)
         self.assertIn('".github/ISSUE_TEMPLATE/**"', phrases)
         self.assertIn('"aliases/**"', phrases)
         self.assertIn('"docs/cobbler.md"', phrases)
-        self.assertIn("scripts/pr_portfolio_report.py", phrases)
-        self.assertIn("scripts/validate_survival_guide.py", phrases)
-        self.assertIn("scripts/elves_landing_check.py", phrases)
-        self.assertIn("scripts/workspace_guard.py", phrases)
+        self.assertIn('"openapi.json"', phrases)
+        self.assertIn('"openapi.yaml"', phrases)
+        self.assertIn('"swagger.json"', phrases)
+        self.assertIn('"docs/openapi.json"', phrases)
+        self.assertIn('"scripts/**"', phrases)
+        self.assertIn("fetch-depth: 0", phrases)
+        self.assertIn("--base-ref", phrases)
+        self.assertIn(
+            "python3 scripts/verify_repo.py --ci --version 2.1.0",
+            phrases,
+        )
+
+    def test_repo_consistency_workflow_triggers_for_api_break_approvals(self) -> None:
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "repo-consistency.yml"
+        ).read_text()
+        pull_request_section = workflow.split("  pull_request:\n", 1)[1].split(
+            "  push:\n", 1
+        )[0]
+        push_section = workflow.split("  push:\n", 1)[1].split(
+            "\npermissions:\n", 1
+        )[0]
+
+        for section_name, section in (
+            ("pull_request", pull_request_section),
+            ("push", push_section),
+        ):
+            with self.subTest(section=section_name):
+                self.assertIn('- "api-break-approvals.json"', section)
 
     def test_repo_consistency_workflow_requires_node24_action_majors(self) -> None:
         label = ".github/workflows/repo-consistency.yml"
@@ -887,6 +1099,18 @@ Cobbler
             "`Active Compute` if relevant",
             self.consistency.OPERATOR_DOC_PHRASES["references/kickoff-prompt-template.md"],
         )
+        manifest_phrases = self.consistency.OPERATOR_DOC_PHRASES[".ai-docs/manifest.md"]
+        for field in (
+            "plan_path",
+            "survival_guide_path",
+            "execution_log_path",
+            "learnings_path",
+        ):
+            with self.subTest(session_field=field):
+                self.assertIn(
+                    f"`<{field}>` from `.elves-session.json`",
+                    manifest_phrases,
+                )
 
     def test_operator_doc_guardrails_report_missing_phrase(self) -> None:
         label = ".ai-docs/conventions.md"

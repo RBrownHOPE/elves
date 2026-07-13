@@ -15,16 +15,21 @@ Exit codes:
   2 — usage / IO error
 
 This script is intentionally narrow. It does not run tests or inspect PR checks.
-It only verifies that self-certified batch completion is backed by acceptance
-evidence in session JSON (and optionally plan + execution-log surfaces).
+It verifies that self-certified batch completion is backed by one-to-one
+acceptance evidence in session JSON and the authoritative plan. Execution-log
+and evidence-directory checks remain optional additional surfaces.
 """
 
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
+import os
 import re
+import subprocess
 import sys
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -71,9 +76,18 @@ BATCH_HEADING = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 ACCEPTANCE_SECTION = re.compile(
-    r"(?is)\*\*Acceptance criteria:\*\*(.*?)(?=\n\*\*[A-Z]|\n### |\n## |\Z)"
+    r"(?ims)^[ ]{0,3}\*\*Acceptance criteria:\*\*(.*?)(?=\n[ ]{0,3}\*\*[A-Z]|\n### |\n## |\Z)"
 )
-CHECKBOX = re.compile(r"^[\-\*]\s+\[([ xX])\]\s+(.+)$", re.MULTILINE)
+CHECKBOX = re.compile(r"^[ ]{0,3}[\-\*]\s+\[([ xX])\]\s+(.+)$", re.MULTILINE)
+STABLE_ACCEPTANCE_CHECKBOX = re.compile(
+    r"^[ ]{0,3}[-*]\s+\[([ xX])\]\s+((?:B\d+-A\d+|M-A\d+))\s*[—–:-]\s*(.+?)\s*$",
+    re.MULTILINE,
+)
+MASTER_ACCEPTANCE_HEADING = re.compile(
+    r"(?im)^(#{1,6})\s+Master\s+Acceptance\s*$"
+)
+MARKDOWN_HEADING = re.compile(r"(?m)^(#{1,6})\s+.+$")
+STABLE_BATCH_ACCEPTANCE_ID = re.compile(r"^B(\d+)-A\d+$")
 VALIDATE_SECTION = re.compile(
     r"(?im)^\*\*Validate(?:\s+section)?(?:\s+for\s+batch\s+(\d+))?:\*\*"
 )
@@ -124,7 +138,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--plan",
         default=None,
-        help="Optional plan markdown path. Defaults to session plan_path when present.",
+        help="Plan markdown path (required; defaults to session plan_path when present).",
     )
     parser.add_argument(
         "--execution-log",
@@ -154,6 +168,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Emit machine-readable JSON report on stdout.",
     )
+    parser.add_argument(
+        "--repo-root",
+        default=None,
+        help=(
+            "Repository root for strict landing provenance. When set, the session "
+            "and plan must be ordinary, tracked files in this worktree and session "
+            "branch/run identity is verified against Git."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -176,9 +199,10 @@ def as_batches(session: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(batches, list):
         raise SystemExit("Session field `batches` must be an array")
     out: list[dict[str, Any]] = []
-    for item in batches:
-        if isinstance(item, dict):
-            out.append(item)
+    for index, item in enumerate(batches):
+        if not isinstance(item, dict):
+            raise SystemExit(f"Session `batches[{index}]` must be an object")
+        out.append(item)
     return out
 
 
@@ -187,13 +211,52 @@ def batch_id(batch: dict[str, Any]) -> str:
     return str(raw)
 
 
+def numeric_batch_id(batch: dict[str, Any]) -> int | None:
+    """Resolve canonical ``B#`` or legacy positive-integer batch identities."""
+    raw = batch.get("id")
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw if raw > 0 else None
+    if not isinstance(raw, str):
+        return None
+    match = re.fullmatch(r"(?:B)?([1-9][0-9]*)", raw)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
 def acceptance_items(batch: dict[str, Any]) -> list[dict[str, Any]]:
     raw = batch.get("acceptance")
     if raw is None:
         return []
     if not isinstance(raw, list):
+        raise SystemExit(f"Batch {batch_id(batch)} field `acceptance` must be an array")
+    out: list[dict[str, Any]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise SystemExit(
+                f"Batch {batch_id(batch)} `acceptance[{index}]` must be an object"
+            )
+        out.append(item)
+    return out
+
+
+def master_acceptance_items(session: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return canonical branch-level Master Acceptance evidence rows."""
+    raw = session.get("master_acceptance")
+    if raw is None:
         return []
-    return [item for item in raw if isinstance(item, dict)]
+    if not isinstance(raw, list):
+        raise SystemExit("Session field `master_acceptance` must be an array")
+    out: list[dict[str, Any]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise SystemExit(
+                f"Session `master_acceptance[{index}]` must be an object"
+            )
+        out.append(item)
+    return out
 
 
 def check_session_batches(session: dict[str, Any], report: Report) -> None:
@@ -205,8 +268,20 @@ def check_session_batches(session: dict[str, Any], report: Report) -> None:
         )
         return
 
+    seen_batch_ids: set[int] = set()
     for batch in batches:
         bid = batch_id(batch)
+        numeric_id = numeric_batch_id(batch)
+        if numeric_id is None:
+            report.error(
+                "batch_id_invalid",
+                f"Batch {bid!r} must have a canonical `B#` or legacy positive-integer "
+                "`id` matching a plan Batch heading.",
+            )
+        elif numeric_id in seen_batch_ids:
+            report.error("batch_id_duplicate", f"Duplicate session batch id: {numeric_id}")
+        else:
+            seen_batch_ids.add(numeric_id)
         status = str(batch.get("status", "")).strip().lower()
         if status != "complete":
             report.error(
@@ -284,8 +359,147 @@ def check_session_batches(session: dict[str, Any], report: Report) -> None:
                         )
 
 
+def check_session_master_acceptance(session: dict[str, Any], report: Report) -> None:
+    """Validate canonical top-level Master Acceptance evidence values."""
+    for index, item in enumerate(master_acceptance_items(session)):
+        criterion = str(item.get("criterion") or "").strip()
+        evidence = str(item.get("evidence") or "").strip()
+        met = item.get("met")
+        label = criterion or f"item[{index}]"
+        if met is not True:
+            report.error(
+                "master_acceptance_not_met",
+                f"Master acceptance {label!r}: met must be true (got {met!r}).",
+            )
+        if not criterion:
+            report.error(
+                "master_acceptance_no_criterion",
+                f"Master acceptance item {index} is missing `criterion`.",
+            )
+        if not evidence:
+            report.error(
+                "master_acceptance_no_evidence",
+                f"Master acceptance {label!r} is missing `evidence` "
+                "(path, command transcript, metric, or commit SHA).",
+            )
+
+
+def normalize_criterion(value: Any) -> str:
+    """Normalize legacy criterion text without erasing semantic punctuation."""
+    text = unicodedata.normalize("NFKC", str(value or ""))
+    text = text.replace("—", "-").replace("–", "-")
+    return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def _blank_markdown_span(value: str) -> str:
+    return "".join("\n" if char == "\n" else " " for char in value)
+
+
+def active_markdown(plan_text: str) -> str:
+    """Blank fenced code and HTML comments while preserving source offsets."""
+    without_comments = re.sub(
+        r"<!--.*?(?:-->|\Z)",
+        lambda match: _blank_markdown_span(match.group(0)),
+        plan_text,
+        flags=re.DOTALL,
+    )
+    rendered: list[str] = []
+    fence_char: str | None = None
+    fence_length = 0
+    for line in without_comments.splitlines(keepends=True):
+        match = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
+        if fence_char is None:
+            if match is None:
+                rendered.append(line)
+                continue
+            marker = match.group(1)
+            fence_char = marker[0]
+            fence_length = len(marker)
+            rendered.append(_blank_markdown_span(line))
+            continue
+        rendered.append(_blank_markdown_span(line))
+        if match is not None:
+            marker = match.group(1)
+            if marker[0] == fence_char and len(marker) >= fence_length:
+                fence_char = None
+                fence_length = 0
+    return "".join(rendered)
+
+
+def _parse_checkboxes(section: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "checked": box.group(1).lower() == "x",
+            "text": box.group(2).strip(),
+        }
+        for box in CHECKBOX.finditer(section)
+    ]
+
+
+def _parse_stable_checkboxes(section: str) -> list[dict[str, Any]]:
+    """Parse stable-ID checkboxes, including wrapped criterion continuation lines."""
+    starts = list(STABLE_ACCEPTANCE_CHECKBOX.finditer(section))
+    items: list[dict[str, Any]] = []
+    for index, match in enumerate(starts):
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(section)
+        continuation: list[str] = []
+        for raw_line in section[match.end() : end].splitlines():
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith(("#", "**")) or re.match(
+                r"^[-*]\s+\[[ xX]\]", stripped
+            ):
+                break
+            if raw_line[:1].isspace():
+                continuation.append(stripped)
+                continue
+            break
+        criterion = " ".join([match.group(3).strip(), *continuation]).strip()
+        items.append(
+            {
+                "checked": match.group(1).lower() == "x",
+                "id": match.group(2),
+                "criterion": criterion,
+            }
+        )
+    return items
+
+
+def parse_master_acceptance(plan_text: str) -> tuple[bool, list[dict[str, Any]]]:
+    """Parse global Master Acceptance checkboxes outside per-batch sections."""
+    found = False
+    acceptance: list[dict[str, Any]] = []
+    for match in MASTER_ACCEPTANCE_HEADING.finditer(plan_text):
+        found = True
+        level = len(match.group(1))
+        end = len(plan_text)
+        for heading in MARKDOWN_HEADING.finditer(plan_text, match.end()):
+            if len(heading.group(1)) <= level:
+                end = heading.start()
+                break
+        acceptance.extend(_parse_checkboxes(plan_text[match.end() : end]))
+    return found, acceptance
+
+
+def parse_master_stable_acceptance(plan_text: str) -> tuple[bool, list[dict[str, Any]]]:
+    """Parse stable-ID rows only from explicit Master Acceptance sections."""
+    found = False
+    acceptance: list[dict[str, Any]] = []
+    for match in MASTER_ACCEPTANCE_HEADING.finditer(plan_text):
+        found = True
+        level = len(match.group(1))
+        end = len(plan_text)
+        for heading in MARKDOWN_HEADING.finditer(plan_text, match.end()):
+            if len(heading.group(1)) <= level:
+                end = heading.start()
+                break
+        acceptance.extend(_parse_stable_checkboxes(plan_text[match.end() : end]))
+    return found, acceptance
+
+
 def parse_plan_batches(plan_text: str) -> dict[int, dict[str, Any]]:
-    """Return {batch_id: {title, acceptance: [{text, checked}], body}}."""
+    """Return parsed Batch headings and their explicit Acceptance sections."""
     matches = list(BATCH_HEADING.finditer(plan_text))
     result: dict[int, dict[str, Any]] = {}
     for index, match in enumerate(matches):
@@ -294,36 +508,164 @@ def parse_plan_batches(plan_text: str) -> dict[int, dict[str, Any]]:
         body = plan_text[start:end]
         bid = int(match.group(1))
         title = match.group(2).strip()
-        acceptance: list[dict[str, Any]] = []
         section_match = ACCEPTANCE_SECTION.search(body)
-        section = section_match.group(1) if section_match else body
-        for box in CHECKBOX.finditer(section):
-            acceptance.append(
-                {
-                    "checked": box.group(1).lower() == "x",
-                    "text": box.group(2).strip(),
-                }
-            )
-        result[bid] = {"title": title, "acceptance": acceptance, "body": body}
+        acceptance_section = section_match.group(1) if section_match else ""
+        acceptance = _parse_checkboxes(acceptance_section) if section_match else []
+        result[bid] = {
+            "title": title,
+            "acceptance": acceptance,
+            "stable_acceptance": _parse_stable_checkboxes(acceptance_section),
+            "acceptance_section": acceptance_section,
+            "has_acceptance_section": section_match is not None,
+            "body": body,
+        }
     return result
+
+
+def check_legacy_acceptance_mapping(
+    plan_batches: dict[int, dict[str, Any]],
+    master_acceptance: list[dict[str, Any]],
+    session_master_acceptance: list[dict[str, Any]],
+    session: dict[str, Any],
+    report: Report,
+) -> None:
+    """Require one evidence row per normalized legacy plan criterion."""
+    session_by_id = {
+        numeric_batch_id(batch): batch
+        for batch in as_batches(session)
+        if numeric_batch_id(batch) is not None
+    }
+    remaining: Counter[str] = Counter()
+    labels: dict[str, str] = {}
+
+    for bid, info in sorted(plan_batches.items()):
+        expected = Counter(normalize_criterion(item["text"]) for item in info["acceptance"])
+        for item in info["acceptance"]:
+            labels.setdefault(normalize_criterion(item["text"]), item["text"])
+        duplicates = [labels[key] for key, count in expected.items() if count > 1]
+        for criterion in duplicates:
+            report.error(
+                "plan_acceptance_duplicate_criterion",
+                f"Plan Batch {bid} repeats legacy Acceptance criterion {criterion!r}.",
+            )
+
+        batch = session_by_id.get(bid)
+        observed = Counter()
+        if batch is not None:
+            observed.update(
+                normalize_criterion(item.get("criterion"))
+                for item in acceptance_items(batch)
+            )
+        for key, count in expected.items():
+            matched = min(count, observed[key])
+            if matched < count:
+                report.error(
+                    "acceptance_criterion_missing",
+                    f"Plan Batch {bid} criterion {labels[key]!r} has no one-to-one "
+                    "session evidence row.",
+                )
+            observed[key] -= matched
+            if observed[key] <= 0:
+                observed.pop(key, None)
+        remaining.update(observed)
+
+    for item in session_master_acceptance:
+        key = normalize_criterion(item.get("criterion"))
+        labels.setdefault(key, str(item.get("criterion") or ""))
+        remaining[key] += 1
+
+    master_expected = Counter(
+        normalize_criterion(item["text"]) for item in master_acceptance
+    )
+    for item in master_acceptance:
+        labels.setdefault(normalize_criterion(item["text"]), item["text"])
+    for key, count in master_expected.items():
+        if count > 1:
+            report.error(
+                "master_acceptance_duplicate_criterion",
+                f"Master Acceptance repeats criterion {labels[key]!r}.",
+            )
+        matched = min(count, remaining[key])
+        if matched < count:
+            report.error(
+                "master_acceptance_evidence_missing",
+                f"Master Acceptance criterion {labels[key]!r} has no one-to-one "
+                "session evidence row.",
+            )
+        remaining[key] -= matched
+        if remaining[key] <= 0:
+            remaining.pop(key, None)
+
+    for key, count in sorted(remaining.items()):
+        report.error(
+            "acceptance_evidence_unrelated",
+            f"Session contains {count} unrelated legacy evidence row(s) for "
+            f"{labels.get(key, key)!r} that do not map to plan Acceptance.",
+        )
 
 
 def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None:
     if not plan_path.exists():
         report.error("plan_missing", f"Plan file not found: {plan_path}")
         return
-    text = plan_path.read_text(encoding="utf-8")
+    try:
+        text = plan_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        report.error("plan_unparseable", f"Plan file could not be parsed: {plan_path}: {exc}")
+        return
+    text = active_markdown(text)
     plan_batches = parse_plan_batches(text)
     if not plan_batches:
-        report.warn(
+        report.error(
             "plan_no_batch_headings",
             f"Could not parse Batch headings from {plan_path}. "
             "Expected `### Batch N: Name` with Acceptance criteria checkboxes.",
         )
         return
 
-    session_batches = {str(b.get("id")): b for b in as_batches(session)}
+    heading_ids = [int(match.group(1)) for match in BATCH_HEADING.finditer(text)]
+    if len(heading_ids) != len(set(heading_ids)):
+        report.error(
+            "plan_duplicate_batch_heading",
+            f"Plan contains duplicate Batch heading ids: {heading_ids}",
+        )
+
+    master_present, master_acceptance = parse_master_acceptance(text)
+    if master_present and not master_acceptance:
+        report.error(
+            "master_acceptance_unparseable",
+            "Master Acceptance heading has no parseable checkboxes.",
+        )
+    for item in master_acceptance:
+        if not item["checked"]:
+            report.error(
+                "plan_acceptance_open",
+                f"Master Acceptance is unchecked: {item['text'][:120]}",
+            )
+
+    session_batches = {
+        numeric: batch
+        for batch in as_batches(session)
+        if (numeric := numeric_batch_id(batch)) is not None
+    }
+    plan_batch_ids = set(plan_batches)
+    session_batch_ids = set(session_batches)
+    for bid in sorted(session_batch_ids - plan_batch_ids):
+        report.error(
+            "session_batch_missing_in_plan",
+            f"Session Batch {bid} has no matching Batch heading in the authoritative plan.",
+        )
     for bid, info in sorted(plan_batches.items()):
+        if not info["has_acceptance_section"]:
+            report.error(
+                "plan_acceptance_section_missing",
+                f"Plan Batch {bid} has no explicit `**Acceptance criteria:**` section.",
+            )
+        elif not info["acceptance"]:
+            report.error(
+                "plan_acceptance_unparseable",
+                f"Plan Batch {bid} has no parseable Acceptance criteria checkboxes.",
+            )
         open_boxes = [a for a in info["acceptance"] if not a["checked"]]
         if open_boxes:
             titles = "; ".join(a["text"][:80] for a in open_boxes[:5])
@@ -336,7 +678,7 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
         # only via structure language in session, the session checker handles it.
         # Here: if plan still has open LOC-style boxes, already covered by open_boxes.
 
-        sb = session_batches.get(str(bid))
+        sb = session_batches.get(bid)
         if sb is None:
             # Plan batch with no session entry is only an error if we expected full land.
             report.error(
@@ -365,35 +707,235 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
                     "acceptance evidence is structure/regex-lock only.",
                 )
 
+    # Stable acceptance ID one-to-one mapping (B#-A# / M-A#). Parse only
+    # explicit batch Acceptance and Master Acceptance sections so task lists or
+    # prose cannot be mistaken for landing evidence.
+    session_master = master_acceptance_items(session)
+    all_evidence_items: list[
+        tuple[dict[str, Any] | None, dict[str, Any]]
+    ] = [
+        (batch, item)
+        for batch in as_batches(session)
+        for item in acceptance_items(batch)
+    ]
+    all_evidence_items.extend((None, item) for item in session_master)
+    global_id_mentions = re.findall(r"\b(?:B\d+-A\d+|M-A\d+)\b", text)
+    evidence_has_ids = any(str(item.get("id") or "").strip() for _, item in all_evidence_items)
+    stable_mode = bool(global_id_mentions) or evidence_has_ids
+    if not stable_mode:
+        check_legacy_acceptance_mapping(
+            plan_batches,
+            master_acceptance,
+            session_master,
+            session,
+            report,
+        )
+        return
 
-def check_execution_log(log_path: Path, report: Report) -> None:
+    _, master_stable = parse_master_stable_acceptance(text)
+    plan_items: list[dict[str, Any]] = []
+    for bid, info in sorted(plan_batches.items()):
+        parsed = info["stable_acceptance"]
+        if len(parsed) != len(info["acceptance"]):
+            report.error(
+                "plan_acceptance_id_missing",
+                f"Stable-ID mode requires every Acceptance checkbox in Batch {bid} "
+                "to have a B#-A# id and separator.",
+            )
+        section_mentions = re.findall(
+            r"\b(?:B\d+-A\d+|M-A\d+)\b", info["acceptance_section"]
+        )
+        if section_mentions and len(parsed) != len(section_mentions):
+            report.error(
+                "plan_acceptance_unparseable",
+                f"Plan Batch {bid} mentions stable Acceptance IDs that are not all "
+                "parseable checked-list rows with an ID separator.",
+            )
+        for item in parsed:
+            aid = item["id"]
+            match = STABLE_BATCH_ACCEPTANCE_ID.fullmatch(aid)
+            if match is None:
+                report.error(
+                    "plan_acceptance_wrong_scope",
+                    f"Master acceptance id {aid} must appear under `## Master Acceptance`, "
+                    f"not Batch {bid}.",
+                )
+            elif int(match.group(1)) != bid:
+                report.error(
+                    "plan_acceptance_wrong_batch",
+                    f"Plan acceptance {aid} appears under Batch {bid}; it belongs under "
+                    f"Batch {match.group(1)}.",
+                )
+            plan_items.append({**item, "batch_id": bid})
+
+    if not master_present:
+        report.error(
+            "master_acceptance_missing",
+            "Stable-ID plans require an explicit `## Master Acceptance` section.",
+        )
+    elif not master_stable:
+        report.error(
+            "master_acceptance_unparseable",
+            "Stable-ID plans require at least one parseable M-A# row under Master Acceptance.",
+        )
+    if len(master_stable) != len(master_acceptance):
+        report.error(
+            "master_acceptance_id_missing",
+            "Stable-ID mode requires every Master Acceptance checkbox to have an M-A# "
+            "id and separator.",
+        )
+    for item in master_stable:
+        aid = item["id"]
+        if not aid.startswith("M-A"):
+            report.error(
+                "plan_acceptance_wrong_scope",
+                f"Batch acceptance id {aid} must appear in its Batch Acceptance section, "
+                "not Master Acceptance.",
+            )
+        plan_items.append({**item, "batch_id": None})
+
+    if global_id_mentions and not plan_items:
+        report.error(
+            "plan_acceptance_unparseable",
+            "Plan mentions stable Acceptance IDs but none were parsed from explicit "
+            "Batch or Master Acceptance sections.",
+        )
+
+    plan_by_id: dict[str, dict[str, Any]] = {}
+    for item in plan_items:
+        aid = item["id"]
+        if not item["checked"]:
+            report.error(
+                "plan_acceptance_open",
+                f"Plan stable Acceptance {aid} is unchecked: {item['criterion']}",
+            )
+        if aid in plan_by_id:
+            report.error(
+                "plan_acceptance_duplicate_id",
+                f"Duplicate plan acceptance id {aid}.",
+            )
+        else:
+            plan_by_id[aid] = item
+
+    canonical_master_present = "master_acceptance" in session
+    legacy_master_rows = [
+        (batch, item)
+        for batch, item in all_evidence_items
+        if batch is not None and str(item.get("id") or "").strip().startswith("M-A")
+    ]
+    if legacy_master_rows and not canonical_master_present:
+        report.warn(
+            "legacy_master_acceptance_location",
+            "Session stores M-A# evidence inside a batch `acceptance` array. "
+            "This remains readable for compatibility; new sessions should use the "
+            "top-level `master_acceptance` array.",
+        )
+
+    evidence_by_id: dict[
+        str, tuple[dict[str, Any] | None, dict[str, Any]]
+    ] = {}
+    for batch, item in all_evidence_items:
+        aid = str(item.get("id") or "").strip()
+        if not aid:
+            scope = (
+                "top-level master_acceptance"
+                if batch is None
+                else f"Batch {batch_id(batch)}"
+            )
+            report.error(
+                "acceptance_id_missing",
+                f"Stable-ID plan requires an id on every evidence row in {scope}.",
+            )
+            continue
+        if not re.fullmatch(r"(?:B\d+-A\d+|M-A\d+)", aid):
+            report.error(
+                "acceptance_id_invalid",
+                f"Session evidence id {aid!r} is not a B#-A# or M-A# stable id.",
+            )
+        batch_match = STABLE_BATCH_ACCEPTANCE_ID.fullmatch(aid)
+        if batch_match is not None:
+            if batch is None:
+                report.error(
+                    "acceptance_id_wrong_scope",
+                    f"Batch evidence {aid} must be stored in Batch "
+                    f"{batch_match.group(1)} `acceptance`, not top-level "
+                    "`master_acceptance`.",
+                )
+            else:
+                expected_batch = numeric_batch_id(batch)
+                if expected_batch is None or int(batch_match.group(1)) != expected_batch:
+                    report.error(
+                        "acceptance_id_wrong_batch",
+                        f"Evidence {aid} is stored in session Batch {batch_id(batch)}; "
+                        f"B{batch_match.group(1)} evidence must stay in Batch "
+                        f"{batch_match.group(1)}.",
+                    )
+        elif aid.startswith("M-A") and batch is not None and canonical_master_present:
+            report.error(
+                "acceptance_id_wrong_scope",
+                f"Master evidence {aid} must be stored in top-level "
+                "`master_acceptance`, not Batch {batch_id(batch)} `acceptance`.",
+            )
+        if aid in evidence_by_id:
+            report.error(
+                "acceptance_evidence_duplicate_id",
+                f"Session contains duplicate evidence rows for {aid}.",
+            )
+        else:
+            evidence_by_id[aid] = (batch, item)
+
+    for aid, plan_item in sorted(plan_by_id.items()):
+        observed = evidence_by_id.get(aid)
+        if observed is None:
+            report.error(
+                "acceptance_evidence_missing",
+                f"Plan acceptance {aid} has no one-to-one session evidence row.",
+            )
+            continue
+        _, evidence_item = observed
+        if normalize_criterion(evidence_item.get("criterion")) != normalize_criterion(
+            plan_item["criterion"]
+        ):
+            report.error(
+                "acceptance_criterion_mismatch",
+                f"Session evidence criterion for {aid} does not exactly match the "
+                "authoritative plan criterion.",
+            )
+
+    for aid in sorted(set(evidence_by_id) - set(plan_by_id)):
+        report.error(
+            "acceptance_evidence_unrelated",
+            f"Session evidence {aid} does not map to an authoritative plan Acceptance row.",
+        )
+
+
+def check_execution_log(
+    log_path: Path,
+    report: Report,
+    *,
+    expected_batch_ids: set[int] | None = None,
+) -> None:
     if not log_path.exists():
         report.warn("execution_log_missing", f"Execution log not found: {log_path}")
         return
     text = log_path.read_text(encoding="utf-8")
 
     if MULTI_BATCH_CLOSE.search(text):
-        # Require either separate Validate sections per batch id, or distinct Batch headings.
+        # Multi-batch closes require explicit, labeled Validate sections. Batch
+        # headings alone are navigation, not validation evidence.
         validate_hits = VALIDATE_SECTION.findall(text)
         # findall with one group returns list of group contents (batch ids or '')
-        batch_ids_with_validate = {v for v in validate_hits if v}
-        multi_mentions = MULTI_BATCH_CLOSE.findall(text)
-        if multi_mentions and len(batch_ids_with_validate) < 2:
-            # Also accept multiple ## Batch N headings in the log near the close.
-            batch_headings = {int(m.group(1)) for m in BATCH_HEADING.finditer(text)}
-            if len(batch_headings) < 2:
-                report.error(
-                    "multi_batch_close",
-                    "Execution log mentions multi-batch close / close remaining without "
-                    "separate Validate sections per batch id. Prefer one batch per close commit, "
-                    "or record **Validate:** sections labeled per batch.",
-                )
-            else:
-                report.warn(
-                    "multi_batch_close_soft",
-                    "Execution log mentions multi-batch close. Ensure each batch has its own "
-                    "Validate evidence even if close commits were combined.",
-                )
+        batch_ids_with_validate = {int(v) for v in validate_hits if v}
+        expected = set(expected_batch_ids or set())
+        missing = sorted(expected - batch_ids_with_validate) if expected else []
+        if len(batch_ids_with_validate) < 2 or missing:
+            suffix = f" Missing labeled batches: {missing}." if missing else ""
+            report.error(
+                "multi_batch_close",
+                "Execution log mentions multi-batch close / close remaining without "
+                "separate `**Validate for batch N:**` sections per completed batch."
+                + suffix,
+            )
 
 
 def check_evidence_dirs(
@@ -453,28 +995,215 @@ def resolve_path(raw: str | None, base: Path) -> Path | None:
     return path
 
 
+def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(repo_root),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def _strict_repo_file(
+    raw: str | Path,
+    *,
+    base: Path,
+    repo_root: Path,
+    label: str,
+    report: Report,
+) -> Path | None:
+    """Resolve an ordinary tracked file without allowing symlink indirection."""
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = base / candidate
+    lexical = Path(os.path.abspath(candidate))
+    try:
+        resolved = lexical.resolve(strict=True)
+        relative = resolved.relative_to(repo_root)
+    except (OSError, ValueError):
+        report.error(
+            f"{label}_outside_repo",
+            f"{label.capitalize()} path must stay inside the repository: {lexical}",
+        )
+        return None
+
+    cursor = lexical
+    while cursor != cursor.parent:
+        if cursor.is_symlink():
+            report.error(
+                f"{label}_symlink",
+                f"{label.capitalize()} path must not use a symlink: {cursor}",
+            )
+            return None
+        try:
+            at_repo_root = cursor.resolve(strict=False) == repo_root
+        except OSError:
+            at_repo_root = False
+        if at_repo_root:
+            break
+        cursor = cursor.parent
+    if not lexical.is_file():
+        report.error(
+            f"{label}_not_regular",
+            f"{label.capitalize()} must be an existing regular file: {lexical}",
+        )
+        return None
+    rel_text = relative.as_posix()
+    tracked = _git(repo_root, "ls-files", "--error-unmatch", "--", rel_text)
+    if tracked.returncode != 0:
+        report.error(
+            f"{label}_untracked",
+            f"{label.capitalize()} must be tracked by Git: {rel_text}",
+        )
+        return None
+    committed = _git(repo_root, "cat-file", "-e", f"HEAD:{rel_text}")
+    if committed.returncode != 0:
+        report.error(
+            f"{label}_not_committed",
+            f"{label.capitalize()} must exist in the current HEAD tree: {rel_text}",
+        )
+        return None
+    return resolved
+
+
+def _check_session_git_identity(
+    session: dict[str, Any], repo_root: Path, report: Report
+) -> None:
+    run_id = session.get("run_id")
+    if not isinstance(run_id, str) or not run_id.strip():
+        report.error(
+            "session_run_id_missing",
+            "Final landing session must record a non-empty `run_id`.",
+        )
+
+    branch = session.get("branch")
+    current = _git(repo_root, "branch", "--show-current")
+    current_branch = current.stdout.strip() if current.returncode == 0 else ""
+    if not isinstance(branch, str) or not branch.strip():
+        report.error(
+            "session_branch_missing",
+            "Final landing session must record the active `branch`.",
+        )
+    elif not current_branch or branch != current_branch:
+        report.error(
+            "session_branch_mismatch",
+            f"Session branch {branch!r} does not match active branch {current_branch!r}.",
+        )
+
+    start_head = session.get("start_head")
+    if not isinstance(start_head, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", start_head):
+        report.error(
+            "session_start_head_invalid",
+            "Final landing session must record an exact 40-character `start_head` commit.",
+        )
+        return
+    resolved = _git(repo_root, "rev-parse", "--verify", f"{start_head}^{{commit}}")
+    if resolved.returncode != 0 or resolved.stdout.strip().lower() != start_head.lower():
+        report.error(
+            "session_start_head_missing",
+            f"Session start_head is not an exact commit in this repository: {start_head}",
+        )
+        return
+    ancestor = _git(repo_root, "merge-base", "--is-ancestor", start_head, "HEAD")
+    if ancestor.returncode != 0:
+        report.error(
+            "session_start_head_not_ancestor",
+            f"Session start_head {start_head} is not an ancestor of current HEAD.",
+        )
+
+
 def run_checks(args: argparse.Namespace) -> Report:
-    session_path = Path(args.session).expanduser().resolve()
+    report = Report()
+    repo_root = Path(args.repo_root).expanduser().resolve() if args.repo_root else None
+    if repo_root is not None:
+        if _git(repo_root, "rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
+            report.error(
+                "repo_root_invalid",
+                f"Strict landing root is not a Git worktree: {repo_root}",
+            )
+            return report
+        session_path = _strict_repo_file(
+            args.session,
+            base=repo_root,
+            repo_root=repo_root,
+            label="session",
+            report=report,
+        )
+        if session_path is None:
+            return report
+    else:
+        session_path = Path(args.session).expanduser().resolve()
     session = load_json(session_path)
     base = session_path.parent
-    report = Report()
+
+    if repo_root is not None:
+        _check_session_git_identity(session, repo_root, report)
 
     check_session_batches(session, report)
+    check_session_master_acceptance(session, report)
 
-    plan_raw = args.plan or session.get("plan_path")
-    plan_path = resolve_path(str(plan_raw) if plan_raw else None, base)
+    recorded_plan_raw = session.get("plan_path")
+    if repo_root is not None and not recorded_plan_raw:
+        report.error(
+            "session_plan_path_missing",
+            "Final landing session must record its authoritative `plan_path`.",
+        )
+        plan_path = None
+    elif repo_root is not None:
+        recorded_plan = _strict_repo_file(
+            str(recorded_plan_raw),
+            base=base,
+            repo_root=repo_root,
+            label="plan",
+            report=report,
+        )
+        explicit_plan = None
+        if args.plan is not None:
+            explicit_plan = _strict_repo_file(
+                args.plan,
+                base=repo_root,
+                repo_root=repo_root,
+                label="plan",
+                report=report,
+            )
+            if (
+                recorded_plan is not None
+                and explicit_plan is not None
+                and recorded_plan != explicit_plan
+            ):
+                report.error(
+                    "plan_path_mismatch",
+                    f"Explicit --plan {explicit_plan} does not exactly match session "
+                    f"plan_path {recorded_plan}.",
+                )
+        plan_path = explicit_plan if args.plan is not None else recorded_plan
+    else:
+        plan_raw = args.plan or recorded_plan_raw
+        plan_path = resolve_path(str(plan_raw) if plan_raw else None, base)
     if plan_path is not None:
         check_plan(plan_path, session, report)
     else:
-        report.warn(
+        report.error(
             "no_plan_path",
-            "No plan path provided and session has no plan_path; skipped plan Acceptance walk.",
+            "No plan path provided and session has no plan_path; landing requires the "
+            "authoritative plan Acceptance walk.",
         )
 
     log_raw = args.execution_log or session.get("execution_log_path")
     log_path = resolve_path(str(log_raw) if log_raw else None, base)
     if log_path is not None:
-        check_execution_log(log_path, report)
+        complete_batch_ids = {
+            numeric
+            for batch in as_batches(session)
+            if str(batch.get("status", "")).strip().lower() == "complete"
+            if (numeric := numeric_batch_id(batch)) is not None
+        }
+        check_execution_log(
+            log_path,
+            report,
+            expected_batch_ids=complete_batch_ids,
+        )
 
     if args.evidence_root:
         evidence_root = resolve_path(args.evidence_root, base)

@@ -19,6 +19,40 @@
 set -uo pipefail
 
 # ---------------------------------------------------------------------------
+# Diagnostic / delivery redaction boundary
+# ---------------------------------------------------------------------------
+redact_stream() {
+  LC_ALL=C awk '
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/ {
+      print "[REDACTED]"
+      in_pem_block = 1
+      next
+    }
+    in_pem_block && /-----END [A-Z ]*PRIVATE KEY-----/ {
+      in_pem_block = 0
+      next
+    }
+    in_pem_block { next }
+    { print }
+  ' | LC_ALL=C sed -E \
+    -e 's#([a-z][a-z0-9+.-]*://)[^/@[:space:]]+@#\1[REDACTED]@#gI' \
+    -e 's#(https://hooks\.slack\.[^/[:space:]]+/services/)[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]?]+#\1[REDACTED]#gI' \
+    -e 's#((api[_-]?key|[A-Za-z0-9_-]*token|jwt|bearer|authorization|auth|password|passwd|secret|credential|cookie|private[_-]?key)"?[[:space:]]*[:=][[:space:]]*(bearer[[:space:]]+)?"?)[^[:space:],;"}&]{8,}#\1[REDACTED]#gI' \
+    -e 's#(Bearer[[:space:]]+)[A-Za-z0-9._+=/-]{8,}#\1[REDACTED]#gI' \
+    -e 's#sk-(proj-|svcacct-)?[A-Za-z0-9_-]{10,}#[REDACTED]#g' \
+    -e 's#xai-[A-Za-z0-9]{10,}#[REDACTED]#g' \
+    -e 's#ghp_[A-Za-z0-9]{20,}#[REDACTED]#g' \
+    -e 's#gho_[A-Za-z0-9]{20,}#[REDACTED]#g' \
+    -e 's#gh[usr]_[A-Za-z0-9]{20,}#[REDACTED]#g' \
+    -e 's#github_pat_[A-Za-z0-9_]{20,}#[REDACTED]#g' \
+    -e 's#AKIA[0-9A-Z]{16}#[REDACTED]#g'
+}
+
+redact_text() {
+  printf '%s' "${1:-}" | redact_stream
+}
+
+# ---------------------------------------------------------------------------
 # Argument handling
 # ---------------------------------------------------------------------------
 TEST_MODE=0
@@ -38,6 +72,11 @@ else
   exit 1
 fi
 
+# Sanitize once before any delivery route receives the notification. Logging
+# helpers below apply the same boundary to provider responses and diagnostics.
+TITLE=$(redact_text "${TITLE}")
+BODY=$(redact_text "${BODY}")
+URL=$(redact_text "${URL}")
 export TITLE BODY URL
 
 SLACK_RESPONSE_FILE=$(mktemp "${TMPDIR:-/tmp}/elves-slack-response.XXXXXX")
@@ -52,8 +91,8 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 # Logging helper (goes to stderr so it doesn't pollute piped output)
 # ---------------------------------------------------------------------------
-log()  { echo "[notify] $*" >&2; }
-err()  { echo "[notify] ERROR: $*" >&2; }
+log()  { printf '[notify] %s\n' "$(redact_text "$*")" >&2; }
+err()  { printf '[notify] ERROR: %s\n' "$(redact_text "$*")" >&2; }
 
 # ---------------------------------------------------------------------------
 # Method 1: Slack Block Kit via ELVES_SLACK_WEBHOOK
@@ -127,7 +166,8 @@ PYEOF
 try_custom_cmd() {
   [ -z "${ELVES_NOTIFY_CMD:-}" ] && return 1
 
-  log "Custom command: ${ELVES_NOTIFY_CMD}"
+  # Never log ELVES_NOTIFY_CMD itself (may embed tokens/webhooks).
+  log "Custom command: configured (command redacted)"
   # SECURITY NOTE: eval is intentional here. ELVES_NOTIFY_CMD is set by the user
   # in their own environment, not by untrusted input. It allows users to configure
   # arbitrary notification commands (e.g., 'curl -d "$BODY" ntfy.sh/my-topic').
@@ -136,7 +176,7 @@ try_custom_cmd() {
     log "Custom command: delivered"
     return 0
   else
-    ERR_MSG=$(cat "${CUSTOM_ERR_FILE}" 2>/dev/null | head -3 || echo "(no output)")
+    ERR_MSG=$(head -3 "${CUSTOM_ERR_FILE}" 2>/dev/null || echo "(no output)")
     err "Custom command failed: ${ERR_MSG}"
     return 1
   fi
@@ -170,7 +210,7 @@ ${BODY}"
     log "PR comment posted (PR #${PR_NUMBER})"
     return 0
   else
-    ERR_MSG=$(cat "${GH_ERR_FILE}" 2>/dev/null | head -3 || echo "(no output)")
+    ERR_MSG=$(head -3 "${GH_ERR_FILE}" 2>/dev/null || echo "(no output)")
     err "gh pr comment failed: ${ERR_MSG}"
     return 1
   fi

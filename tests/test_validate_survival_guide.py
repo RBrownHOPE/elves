@@ -201,6 +201,39 @@ class SurvivalGuideValidatorTests(unittest.TestCase):
             warnings,
         )
 
+    def test_delegated_run_requires_every_control_field(self) -> None:
+        delegated_fields = """- E2E mode: chat-to-land
+- Work driver: grok-build
+- Implementation lane: fast
+- Delegation scope: full_run
+- Git mode: branch_progress
+- Driver monitor mode: parked-monitor
+- Driver update policy: bounded events and heartbeats
+- Driver review policy: final independent review only
+- High-risk checkpoints: final readiness
+- Re-drive budget: 3
+- Continuation harness: host-native
+"""
+        guide = valid_guide_text().replace(
+            "- Continuation rule: continue without waiting for user acknowledgment\n",
+            "- Continuation rule: continue without waiting for user acknowledgment\n"
+            + delegated_fields,
+        )
+        errors, warnings = self.validator.validate(self.write_guide(guide))
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+
+        for field in self.validator.DELEGATED_RUN_CONTROL_FIELDS:
+            with self.subTest(field=field):
+                without_field = "\n".join(
+                    line for line in guide.splitlines() if not line.startswith(f"- {field}:")
+                )
+                errors, _ = self.validator.validate(self.write_guide(without_field + "\n"))
+                self.assertIn(
+                    f"`## Run Control` missing delegated field `{field}`",
+                    errors,
+                )
+
     def test_load_path_uses_environment_fallback(self) -> None:
         path = self.write_guide(valid_guide_text())
 

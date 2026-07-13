@@ -94,6 +94,21 @@ SECTION_REQUIREMENTS = {
     ],
 }
 
+# Required only when the guide describes delegated/full-run work.
+DELEGATED_RUN_CONTROL_FIELDS = [
+    "E2E mode",
+    "Work driver",
+    "Implementation lane",
+    "Delegation scope",
+    "Git mode",
+    "Driver monitor mode",
+    "Driver update policy",
+    "Driver review policy",
+    "High-risk checkpoints",
+    "Re-drive budget",
+    "Continuation harness",
+]
+
 CRITICAL_PLACEHOLDER_FIELDS = [
     "Run mode",
     "Stop policy",
@@ -188,6 +203,26 @@ def validate(path: Path) -> tuple[list[str], list[str]]:
         for phrase in phrases:
             if phrase not in body:
                 errors.append(f"`## {heading}` missing `{phrase}`")
+
+    # Conditionally require full delegated Run Control fields (Claude/Codex same semantics).
+    lowered = text.lower()
+    needs_delegated = any(
+        token in lowered
+        for token in (
+            "full_run",
+            "full-run",
+            "delegation scope",
+            "parked-monitor",
+            "branch_progress",
+            "grok-build",
+            "work driver",
+        )
+    )
+    if needs_delegated:
+        run_control = section_text(text, bounds, "Run Control")
+        for phrase in DELEGATED_RUN_CONTROL_FIELDS:
+            if phrase not in run_control:
+                errors.append(f"`## Run Control` missing delegated field `{phrase}`")
 
     forbidden_reasons = section_text(text, bounds, "Forbidden Stop Reasons")
     reason_lines = [line.strip() for line in forbidden_reasons.splitlines() if line.strip().startswith("-")]

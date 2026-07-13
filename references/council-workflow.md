@@ -5,6 +5,10 @@ work, routes agents/tools/skills, preserves useful dissent, and synthesizes the 
 the loop moves forward. The user can also ask Cobbler once in chat; that one-off form returns a
 fitted answer from direct analysis or independent lenses.
 
+The `python3 scripts/...` form used later is source-checkout shorthand. From an installed Claude
+Code or Codex skill, invoke the helper from the active Elves skill root while keeping the target
+repository as the working directory; see [`runtime-helper-paths.md`](runtime-helper-paths.md).
+
 This file keeps its `council-workflow.md` name for `v1.14.0` compatibility. In `v1.15.0+`, Cobbler
 is the user-facing coordinator and default orchestration model. Council is the compatibility path
 and gathering mechanism, not a separate product.
@@ -39,9 +43,13 @@ final recommendations. The coordinator decides whether to act directly, delegate
 worker agents, ask independent lenses for review/risk, or synthesize the evidence into the next
 batch action.
 
-The main coordinator owns durable memory, git, PRs, and final synthesis. Worker agents may edit the
-repo when the active batch or user request assigns them implementation work. Read-only lens agents
-remain read-only when their job is inspection, review, scouting, or dissent.
+The main coordinator owns canonical run memory, protected refs, PR actions, final gates,
+cumulative independent review, any authorized merge, and final synthesis. Host-native and legacy
+bounded routes also keep feature-branch commit/push in the host. The exact registered trusted
+`branch_progress` full-run worker is the sole exception: it may commit and push only its assigned
+feature branch while the host parks. Untrusted writer leases remain detached and host-imported.
+Worker agents may edit the repo only when the active contract assigns implementation work;
+read-only lens agents remain read-only for inspection, review, scouting, or dissent.
 
 Run Cobbler reuses existing Elves memory surfaces. Do not create a separate council ledger for
 ordinary software work.
@@ -146,8 +154,11 @@ constraints, and forbidden actions. Never include secrets, tokens, credentials, 
 payloads in a context packet.
 
 When Cobbler executes agents/tools/skills, read-only lenses stay read-only and worker agents edit
-only the assigned files or modules. The coordinator owns git, PRs, durable memory, and synthesis
-unless it explicitly delegates a narrower action.
+only the assigned files or modules. The coordinator always owns canonical run memory, protected
+refs, PR actions, final gates/review, any authorized merge, and synthesis. Host-native and legacy
+bounded routes also keep feature-branch commit/push in the host; only the exact registered trusted
+`branch_progress` full-run worker may commit/push its assigned feature branch. Untrusted writers
+remain detached and host-imported.
 
 Collect evidence means assembling role reports, file references, commands, test results, PR
 comments, source links, changed files, risks, and dissent. Keep retrieved evidence separate from
