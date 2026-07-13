@@ -1,0 +1,347 @@
+"""Canonical Elves behavior policy and semantic scenario fixtures.
+
+Structured policy (not phrase inventories) for:
+- direct edit / bounded task / full Elves run
+- single-kickoff E2E vs explicit legacy two-call
+- chat-to-work vs chat-to-land
+- trusted Grok full-run vs untrusted writer lease
+- test-integrity and rollback naming
+
+Scenario resolution is semantic: routing, continuation, landing, test integrity,
+and rollback expectations are asserted by structured fields, not literal phrases.
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from typing import Any, Mapping
+
+
+POLICY_VERSION = "2.1.0"
+
+# Driver monitor wake conditions once a full-run is healthy.
+PARKED_MONITOR_WAKE_CONDITIONS: frozenset[str] = frozenset(
+    {
+        "blocker",
+        "error",
+        "stale_heartbeat",
+        "safety_tripwire",
+        "high_risk_checkpoint",
+        "user_input",
+        "worker_exit",
+        "final_readiness",
+    }
+)
+
+# Forbidden wake triggers for parked full-run drivers.
+FORBIDDEN_FULL_RUN_WAKE_TRIGGERS: frozenset[str] = frozenset(
+    {
+        "per_push",
+        "per_tool_call",
+        "per_batch_prompt",
+        "resume_batch_required",
+    }
+)
+
+
+@dataclass(frozen=True)
+class BehaviorDecision:
+    """Resolved behavior for a scenario."""
+
+    scenario_id: str
+    handling_level: str  # direct_edit | bounded_task | full_run
+    kickoff_mode: str  # single_kickoff | legacy_two_call | n_a
+    work_driver: str  # host_native | grok_build | untrusted_writer | n_a
+    delegation_scope: str  # none | batch | full_run
+    git_mode: str  # host_only | branch_progress | detached_lease
+    driver_monitor_mode: str  # interactive | parked_monitor | n_a
+    landing_mode: str  # none | chat_to_work | chat_to_land
+    test_integrity: str  # preserve_or_improve | forbid_weaken_for_green
+    rollback_naming: str  # run_scoped | global_forbidden
+    continuation: str  # same_session | resume_batch | host_reprompt | none
+    notes: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class BehaviorScenario:
+    """Input scenario for policy resolution."""
+
+    scenario_id: str
+    intent: str
+    signals: tuple[str, ...] = ()
+    host: str = "either"  # claude | codex | either
+    expected: BehaviorDecision | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "scenario_id": self.scenario_id,
+            "intent": self.intent,
+            "signals": list(self.signals),
+            "host": self.host,
+            "expected": self.expected.to_dict() if self.expected else None,
+        }
+
+
+def _decision(**kwargs: Any) -> BehaviorDecision:
+    return BehaviorDecision(**kwargs)
+
+
+# Canonical scenario fixtures used by semantic consistency tests.
+SCENARIOS: dict[str, BehaviorScenario] = {
+    "direct_edit": BehaviorScenario(
+        scenario_id="direct_edit",
+        intent="Small local fix with the host agent editing directly",
+        signals=("direct edit", "no overnight", "no external worker"),
+        expected=_decision(
+            scenario_id="direct_edit",
+            handling_level="direct_edit",
+            kickoff_mode="n_a",
+            work_driver="host_native",
+            delegation_scope="none",
+            git_mode="host_only",
+            driver_monitor_mode="interactive",
+            landing_mode="none",
+            test_integrity="preserve_or_improve",
+            rollback_naming="run_scoped",
+            continuation="none",
+            notes=("Host edits in place; no full-run supervisor",),
+        ),
+    ),
+    "bounded_task": BehaviorScenario(
+        scenario_id="bounded_task",
+        intent="One bounded implement batch under host supervision",
+        signals=("bounded task", "one batch", "optional grok"),
+        expected=_decision(
+            scenario_id="bounded_task",
+            handling_level="bounded_task",
+            kickoff_mode="n_a",
+            work_driver="grok_build",
+            delegation_scope="batch",
+            git_mode="branch_progress",
+            driver_monitor_mode="interactive",
+            landing_mode="none",
+            test_integrity="preserve_or_improve",
+            rollback_naming="run_scoped",
+            continuation="resume_batch",
+            notes=("Legacy per-batch resume remains valid for bounded work",),
+        ),
+    ),
+    "full_run_trusted_grok": BehaviorScenario(
+        scenario_id="full_run_trusted_grok",
+        intent="Trusted Grok owns the feature-branch labor loop for all batches",
+        signals=("full run", "turn it over to grok", "do not stop", "overnight"),
+        expected=_decision(
+            scenario_id="full_run_trusted_grok",
+            handling_level="full_run",
+            kickoff_mode="single_kickoff",
+            work_driver="grok_build",
+            delegation_scope="full_run",
+            git_mode="branch_progress",
+            driver_monitor_mode="parked_monitor",
+            landing_mode="chat_to_work",
+            test_integrity="preserve_or_improve",
+            rollback_naming="run_scoped",
+            continuation="same_session",
+            notes=(
+                "One packet, one exact session, no per-batch driver prompt",
+                "Driver parks; wakes only for enumerated conditions",
+            ),
+        ),
+    ),
+    "single_kickoff_e2e": BehaviorScenario(
+        scenario_id="single_kickoff_e2e",
+        intent="User pastes plan and says run now / chat-to-work",
+        signals=("run now", "chat-to-work", "single kickoff"),
+        expected=_decision(
+            scenario_id="single_kickoff_e2e",
+            handling_level="full_run",
+            kickoff_mode="single_kickoff",
+            work_driver="host_native",
+            delegation_scope="full_run",
+            git_mode="host_only",
+            driver_monitor_mode="interactive",
+            landing_mode="chat_to_work",
+            test_integrity="preserve_or_improve",
+            rollback_naming="run_scoped",
+            continuation="same_session",
+            notes=("Stage then execute without waiting for a second human launch",),
+        ),
+    ),
+    "legacy_two_call": BehaviorScenario(
+        scenario_id="legacy_two_call",
+        intent="Explicit legacy stage-then-separate-launch path",
+        signals=("legacy two-call", "stage only", "wait for launch prompt"),
+        expected=_decision(
+            scenario_id="legacy_two_call",
+            handling_level="full_run",
+            kickoff_mode="legacy_two_call",
+            work_driver="host_native",
+            delegation_scope="full_run",
+            git_mode="host_only",
+            driver_monitor_mode="interactive",
+            landing_mode="chat_to_work",
+            test_integrity="preserve_or_improve",
+            rollback_naming="run_scoped",
+            continuation="host_reprompt",
+            notes=("Only when user explicitly chooses legacy two-call",),
+        ),
+    ),
+    "chat_to_land": BehaviorScenario(
+        scenario_id="chat_to_land",
+        intent="Single kickoff through reviewed merge commit",
+        signals=("chat-to-land", "merge on green", "reviewed pr landing"),
+        expected=_decision(
+            scenario_id="chat_to_land",
+            handling_level="full_run",
+            kickoff_mode="single_kickoff",
+            work_driver="host_native",
+            delegation_scope="full_run",
+            git_mode="host_only",
+            driver_monitor_mode="interactive",
+            landing_mode="chat_to_land",
+            test_integrity="preserve_or_improve",
+            rollback_naming="run_scoped",
+            continuation="same_session",
+            notes=("Merge only after final readiness; regular merge commit only",),
+        ),
+    ),
+    "untrusted_writer": BehaviorScenario(
+        scenario_id="untrusted_writer",
+        intent="Prove detached writer lease boundary",
+        signals=("untrusted", "writer lease", "detached commits"),
+        expected=_decision(
+            scenario_id="untrusted_writer",
+            handling_level="bounded_task",
+            kickoff_mode="n_a",
+            work_driver="untrusted_writer",
+            delegation_scope="batch",
+            git_mode="detached_lease",
+            driver_monitor_mode="interactive",
+            landing_mode="none",
+            test_integrity="preserve_or_improve",
+            rollback_naming="run_scoped",
+            continuation="resume_batch",
+            notes=(
+                "Distinct from trusted branch_progress authority",
+                "Host imports patches; worker never owns refs/push/PR",
+            ),
+        ),
+    ),
+    "test_integrity": BehaviorScenario(
+        scenario_id="test_integrity",
+        intent="Behavior-driven test updates vs green-only weakening",
+        signals=("update tests", "behavior changed", "coverage"),
+        expected=_decision(
+            scenario_id="test_integrity",
+            handling_level="direct_edit",
+            kickoff_mode="n_a",
+            work_driver="host_native",
+            delegation_scope="none",
+            git_mode="host_only",
+            driver_monitor_mode="interactive",
+            landing_mode="none",
+            test_integrity="preserve_or_improve",
+            rollback_naming="run_scoped",
+            continuation="none",
+            notes=(
+                "Legitimate behavior-driven test changes allowed with evidence",
+                "Never skip/delete/weaken tests merely to obtain green",
+            ),
+        ),
+    ),
+    "rollback_naming": BehaviorScenario(
+        scenario_id="rollback_naming",
+        intent="Rollback refs must be run/session scoped",
+        signals=("rollback tag", "elves/pre-batch"),
+        expected=_decision(
+            scenario_id="rollback_naming",
+            handling_level="full_run",
+            kickoff_mode="single_kickoff",
+            work_driver="host_native",
+            delegation_scope="full_run",
+            git_mode="host_only",
+            driver_monitor_mode="interactive",
+            landing_mode="chat_to_work",
+            test_integrity="preserve_or_improve",
+            rollback_naming="run_scoped",
+            continuation="same_session",
+            notes=("Global unscoped rollback tags are forbidden; use run/session scope",),
+        ),
+    ),
+}
+
+
+def list_scenarios() -> list[BehaviorScenario]:
+    return [SCENARIOS[k] for k in sorted(SCENARIOS)]
+
+
+def get_scenario(scenario_id: str) -> BehaviorScenario:
+    if scenario_id not in SCENARIOS:
+        raise KeyError(f"Unknown behavior scenario: {scenario_id}")
+    return SCENARIOS[scenario_id]
+
+
+def resolve_scenario(scenario_id: str) -> BehaviorDecision:
+    scenario = get_scenario(scenario_id)
+    if scenario.expected is None:
+        raise RuntimeError(f"Scenario {scenario_id} has no expected decision")
+    return scenario.expected
+
+
+def resolve_from_signals(
+    signals: Mapping[str, bool] | None = None,
+    *,
+    intent: str = "",
+) -> BehaviorDecision:
+    """Best-effort resolution from boolean signal map / intent keywords.
+
+    Prefer explicit scenario IDs in production. This helper exists for semantic
+    tests that feed structured signals rather than prose phrase checks.
+    """
+    flags = {k: bool(v) for k, v in (signals or {}).items()}
+    text = (intent or "").lower()
+
+    def has(*keys: str) -> bool:
+        return any(flags.get(k) or k.replace("_", " ") in text for k in keys)
+
+    if has("untrusted", "writer_lease", "detached_lease"):
+        return resolve_scenario("untrusted_writer")
+    if has("chat_to_land", "merge_on_green", "reviewed_pr_landing"):
+        return resolve_scenario("chat_to_land")
+    if has("legacy_two_call", "stage_only"):
+        return resolve_scenario("legacy_two_call")
+    if has("full_run", "overnight", "turn_over_to_grok", "trusted_grok"):
+        return resolve_scenario("full_run_trusted_grok")
+    if has("single_kickoff", "run_now", "chat_to_work"):
+        return resolve_scenario("single_kickoff_e2e")
+    if has("bounded_task", "one_batch"):
+        return resolve_scenario("bounded_task")
+    if has("test_integrity", "update_tests"):
+        return resolve_scenario("test_integrity")
+    if has("rollback", "rollback_tag"):
+        return resolve_scenario("rollback_naming")
+    return resolve_scenario("direct_edit")
+
+
+def policy_snapshot() -> dict[str, Any]:
+    return {
+        "policy_version": POLICY_VERSION,
+        "parked_monitor_wake_conditions": sorted(PARKED_MONITOR_WAKE_CONDITIONS),
+        "forbidden_full_run_wake_triggers": sorted(FORBIDDEN_FULL_RUN_WAKE_TRIGGERS),
+        "scenarios": [s.to_dict() for s in list_scenarios()],
+    }
+
+
+def assert_decision_matches(actual: BehaviorDecision, expected: BehaviorDecision) -> list[str]:
+    """Return field-level mismatches (empty means match)."""
+    mismatches: list[str] = []
+    for key, exp in expected.to_dict().items():
+        if key == "notes":
+            continue
+        got = getattr(actual, key)
+        if got != exp and asdict(actual).get(key) != exp:
+            mismatches.append(f"{key}: expected={exp!r} got={got!r}")
+    return mismatches

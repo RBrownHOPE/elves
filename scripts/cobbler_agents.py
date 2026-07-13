@@ -68,6 +68,13 @@ from cobbler_runtime.implement import (  # noqa: E402
     run_gate,
     status_payload,
 )
+from cobbler_runtime.full_run import (  # noqa: E402
+    launch_full_run,
+    logs_full_run,
+    monitor_full_run,
+    prepare_full_run,
+    stop_full_run,
+)
 from cobbler_runtime.setup import (  # noqa: E402
     preferences_from_flags,
     run_setup,
@@ -603,11 +610,84 @@ def cmd_worker(args: argparse.Namespace) -> int:
 
 
 def cmd_implement(args: argparse.Namespace) -> int:
-    """Optional external batch implementer: prepare|launch|gate|resume-batch|status."""
+    """Optional external batch implementer + full-run supervisor."""
     repo_root = _repo_root_from_args(args)
     action = args.implement_action
 
     try:
+        if action == "full-run-prepare":
+            payload = prepare_full_run(
+                repo_root,
+                session_id=args.session_id,
+                branch=args.branch,
+                start_head=args.start_head,
+                worktree=args.worktree or repo_root,
+                packet_path=args.packet,
+                executable=args.executable,
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+
+        if action == "full-run-launch":
+            env = {}
+            for item in getattr(args, "env", None) or []:
+                if "=" in item:
+                    key, value = item.split("=", 1)
+                    env[key] = value
+            payload = launch_full_run(
+                repo_root,
+                session_id=args.session_id,
+                background=not bool(getattr(args, "foreground", False)),
+                env=env or None,
+                extra_args=list(getattr(args, "extra_arg", None) or []),
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
+            print(
+                f"full-run launch: session={payload.get('session_id')} "
+                f"pid={payload.get('pid')} status={payload.get('status')}"
+            )
+            return 0 if payload.get("ok") else 1
+
+        if action == "full-run-monitor":
+            payload = monitor_full_run(
+                repo_root,
+                session_id=args.session_id,
+                stale_after_seconds=int(getattr(args, "stale_after", 300) or 300),
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(
+                f"full-run monitor: state={payload.get('state')} "
+                f"batch={payload.get('batch')} head={payload.get('head')} "
+                f"next={payload.get('next_action')}"
+            )
+            return 0
+
+        if action == "full-run-logs":
+            payload = logs_full_run(
+                repo_root,
+                session_id=args.session_id,
+                raw_tail=bool(getattr(args, "raw_tail", False)),
+                tail_lines=int(getattr(args, "tail", 40) or 40),
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+
+        if action == "full-run-stop":
+            payload = stop_full_run(repo_root, session_id=args.session_id)
+            if args.json:
+                return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
+            print(
+                f"full-run stop: session={payload.get('session_id')} "
+                f"signaled={payload.get('signaled')} still_alive={payload.get('still_alive')}"
+            )
+            return 0 if payload.get("ok") else 1
+
         if action == "prepare":
             payload = prepare_implement(
                 repo_root,
@@ -1147,10 +1227,84 @@ def build_parser() -> argparse.ArgumentParser:
         "implement",
         help=(
             "Optional external batch implementer lifecycle "
-            "(prepare|launch|gate|resume-batch|status); Grok Build or OpenCode"
+            "(prepare|launch|gate|resume-batch|status|full-run-*); Grok Build or OpenCode"
         ),
     )
     implement_sub = implement.add_subparsers(dest="implement_action", required=True)
+
+    i_fr_prepare = implement_sub.add_parser(
+        "full-run-prepare",
+        help="Prepare trusted full-run supervisor artifacts for one exact session",
+    )
+    _add_common_flags(i_fr_prepare)
+    i_fr_prepare.add_argument("--session-id", required=True)
+    i_fr_prepare.add_argument("--branch", required=True)
+    i_fr_prepare.add_argument("--start-head", required=True)
+    i_fr_prepare.add_argument("--packet", required=True, help="Path to full-run packet")
+    i_fr_prepare.add_argument(
+        "--executable",
+        required=True,
+        help="Worker executable (fixture path allowed in tests)",
+    )
+    i_fr_prepare.add_argument("--worktree", default=None)
+    i_fr_prepare.set_defaults(func=cmd_implement)
+
+    i_fr_launch = implement_sub.add_parser(
+        "full-run-launch",
+        help="Background-launch the full-run worker for one exact session",
+    )
+    _add_common_flags(i_fr_launch)
+    i_fr_launch.add_argument("--session-id", required=True)
+    i_fr_launch.add_argument(
+        "--env",
+        action="append",
+        default=[],
+        help="Explicit env grant KEY=VALUE (repeatable; no host env inherit)",
+    )
+    i_fr_launch.add_argument(
+        "--extra-arg",
+        action="append",
+        default=[],
+        help="Extra argv before packet path (repeatable)",
+    )
+    i_fr_launch.add_argument(
+        "--foreground",
+        action="store_true",
+        help="Reserved; launch still returns promptly via Popen",
+    )
+    i_fr_launch.set_defaults(func=cmd_implement)
+
+    i_fr_monitor = implement_sub.add_parser(
+        "full-run-monitor",
+        help="Classify full-run health (healthy/complete/failed/blocked/stale)",
+    )
+    _add_common_flags(i_fr_monitor)
+    i_fr_monitor.add_argument("--session-id", required=True)
+    i_fr_monitor.add_argument(
+        "--stale-after",
+        type=int,
+        default=300,
+        help="Seconds without heartbeat before stale (default: 300)",
+    )
+    i_fr_monitor.set_defaults(func=cmd_implement)
+
+    i_fr_logs = implement_sub.add_parser(
+        "full-run-logs",
+        help="Bounded events; opt-in raw transcript tail only with --raw-tail",
+    )
+    _add_common_flags(i_fr_logs)
+    i_fr_logs.add_argument("--session-id", required=True)
+    i_fr_logs.add_argument("--raw-tail", action="store_true")
+    i_fr_logs.add_argument("--tail", type=int, default=40)
+    i_fr_logs.set_defaults(func=cmd_implement)
+
+    i_fr_stop = implement_sub.add_parser(
+        "full-run-stop",
+        help="Terminate the recorded full-run process group",
+    )
+    _add_common_flags(i_fr_stop)
+    i_fr_stop.add_argument("--session-id", required=True)
+    i_fr_stop.set_defaults(func=cmd_implement)
 
     i_prepare = implement_sub.add_parser(
         "prepare",
