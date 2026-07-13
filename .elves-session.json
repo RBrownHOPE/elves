@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "run_id": "v2.1.0-delegated-worker-20260712",
+  "status": "staging",
+  "branch": "codex/delegated-worker-v2-1",
+  "start_head": "48e6fc58c763a58d8eb38090bcd94b9aeebfe768",
+  "plan_path": "docs/plans/v2.1.0-delegated-worker-stabilization.md",
+  "survival_guide_path": "docs/elves/v2.1.0-delegated-worker-survival-guide.md",
+  "learnings_path": "docs/elves/learnings.md",
+  "execution_log_path": "docs/elves/v2.1.0-delegated-worker-execution-log.md",
+  "run_control": {
+    "mode": "finite",
+    "e2e_mode": "chat-to-land",
+    "merge_policy": "reviewed-pr-landing-command",
+    "work_driver": "grok-build",
+    "implementation_lane": "fast",
+    "delegation_scope": "full_run",
+    "git_mode": "branch_progress",
+    "driver_monitor_mode": "event_driven",
+    "driver_review_mode": "final_cumulative",
+    "driver_update_cadence": "milestone-or-15m-heartbeat",
+    "redrive_budget_per_failure": 1
+  },
+  "cobbler": {
+    "default_for_session": true,
+    "coordination": "cobbler-first"
+  },
+  "continuation_guard": {
+    "stop_allowed": false,
+    "remaining_batches": 8,
+    "checkpoint_is_stop": false,
+    "next_required_action": "Complete staging, open the draft PR, and launch the exact Grok full-run session."
+  },
+  "worker": {
+    "provider": "grok-build",
+    "model": "grok-4.5",
+    "session_id": null,
+    "status": "not_started",
+    "worktree": "/Users/john/aigora/dev/elves-delegated-worker-v2-1",
+    "transcript_path": ".elves/runtime/implement/full-run.log",
+    "report_path": ".elves/runtime/implement/full-run-report.json",
+    "wake_conditions": [
+      "blocked",
+      "error",
+      "stale_heartbeat",
+      "safety_tripwire",
+      "user_input",
+      "worker_exit",
+      "final_readiness"
+    ]
+  },
+  "batches": [
+    {"id": 1, "name": "Distribution, Adapter, and CI Truth", "status": "pending", "acceptance": []},
+    {"id": 2, "name": "Canonical Behavior Policy and Full-Run Supervisor", "status": "pending", "acceptance": []},
+    {"id": 3, "name": "Exact Session Identity and Atomic Writer Qualification", "status": "pending", "acceptance": []},
+    {"id": 4, "name": "External Isolation, Environment, and Redaction Boundary", "status": "pending", "acceptance": []},
+    {"id": 5, "name": "Durable Audit, Delegated Git, and Exact Landing Evidence", "status": "pending", "acceptance": []},
+    {"id": 6, "name": "Architecture and Evidence-Aware Validation", "status": "pending", "acceptance": []},
+    {"id": 7, "name": "Canonical Claude Code/Codex Documentation and Information Architecture", "status": "pending", "acceptance": []},
+    {"id": 8, "name": "v2.1.0 Release Proof, Review, and Landing", "status": "pending", "acceptance": []}
+  ]
+}
