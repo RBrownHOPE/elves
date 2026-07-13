@@ -462,6 +462,54 @@ def read_exit_record(root: Path) -> dict[str, Any] | None:
     return data
 
 
+def _validate_exit_record(
+    record: Mapping[str, Any],
+    state: FullRunState,
+) -> list[str]:
+    """Validate the durable record against launcher-owned supervisor identity."""
+    errors: list[str] = []
+    if str(record.get("session_id") or "") != state.session_id:
+        errors.append("exit record session_id mismatch")
+    try:
+        if int(record.get("pid") or 0) != int(state.pid or 0):
+            errors.append("exit record pid mismatch")
+    except (TypeError, ValueError):
+        errors.append("exit record pid invalid")
+    try:
+        if int(record.get("pgid") or 0) != int(state.pgid or 0):
+            errors.append("exit record pgid mismatch")
+    except (TypeError, ValueError):
+        errors.append("exit record pgid invalid")
+
+    expected_provider = str((state.last_argv or [state.executable])[0] or "")
+    if str(record.get("provider_executable") or "") != expected_provider:
+        errors.append("exit record provider executable mismatch")
+
+    exit_code = record.get("exit_code")
+    if isinstance(exit_code, bool) or not isinstance(exit_code, int):
+        errors.append("exit record requires an integer exit_code")
+
+    observed_fp = record.get("fingerprint")
+    expected_fp = state.fingerprint or {}
+    if not isinstance(observed_fp, Mapping):
+        errors.append("exit record fingerprint missing")
+    else:
+        for field_name in ("pid", "pgid", "start_time", "executable", "session_id"):
+            if observed_fp.get(field_name) != expected_fp.get(field_name):
+                errors.append(f"exit record fingerprint {field_name} mismatch")
+    return errors
+
+
+def _reap_supervisor_if_child(pid: int | None) -> None:
+    """Best-effort in-process reap; separate monitor CLIs are not the parent."""
+    if not pid:
+        return
+    try:
+        os.waitpid(int(pid), os.WNOHANG)
+    except (ChildProcessError, OSError):
+        pass
+
+
 def write_exit_record(root: Path, record: Mapping[str, Any]) -> Path:
     path = Path(root) / "exit_record.json"
     payload = dict(record)
@@ -470,59 +518,50 @@ def write_exit_record(root: Path, record: Mapping[str, Any]) -> Path:
     return path
 
 
-def _spawn_exit_sidecar(
-    *,
-    root: Path,
-    pid: int,
-    pgid: int | None,
-    session_id: str,
-    executable: str | None,
-    fingerprint: Mapping[str, Any],
-) -> int | None:
-    """Host-owned waiter that records exit code + fingerprint after the child exits.
-
-    Runs as a detached process so CLI invocations (launch → monitor → stop) share
-    one durable exit record without leaving open Popen handles in the launcher.
-    """
-    exit_path = str(root / "exit_record.json")
-    # Sidecar script: wait for pid death, then write atomic exit_record.json.
-    script = r"""
-import json, os, sys, time
-from pathlib import Path
-pid = int(sys.argv[1])
-exit_path = Path(sys.argv[2])
-meta = json.loads(sys.argv[3])
-code = None
-while True:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        break
-    except PermissionError:
-        pass
-    # Reap if we are parent; ignore if not.
-    try:
-        waited, status = os.waitpid(pid, os.WNOHANG)
-        if waited == pid:
-            if hasattr(os, "waitstatus_to_exitcode"):
-                code = os.waitstatus_to_exitcode(status)
-            else:
-                code = status
-            break
-    except (ChildProcessError, OSError):
-        pass
-    time.sleep(0.15)
-# Best-effort exit code when not our child.
-if code is None:
-    code = meta.get("fallback_exit_code")
+_PROVIDER_SUPERVISOR_SCRIPT = r"""
+import json, os, subprocess, sys, time
 from datetime import datetime, timezone
+from pathlib import Path
+
+exit_path = Path(sys.argv[1])
+fingerprint_path = Path(sys.argv[2])
+session_id = sys.argv[3]
+provider_argv = json.loads(sys.argv[4])
+provider_pid = None
+exit_code = 127
+try:
+    provider = subprocess.Popen(
+        provider_argv,
+        stdin=subprocess.DEVNULL,
+        close_fds=True,
+    )
+    provider_pid = provider.pid
+    exit_code = int(provider.wait())
+except OSError:
+    exit_code = 127
+
+# The launcher writes the supervisor fingerprint immediately after spawning us.
+# Wait briefly so even a provider that exits instantly records the exact identity
+# that monitor/stop will validate rather than self-certifying a second identity.
+fingerprint = {}
+deadline = time.monotonic() + 1.0
+while time.monotonic() < deadline:
+    try:
+        fingerprint = json.loads(fingerprint_path.read_text(encoding="utf-8"))
+        if fingerprint:
+            break
+    except (OSError, json.JSONDecodeError):
+        pass
+    time.sleep(0.01)
+
 payload = {
-    "pid": pid,
-    "pgid": meta.get("pgid"),
-    "session_id": meta.get("session_id"),
-    "executable": meta.get("executable"),
-    "fingerprint": meta.get("fingerprint"),
-    "exit_code": code,
+    "pid": os.getpid(),
+    "pgid": os.getpgrp(),
+    "provider_pid": provider_pid,
+    "session_id": session_id,
+    "provider_executable": provider_argv[0] if provider_argv else None,
+    "fingerprint": fingerprint,
+    "exit_code": exit_code,
     "completed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
 }
 tmp = exit_path.with_suffix(".tmp")
@@ -532,33 +571,31 @@ try:
     exit_path.chmod(0o600)
 except OSError:
     pass
+
+# Preserve the provider result for shell/operator diagnostics. Negative return
+# codes indicate signals; map them into the conventional 128+signal range.
+if exit_code < 0:
+    raise SystemExit(min(255, 128 + abs(exit_code)))
+raise SystemExit(min(255, exit_code))
 """
-    meta = {
-        "pgid": pgid,
-        "session_id": session_id,
-        "executable": executable,
-        "fingerprint": dict(fingerprint),
-        "fallback_exit_code": None,
-    }
-    try:
-        sidecar = subprocess.Popen(
-            [sys.executable, "-c", script, str(pid), exit_path, json.dumps(meta)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-            close_fds=True,
-        )
-        # Detach intentionally: record sidecar pid only.
-        (root / "exit_sidecar.pid").write_text(str(sidecar.pid) + "\n", encoding="utf-8")
-        # Prevent ResourceWarning on garbage collection of intentionally backgrounded sidecar.
-        try:
-            sidecar.returncode = 0  # type: ignore[assignment]
-        except Exception:  # noqa: BLE001
-            pass
-        return sidecar.pid
-    except OSError:
-        return None
+
+
+def _provider_supervisor_argv(
+    *,
+    root: Path,
+    session_id: str,
+    provider_argv: Sequence[str],
+) -> list[str]:
+    """Build a parent supervisor that waits and records the provider's real exit."""
+    return [
+        sys.executable,
+        "-c",
+        _PROVIDER_SUPERVISOR_SCRIPT,
+        str(root / "exit_record.json"),
+        str(root / "supervisor.fingerprint.json"),
+        session_id,
+        json.dumps(list(provider_argv)),
+    ]
 
 
 def snapshot_protected_refs(repo_root: Path) -> dict[str, str]:
@@ -925,8 +962,8 @@ def launch_full_run(
     if resume:
         state.create_session = False
 
-    argv = build_full_run_argv(state)
-    state.last_argv = list(argv)
+    provider_argv = build_full_run_argv(state)
+    state.last_argv = list(provider_argv)
     launch_env = build_full_run_env(
         state=state,
         root=root,
@@ -942,12 +979,29 @@ def launch_full_run(
     transcript = root / "transcript.log"
     ensure_private_dir(root / "worker-home")
     ensure_private_dir(root / "worker-tmp")
+    for stale_path in (
+        root / "exit_record.json",
+        root / "supervisor.fingerprint.json",
+    ):
+        try:
+            stale_path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise ValidationIssue(
+                "full_run_stale_exit_artifact",
+                f"Cannot clear stale supervisor artifact: {exc}",
+                path=str(stale_path),
+            ) from exc
+    supervisor_argv = _provider_supervisor_argv(
+        root=root,
+        session_id=session_id,
+        provider_argv=provider_argv,
+    )
     # Open transcript for inheritance, then close parent fd so launchers across
     # separate CLI invocations do not leave unclosed handles / ResourceWarnings.
     stdout_handle = transcript.open("a", encoding="utf-8")
     try:
         proc = subprocess.Popen(
-            argv,
+            supervisor_argv,
             cwd=state.worktree if state.adapter != "fixture" else state.worktree,
             env=launch_env,
             stdout=stdout_handle,
@@ -966,7 +1020,7 @@ def launch_full_run(
         pid=proc.pid,
         pgid=pgid,
         session_id=session_id,
-        executable_hint=argv[0],
+        executable_hint=sys.executable,
     )
     state.pid = proc.pid
     state.pgid = pgid
@@ -977,17 +1031,12 @@ def launch_full_run(
     state.next_action = "monitor"
     if resume:
         state.create_session = False
-    # Host-owned exit sidecar records child exit code + fingerprint after provider exits.
-    sidecar_pid = _spawn_exit_sidecar(
-        root=root,
-        pid=proc.pid,
-        pgid=pgid,
-        session_id=session_id,
-        executable=argv[0],
-        fingerprint=fp.to_dict(),
-    )
-    state.exit_sidecar_pid = sidecar_pid
-    # Drop Popen without waiting: process is tracked by fingerprint + exit sidecar.
+    # The supervisor is the provider's real parent, waits it, and records its exact
+    # exit code before it exits. Monitor validates this launcher-captured identity.
+    atomic_write_json(root / "supervisor.fingerprint.json", fp.to_dict())
+    state.exit_sidecar_pid = proc.pid  # compatibility field: now the parent supervisor PID
+    state.exit_code = None
+    # Drop Popen without waiting: process is tracked by fingerprint + durable exit record.
     # Clear handles so GC does not emit ResourceWarning for intentional backgrounding.
     try:
         proc.stdout = None
@@ -1025,7 +1074,7 @@ def launch_full_run(
         "status": state.status,
         "driver_contract": "parked-monitor",
         "returned_promptly": True,
-        "argv": argv,
+        "argv": provider_argv,
         "adapter": state.adapter,
         "credential_grant_names_present": granted_names,
         "model_calls_made": state.adapter != "fixture",
@@ -1049,6 +1098,20 @@ def _pid_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def _process_group_alive(pgid: int | None) -> bool:
+    if not pgid:
+        return False
+    try:
+        os.killpg(int(pgid), 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
 
 
 def _read_events(
@@ -1137,20 +1200,17 @@ def monitor_full_run(
 
     # Host-owned exit sidecar: actual child exit code + fingerprint after provider exits.
     exit_record = read_exit_record(root)
+    exit_record_errors: list[str] = []
     if exit_record is not None:
-        if exit_record.get("session_id") and str(exit_record["session_id"]) != session_id:
-            exit_record = None  # foreign record
+        exit_record_errors = _validate_exit_record(exit_record, state)
+        if exit_record_errors:
+            exit_record = None
         else:
-            if exit_record.get("exit_code") is not None:
-                try:
-                    state.exit_code = int(exit_record["exit_code"])
-                except (TypeError, ValueError):
-                    state.exit_code = None
-            # Provider has exited when exit record exists with matching pid.
-            if state.pid and int(exit_record.get("pid") or 0) == int(state.pid):
-                alive = False
-                fp_ok = False
-                fp_reason = "exit_record present (provider exited)"
+            state.exit_code = int(exit_record["exit_code"])
+            alive = False
+            fp_ok = False
+            fp_reason = "validated exit_record present (provider exited)"
+            _reap_supervisor_if_child(state.pid)
 
     # Observed feature-branch head (supervisor heartbeat source).
     observed_head = _git_head(Path(state.worktree))
@@ -1185,8 +1245,8 @@ def monitor_full_run(
             # or clean provider exit with feature-branch progress.
             saw_run_complete_event = True
 
-    # Report is evidence only after validation. Completion requires validated report
-    # with nonempty acceptance IDs + final_head (not events alone).
+    # Report is evidence only after validation. Completion requires validated report,
+    # nonempty acceptance IDs/final_head, and a validated clean supervisor exit.
     if report and not report_errors:
         if report.get("status") == "complete":
             final_head = str(report.get("final_head") or "")
@@ -1203,12 +1263,15 @@ def monitor_full_run(
                     report_errors.append(
                         "report final_head is not a descendant of start_head"
                     )
-            if not report_errors:
+            if not report_errors and exit_record is not None and state.exit_code == 0:
                 state.status = "complete"
                 state.completed_at = state.completed_at or _utc_now()
                 state.next_action = "final_readiness"
                 if final_head:
                     state.head = final_head
+            elif not report_errors and exit_record is None:
+                state.status = "healthy" if alive else "pending"
+                state.next_action = "parked_monitor"
         elif report.get("status") == "blocked":
             state.status = "blocked"
             state.blocker = state.blocker or "report status blocked"
@@ -1217,12 +1280,19 @@ def monitor_full_run(
             state.status = "failed"
             state.next_action = "driver_wake_error"
 
-    if event_errors or report_errors:
+    if event_errors or report_errors or exit_record_errors:
         # Foreign/malformed evidence does not complete the run.
-        if state.status == "complete" and (event_errors or report_errors):
+        if state.status == "complete":
             state.status = "failed"
-            state.blocker = "untrusted worker events/report"
+            state.blocker = "untrusted worker events/report/exit record"
             state.next_action = "driver_wake_error"
+
+    # A validated nonzero provider exit is authoritative even if the worker wrote
+    # a superficially complete report immediately before terminating.
+    if exit_record is not None and state.exit_code != 0:
+        state.status = "failed"
+        state.blocker = f"provider nonzero exit: {state.exit_code}"
+        state.next_action = "driver_wake_error"
 
     # Protected refs: any movement blocks readiness (policy trust, not OS sandbox).
     protected_errors = verify_protected_refs_unchanged(
@@ -1253,7 +1323,7 @@ def monitor_full_run(
             else:
                 state.status = "healthy"
         else:
-            # Provider exited. Clean exit (0 or missing code for fixture) + descendant
+            # Provider exited. A validated clean exit + descendant
             # feature-branch progress wakes final readiness even without custom events.
             # A lone run_complete event never establishes completion by itself.
             progress = bool(
@@ -1262,8 +1332,8 @@ def monitor_full_run(
                 and _is_ancestor(Path(state.worktree), state.start_head, observed_head)
             )
             exit_code = state.exit_code
-            clean_exit = exit_code is None or int(exit_code) == 0
-            if exit_code is not None and int(exit_code) != 0:
+            clean_exit = exit_record is not None and exit_code == 0
+            if exit_record is not None and exit_code != 0:
                 state.status = "failed"
                 state.blocker = f"provider nonzero exit: {exit_code}"
                 state.next_action = "driver_wake_error"
@@ -1276,6 +1346,7 @@ def monitor_full_run(
                 report
                 and not report_errors
                 and report.get("status") == "complete"
+                and clean_exit
                 and not protected_errors
             ):
                 state.status = "complete"
@@ -1287,6 +1358,12 @@ def monitor_full_run(
                 state.status = "failed"
                 state.blocker = "run_complete event without validated complete report"
                 state.next_action = "driver_wake_error"
+            elif exit_record is None and not exit_record_errors:
+                # The supervisor may have exited milliseconds before its atomic
+                # record becomes visible. Stay pending rather than inventing an
+                # exit result or racing into a false failure.
+                state.status = "pending"
+                state.next_action = "parked_monitor"
             elif state.status not in {"complete", "blocked"}:
                 state.status = "failed"
                 state.next_action = "driver_wake_error"
@@ -1340,6 +1417,7 @@ def monitor_full_run(
             "report_status": report.get("status") if report else None,
             "event_errors": len(event_errors),
             "report_errors": len(report_errors),
+            "exit_record_errors": len(exit_record_errors),
             "observed_branch": observed_branch,
             "exit_code": state.exit_code,
             "exit_record": bool(exit_record),
@@ -1369,6 +1447,25 @@ def stop_full_run(
     """Terminate the recorded process group only after fingerprint verification."""
     state = load_state(repo_root, session_id)
     root = full_run_root(repo_root, session_id)
+    completed_record = read_exit_record(root)
+    if completed_record is not None and not _validate_exit_record(completed_record, state):
+        state.exit_code = int(completed_record["exit_code"])
+        _reap_supervisor_if_child(state.pid)
+        if state.status not in {"complete", "failed", "blocked"}:
+            state.status = "stopped"
+            state.next_action = "stopped"
+            state.completed_at = state.completed_at or _utc_now()
+            save_state(repo_root, state)
+        return {
+            "ok": True,
+            "action": "full_run_stop",
+            "session_id": session_id,
+            "signaled": False,
+            "still_alive": False,
+            "status": state.status,
+            "reason": "supervisor already exited with a validated record",
+            "fingerprint_verified": True,
+        }
     if not state.fingerprint and not state.pid:
         state.status = "stopped"
         state.next_action = "stopped"
@@ -1431,13 +1528,18 @@ def stop_full_run(
         except (ProcessLookupError, PermissionError, OSError):
             pass
 
-    if grace_seconds > 0:
-        time.sleep(min(grace_seconds, 2.0))
+    deadline = time.monotonic() + min(max(grace_seconds, 0.0), 2.0)
+    while time.monotonic() < deadline:
+        if not bool(pid and _pid_alive(pid)) and not _process_group_alive(pgid):
+            break
+        time.sleep(0.05)
 
-    still_alive = bool(pid and _pid_alive(pid))
+    pid_alive = bool(pid and _pid_alive(pid))
+    group_alive = _process_group_alive(pgid)
+    still_alive = pid_alive or group_alive
     if still_alive:
         # Re-verify fingerprint before SIGKILL.
-        if state.fingerprint:
+        if state.fingerprint and pid_alive:
             ok, reason = verify_fingerprint(
                 state.fingerprint, expected_session_id=session_id
             )
@@ -1460,8 +1562,12 @@ def stop_full_run(
                 os.kill(pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError, OSError):
                 pass
-        time.sleep(0.05)
-        still_alive = bool(pid and _pid_alive(pid))
+        kill_deadline = time.monotonic() + 1.0
+        while time.monotonic() < kill_deadline:
+            if not bool(pid and _pid_alive(pid)) and not _process_group_alive(pgid):
+                break
+            time.sleep(0.05)
+        still_alive = bool(pid and _pid_alive(pid)) or _process_group_alive(pgid)
 
     state.status = "stopped"
     state.next_action = "stopped"

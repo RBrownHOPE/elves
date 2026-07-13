@@ -102,6 +102,11 @@ DELEGATED_RUN_CONTROL_FIELDS = [
     "Delegation scope",
     "Git mode",
     "Driver monitor mode",
+    "Driver update policy",
+    "Driver review policy",
+    "High-risk checkpoints",
+    "Re-drive budget",
+    "Continuation harness",
 ]
 
 CRITICAL_PLACEHOLDER_FIELDS = [

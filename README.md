@@ -13,8 +13,8 @@ drivers and lenses help when you already have them.
 **Current release: v2.1.0.** You write the plan and own the merge decision. The agent does the middle.
 
 **Default (v2.1+): one kickoff** after conceptual agreement — chat to agreement, then one
-**Chat-to-work** or **Chat-to-land** (`chat-to-work` / `chat-to-land`) prompt stages and runs. Single kickoff always continues after
-staging unless you explicitly chose legacy two-call. See
+**Chat-to-work** or **Chat-to-land** (`chat-to-work` / `chat-to-land`) prompt stages and runs.
+Single kickoff always continues after staging unless you explicitly chose legacy two-call. See
 [`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md).
 
 Helpers: `python3 scripts/cobbler_agents.py`. Changelog: [`CHANGELOG.md`](CHANGELOG.md).
@@ -66,15 +66,17 @@ Legacy two-call / legacy stage-then-launch (stage, then a separate launch messag
 
 | Host | Path | Invocation |
 | --- | --- | --- |
-| **Claude Code** | `~/.claude/skills/elves` + 7 alias skills | `/elves`, `/cobbler`, `/cobbler-mode`, `/council`, `/ec`, `/elves-council`, `/setup-cobbler`, `/setup-council`, `/land-pr` |
+| **Claude Code** | `~/.claude/skills/elves` + 7 alias skills | `/elves`, `/cobbler`, `/cobbler-mode`, `/council`, `/ec`, `/elves-council`, `/setup-cobbler`, `/setup-council` |
 | **Codex** | `~/.codex/skills/elves` | `$elves …` or natural language; not top-level `/cobbler` |
 
 **Seven Claude aliases:** `cobbler`, `cobbler-mode`, `council`, `ec`, `elves-council`, `setup-cobbler`, `setup-council`.
+The reviewed-landing strings `\land-pr` and `/land-pr` are in-conversation Elves commands, not an
+eighth installed Claude alias directory.
 
 **SessionStart (Claude):** point the hook at the **exact** survival-guide path for the active run
 (from the Survival Guide / `.elves-session.json`), not a hard-coded default.
 
-**Manual install:** clone or copy the skill tree; prefer `scripts/sync_installed_bundles.py` (or
+**Manual install:** clone or copy the skill tree; prefer `scripts/sync_installed_skills.py` (or
 install doctor) over hand-maintaining a second tree. Per-project install lives under the project
 `.claude/skills/elves` or `.codex/skills/elves`.
 
@@ -99,19 +101,15 @@ rm -rf /tmp/elves
 
 This installs `~/.claude/skills/elves/` and seven small Claude Code alias skills:
 `~/.claude/skills/cobbler/`, `~/.claude/skills/cobbler-mode/`,
-`~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
-`~/.claude/skills/elves-council/`. Those directories create `/cobbler`, `/cobbler-mode`,
-`/council`, `/ec`, and `/elves-council`; every alias delegates to the same default Cobbler
-orchestration model in the main `elves` skill.
+`~/.claude/skills/council/`, `~/.claude/skills/ec/`, `~/.claude/skills/elves-council/`,
+`~/.claude/skills/setup-cobbler/`, and `~/.claude/skills/setup-council/`. Those directories create
+the seven managed aliases; every alias delegates to the same default Cobbler orchestration model
+in the main `elves` skill.
 
 **Codex:**
 ```bash
-mkdir -p ~/.codex/skills/elves/scripts
 git clone https://github.com/aigorahub/elves.git /tmp/elves
-cp /tmp/elves/SKILL.md /tmp/elves/AGENTS.md /tmp/elves/config.json.example ~/.codex/skills/elves/
-cp -r /tmp/elves/references ~/.codex/skills/elves/
-cp /tmp/elves/scripts/preflight.sh /tmp/elves/scripts/preflight_worktree.py /tmp/elves/scripts/notify.sh /tmp/elves/scripts/install_doctor.py /tmp/elves/scripts/validate_survival_guide.py /tmp/elves/scripts/elves_landing_check.py /tmp/elves/scripts/cobbler_agents.py ~/.codex/skills/elves/scripts/
-cp -r /tmp/elves/scripts/cobbler_runtime ~/.codex/skills/elves/scripts/
+python3 /tmp/elves/scripts/sync_installed_skills.py --apply --target codex
 rm -rf /tmp/elves
 ```
 
@@ -191,9 +189,9 @@ explicitly.
 This mirrors the managed skill bundle files from the repo into `~/.claude/skills/elves/` and
 `~/.codex/skills/elves/`. For Claude Code, it also manages the small alias skills at
 `~/.claude/skills/cobbler/`, `~/.claude/skills/cobbler-mode/`,
-`~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
-`~/.claude/skills/elves-council/` so `/cobbler`, `/cobbler-mode`, and the Council compatibility
-aliases are real slash-skill entry points.
+`~/.claude/skills/council/`, `~/.claude/skills/ec/`, `~/.claude/skills/elves-council/`,
+`~/.claude/skills/setup-cobbler/`, and `~/.claude/skills/setup-council/` so all seven managed
+slash-skill entry points are installed.
 
 For Codex, the sync helper updates the main skill bundle only. Invoke Cobbler with
 `$elves cobbler: <task>` or natural language rather than a top-level slash alias.
@@ -202,9 +200,9 @@ The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AG
 `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
 `scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`,
 `scripts/validate_survival_guide.py`, `scripts/elves_landing_check.py`,
-`scripts/cobbler_agents.py`, and `scripts/cobbler_runtime/*`.
-Repo-only maintenance
-helpers such as `scripts/check_repo_consistency.py`, `scripts/release_checklist.py`,
+`scripts/cobbler_agents.py`, `scripts/openrouter_lens.py`, `scripts/workspace_guard.py`, and
+`scripts/cobbler_runtime/*`. Repo-only maintenance helpers such as
+`scripts/check_repo_consistency.py`, `scripts/release_checklist.py`,
 `scripts/pr_portfolio_report.py`, and `scripts/workspace_guard.py` stay in the checkout.
 
 For local PR-stack sweeps, use the repo-only helper:
@@ -389,8 +387,8 @@ one more disciplined pass before it lands:
 > Get a subagent to review the diff from main, read all PR review comments, address everything that
 > needs addressing, do all testing that makes sense, and merge commit once all green.
 
-Short form: type `\land-pr` or `/land-pr` on the PR branch. Both aliases mean the same thing as
-the full command above.
+Short form inside an Elves conversation: send `\land-pr` or `/land-pr` on the PR branch. Both text
+commands mean the same thing as the full command above; neither is an eighth installed alias skill.
 
 That command is an explicit one-off merge opt-in for the current PR. The agent reads every review
 surface, gets a fresh subagent review of `git diff <default-branch>...HEAD` when supported, fixes
@@ -638,7 +636,9 @@ and configured — same native-first rule as the rest of Cobbler and the math mo
 
 **Optional external batch implementer** (e.g. Grok Build, only if you have it): record
 `implementation_lane: fast` and use
-`python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status|full-run-*|full-run-*`.
+`python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop`
+for the primary trusted full-run path. `prepare|launch|gate|resume-batch|status` is the explicit
+legacy/bounded-batch path.
 See [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
 
 **Optional stricter host-import writer** (advanced lease path — not the default overnight path):
@@ -733,8 +733,9 @@ review, documentation, strategic forgetting, and merge-readiness. See
 
 ### Common launch failures to head off
 
-- **Big plan plus "run now" in one message:** the agent should stage first and wait for a final
-  launch command instead of starting implementation immediately.
+- **Big plan plus "run now" in one message:** the agent should stage first, then continue into
+  implementation in the same run once launch-ready. Wait for another launch command only when the
+  user explicitly chose legacy two-call.
 - **Plan still changing during launch:** keep staging. Do not launch from unstable docs.
 - **No branch, PR, or preflight yet:** still staging. Get the runway clear first.
 - **Launch prompt repeats the whole plan:** trim it. The plan lives on disk; the launch prompt
@@ -1156,7 +1157,7 @@ Overnight agent runs fail in predictable ways. Knowing the failure modes makes t
 |---|---|---|
 | **Machine sleeps** | Session stops silently. You wake up to 45 minutes of work instead of 8 hours. | `caffeinate` (macOS), `systemd-inhibit` (Linux), or run in cloud. Elves preflight warns you. |
 | **Agent runs destructive git commands** | `git reset --hard` wipes hours of uncommitted work. This has happened to real users. | Elves explicitly forbids `git reset --hard`, `git checkout .`, `git push --force`, and `git clean -fd`. The survival guide template includes these as non-negotiables. |
-| **Agent disables or weakens tests** | Agent comments out failing tests, weakens assertions, or shortens timeouts to make the gate pass. You wake up to code that "passes" but is broken. | Elves has a Test Integrity rule: never modify a test to make it pass. Fix the code, not the test. If the agent thinks a test is wrong, it logs the issue and moves on without changing it. |
+| **Agent disables or weakens tests** | Agent comments out failing tests, weakens assertions, or shortens timeouts only to make the gate pass. You wake up to code that “passes” but is broken. | Elves forbids green-seeking test changes. Behavior-driven test updates are allowed when coverage is preserved or improved and the reason is recorded. |
 | **Context compaction loses instructions** | Long sessions hit memory limits. The agent's conversation gets summarized, and safety instructions disappear. | Elves stores its run memory on disk (survival guide, `.elves-session.json`, learnings, plan, execution log, and optionally `.ai-docs/*`), not in conversation memory. The agent re-reads the survival guide after every commit/push, and the Stop Gate plus `continuation_guard` make "keep going or stop?" explicit. Compaction can't erase files. |
 | **Interactive prompt stalls the session** | A tool asks for confirmation, a survey pops up, or `npm install` wants input. Nobody is there to click yes. | Elves surfaces the recommended non-interactive env vars during preflight, and the skill requires `--yes` flags plus tool-level survey suppression before unattended runs. |
 | **Flaky tests block progress** | A test passes locally but fails intermittently. The agent loops trying to fix a non-bug. | The agent logs flaky tests in the execution log and moves on after 3 failed attempts on the same non-deterministic failure. |
@@ -1182,7 +1183,7 @@ Add this to your `.claude/settings.json`:
     "SessionStart": [
       {
         "type": "command",
-        "command": "echo '=== ELVES CONTEXT ===' && cat docs/plans/*-survival-guide.md 2>/dev/null && echo '' && echo '=== GIT STATUS ===' && git status --short && echo '' && echo '=== RECENT COMMITS ===' && git log --oneline -5"
+        "command": "echo '=== ELVES CONTEXT ===' && cat docs/elves/survival-guide.md 2>/dev/null && echo '' && echo '=== GIT STATUS ===' && git status --short && echo '' && echo '=== RECENT COMMITS ===' && git log --oneline -5"
       }
     ]
   }
@@ -1191,7 +1192,8 @@ Add this to your `.claude/settings.json`:
 
 This injects the survival guide, current git status, and recent commits into Claude's context at session start, even after a compaction or restart. The agent gets its bearings immediately without needing to be told to read the files.
 
-Adjust the `cat` path to match where your survival guide lives.
+Replace `docs/elves/survival-guide.md` with the exact path recorded for the active run. Do not use a
+wildcard: parallel or archived runs may have more than one matching guide.
 
 ### Enforce forbidden commands with hooks
 

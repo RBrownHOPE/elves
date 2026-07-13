@@ -59,8 +59,9 @@
 - Keep Elves lightweight and operationally realistic.
 - Borrow architecture from richer systems when it reduces confusion, but do not import heavy
   hydration or automation machinery without a clear need.
-- Preserve the stage-then-launch model and the PR-centric review loop unless a change explicitly
-  improves them.
+- Preserve stage-before-implementation as an internal phase boundary and the PR-centric review
+  loop. The recommended user path is one kickoff that continues after launch readiness; a second
+  launch call exists only when the user explicitly selects legacy two-call.
 - One run owns one branch and one checkout. Never share a working tree or branch with another active
   agent; use a dedicated `git worktree` when agents may share a repo, and treat an unexpected
   branch-tip move as a collision (Hard Stop), not a normal diverge.

@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -97,6 +99,8 @@ class StoragePrimitiveTests(unittest.TestCase):
             {
                 "adapter": "grok-build",
                 "model": "grok-4.5",
+                "profile": "grok-build",
+                "version": "0.2.93",
                 "sandbox": "workspace",
                 "worktree": "/wt",
                 "cwd": "/wt",
@@ -104,7 +108,7 @@ class StoragePrimitiveTests(unittest.TestCase):
                 "source_head": "abc",
                 "capabilities": {"write": True},
                 "evidence_kind": "host_observed",
-                "observed_at": "t",
+                "observed_at": datetime.now(timezone.utc).isoformat(),
                 "host_observed": True,
             }
         )
@@ -115,6 +119,8 @@ class StoragePrimitiveTests(unittest.TestCase):
             {
                 "adapter": "grok-build",
                 "model": "grok-4.5",
+                "profile": "grok-build",
+                "version": "0.2.93",
                 "sandbox": "devbox",
                 "worktree": "/wt",
                 "cwd": "/wt",
@@ -123,7 +129,7 @@ class StoragePrimitiveTests(unittest.TestCase):
                 "session_id": "sess-1",
                 "capabilities": {"write": True},
                 "evidence_kind": "host_observed",
-                "observed_at": "t",
+                "observed_at": datetime.now(timezone.utc).isoformat(),
                 "host_observed": True,
             }
         )
@@ -265,6 +271,44 @@ class DelegatedGitAndAcceptanceTests(unittest.TestCase):
         self.assertIn("refs/elves/rollback/", a)
         self.assertNotEqual(a, "elves/pre-batch-1")
 
+    def test_create_rollback_ref_creates_local_ref_before_push(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            remote = root / "remote.git"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+            (repo / "f.txt").write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "f.txt"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "base"], check=True)
+            subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", str(remote)], check=True)
+
+            result = create_rollback_ref(
+                repo,
+                run_id="run/with/slashes",
+                session_id="session-1",
+                batch=3,
+                push_remote="origin",
+            )
+            local = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", result["ref"]],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            remote_tip = subprocess.run(
+                ["git", f"--git-dir={remote}", "rev-parse", result["ref"]],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(local, result["head"])
+            self.assertEqual(remote_tip, result["head"])
+            self.assertTrue(result["pushed"])
+
     def test_report_reconciliation_preserves_host_controls(self) -> None:
         host = {
             "merge_on_green": False,
@@ -365,12 +409,22 @@ class DelegatedGitAndAcceptanceTests(unittest.TestCase):
             os.system(f"git -C {work} branch -M main")
             os.system(f"git -C {work} push -q -u origin main")
             os.system(f"git -C {work} checkout -q -b feat/worker")
-            start = os.popen(f"git -C {work} rev-parse HEAD").read().strip()
+            start = subprocess.run(
+                ["git", "-C", str(work), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
             (work / "f.txt").write_text("2\n")
             os.system(f"git -C {work} add f.txt && git -C {work} commit -q -m w1")
             (work / "f.txt").write_text("3\n")
             os.system(f"git -C {work} add f.txt && git -C {work} commit -q -m w2")
-            tip = os.popen(f"git -C {work} rev-parse HEAD").read().strip()
+            tip = subprocess.run(
+                ["git", "-C", str(work), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
             assert_descendant(work, ancestor=start, head=tip)
             contract = DelegatedGitContract(
                 feature_branch="feat/worker",
@@ -384,10 +438,18 @@ class DelegatedGitAndAcceptanceTests(unittest.TestCase):
             result = push_feature_branch(work, contract, previous_tip=start)
             self.assertTrue(result["ok"])
             # Base branch on remote still main tip = start
-            remote_main = os.popen(f"git --git-dir={bare} rev-parse refs/heads/main").read().strip()
-            remote_feat = os.popen(
-                f"git --git-dir={bare} rev-parse refs/heads/feat/worker"
-            ).read().strip()
+            remote_main = subprocess.run(
+                ["git", f"--git-dir={bare}", "rev-parse", "refs/heads/main"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            remote_feat = subprocess.run(
+                ["git", f"--git-dir={bare}", "rev-parse", "refs/heads/feat/worker"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
             self.assertEqual(remote_main, start)
             self.assertEqual(remote_feat, tip)
             # Non-descendant fails.

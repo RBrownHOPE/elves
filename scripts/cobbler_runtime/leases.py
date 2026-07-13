@@ -35,6 +35,8 @@ def host_qualification_evidence(
     *,
     adapter: str,
     model: str,
+    profile: str | None = None,
+    version: str = "0.2.93",
     sandbox: str = "devbox",
     worktree: str,
     cwd: str,
@@ -48,6 +50,8 @@ def host_qualification_evidence(
     return {
         "adapter": adapter,
         "model": model,
+        "profile": profile or adapter,
+        "version": version,
         "sandbox": sandbox,
         "worktree": worktree,
         "cwd": cwd,
@@ -766,6 +770,13 @@ class LeaseStore:
                 "write_qualification_adapter_mismatch",
                 "Qualification adapter does not match lease adapter",
             )
+        if grok_version is not None and str(
+            qualification_evidence.get("version") or ""
+        ) != str(grok_version):
+            raise ValidationIssue(
+                "write_qualification_version_mismatch",
+                "Qualification tool version does not match the requested writer version",
+            )
         # sandbox_profile must equal evidence sandbox and be in supported enum.
         from .storage import SUPPORTED_SANDBOX_PROFILES  # noqa: PLC0415
 
@@ -775,24 +786,52 @@ class LeaseStore:
                 f"sandbox_profile `{sandbox_profile}` not in supported enum; "
                 "arbitrary strings cannot enable detached commits",
             )
-        # Require exact session to be registered when a registry exists.
+        # Require the exact registered session and compare every identity field;
+        # mere existence never grants write authority.
         try:
             from .sessions import SessionRegistry  # noqa: PLC0415
 
             registry = SessionRegistry(Path(host_checkout))
-            if registry.root.is_dir():
-                try:
-                    registry.get(session_id)
-                except ValidationIssue as issue:
+            try:
+                registered = registry.get(session_id)
+            except ValidationIssue as issue:
+                raise ValidationIssue(
+                    "write_qualification_session_unregistered",
+                    f"Lease requires registered exact session `{session_id}`: {issue.message}",
+                ) from issue
+
+            registered_model = registered.actual_model or registered.requested_model
+            identity_pairs = (
+                ("adapter", registered.harness, qualification_evidence.get("adapter")),
+                ("profile", registered.profile, qualification_evidence.get("profile")),
+                ("model", registered_model, qualification_evidence.get("model")),
+                ("parent", registered.parent_id, qualification_evidence.get("parent")),
+                ("source_head", registered.source_head, qualification_evidence.get("source_head")),
+            )
+            for field_name, registered_value, observed_value in identity_pairs:
+                if str(registered_value or "") != str(observed_value or ""):
                     raise ValidationIssue(
-                        "write_qualification_session_unregistered",
-                        f"Lease requires registered exact session `{session_id}`: {issue.message}",
-                    ) from issue
+                        f"write_qualification_registered_{field_name}_mismatch",
+                        f"Qualification {field_name} does not match registered session",
+                    )
+            for field_name, registered_value, observed_value in (
+                ("cwd", registered.cwd, qualification_evidence.get("cwd")),
+                ("worktree", registered.worktree, qualification_evidence.get("worktree")),
+            ):
+                if not registered_value or not observed_value or Path(
+                    str(registered_value)
+                ).resolve() != Path(str(observed_value)).resolve():
+                    raise ValidationIssue(
+                        f"write_qualification_registered_{field_name}_mismatch",
+                        f"Qualification {field_name} does not match registered session",
+                    )
         except ValidationIssue:
             raise
-        except Exception:  # noqa: PLC0415, BLE001
-            # Registry unavailable — continue with evidence-only path.
-            pass
+        except Exception as exc:  # noqa: PLC0415, BLE001
+            raise ValidationIssue(
+                "write_qualification_registry_unavailable",
+                f"Cannot verify registered session identity: {exc}",
+            ) from exc
         import hashlib
 
         qual_digest = hashlib.sha256(
@@ -869,6 +908,15 @@ class LeaseStore:
                 lease.detached_commits_permitted = False
             lease.updated_at = _utc_now()
             lease.created_at = lease.updated_at
+            qualification_dir = self.snapshot_dir(lease.lease_id)
+            qualification_dir.mkdir(parents=True, exist_ok=True)
+            atomic_write_json(
+                qualification_dir / "qualification.json",
+                dict(qualification_evidence),
+                mode=stat.S_IRUSR | stat.S_IWUSR,
+            )
+            # Publish the authority-bearing lease record last. A crash may leave
+            # inert qualification evidence, never a live lease without evidence.
             path = self._path(lease.lease_id)
             atomic_write_json(path, lease.to_dict(), mode=stat.S_IRUSR | stat.S_IWUSR)
             return lease
@@ -949,10 +997,12 @@ class LeaseStore:
 
     def mark_integrated(self, lease_id: str) -> WriterLease:
         lease = self.get(lease_id)
-        # Allow exported -> apply_checked -> integrated, or direct exported when
-        # host applied checks in the same step (recorded as APPLY_CHECKED first).
-        if lease.state == LeaseState.EXPORTED:
-            lease.state = transition_lease_state(lease.state, LeaseState.APPLY_CHECKED)
+        if lease.state not in {LeaseState.APPLY_CHECKED, LeaseState.INTEGRATED}:
+            raise ValidationIssue(
+                "integrate_requires_apply_checked",
+                f"Integration refused from `{lease.state.value}`; require apply_checked",
+                path=f"leases.{lease_id}.state",
+            )
         lease.state = transition_lease_state(lease.state, LeaseState.INTEGRATED)
         return self.save(lease)
 
@@ -991,7 +1041,9 @@ class LeaseStore:
         Refuses dirty/ambiguous state. Does not delete worktrees or sessions.
         """
         lease = self.get(lease_id)
-        allowed = set(allow_if_states or (LeaseState.INTEGRATED,))
+        allowed = set(
+            allow_if_states or (LeaseState.APPLY_CHECKED, LeaseState.INTEGRATED)
+        )
         if lease.state not in allowed:
             raise ValidationIssue(
                 "invalid_lease_state",

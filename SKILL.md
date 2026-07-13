@@ -256,7 +256,9 @@ native overnight run:
 - **Work drivers (batch labor)** — only when the user has the CLI and wants it. Record
   `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
   `.elves-session.json`). Grok Build via
-  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status|full-run-*` (Lane A;
+  `python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop`
+  for trusted full-run, or `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`
+  for legacy bounded batches (Lane A;
   optional `--model fast|deep`, `--check`) and OpenCode via `--adapter opencode-cli` / labor
   profiles. Host owns packets, gates, and merge. Launch recipe:
   `references/grok-implementer-launch-prompt.md`.
@@ -1183,9 +1185,11 @@ Never use `git push --force` to bypass a diverged branch. Never use `git rebase`
 Agents under pressure to clear failing gates will sometimes take shortcuts: weakening assertions, commenting out test cases, shortening timeouts, rewriting tests to match broken behavior, or disabling tests entirely. This is the single most dangerous thing an autonomous agent can do. It makes failures invisible.
 
 Rules:
-- If a test fails, the code is wrong. Fix the code.
-- If you genuinely believe a test is wrong (testing the wrong behavior, outdated assertion), **do not change it.** Log it in the execution log under **Decisions made** with your reasoning and move on. The user will decide.
-- Never comment out, skip, or delete a test.
+- If a test fails without an intentional behavior change, fix the code.
+- If a behavior change makes a test wrong or outdated, update it only with preserved or improved
+  behavioral coverage and record the reason. If product behavior is unchanged and the test appears
+  wrong, log the conflict under **Decisions made** rather than weakening it for green.
+- Never comment out, skip, weaken, or delete a test merely to obtain green.
 - Never weaken an assertion (e.g., changing `assertEquals` to `assertTrue`, removing a check).
 - Never shorten a timeout to avoid a flaky failure. Log the flake and continue.
 - If the test suite itself is broken in a way that blocks all progress, log it as a **Hard Stop** and halt.

@@ -21,6 +21,7 @@ from consistency_engine import (  # noqa: E402
     extract_markdown_section,
     find_forbidden_patterns,
     find_forbidden_phrases,
+    find_unscoped_patterns,
     find_missing_phrases,
     find_missing_section_phrases,
     public_wording_texts,
@@ -109,6 +110,30 @@ def main() -> int:
             single_kickoff_texts,
             SINGLE_KICKOFF_FORBIDDEN_PHRASES,
             "single-kickoff E2E",
+        )
+    )
+    errors.extend(
+        find_unscoped_patterns(
+            single_kickoff_texts
+            | {
+                "references/grok-implementer-launch-prompt.md": read_text(
+                    REPO_ROOT / "references/grok-implementer-launch-prompt.md"
+                )
+            },
+            SINGLE_KICKOFF_UNSCOPED_PATTERNS,
+            "single-kickoff contradiction",
+            scope_word="legacy",
+        )
+    )
+    exact_command_texts = {
+        label: read_text(REPO_ROOT / label)
+        for label in EXACT_FULL_RUN_COMMAND_FORBIDDEN_PATTERNS
+    }
+    errors.extend(
+        find_forbidden_patterns(
+            exact_command_texts,
+            EXACT_FULL_RUN_COMMAND_FORBIDDEN_PATTERNS,
+            "full-run command wildcard",
         )
     )
 
@@ -441,6 +466,7 @@ def main() -> int:
             sys.path.insert(0, scripts_dir)
         from cobbler_runtime.behavior_policy import (  # noqa: PLC0415
             FORBIDDEN_FULL_RUN_WAKE_TRIGGERS,
+            resolve_from_signals,
             resolve_scenario,
         )
 
@@ -456,6 +482,14 @@ def main() -> int:
             )
         if "per_push" not in FORBIDDEN_FULL_RUN_WAKE_TRIGGERS:
             errors.append("behavior_policy: per_push must be a forbidden full-run wake trigger")
+        if resolve_from_signals({"full_run": True}).work_driver != "host_native":
+            errors.append("behavior_policy: full_run alone must remain host_native")
+        if resolve_from_signals({"bounded_task": True}).work_driver != "host_native":
+            errors.append("behavior_policy: bounded_task alone must remain host_native")
+        if resolve_from_signals(
+            {"bounded_task": True, "work_driver_grok": True}
+        ).work_driver != "grok_build":
+            errors.append("behavior_policy: explicit bounded Grok route must remain available")
     except Exception as exc:  # noqa: BLE001
         errors.append(f"behavior_policy: failed to load semantic scenarios: {exc}")
 

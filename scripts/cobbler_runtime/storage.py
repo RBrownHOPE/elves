@@ -17,6 +17,7 @@ import stat
 import tempfile
 import time
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
@@ -190,6 +191,8 @@ UNSUPPORTED_SANDBOX_PROFILES: frozenset[str] = frozenset(
 QUALIFICATION_REQUIRED_FIELDS: tuple[str, ...] = (
     "adapter",
     "model",
+    "profile",
+    "version",
     "sandbox",
     "worktree",
     "cwd",
@@ -199,6 +202,8 @@ QUALIFICATION_REQUIRED_FIELDS: tuple[str, ...] = (
     "evidence_kind",
     "observed_at",
 )
+
+QUALIFICATION_MAX_AGE_SECONDS = 15 * 60
 
 
 def qualify_write_evidence(evidence: Mapping[str, Any] | None) -> tuple[bool, list[str]]:
@@ -210,6 +215,8 @@ def qualify_write_evidence(evidence: Mapping[str, Any] | None) -> tuple[bool, li
     required = (
         "adapter",
         "model",
+        "profile",
+        "version",
         "sandbox",
         "worktree",
         "cwd",
@@ -232,8 +239,8 @@ def qualify_write_evidence(evidence: Mapping[str, Any] | None) -> tuple[bool, li
         # Arbitrary sandbox strings fail closed — cannot enable detached commits.
         reasons.append(f"unsupported_sandbox:{sandbox}")
 
-    if evidence.get("preference_declared") is True and not evidence.get("host_observed"):
-        reasons.append("preference_declared_without_host_observation")
+    if evidence.get("preference_declared") is True:
+        reasons.append("preference_declared_not_qualification")
 
     if evidence.get("host_observed") is not True:
         reasons.append("host_observed_required")
@@ -241,6 +248,20 @@ def qualify_write_evidence(evidence: Mapping[str, Any] | None) -> tuple[bool, li
     stale = evidence.get("stale")
     if stale is True:
         reasons.append("stale_evidence")
+
+    observed_at = str(evidence.get("observed_at") or "")
+    if observed_at:
+        try:
+            observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+            if observed.tzinfo is None:
+                raise ValueError("timezone required")
+            age = (datetime.now(timezone.utc) - observed.astimezone(timezone.utc)).total_seconds()
+            if age > QUALIFICATION_MAX_AGE_SECONDS:
+                reasons.append("stale_observed_at")
+            elif age < -60:
+                reasons.append("future_observed_at")
+        except ValueError:
+            reasons.append("invalid_observed_at")
 
     caps = evidence.get("capabilities")
     if isinstance(caps, Mapping):

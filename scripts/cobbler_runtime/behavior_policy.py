@@ -112,21 +112,21 @@ SCENARIOS: dict[str, BehaviorScenario] = {
     ),
     "bounded_task": BehaviorScenario(
         scenario_id="bounded_task",
-        intent="One bounded implement batch under host supervision",
-        signals=("bounded task", "one batch", "optional grok"),
+        intent="One bounded host-native batch unless an external driver is explicit",
+        signals=("bounded task", "one batch"),
         expected=_decision(
             scenario_id="bounded_task",
             handling_level="bounded_task",
             kickoff_mode="n_a",
-            work_driver="grok_build",
-            delegation_scope="batch",
-            git_mode="branch_progress",
+            work_driver="host_native",
+            delegation_scope="none",
+            git_mode="host_only",
             driver_monitor_mode="interactive",
             landing_mode="none",
             test_integrity="preserve_or_improve",
             rollback_naming="run_scoped",
-            continuation="resume_batch",
-            notes=("Legacy per-batch resume remains valid for bounded work",),
+            continuation="none",
+            notes=("Optional Grok requires an explicit work-driver signal",),
         ),
     ),
     "full_run_trusted_grok": BehaviorScenario(
@@ -387,10 +387,20 @@ def resolve_from_signals(
         delegation_scope = "none"
         driver_monitor_mode = "interactive"
 
-    if has("bounded_task", "one_batch") and not has("full_run", "trusted_grok"):
+    if has("bounded_task", "one_batch") and not has("full_run", "overnight"):
         handling_level = "bounded_task"
-        delegation_scope = "batch"
-        continuation = "resume_batch"
+        driver_monitor_mode = "interactive"
+        if has("trusted_grok", "turn_over_to_grok", "work_driver_grok"):
+            work_driver = "grok_build"
+            delegation_scope = "batch"
+            git_mode = "branch_progress"
+            continuation = "resume_batch"
+            notes.append("composed: explicit Grok bounded task")
+        else:
+            work_driver = "host_native"
+            delegation_scope = "none"
+            git_mode = "host_only"
+            continuation = "none"
 
     return BehaviorDecision(
         scenario_id=base.scenario_id,

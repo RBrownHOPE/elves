@@ -39,10 +39,12 @@ managed inside the Elves run, not a separate Council or Cobbler memory system.
 - `audit.py`: pre/post refs/path/process audit, binary format-patch export, host `git apply --check`
 
 The thin CLI is `scripts/cobbler_agents.py` (`validate-config`, `doctor`, `council`,
-`lightweight-review`, `session …`, `worker prepare|audit|export|refresh`). Private runtime state
-belongs under ignored `.elves/runtime/` (`council/`, `sessions/`, `leases/`). Worker detached
-commits are untrusted handoff boundaries; the host alone creates branch commits, pushes, PRs, and
-run-memory updates after binary patch audit/import.
+`lightweight-review`, `session …`, trusted `implement full-run-*`, and untrusted
+`worker prepare|audit|export|refresh`). Private runtime state belongs under ignored
+`.elves/runtime/` (`council/`, `sessions/`, `leases/`). A trusted Grok full-run may create and push
+feature-branch progress while the host retains protected refs, PR, run-memory, review, and merge.
+Detached worker commits belong to the separate untrusted lease path: the host creates branch
+commits and pushes only after binary patch audit/import.
 
 The survival guide remains the home for live run control, checkpoint semantics, active compute, next exact batch, and operator constraints; the Cobbler session state extends that live layer.
 

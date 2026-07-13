@@ -186,6 +186,33 @@ SINGLE_KICKOFF_FORBIDDEN_PHRASES = {
     ],
 }
 
+_SINGLE_KICKOFF_SURFACES = (
+    "SKILL.md",
+    "AGENTS.md",
+    "README.md",
+    "references/kickoff-prompt-template.md",
+    "references/e2e-chat-to-land.md",
+    "references/grok-implementer-launch-prompt.md",
+)
+
+SINGLE_KICKOFF_UNSCOPED_PATTERNS = {
+    label: [
+        r"\b(?:wait|stop)\b[^.\n]{0,160}\b(?:second|fresh|separate|another|final)\b[^.\n]{0,100}\b(?:launch|call|message|command)\b",
+        r"\b(?:second|fresh|separate|another)\s+(?:human\s+)?(?:launch|call|message|command)\b",
+    ]
+    for label in _SINGLE_KICKOFF_SURFACES
+}
+
+EXACT_FULL_RUN_COMMAND_FORBIDDEN_PATTERNS = {
+    label: [r"full-run-\*"]
+    for label in (
+        "SKILL.md",
+        "AGENTS.md",
+        "README.md",
+        "references/grok-implementer-launch-prompt.md",
+    )
+}
+
 REPO_CONSISTENCY_WORKFLOW_PHRASES = {
     ".github/workflows/repo-consistency.yml": [
         '"config.json.example"',
@@ -1994,5 +2021,3 @@ PUBLIC_WORDING_FORBIDDEN_PHRASES = [
     "cobbled together",
     "cobbled-together",
 ]
-
-

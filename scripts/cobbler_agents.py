@@ -75,6 +75,7 @@ from cobbler_runtime.full_run import (  # noqa: E402
     prepare_full_run,
     stop_full_run,
 )
+from cobbler_runtime.delegated_git import create_rollback_ref  # noqa: E402
 from cobbler_runtime.setup import (  # noqa: E402
     preferences_from_flags,
     run_setup,
@@ -683,7 +684,6 @@ def cmd_worker(args: argparse.Namespace) -> int:
 
         if action == "audit":
             lease = store.get(args.lease_id)
-            store.mark_auditing(lease.lease_id)
             pre_path = store.snapshot_dir(args.lease_id) / "pre.json"
             # Missing pre.json is a hard audit error (not a soft empty snapshot).
             if not pre_path.is_file():
@@ -693,6 +693,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
                     path=str(pre_path),
                 )
             pre = json.loads(pre_path.read_text(encoding="utf-8"))
+            store.mark_auditing(lease.lease_id)
             result = audit_lease_turn(
                 store.get(args.lease_id),
                 pre_refs_digest=pre.get("refs_digest"),
@@ -739,6 +740,21 @@ def cmd_worker(args: argparse.Namespace) -> int:
                     path=str(evidence_path),
                 )
             evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            required_evidence_fields = {
+                "ok",
+                "lease_id",
+                "worker_tip",
+                "base_head",
+                "commit_chain",
+                "evidence_digest",
+            }
+            missing_evidence = sorted(required_evidence_fields - set(evidence))
+            if missing_evidence:
+                raise ValidationIssue(
+                    "export_evidence_incomplete",
+                    "Persisted audit evidence missing fields: "
+                    + ", ".join(missing_evidence),
+                )
             if not evidence.get("ok") or lease.state.value not in {
                 "audited_pass",
                 "exported",
@@ -753,6 +769,16 @@ def cmd_worker(args: argparse.Namespace) -> int:
                     "export_evidence_lease_mismatch",
                     "Persisted audit evidence lease_id does not match",
                 )
+            if str(evidence.get("base_head") or "") != lease.base_head:
+                raise ValidationIssue(
+                    "export_evidence_base_mismatch",
+                    "Persisted audit evidence base_head does not match lease",
+                )
+            if str(evidence.get("worker_tip") or "") != str(lease.worker_tip or ""):
+                raise ValidationIssue(
+                    "export_evidence_tip_mismatch",
+                    "Persisted audit evidence worker_tip does not match audited lease tip",
+                )
             # Recompute evidence digest over canonical payload (excluding digest field).
             import hashlib
 
@@ -761,11 +787,23 @@ def cmd_worker(args: argparse.Namespace) -> int:
             recomputed = hashlib.sha256(
                 json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
             ).hexdigest()
-            if stored_digest and stored_digest != recomputed:
+            if len(stored_digest) != 64 or any(
+                ch not in "0123456789abcdef" for ch in stored_digest.lower()
+            ):
+                raise ValidationIssue(
+                    "export_evidence_digest_missing",
+                    "Persisted audit evidence requires a complete SHA-256 evidence digest",
+                )
+            if stored_digest != recomputed:
                 raise ValidationIssue(
                     "export_evidence_digest_mismatch",
                     "Persisted audit evidence digest does not match recomputed canonical payload "
                     "(tampered evidence)",
+                )
+            if stored_digest != str(lease.audit_evidence_digest or ""):
+                raise ValidationIssue(
+                    "export_evidence_lease_digest_mismatch",
+                    "Persisted audit evidence digest does not match the lease's audited digest",
                 )
             chain = evidence.get("commit_chain") or []
             from cobbler_runtime.audit import CommitInfo  # noqa: PLC0415
@@ -831,8 +869,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
                     "never synthesize from EXPORTED alone",
                     path=f"leases.{args.lease_id}.state",
                 )
-            store.mark_integrated(args.lease_id)
             result = store.refresh_worker_to_tip(args.lease_id, new_tip=args.new_tip)
+            store.mark_integrated(args.lease_id)
             store.close(args.lease_id)
             payload = {"ok": True, "refresh": result, "mutated_repo": False}
             if args.json:
@@ -865,6 +903,27 @@ def cmd_implement(args: argparse.Namespace) -> int:
     action = args.implement_action
 
     try:
+        if action == "rollback-ref":
+            payload = create_rollback_ref(
+                repo_root,
+                run_id=args.run_id,
+                session_id=args.session_id,
+                batch=args.batch,
+                head=args.head,
+                push_remote=args.remote if args.push else None,
+            )
+            payload.update(
+                {
+                    "action": "rollback_ref",
+                    "model_calls_made": False,
+                    "mutated_repo": False,
+                }
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(f"rollback ref: {payload['ref']} -> {payload['head']}")
+            return 0
+
         if action == "full-run-prepare":
             payload = prepare_full_run(
                 repo_root,
@@ -1516,8 +1575,8 @@ def build_parser() -> argparse.ArgumentParser:
     implement = sub.add_parser(
         "implement",
         help=(
-            "Optional external batch implementer lifecycle "
-            "(prepare|launch|gate|resume-batch|status|full-run-*); Grok Build or OpenCode"
+            "Optional external implementer: trusted full-run-prepare/launch/monitor/logs/stop "
+            "or legacy bounded prepare/launch/gate/resume-batch/status; Grok Build or OpenCode"
         ),
     )
     implement_sub = implement.add_subparsers(dest="implement_action", required=True)
@@ -1615,6 +1674,19 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_flags(i_fr_stop)
     i_fr_stop.add_argument("--session-id", required=True)
     i_fr_stop.set_defaults(func=cmd_implement)
+
+    i_rollback = implement_sub.add_parser(
+        "rollback-ref",
+        help="Create a collision-safe host rollback ref; optionally push it",
+    )
+    _add_common_flags(i_rollback)
+    i_rollback.add_argument("--run-id", required=True)
+    i_rollback.add_argument("--session-id", required=True)
+    i_rollback.add_argument("--batch", type=int, required=True)
+    i_rollback.add_argument("--head", default=None)
+    i_rollback.add_argument("--push", action="store_true")
+    i_rollback.add_argument("--remote", default="origin")
+    i_rollback.set_defaults(func=cmd_implement)
 
     i_prepare = implement_sub.add_parser(
         "prepare",

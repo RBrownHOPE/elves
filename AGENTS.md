@@ -224,7 +224,9 @@ native overnight run:
 - **Work drivers (batch labor)** — only when the user has the CLI and wants it. Record
   `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
   `.elves-session.json`). Grok Build via
-  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status|full-run-*|full-run-*` (Lane A;
+  `python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop`
+  for trusted full-run, or `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`
+  for legacy bounded batches (Lane A;
   optional `--model fast|deep`, `--check`) and OpenCode via `--adapter opencode-cli` / labor
   profiles. Host owns packets, gates, and merge. Launch recipe:
   `references/grok-implementer-launch-prompt.md`.

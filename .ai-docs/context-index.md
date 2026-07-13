@@ -24,7 +24,8 @@ the runtime surfaces, and the checks that usually matter before editing.
 
 ## Reference Docs
 
-- `references/kickoff-prompt-template.md`: stage-then-launch prompt structure.
+- `references/kickoff-prompt-template.md`: recommended single-kickoff prompts plus the explicitly
+  labeled legacy two-call alternative.
 - `references/survival-guide-template.md`: run-control, Stop Gate, active compute, and launch
   readiness template.
 - `references/execution-log-template.md`: batch logging and regression-attestation template.

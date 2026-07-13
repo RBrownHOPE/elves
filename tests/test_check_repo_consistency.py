@@ -123,6 +123,40 @@ class ConsistencyPhraseTests(unittest.TestCase):
             [f"{label}: stale single-kickoff E2E phrase `{stale}`"],
         )
 
+    def test_semantic_single_kickoff_mutation_fails_without_legacy_scope(self) -> None:
+        label = "README.md"
+        mutation = (
+            "Single kickoff is recommended. Stop after staging, then wait for another "
+            "launch command."
+        )
+        errors = self.consistency.find_unscoped_patterns(
+            {label: mutation},
+            {label: self.consistency.SINGLE_KICKOFF_UNSCOPED_PATTERNS[label]},
+            "single-kickoff contradiction",
+            scope_word="legacy",
+        )
+        self.assertTrue(errors)
+
+        scoped = "Legacy two-call only: stop after staging, then wait for another launch command."
+        self.assertEqual(
+            self.consistency.find_unscoped_patterns(
+                {label: scoped},
+                {label: self.consistency.SINGLE_KICKOFF_UNSCOPED_PATTERNS[label]},
+                "single-kickoff contradiction",
+                scope_word="legacy",
+            ),
+            [],
+        )
+
+    def test_full_run_command_wildcard_is_rejected(self) -> None:
+        label = "README.md"
+        errors = self.consistency.find_forbidden_patterns(
+            {label: "run implement full-run-* now"},
+            {label: self.consistency.EXACT_FULL_RUN_COMMAND_FORBIDDEN_PATTERNS[label]},
+            "full-run command wildcard",
+        )
+        self.assertTrue(errors)
+
     def test_implementer_handoff_phrases_cover_skill_and_templates(self) -> None:
         for label in (
             "SKILL.md",

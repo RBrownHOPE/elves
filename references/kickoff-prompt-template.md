@@ -13,9 +13,9 @@
 > then a short launch prompt. Most historical "elves stopped" failures were incomplete staging —
 > single-kickoff E2E puts staging on the agent.
 >
-> Think of staging as winding the spring: clean the docs, line up the branch and PR, run
-> preflight, and stop only when the runway is clear. Then use a fresh launch call to start the
-> unattended run with momentum.
+> Think of staging as winding the spring: clean the docs, line up the branch and PR, and run
+> preflight before implementation. In the recommended single-kickoff path, continue immediately
+> once the runway is clear. A fresh launch call belongs only to explicit legacy two-call runs.
 >
 > **The Daily Briefing.** Block time at the end of your workday (even 30 minutes) to brief your
 > agents. Friday afternoons deserve more deliberate treatment: the weekend is roughly 60 hours of
@@ -24,10 +24,11 @@
 
 ---
 
-## Step 1: Stage Template
+## Legacy Step 1: Stage-Only Template
 
-> Use this first. The goal is to get everything lined up and then stop. Do not let the agent start
-> implementation in the same call that is still cleaning up the plan or initializing the run.
+> Use this only after explicitly choosing legacy two-call. The goal is to get everything lined up
+> and then stop. For normal chat-to-work/chat-to-land, use the E2E templates below; the agent stages
+> first and then continues in the same run.
 
 ```
 Stage this Elves run. Do not start implementing the batches in this call.
@@ -57,7 +58,6 @@ Stage this Elves run. Do not start implementing the batches in this call.
   explicitly opt in, and keep snapshot artifacts under ignored `.elves/api-surface/`.
 - Run preflight and log any warnings or blockers
 - Record any durable-doc paths the run should use (`.ai-docs/*`) if the repo keeps them
-- Single-kickoff: continue into execution once launch-ready (no second human message)
 
 **Non-negotiables:**
 - [Hard rule 1]
@@ -65,7 +65,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - [Hard rule 3]
 
 **Stop condition for this call:**
-- Single-kickoff: do not stop after staging; continue. Legacy two-call only if I explicitly chose it
+- This is an explicit legacy two-call run: stop only after launch readiness is proven
 ```
 
 **Example:**
@@ -98,7 +98,6 @@ Stage this Elves run. Do not start implementing the batches in this call.
   explicitly opt in, and keep snapshot artifacts under ignored `.elves/api-surface/`.
 - Run preflight and log any warnings or blockers
 - Record any durable-doc paths the run should use (`.ai-docs/*`) if the repo keeps them
-- Single-kickoff: continue into execution once launch-ready (no second human message)
 
 **Non-negotiables:**
 - Never modify public /api/* response shapes
@@ -107,14 +106,14 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - You never merge by default. The PR is for me to review, unless I explicitly opt into merge-on-green or ask for the reviewed-PR landing command.
 
 **Stop condition for this call:**
-- Single-kickoff: do not stop after staging; continue. Legacy two-call only if I explicitly chose it
+- This is an explicit legacy two-call run: stop only after launch readiness is proven
 ```
 
 ---
 
-## Step 2: Hard Launch Template
+## Legacy Step 2: Hard Launch Template
 
-> Use this in a fresh call after staging is done. Keep it short. The plan already carries the
+> In the explicit legacy path, use this in a fresh call after staging is done. Keep it short. The plan already carries the
 > project detail; the launch prompt should reinforce behavior and momentum.
 
 ```
@@ -234,8 +233,9 @@ the run, prefix your message with `ra:`. `ride-along:` and `[ride-along]` also w
 will respond briefly and keep going without stopping.
 
 **Friday staging is leverage**
-Use Friday afternoon to build a clear plan, stage the run, and make sure preflight is green. Then
-launch in a clean second call and let the agent work through the weekend.
+Use Friday afternoon to build a clear plan and make sure preflight is green. In the recommended
+single-kickoff path, let the same run continue through the weekend; use a clean second call only
+when you deliberately selected legacy two-call.
 
 ---
 
@@ -326,6 +326,6 @@ Authority remains Stop Gate until Readiness; then landing rules above.
 **Stop when:** PR is merged with a merge commit, or a true blocker prevents safe merge (report exactly what remains).
 ```
 
-**Codex tip:** after stage inside the same E2E run (or in a second call), you can wrap the
+**Codex tip:** after stage inside the same E2E run (or in an explicit legacy second call), you can wrap the
 execution tail with `/goal` using the short launch body from [`codex-goals.md`](codex-goals.md),
 plus the e2e mode and merge policy from the survival guide.

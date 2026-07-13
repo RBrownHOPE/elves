@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -105,10 +106,21 @@ def _register_session(host: Path, session_id: str, *, worker: Path, head: str, a
             raise
 
 
-def _qual(worker, head, session_id="sess", adapter="grok-build", sandbox="devbox"):
-    return host_qualification_evidence(
+def _qual(
+    worker,
+    head,
+    session_id="sess",
+    adapter="grok-build",
+    sandbox="devbox",
+    profile=None,
+    version="0.2.93",
+    **overrides,
+):
+    evidence = host_qualification_evidence(
         adapter=adapter,
         model="grok-4.5",
+        profile=profile or adapter,
+        version=version,
         sandbox=sandbox,
         worktree=str(Path(worker).resolve()),
         cwd=str(Path(worker).resolve()),
@@ -116,6 +128,8 @@ def _qual(worker, head, session_id="sess", adapter="grok-build", sandbox="devbox
         source_head=head,
         session_id=session_id,
     )
+    evidence.update(overrides)
+    return evidence
 
 
 class PathScopeTests(unittest.TestCase):
@@ -204,6 +218,45 @@ class LeaseExclusivityTests(unittest.TestCase):
                 qualification_evidence=_qual(worker, head, session_id="sess-2", adapter="grok-build"),
                 )
             self.assertEqual(ctx.exception.code, "lease_exclusivity")
+
+
+class QualificationIdentityTests(unittest.TestCase):
+    def test_registered_identity_mismatches_and_stale_evidence_fail_closed(self) -> None:
+        cases = {
+            "model": "other-model",
+            "profile": "other-profile",
+            "parent": "other-parent",
+            "source_head": "0" * 40,
+            "cwd": "/tmp/not-the-worker",
+            "worktree": "/tmp/not-the-worker",
+            "version": "0.0.0",
+            "preference_declared": True,
+            "observed_at": (
+                datetime.now(timezone.utc) - timedelta(hours=1)
+            ).isoformat(),
+        }
+        for field_name, bad_value in cases.items():
+            with self.subTest(field=field_name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                host = root / "host"
+                worker = root / "worker"
+                head = _init_repo(host)
+                _detached_worktree(host, worker, head)
+                _register_session(host, "sess", worker=worker, head=head)
+                evidence = _qual(worker, head, **{field_name: bad_value})
+                with self.assertRaises(ValidationIssue):
+                    LeaseStore(host).prepare(
+                        lease_id=f"lease-{field_name}",
+                        host_checkout=host,
+                        worker_checkout=worker,
+                        session_id="sess",
+                        base_head=head,
+                        adapter="grok-build",
+                        profile="grok-build-write",
+                        allowed_paths=["src/"],
+                        grok_version="0.2.93",
+                        qualification_evidence=evidence,
+                    )
 
     def test_dirty_and_branch_attached_and_head_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -608,8 +661,17 @@ class AuditAndPatchTests(unittest.TestCase):
             store.mark_auditing(lease.lease_id)
             store.mark_audited_pass(lease.lease_id, evidence={"ok": True, "lease_id": lease.lease_id, "worker_tip": lease.worker_tip or head, "base_head": head, "commit_chain": [], "evidence_digest": "test-digest"})
             store.mark_exported(lease.lease_id, str(root / "patches"))
-            store.mark_integrated(lease.lease_id)
+            with self.assertRaises(ValidationIssue) as ctx:
+                store.mark_integrated(lease.lease_id)
+            self.assertEqual(ctx.exception.code, "integrate_requires_apply_checked")
+            store.mark_apply_checked(lease.lease_id)
+            (worker / "src" / "app.py").write_text("dirty\n", encoding="utf-8")
+            with self.assertRaises(ValidationIssue):
+                store.refresh_worker_to_tip(lease.lease_id, new_tip=new_tip)
+            self.assertEqual(store.get(lease.lease_id).state, LeaseState.APPLY_CHECKED)
+            _run(worker, ["git", "checkout", "--", "src/app.py"])
             result = store.refresh_worker_to_tip(lease.lease_id, new_tip=new_tip)
+            store.mark_integrated(lease.lease_id)
             self.assertEqual(result["worker_tip"], new_tip)
             self.assertEqual(_git(worker, "rev-parse", "HEAD"), new_tip)
 

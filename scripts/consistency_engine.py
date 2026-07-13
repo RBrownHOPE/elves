@@ -52,8 +52,6 @@ def find_missing_phrases(
             if phrase not in text:
                 errors.append(f"{label}: missing {category} phrase `{phrase}`")
     return errors
-
-
 def find_forbidden_phrases(
     texts: dict[str, str],
     phrase_map: dict[str, list[str]],
@@ -79,6 +77,49 @@ def find_forbidden_patterns(
         for pattern in patterns:
             if re.search(pattern, text, re.IGNORECASE):
                 errors.append(f"{label}: stale {category} pattern `{pattern}`")
+    return errors
+
+
+def find_unscoped_patterns(
+    texts: dict[str, str],
+    pattern_map: dict[str, list[str]],
+    category: str,
+    *,
+    scope_word: str,
+) -> list[str]:
+    """Reject contradictory paragraph variants unless explicitly scoped.
+
+    This catches semantic drift such as a new "wait for another launch" sentence
+    even when a document still contains every preferred single-kickoff phrase.
+    """
+    errors: list[str] = []
+    for label, patterns in pattern_map.items():
+        paragraphs = re.split(r"\n\s*\n", texts.get(label, ""))
+        for pattern in patterns:
+            for paragraph in paragraphs:
+                lowered = paragraph.lower()
+                explicitly_continuing = any(
+                    phrase in lowered
+                    for phrase in (
+                        "do not stop",
+                        "do not wait",
+                        "without waiting",
+                        "no second human",
+                        "not wait for",
+                    )
+                ) or bool(
+                    re.search(r"do\s+(?:\*\*)?not(?:\*\*)?\s+(?:stop|wait)", lowered)
+                )
+                if (
+                    re.search(pattern, paragraph, re.IGNORECASE)
+                    and scope_word.lower() not in lowered
+                    and not explicitly_continuing
+                ):
+                    errors.append(
+                        f"{label}: unscoped {category} pattern `{pattern}` "
+                        f"(missing `{scope_word}` scope)"
+                    )
+                    break
     return errors
 
 
@@ -187,5 +228,3 @@ def validate_config_domain_workflow() -> list[str]:
         )
 
     return errors
-
-

@@ -179,6 +179,7 @@ def create_rollback_ref(
     session_id: str,
     batch: int,
     head: str | None = None,
+    push_remote: str | None = None,
 ) -> dict[str, Any]:
     tip = head
     if tip is None:
@@ -193,7 +194,23 @@ def create_rollback_ref(
             "delegated_git_rollback_ref_failed",
             (result.stderr or result.stdout or "update-ref failed").strip(),
         )
-    return {"ok": True, "ref": ref, "head": tip, "batch": batch}
+    pushed = False
+    if push_remote:
+        pushed_result = run_git(cwd, ["push", push_remote, f"{ref}:{ref}"])
+        if pushed_result.returncode != 0:
+            raise ValidationIssue(
+                "delegated_git_rollback_push_failed",
+                (pushed_result.stderr or pushed_result.stdout or "rollback push failed").strip(),
+            )
+        pushed = True
+    return {
+        "ok": True,
+        "ref": ref,
+        "head": tip,
+        "batch": batch,
+        "pushed": pushed,
+        "remote": push_remote,
+    }
 
 
 def reconcile_worker_report(

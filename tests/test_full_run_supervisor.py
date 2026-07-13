@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 import time
@@ -142,7 +143,8 @@ class BehaviorPolicyCompositionTests(unittest.TestCase):
     def test_matrix_dimensions(self) -> None:
         cases = [
             ({"direct_edit": True}, "host_native"),
-            ({"bounded_task": True}, "grok_build"),
+            ({"bounded_task": True}, "host_native"),
+            ({"bounded_task": True, "work_driver_grok": True}, "grok_build"),
             ({"untrusted": True}, "untrusted_writer"),
             ({"legacy_two_call": True}, "host_native"),
             ({"full_run": True, "trusted_grok": True}, "grok_build"),
@@ -304,7 +306,12 @@ class FullRunLifecycleTests(unittest.TestCase):
         (self.repo / "f.txt").write_text("1\n")
         os.system(f"git -C {self.repo} add f.txt && git -C {self.repo} commit -q -m init")
         os.system(f"git -C {self.repo} checkout -q -b {self.branch}")
-        self.start_head = os.popen(f"git -C {self.repo} rev-parse HEAD").read().strip()
+        self.start_head = subprocess.run(
+            ["git", "-C", str(self.repo), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
 
     def tearDown(self) -> None:
         try:
@@ -339,6 +346,62 @@ class FullRunLifecycleTests(unittest.TestCase):
         self.assertNotIn("transcript", status)
         logs = logs_full_run(self.repo, session_id=self.session, raw_tail=False)
         self.assertFalse(logs["transcript_included"])
+        self.assertEqual(status["check_summary"]["exit_code"], 0)
+        self.assertTrue(status["check_summary"]["exit_record"])
+
+    def test_complete_report_waits_for_real_clean_exit(self) -> None:
+        delayed = Path(self.tmp.name) / "delayed_worker.py"
+        delayed.write_text(FAKE_WORKER + "\ntime.sleep(0.6)\n", encoding="utf-8")
+        delayed.chmod(delayed.stat().st_mode | stat.S_IXUSR)
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=delayed,
+        )
+        launch_full_run(self.repo, session_id=self.session)
+        deadline = time.time() + 2
+        status = monitor_full_run(self.repo, session_id=self.session, stale_after_seconds=60)
+        while status["check_summary"]["report_status"] != "complete" and time.time() < deadline:
+            time.sleep(0.02)
+            status = monitor_full_run(self.repo, session_id=self.session, stale_after_seconds=60)
+        self.assertEqual(status["check_summary"]["report_status"], "complete", status)
+        self.assertIn(status["state"], {"healthy", "pending"}, status)
+        self.assertFalse(status["check_summary"]["exit_record"])
+
+        while status["state"] not in {"complete", "failed"} and time.time() < deadline:
+            time.sleep(0.02)
+            status = monitor_full_run(self.repo, session_id=self.session, stale_after_seconds=60)
+        self.assertEqual(status["state"], "complete", status)
+        self.assertEqual(status["check_summary"]["exit_code"], 0)
+
+    def test_nonzero_exit_overrides_complete_worker_report(self) -> None:
+        failing = Path(self.tmp.name) / "failing_worker.py"
+        failing.write_text(FAKE_WORKER + "\nraise SystemExit(7)\n", encoding="utf-8")
+        failing.chmod(failing.stat().st_mode | stat.S_IXUSR)
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=failing,
+        )
+        launch_full_run(self.repo, session_id=self.session)
+        deadline = time.time() + 3
+        status = monitor_full_run(self.repo, session_id=self.session, stale_after_seconds=60)
+        while status["state"] not in {"complete", "failed"} and time.time() < deadline:
+            time.sleep(0.02)
+            status = monitor_full_run(self.repo, session_id=self.session, stale_after_seconds=60)
+        self.assertEqual(status["state"], "failed", status)
+        self.assertEqual(status["check_summary"]["exit_code"], 7)
+        self.assertIn("nonzero exit", status["blocker"])
 
     def test_long_running_not_stale_while_process_alive(self) -> None:
         sleeper = Path(self.tmp.name) / "sleeper.py"
@@ -363,6 +426,8 @@ class FullRunLifecycleTests(unittest.TestCase):
             self.assertEqual(status["state"], "healthy")
         stop = stop_full_run(self.repo, session_id=self.session, grace_seconds=0.2)
         self.assertTrue(stop.get("fingerprint_verified"))
+        self.assertTrue(stop["ok"], stop)
+        self.assertFalse(stop["still_alive"], stop)
 
     def test_forged_event_rejected(self) -> None:
         prepare_full_run(
@@ -443,7 +508,6 @@ class FullRunLifecycleTests(unittest.TestCase):
         """Stored PGID that is not the verified process group must fail fingerprint/stop."""
         import os
         import signal
-        import subprocess
         import time
 
         # Two sleepers: victim process group vs real process group.
