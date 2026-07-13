@@ -296,7 +296,8 @@ python3 scripts/cobbler_agents.py implement launch --json \
 
 **Session continuity:** prefer exact session id (Grok `--resume` / OpenCode `--session`; never bare
 `continue`/`latest`). Capture OpenCode id via `opencode session list` after the first turn. If no
-id, attach plan/docs in the packet.
+id, attach plan/docs in the packet. OpenCode create output has no authoritative session id until
+that capture completes; never register a host-generated placeholder.
 
 **Honesty:** work-driver and main-driver OpenCode configs are incomplete coverage; flags drift.
 Not host-import write-lease qualified. Prefer PRs/tests that make OpenCode more robust under a
@@ -336,6 +337,8 @@ lanes; never block overnight Elves.
   `.elves/runtime/openrouter-sessions/` (gitignored). Reuse the same id for plan→review.
 - **No session id:** pass plan/contract/constitution with `--context-file` (repeatable) or put
   paths in the Cobbler packet `relevant_files` so the model still sees repo documents
+- Prompt/context paths must resolve inside the checkout; sensitive credential/key paths are
+  rejected, and attached content is redacted before network transmission or session persistence
 
 ```bash
 # One-shot review (dogfood)

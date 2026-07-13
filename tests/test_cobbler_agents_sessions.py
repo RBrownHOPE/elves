@@ -528,6 +528,27 @@ class SessionCommandBuilderTests(unittest.TestCase):
             self.assertIn("preserve-me-uuid", inv.argv)
             self.assertIn("model-x", inv.argv)
 
+    def test_provider_allocated_create_ids_are_not_fabricated(self) -> None:
+        for adapter in ("opencode-cli", "antigravity-cli"):
+            with self.subTest(adapter=adapter):
+                inv = build_session_create_invocation(
+                    adapter=adapter,
+                    profile=adapter,
+                    executable="opencode" if adapter == "opencode-cli" else "agy",
+                )
+                self.assertIsNone(inv.session_id)
+                self.assertIn("authoritative", inv.notes)
+
+    def test_host_allocated_gemini_create_id_is_passed_exactly(self) -> None:
+        inv = build_session_create_invocation(
+            adapter="gemini-cli",
+            profile="gemini-cli",
+            executable="gemini",
+        )
+        self.assertIsNotNone(inv.session_id)
+        self.assertIn("--session-id", inv.argv)
+        self.assertIn(inv.session_id or "", inv.argv)
+
 
 class DoctorSessionFieldsTests(unittest.TestCase):
     def test_doctor_json_separates_discovery_and_session_fields(self) -> None:

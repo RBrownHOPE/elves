@@ -40,11 +40,35 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cobbler_runtime.context import is_secret_env_name, redact_structure, redact_text
+
 DEFAULT_MODEL = "openrouter/auto"
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
 SESSION_DIR_REL = Path(".elves") / "runtime" / "openrouter-sessions"
 _AMBIGUOUS = frozenset(
     {"latest", "last", "continue", "most-recent", "most_recent", "recent", "current", "active"}
+)
+_SENSITIVE_PATH_PARTS = frozenset(
+    {".aws", ".git", ".gnupg", ".ssh", "credentials", "private-keys", "secrets"}
+)
+_SENSITIVE_FILE_NAMES = frozenset(
+    {
+        ".dockercfg",
+        ".git-credentials",
+        ".netrc",
+        ".npmrc",
+        ".pypirc",
+        "auth.json",
+        "credentials.json",
+        "id_dsa",
+        "id_ecdsa",
+        "id_ed25519",
+        "id_rsa",
+        "service-account.json",
+    }
+)
+_SENSITIVE_FILE_SUFFIXES = frozenset(
+    {".jks", ".key", ".keystore", ".p12", ".pem", ".pfx"}
 )
 
 
@@ -101,6 +125,60 @@ def _assert_exact_session_id(session_id: str | None) -> str | None:
 def _session_path(repo_root: Path, session_id: str) -> Path:
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", session_id)
     return repo_root / SESSION_DIR_REL / f"{safe}.json"
+
+
+def _secret_env_values() -> frozenset[str]:
+    """Return exact secret-looking environment values for value-only redaction."""
+    return frozenset(
+        value
+        for name, value in os.environ.items()
+        if is_secret_env_name(name) and isinstance(value, str) and len(value) >= 8
+    )
+
+
+def _is_sensitive_path(path: Path) -> bool:
+    lowered_parts = tuple(part.lower() for part in path.parts)
+    name = path.name.lower()
+    return (
+        any(part in _SENSITIVE_PATH_PARTS for part in lowered_parts)
+        or name == ".env"
+        or name.startswith(".env.")
+        or name in _SENSITIVE_FILE_NAMES
+        or name.startswith("secrets.")
+        or path.suffix.lower() in _SENSITIVE_FILE_SUFFIXES
+    )
+
+
+def _read_safe_repo_text(
+    *,
+    repo_root: Path,
+    requested_path: Path,
+    exact_secret_values: frozenset[str],
+) -> tuple[str, str]:
+    """Read and redact a non-sensitive regular file contained by the checkout."""
+    candidate = requested_path if requested_path.is_absolute() else repo_root / requested_path
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise SystemExit(f"Unable to resolve input file {requested_path}: {exc}") from None
+    try:
+        relative = resolved.relative_to(repo_root)
+    except ValueError:
+        raise SystemExit(
+            f"Refusing input file outside repo root: {requested_path}. "
+            "Copy review material into the checkout before attaching it."
+        ) from None
+    if _is_sensitive_path(relative):
+        raise SystemExit(f"Refusing sensitive input file: {relative.as_posix()}")
+    if not resolved.is_file():
+        raise SystemExit(f"Input path is not a regular file: {relative.as_posix()}")
+    try:
+        body = resolved.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise SystemExit(f"Unable to read input file {relative.as_posix()}: {exc}") from None
+    if len(body) > 120_000:
+        body = body[:120_000] + "\n\n…[truncated]…\n"
+    return relative.as_posix(), redact_text(body, exact_values=exact_secret_values).text
 
 
 def _load_session(path: Path) -> dict[str, Any]:
@@ -295,43 +373,69 @@ def run_lens(
     max_tokens: int,
     temperature: float,
     timeout_s: float,
+    prompt_file: Path | None = None,
 ) -> dict[str, Any]:
+    repo_root = repo_root.expanduser().resolve()
     _load_dotenv_local(repo_root)
     key = _api_key()
     sid = _assert_exact_session_id(session_id)
+    exact_secret_values = _secret_env_values()
+
+    if prompt_file is not None:
+        _, task = _read_safe_repo_text(
+            repo_root=repo_root,
+            requested_path=prompt_file,
+            exact_secret_values=exact_secret_values,
+        )
 
     context_blobs: list[tuple[str, str]] = []
     for path in context_files:
-        p = path if path.is_absolute() else (repo_root / path)
-        try:
-            body = p.read_text(encoding="utf-8", errors="replace")
-        except OSError as exc:
-            raise SystemExit(f"Unable to read context file {p}: {exc}") from None
-        # Soft cap per file to avoid huge prompts.
-        if len(body) > 120_000:
-            body = body[:120_000] + "\n\n…[truncated]…\n"
-        context_blobs.append((str(path), body))
+        context_blobs.append(
+            _read_safe_repo_text(
+                repo_root=repo_root,
+                requested_path=path,
+                exact_secret_values=exact_secret_values,
+            )
+        )
 
     user_content = _build_user_content(
-        task=task, context_blobs=context_blobs, packet=packet
+        task=redact_text(task, exact_values=exact_secret_values).text,
+        context_blobs=context_blobs,
+        packet=redact_structure(packet, exact_values=exact_secret_values),
     )
+    # Final boundary redaction protects against future packet/context fields that
+    # bypass the field-level handling above.
+    user_content = redact_text(user_content, exact_values=exact_secret_values).text
     system = _role_report_instruction(role)
 
     messages: list[dict[str, str]] = []
+    prior_messages: list[dict[str, str]] = []
     session_data: dict[str, Any] | None = None
     session_path: Path | None = None
     if sid:
         session_path = _session_path(repo_root, sid)
-        session_data = _load_session(session_path)
+        session_data = redact_structure(
+            _load_session(session_path), exact_values=exact_secret_values
+        )
         session_data["session_id"] = sid
-        # Prior turns (without re-leaking secrets — we never store keys).
+        # Sanitize legacy turns before reuse; old wrapper versions may have
+        # persisted content that now matches the stronger redaction boundary.
         for msg in session_data.get("messages") or []:
             if (
                 isinstance(msg, dict)
                 and msg.get("role") in {"user", "assistant", "system"}
                 and isinstance(msg.get("content"), str)
             ):
-                messages.append({"role": msg["role"], "content": msg["content"]})
+                prior_messages.append(
+                    {
+                        "role": msg["role"],
+                        "content": redact_text(
+                            msg["content"], exact_values=exact_secret_values
+                        ).text,
+                    }
+                )
+
+    messages.extend(prior_messages)
 
     if not any(m.get("role") == "system" for m in messages):
         messages.insert(0, {"role": "system", "content": system})
@@ -353,18 +457,20 @@ def run_lens(
         content = "".join(
             part.get("text", "") for part in content if isinstance(part, dict)
         )
+    content = redact_text(str(content), exact_values=exact_secret_values).text
     used_model = str(raw.get("model") or model)
 
     try:
-        report = _parse_model_json(str(content))
+        report = _parse_model_json(content)
     except (ValueError, json.JSONDecodeError) as exc:
         raise SystemExit(f"Failed to parse model JSON: {exc}") from None
     report = _normalize_report(report, role=role, model=used_model)
+    report = redact_structure(report, exact_values=exact_secret_values)
 
     if sid and session_path is not None and session_data is not None:
-        hist = list(session_data.get("messages") or [])
+        hist = list(prior_messages)
         hist.append({"role": "user", "content": user_content})
-        hist.append({"role": "assistant", "content": str(content)})
+        hist.append({"role": "assistant", "content": content})
         # Keep last N turns to bound disk size
         session_data["messages"] = hist[-40:]
         session_data["model"] = used_model
@@ -381,7 +487,7 @@ def run_lens(
         },
         "role_report": report,
     }
-    return envelope
+    return redact_structure(envelope, exact_values=exact_secret_values)
 
 
 def _read_stdin_json() -> dict[str, Any] | None:
@@ -447,11 +553,9 @@ def main(argv: list[str] | None = None) -> int:
 
     role = str(args.role or (envelope_in or {}).get("role") or "review")
     task = args.prompt or ""
-    if args.prompt_file:
-        task = Path(args.prompt_file).read_text(encoding="utf-8", errors="replace")
     if not task and envelope_in:
         task = str(envelope_in.get("task") or envelope_in.get("prompt") or "")
-    if not task.strip():
+    if not task.strip() and not args.prompt_file:
         raise SystemExit("No task/prompt provided (stdin envelope, --prompt, or --prompt-file)")
 
     session_id = args.session_id or (envelope_in or {}).get("session_id")
@@ -481,6 +585,7 @@ def main(argv: list[str] | None = None) -> int:
         max_tokens=int(args.max_tokens),
         temperature=float(args.temperature),
         timeout_s=float(args.timeout),
+        prompt_file=Path(args.prompt_file) if args.prompt_file else None,
     )
     # Never include secrets in output (check env values only — not the literal "sk-" discussion).
     text = json.dumps(result, indent=2, sort_keys=True)

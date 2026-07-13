@@ -1488,12 +1488,12 @@ def build_session_create_invocation(
     if name == "opencode-cli":
         import uuid as _uuid  # noqa: PLC0415
 
-        sid = str(_uuid.uuid4())
+        correlation = _uuid.uuid4().hex[:8]
         argv = [
             exe or "opencode",
             "run",
             "--title",
-            f"elves-{sid[:8]}",
+            f"elves-create-{correlation}",
             "Reply with exactly: session-created",
         ]
         if requested_model:
@@ -1507,9 +1507,11 @@ def build_session_create_invocation(
             notes=(
                 "OpenCode session create: after first run, capture exact session id via "
                 "`opencode session list` / export and register it; resume with --session <id> "
-                "only (never bare --continue). Preferred for plan→review continuity."
+                "only (never bare --continue). The unique title is a discovery correlation, "
+                "not a session id; no session_id is authoritative until capture. Preferred "
+                "for plan→review continuity."
             ),
-            session_id=sid,
+            session_id=None,
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
@@ -1538,9 +1540,6 @@ def build_session_create_invocation(
     if name == "antigravity-cli":
         # First turn creates a conversation; host must capture exact conversation id
         # (agent output CONVID=… or conversations/*.db) and register it before resume.
-        import uuid as _uuid  # noqa: PLC0415
-
-        sid = str(_uuid.uuid4())
         argv = [exe or "agy", "--print", "Reply with exactly: session-created"]
         if requested_model:
             argv.extend(["--model", str(requested_model)])
@@ -1553,9 +1552,10 @@ def build_session_create_invocation(
             notes=(
                 "Antigravity create is host-mediated: after first turn, record the "
                 "exact conversation UUID (not --continue) in the session registry, then "
-                "resume with --conversation <id> so plan→review keeps context"
+                "resume with --conversation <id> so plan→review keeps context. No "
+                "session_id is authoritative until that provider UUID is captured."
             ),
-            session_id=sid,
+            session_id=None,
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv

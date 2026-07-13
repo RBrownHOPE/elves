@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -145,6 +146,141 @@ class OpenRouterLensUnitTests(unittest.TestCase):
             self.assertTrue(sess.is_file())
             data = json.loads(sess.read_text(encoding="utf-8"))
             self.assertGreaterEqual(len(data["messages"]), 2)
+
+    def test_context_rejects_sensitive_and_external_paths_before_network(self) -> None:
+        import openrouter_lens as lens  # type: ignore  # noqa: E402
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            root = Path(tmp)
+            sensitive = root / "credentials.json"
+            sensitive.write_text('{"token":"do-not-send"}\n', encoding="utf-8")
+            external = Path(outside) / "review.md"
+            external.write_text("review context", encoding="utf-8")
+            self.assertTrue(lens._is_sensitive_path(Path(".env.local")))
+            for path in (sensitive, external):
+                with self.subTest(path=path):
+                    with mock.patch.object(lens, "_openrouter_chat") as chat:
+                        with mock.patch.object(lens, "_api_key", return_value="sk-test-not-real"):
+                            with self.assertRaises(SystemExit):
+                                lens.run_lens(
+                                    repo_root=root,
+                                    model="qwen/qwen3-max",
+                                    role="review",
+                                    task="review",
+                                    session_id=None,
+                                    context_files=[path],
+                                    packet=None,
+                                    max_tokens=256,
+                                    temperature=0.0,
+                                    timeout_s=5.0,
+                                )
+                    chat.assert_not_called()
+
+    def test_prompt_file_uses_same_path_boundary(self) -> None:
+        import openrouter_lens as lens  # type: ignore  # noqa: E402
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            root = Path(tmp)
+            external = Path(outside) / "prompt.md"
+            external.write_text("review", encoding="utf-8")
+            with mock.patch.object(lens, "_openrouter_chat") as chat:
+                with mock.patch.object(lens, "_api_key", return_value="sk-test-not-real"):
+                    with self.assertRaises(SystemExit):
+                        lens.run_lens(
+                            repo_root=root,
+                            model="qwen/qwen3-max",
+                            role="review",
+                            task="",
+                            session_id=None,
+                            context_files=[],
+                            packet=None,
+                            max_tokens=256,
+                            temperature=0.0,
+                            timeout_s=5.0,
+                            prompt_file=external,
+                        )
+            chat.assert_not_called()
+
+    def test_secrets_redacted_before_network_and_session_persistence(self) -> None:
+        import openrouter_lens as lens  # type: ignore  # noqa: E402
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            context = root / "review.md"
+            exact_secret = "sentinel-secret-value-12345"
+            shaped_secret = "sk-abcdefghijklmnopqrstuvwxyz"
+            context.write_text(
+                f"exact={exact_secret}\nshaped={shaped_secret}\n", encoding="utf-8"
+            )
+            session_path = (
+                root
+                / ".elves"
+                / "runtime"
+                / "openrouter-sessions"
+                / "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.json"
+            )
+            session_path.parent.mkdir(parents=True)
+            session_path.write_text(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"role": "user", "content": f"legacy {exact_secret}"}
+                        ],
+                        "legacy_note": exact_secret,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fake_response = {
+                "model": "qwen/qwen3-max",
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "role": "review",
+                                    "verdict": "pass",
+                                    "confidence": 0.9,
+                                    "key_findings": [f"echo {exact_secret}"],
+                                }
+                            )
+                        }
+                    }
+                ],
+            }
+            captured: dict[str, object] = {}
+
+            def fake_chat(**kwargs: object) -> dict[str, object]:
+                captured.update(kwargs)
+                return fake_response
+
+            with mock.patch.dict(
+                os.environ,
+                {"REVIEW_SECRET_TOKEN": exact_secret},
+                clear=False,
+            ):
+                with mock.patch.object(lens, "_openrouter_chat", side_effect=fake_chat):
+                    with mock.patch.object(lens, "_api_key", return_value="sk-test-not-real"):
+                        result = lens.run_lens(
+                            repo_root=root,
+                            model="qwen/qwen3-max",
+                            role="review",
+                            task=f"review with {exact_secret}",
+                            session_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                            context_files=[context],
+                            packet={"constraints": [f"never expose {exact_secret}"]},
+                            max_tokens=256,
+                            temperature=0.0,
+                            timeout_s=5.0,
+                        )
+
+            transmitted = json.dumps(captured.get("messages"))
+            persisted = session_path.read_text(encoding="utf-8")
+            returned = json.dumps(result)
+            for material in (transmitted, persisted, returned):
+                self.assertNotIn(exact_secret, material)
+                self.assertNotIn(shaped_secret, material)
+                self.assertIn("[REDACTED:", material)
 
 
 class OpenRouterRecipeTests(unittest.TestCase):

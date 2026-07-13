@@ -184,6 +184,8 @@ External chats are **not** one-shot throwaways when the same lens plans and late
 
 1. At planning, create or capture an **exact** session/conversation id (Gemini:
    `--session-id` / listed UUID; Antigravity: conversation UUID after first turn).
+   OpenCode and Antigravity creation cannot preallocate an authoritative id: treat the id as
+   unavailable until the provider reports it, then register that exact value.
 2. Store it in the session registry / run memory (never paste secrets).
 3. At review, resume with that **exact** id only — forbid `latest`, bare `--continue`, or “most
    recent”.
