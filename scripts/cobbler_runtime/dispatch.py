@@ -658,6 +658,14 @@ async def _run_single_attempt(
     host_ledger: _HostEvidenceLedger | None,
     task: str,
 ) -> tuple[AttemptResult, LaneResult]:
+    """Thin coordinator over transport/native/subprocess/artifact/result components."""
+    from .dispatch_attempt import (  # noqa: PLC0415
+        build_effective_contract,
+        prepare_transport,
+        record_command_digests,
+        write_attempt_artifacts,
+    )
+
     launch_time = time.monotonic()
     attempt_dir = resolve_contained_path(
         work_dir,
@@ -667,22 +675,27 @@ async def _run_single_attempt(
 
     # Build scrub/exact redaction set BEFORE any packet/prompt/artifact write.
     grants = _attempt_env_grants(spec, attempt)
-    scrub: EnvScrubResult = scrub_environment(
-        parent_env,
-        extra_allowlist=set(spec.env_extra_allowlist),
-        secret_grants=set(grants),
+    transport = prepare_transport(
+        parent_env=parent_env,
+        env_extra_allowlist=tuple(spec.env_extra_allowlist),
+        grants=tuple(grants),
     )
-    exact_secret_values = frozenset(
-        scrub.env[name] for name in grants if name in scrub.env and scrub.env[name]
-    )
+    scrub = transport.scrub
+    exact_secret_values = transport.exact_secret_values
 
     raw_packet_dict = packet.to_dict()
     redacted_task = redact_text(task, exact_values=exact_secret_values).text
     packet_dict = redact_structure(raw_packet_dict, exact_values=exact_secret_values)
     if isinstance(packet_dict, dict):
         packet_dict["task"] = redacted_task
-    packet_path = write_json_artifact(attempt_dir / "packet.json", packet_dict)
-    prompt_path = attempt_dir / "prompt.txt"
+    packet_path, prompt_path = write_attempt_artifacts(
+        attempt_dir,
+        packet_dict=packet_dict,
+        redacted_task=redacted_task,
+        prompt_body=None,
+        write_json_artifact=write_json_artifact,
+        write_text_artifact=write_text_artifact,
+    )
 
     attempt_result = AttemptResult(
         attempt_index=attempt_index,
@@ -693,30 +706,13 @@ async def _run_single_attempt(
         model_evidence_source=None,
         status="pending",
         start_time=time.monotonic(),
-        effective_contract={
-            "profile": attempt.profile,
-            "adapter": attempt.adapter,
-            "executable": attempt.executable,
-            "requested_model": redact_text(
-                str(attempt.requested_model or ""), exact_values=exact_secret_values
-            ).text
-            or attempt.requested_model,
-            "extra_args": list(
-                redact_structure(list(attempt.extra_args), exact_values=exact_secret_values)
-            ),
-            "input_contract": attempt.input_contract,
-            "output_contract": attempt.output_contract,
-            "capabilities": list(attempt.capabilities),
-            "qualified_capabilities": list(
-                attempt.qualified_capabilities or spec.qualified_capabilities
-            ),
-            "env_grant_names": list(grants),
-            "cwd": str(repo_root),
-            "reason": attempt.reason,
-            "required": attempt.required,
-            "enabled": attempt.enabled,
-            "source": attempt.source,
-        },
+        effective_contract=build_effective_contract(
+            attempt,
+            grants=tuple(grants),
+            repo_root=repo_root,
+            exact_secret_values=exact_secret_values,
+            qualified_capabilities=tuple(spec.qualified_capabilities or ()),
+        ),
     )
 
     def _fail(
@@ -997,15 +993,12 @@ async def _run_single_attempt(
 
     # Keep raw argv only in local memory for launch; persist digest + redacted form.
     raw_command = list(command)
-    redacted_command = list(
-        redact_structure(raw_command, exact_values=exact_secret_values)
+    redacted_command = record_command_digests(
+        attempt_result.effective_contract,
+        raw_command=raw_command,
+        exact_secret_values=exact_secret_values,
+        invocation=invocation,
     )
-    attempt_result.effective_contract["argv"] = redacted_command
-    attempt_result.effective_contract["argv_digest"] = hashlib.sha256(
-        "\0".join(raw_command).encode()
-    ).hexdigest()[:16]
-    attempt_result.effective_contract["decoder"] = invocation.decoder
-    attempt_result.effective_contract["input_mode"] = invocation.input_mode
 
     if invocation.unavailable:
         return _fail(
@@ -1474,22 +1467,30 @@ async def run_council(
                 ),
             },
         )
+        ephemeral_dirs: list[Path] = []
         if root is not None:
             work_dir = ensure_private_dir(resolve_contained_path(root, safe_lane))
         else:
-            # Ephemeral in-memory-ish dir under system temp without .elves mutation.
+            # Scoped ephemeral dir with guaranteed cleanup (success/fail/timeout).
             import tempfile
 
             work_dir = Path(tempfile.mkdtemp(prefix=f"cobbler-lane-{safe_lane}-"))
-        return await _run_lane_with_fallbacks(
-            spec,
-            packet,
-            work_dir,
-            parent_env=parent_env,
-            repo_root=Path(repo_root),
-            host_ledger=host_ledger,
-            task=task,
-        )
+            ephemeral_dirs.append(work_dir)
+        try:
+            return await _run_lane_with_fallbacks(
+                spec,
+                packet,
+                work_dir,
+                parent_env=parent_env,
+                repo_root=Path(repo_root),
+                host_ledger=host_ledger,
+                task=task,
+            )
+        finally:
+            import shutil
+
+            for path in ephemeral_dirs:
+                shutil.rmtree(path, ignore_errors=True)
 
     results = list(await asyncio.gather(*[_one(spec) for spec in lane_list]))
 
@@ -1620,28 +1621,36 @@ async def run_lightweight_review(
     if adapter == "host-native":
         host_ledger.issue_token(spec.lane_id)
 
+    ephemeral: Path | None = None
     if root is not None:
         work_dir = ensure_private_dir(resolve_contained_path(root, "lightweight_review"))
     else:
         import tempfile
 
-        work_dir = Path(tempfile.mkdtemp(prefix="cobbler-lightweight-"))
-    result = await _run_lane_with_fallbacks(
-        spec,
-        packet,
-        work_dir,
-        parent_env=parent_env,
-        repo_root=Path(repo_root),
-        host_ledger=host_ledger,
-        task=task,
-    )
-    # Explicit mutation truth from whether an external artifact root was created.
-    result.mutated_repo = root is not None
-    if root is not None:
-        write_json_artifact(root / "lightweight-review-result.json", result.to_dict())
-        if result.artifact_dir is None:
-            result.artifact_dir = str(root)
-    return result
+        ephemeral = Path(tempfile.mkdtemp(prefix="cobbler-lightweight-"))
+        work_dir = ephemeral
+    try:
+        result = await _run_lane_with_fallbacks(
+            spec,
+            packet,
+            work_dir,
+            parent_env=parent_env,
+            repo_root=Path(repo_root),
+            host_ledger=host_ledger,
+            task=task,
+        )
+        # Explicit mutation truth from whether an external artifact root was created.
+        result.mutated_repo = root is not None
+        if root is not None:
+            write_json_artifact(root / "lightweight-review-result.json", result.to_dict())
+            if result.artifact_dir is None:
+                result.artifact_dir = str(root)
+        return result
+    finally:
+        if ephemeral is not None:
+            import shutil
+
+            shutil.rmtree(ephemeral, ignore_errors=True)
 
 
 def host_evidence_binding(*, run_id: str, lane_id: str, role: str, task: str) -> str:

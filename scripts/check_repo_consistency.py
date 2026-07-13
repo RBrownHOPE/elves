@@ -2572,6 +2572,32 @@ def main() -> int:
         )
     )
 
+    # Semantic behavior policy: structured scenarios must resolve without relying on
+    # literal phrase inventories alone (Batch 6 / v2.1.0).
+    try:
+        scripts_dir = str(REPO_ROOT / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        from cobbler_runtime.behavior_policy import (  # noqa: PLC0415
+            FORBIDDEN_FULL_RUN_WAKE_TRIGGERS,
+            resolve_scenario,
+        )
+
+        full = resolve_scenario("full_run_trusted_grok")
+        if full.continuation != "same_session" or full.driver_monitor_mode != "parked_monitor":
+            errors.append(
+                "behavior_policy: full_run_trusted_grok must use same_session + parked_monitor"
+            )
+        legacy = resolve_scenario("legacy_two_call")
+        if legacy.kickoff_mode == full.kickoff_mode and legacy.continuation == full.continuation:
+            errors.append(
+                "behavior_policy: single-kickoff and legacy two-call must remain contradictory"
+            )
+        if "per_push" not in FORBIDDEN_FULL_RUN_WAKE_TRIGGERS:
+            errors.append("behavior_policy: per_push must be a forbidden full-run wake trigger")
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"behavior_policy: failed to load semantic scenarios: {exc}")
+
     if errors:
         print("Repo consistency check FAILED")
         for error in errors:
