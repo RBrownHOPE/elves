@@ -109,6 +109,63 @@ def build_parser():
 '''
 
 
+HELPER_EXIT_TEMPLATE = '''\
+import argparse
+
+
+def _literal_failure(args):
+    return 1
+
+
+def cmd_status(args):
+    payload = {{"ok": bool(args.ok)}}
+    print(payload)
+    return 0 if args.ok else {failure_expression}
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="cobbler_agents.py")
+    commands = parser.add_subparsers(dest="command", required=True)
+    status = commands.add_parser("status")
+    status.add_argument("--ok", action="store_true")
+    status.set_defaults(func=cmd_status)
+    return parser
+'''
+
+
+STORAGE_ERROR_EXIT_TEMPLATE = '''\
+import argparse
+
+
+def _emit_json(payload, *, exit_code):
+    print(payload)
+    return exit_code
+
+
+def _emit_storage_error(args):
+    if args.json:
+        return _emit_json({"ok": False}, exit_code=1)
+    print("storage failed")
+    return 1
+
+
+def cmd_status(args):
+    if args.fail:
+        return _emit_storage_error(args)
+    return _emit_json({"ok": True}, exit_code=0)
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="cobbler_agents.py")
+    commands = parser.add_subparsers(dest="command", required=True)
+    status = commands.add_parser("status")
+    status.add_argument("--json", action="store_true")
+    status.add_argument("--fail", action="store_true")
+    status.set_defaults(func=cmd_status)
+    return parser
+'''
+
+
 class PublicApiSnapshotRegressionTests(unittest.TestCase):
     def _write_cli(self, root: Path, tip_flag: str = "--new-tip") -> None:
         scripts = root / "scripts"
@@ -345,6 +402,28 @@ class PublicApiSnapshotRegressionTests(unittest.TestCase):
             ]
             self.assertTrue(any("changed default" in reason for reason in reasons), reasons)
 
+    def test_explicit_break_approval_does_not_change_default_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._write_cli(root)
+            self._commit_baseline(root)
+            self._replace_cli(root, 'default="safe"', 'default="fast"')
+            surface = "cli:cobbler_agents worker refresh"
+
+            blocked = compatibility_gate(root, required=True, base_ref="origin/main")
+            approved = compatibility_gate(
+                root,
+                required=True,
+                approved_breaks=[surface],
+                base_ref="origin/main",
+            )
+
+            self.assertFalse(blocked["ok"], blocked)
+            self.assertEqual(blocked["breaking"], [surface])
+            self.assertTrue(approved["ok"], approved)
+            self.assertEqual(approved["breaking"], [])
+            self.assertEqual(approved["diff"]["breaking"], [surface])
+
     def test_narrowed_choices_and_new_required_inputs_are_breaking(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -533,6 +612,133 @@ def build_parser():
                 "cli:cobbler_agents worker refresh"
             ]
             self.assertIn("process exit contract changed", reasons)
+
+    def test_direct_local_helper_literal_exit_is_normalized_and_compatible(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._write_source(
+                root,
+                HELPER_EXIT_TEMPLATE.format(failure_expression="1"),
+            )
+            self._commit_baseline(root)
+            self._write_source(
+                root,
+                HELPER_EXIT_TEMPLATE.format(
+                    failure_expression="_literal_failure(args)"
+                ),
+            )
+
+            snapshot = capture_snapshot(root)
+            entry = next(
+                item
+                for item in snapshot.entries
+                if item.name == "cobbler_agents status"
+            )
+            handler = json.loads(entry.signature)["handler_contract"]
+            result = compatibility_gate(root, required=True, base_ref="origin/main")
+
+            self.assertEqual(handler["exit_codes"], [0, 1])
+            self.assertFalse(handler["dynamic_exit"], handler)
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(result["breaking"], [])
+
+    def test_nested_storage_error_emitter_resolves_literal_exit_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._write_source(root, STORAGE_ERROR_EXIT_TEMPLATE)
+
+            snapshot = capture_snapshot(root)
+            entry = next(
+                item
+                for item in snapshot.entries
+                if item.name == "cobbler_agents status"
+            )
+            handler = json.loads(entry.signature)["handler_contract"]
+
+            self.assertEqual(snapshot.status, "captured", snapshot.reason)
+            self.assertEqual(handler["exit_codes"], [0, 1])
+            self.assertFalse(handler["dynamic_exit"], handler)
+
+    def test_direct_local_helper_system_exit_is_normalized(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._write_source(
+                root,
+                HELPER_EXIT_TEMPLATE.format(
+                    failure_expression="_literal_failure(args)"
+                ),
+            )
+            self._commit_baseline(root)
+            self._write_source(
+                root,
+                HELPER_EXIT_TEMPLATE.replace(
+                    "    return 1\n",
+                    "    raise SystemExit(1)\n",
+                ).format(failure_expression="_literal_failure(args)"),
+            )
+
+            snapshot = capture_snapshot(root)
+            entry = next(
+                item
+                for item in snapshot.entries
+                if item.name == "cobbler_agents status"
+            )
+            handler = json.loads(entry.signature)["handler_contract"]
+            result = compatibility_gate(root, required=True, base_ref="origin/main")
+
+            self.assertEqual(handler["exit_codes"], [0, 1])
+            self.assertFalse(handler["dynamic_exit"], handler)
+            self.assertTrue(result["ok"], result)
+
+    def test_unknown_dynamic_and_cyclic_exit_helpers_fail_closed(self) -> None:
+        current_sources = {
+            "unknown": HELPER_EXIT_TEMPLATE.format(
+                failure_expression="_unknown_failure(args)"
+            ),
+            "dynamic": HELPER_EXIT_TEMPLATE.replace(
+                "    return 1\n",
+                '    return int(getattr(args, "code", 1))\n',
+            ).format(failure_expression="_literal_failure(args)"),
+            "cyclic": HELPER_EXIT_TEMPLATE.replace(
+                "def _literal_failure(args):\n    return 1\n",
+                "def _literal_failure(args):\n    return _other_failure(args)\n\n\n"
+                "def _other_failure(args):\n    return _literal_failure(args)\n",
+            ).format(failure_expression="_literal_failure(args)"),
+            "mixed_raise": HELPER_EXIT_TEMPLATE.replace(
+                "    return 1\n",
+                "    if args.ok:\n        return 1\n"
+                '    raise RuntimeError("unknown exit path")\n',
+            ).format(failure_expression="_literal_failure(args)"),
+        }
+        for label, current_source in current_sources.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                baseline_source = HELPER_EXIT_TEMPLATE.format(
+                    failure_expression="_literal_failure(args)"
+                )
+                self._write_source(root, baseline_source)
+                self._commit_baseline(root)
+                self._write_source(root, current_source)
+
+                snapshot = capture_snapshot(root)
+                entry = next(
+                    item
+                    for item in snapshot.entries
+                    if item.name == "cobbler_agents status"
+                )
+                handler = json.loads(entry.signature)["handler_contract"]
+                result = compatibility_gate(
+                    root,
+                    required=True,
+                    base_ref="origin/main",
+                )
+
+                self.assertTrue(handler["dynamic_exit"], handler)
+                self.assertFalse(result["ok"], result)
+                reasons = result["diff"]["change_reasons"][
+                    "cli:cobbler_agents status"
+                ]
+                self.assertIn("process exit contract changed", reasons)
 
     def test_required_mode_fails_closed_when_argparse_inspection_falls_back(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

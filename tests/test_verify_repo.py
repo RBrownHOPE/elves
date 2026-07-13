@@ -32,6 +32,48 @@ class VerifyRepoUnitTests(unittest.TestCase):
     def setUp(self) -> None:
         self.verify = load_verify()
 
+    def _approval_manifest(
+        self,
+        *,
+        release: str = "2.1.0",
+        reason: str = "Intentional fail-closed process exit contract.",
+    ) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "approvals": [
+                {
+                    "surface": "cli:cobbler_agents session list",
+                    "release": release,
+                    "reason": reason,
+                    "plan_path": "docs/plans/release.md",
+                }
+            ],
+        }
+
+    def _write_approval_repo(
+        self,
+        root: Path,
+        payload: dict[str, object],
+        *,
+        create_plan: bool = True,
+        track_manifest: bool = True,
+        track_plan: bool = True,
+    ) -> None:
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+        plan = root / "docs" / "plans" / "release.md"
+        if create_plan:
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Release plan\n", encoding="utf-8")
+        manifest = root / "api-break-approvals.json"
+        manifest.write_text(json.dumps(payload), encoding="utf-8")
+        tracked: list[str] = []
+        if track_manifest:
+            tracked.append("api-break-approvals.json")
+        if create_plan and track_plan:
+            tracked.append("docs/plans/release.md")
+        if tracked:
+            subprocess.run(["git", "add", *tracked], cwd=root, check=True)
+
     def test_compile_scripts_succeeds_on_repo(self) -> None:
         ok, message = self.verify.compile_scripts(REPO_ROOT)
         self.assertTrue(ok, message)
@@ -255,7 +297,10 @@ class VerifyRepoUnitTests(unittest.TestCase):
         self.assertEqual(code, 0)
         landing.assert_not_called()
         api.assert_called_once_with(
-            REPO_ROOT, required=True, base_ref="base-before-sha"
+            REPO_ROOT,
+            required=True,
+            base_ref="base-before-sha",
+            release_version="2.1.0",
         )
         links.assert_called_once_with(REPO_ROOT)
         secrets.assert_called_once_with(REPO_ROOT)
@@ -267,6 +312,126 @@ class VerifyRepoUnitTests(unittest.TestCase):
             base_ref="base-before-sha",
         )
         cache.assert_called_once_with(REPO_ROOT, final_readiness=True)
+
+    def test_matching_tracked_api_break_approval_manifest_loads(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._write_approval_repo(root, self._approval_manifest())
+
+            ok, surfaces, message = self.verify.load_api_break_approvals(
+                root,
+                release_version="2.1.0",
+            )
+
+        self.assertTrue(ok, message)
+        self.assertEqual(surfaces, ["cli:cobbler_agents session list"])
+        self.assertIn("release=2.1.0", message)
+
+    def test_api_break_approval_manifest_rejects_invalid_provenance_and_scope(self) -> None:
+        cases = {
+            "malformed structure": {
+                "payload": {"schema_version": 1, "approvals": "not-a-list"},
+                "expected": "approvals must be a list",
+            },
+            "empty reason": {
+                "payload": self._approval_manifest(reason="   "),
+                "expected": "reason must be non-empty",
+            },
+            "stale release": {
+                "payload": self._approval_manifest(release="2.0.0"),
+                "expected": "stale for release 2.1.0",
+            },
+            "untracked manifest": {
+                "payload": self._approval_manifest(),
+                "track_manifest": False,
+                "expected": "manifest must be tracked by Git",
+            },
+            "missing plan": {
+                "payload": self._approval_manifest(),
+                "create_plan": False,
+                "expected": "plan is missing",
+            },
+            "untracked plan": {
+                "payload": self._approval_manifest(),
+                "track_plan": False,
+                "expected": "plan must be tracked by Git",
+            },
+        }
+        for label, case in cases.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                self._write_approval_repo(
+                    root,
+                    case["payload"],
+                    create_plan=case.get("create_plan", True),
+                    track_manifest=case.get("track_manifest", True),
+                    track_plan=case.get("track_plan", True),
+                )
+
+                ok, surfaces, message = self.verify.load_api_break_approvals(
+                    root,
+                    release_version="2.1.0",
+                )
+
+                self.assertFalse(ok)
+                self.assertEqual(surfaces, [])
+                self.assertIn(case["expected"], message)
+
+    def test_check_public_api_passes_only_loaded_release_approvals(self) -> None:
+        surface = "cli:cobbler_agents session list"
+        result = {
+            "ok": True,
+            "action": "diffed",
+            "diff": {"breaking": [surface]},
+        }
+        with (
+            mock.patch.object(
+                self.verify,
+                "load_api_break_approvals",
+                return_value=(True, [surface], "loaded one approval"),
+            ),
+            mock.patch(
+                "cobbler_runtime.public_api_snapshot.compatibility_gate",
+                return_value=result,
+            ) as gate,
+        ):
+            ok, message = self.verify.check_public_api(
+                REPO_ROOT,
+                required=True,
+                base_ref="origin/main",
+                release_version="2.1.0",
+            )
+
+        self.assertTrue(ok, message)
+        gate.assert_called_once_with(
+            REPO_ROOT,
+            required=True,
+            approved_breaks=[surface],
+            base_ref="origin/main",
+        )
+
+    def test_check_public_api_rejects_approval_absent_from_current_diff(self) -> None:
+        surface = "cli:cobbler_agents session list"
+        with (
+            mock.patch.object(
+                self.verify,
+                "load_api_break_approvals",
+                return_value=(True, [surface], "loaded one approval"),
+            ),
+            mock.patch(
+                "cobbler_runtime.public_api_snapshot.compatibility_gate",
+                return_value={"ok": True, "action": "diffed", "diff": {"breaking": []}},
+            ),
+        ):
+            ok, message = self.verify.check_public_api(
+                REPO_ROOT,
+                required=True,
+                base_ref="origin/main",
+                release_version="2.1.0",
+            )
+
+        self.assertFalse(ok)
+        self.assertIn("stale surfaces", message)
 
     def test_final_evidence_review_executes_concrete_mapped_checks(self) -> None:
         cache: dict[str, tuple[bool, str]] = {}

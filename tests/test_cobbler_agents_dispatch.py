@@ -10,7 +10,10 @@ import tempfile
 import textwrap
 import time
 import unittest
+from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -200,12 +203,56 @@ def _track_external_fixture_files(
         )
 
 
+@contextmanager
+def _portable_external_test_boundary():
+    """Keep dispatch behavior tests independent of host sandbox capability.
+
+    Dedicated isolation tests exercise the real OS boundary. These tests own
+    dispatch semantics and still use a tracked disposable snapshot when a CI
+    host has bubblewrap installed but cannot create user namespaces.
+    """
+    from cobbler_runtime import dispatch_external as external
+    from cobbler_runtime.isolation import (
+        IsolationSpec,
+        IsolatedLane,
+        QualifiedSandboxBackend,
+        resolve_fs_sandbox_backend,
+    )
+
+    if resolve_fs_sandbox_backend() is not None:
+        yield
+        return
+
+    real_create = external.create_tracked_snapshot
+
+    def create_without_live_backend(specification: IsolationSpec) -> IsolatedLane:
+        return real_create(
+            replace(
+                specification,
+                require_fs_sandbox=False,
+                qualified_backend=None,
+            )
+        )
+
+    with mock.patch.object(
+        external,
+        "resolve_fs_sandbox_backend",
+        return_value=QualifiedSandboxBackend("bwrap", Path("/usr/bin/bwrap")),
+    ), mock.patch.object(
+        external,
+        "create_tracked_snapshot",
+        side_effect=create_without_live_backend,
+    ):
+        yield
+
+
 def run_council_sync(lanes, *args, **kwargs):
     repo_root = kwargs.get("repo_root")
     if repo_root is None and args:
         repo_root = args[0]
     _track_external_fixture_files(Path(repo_root), lanes=tuple(lanes))
-    return _run_council_sync(lanes, *args, **kwargs)
+    with _portable_external_test_boundary():
+        return _run_council_sync(lanes, *args, **kwargs)
 
 
 def run_lightweight_review_sync(*args, **kwargs):
@@ -213,7 +260,8 @@ def run_lightweight_review_sync(*args, **kwargs):
     _track_external_fixture_files(
         Path(repo_root), command_override=kwargs.get("command_override")
     )
-    return _run_lightweight_review_sync(*args, **kwargs)
+    with _portable_external_test_boundary():
+        return _run_lightweight_review_sync(*args, **kwargs)
 
 
 def _host_executor(
@@ -556,6 +604,10 @@ class ParallelDispatchTests(unittest.TestCase):
         self.assertIn("timeout", result.lane_results[0].error or "")
 
     def test_timeout_kills_spawned_descendant_process_group(self) -> None:
+        from cobbler_runtime.isolation import resolve_fs_sandbox_backend
+
+        if resolve_fs_sandbox_backend() is None:
+            self.skipTest("usable filesystem sandbox backend not available")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             marker = root / "descendant.pid"
@@ -2106,18 +2158,19 @@ class HostAuditAmendmentTests(unittest.TestCase):
                     )
                 ]
                 _track_external_fixture_files(root, lanes=tuple(lanes))
-                task = aio.create_task(
-                    dispatch_mod.run_council(
-                        lanes,
-                        repo_root=root,
-                        task="cancel-me",
-                        parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+                with _portable_external_test_boundary():
+                    task = aio.create_task(
+                        dispatch_mod.run_council(
+                            lanes,
+                            repo_root=root,
+                            task="cancel-me",
+                            parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
+                        )
                     )
-                )
-                await aio.sleep(0.15)
-                task.cancel()
-                with self.assertRaises(aio.CancelledError):
-                    await task
+                    await aio.sleep(0.15)
+                    task.cancel()
+                    with self.assertRaises(aio.CancelledError):
+                        await task
                 self.assertFalse(marker.exists())
 
         aio.run(_run())
@@ -2169,6 +2222,10 @@ class HostAuditAmendmentTests(unittest.TestCase):
             self.assertTrue(cleanup.get("group_absent"), cleanup)
 
     def test_leader_success_with_orphan_descendant_fails(self) -> None:
+        from cobbler_runtime.isolation import resolve_fs_sandbox_backend
+
+        if resolve_fs_sandbox_backend() is None:
+            self.skipTest("usable filesystem sandbox backend not available")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             marker = root / "orphan.pid"

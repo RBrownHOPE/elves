@@ -17,7 +17,11 @@ drivers and lenses help when you already have them.
 Single kickoff always continues after staging unless you explicitly chose legacy two-call. See
 [`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md).
 
-Helpers: `python3 scripts/cobbler_agents.py`. Changelog: [`CHANGELOG.md`](CHANGELOG.md).
+Source-checkout helper: `python3 scripts/cobbler_agents.py`. For a global or project-local Claude
+Code/Codex install, invoke helpers from the **active Elves skill root** while the target repository
+remains the working directory; `python3 scripts/...` is source-checkout shorthand only. See
+[`references/runtime-helper-paths.md`](references/runtime-helper-paths.md). Changelog:
+[`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -49,8 +53,11 @@ rm -rf "$ELVES_TMP"
 Validate:
 
 ```bash
+# Claude Code:
 python3 ~/.claude/skills/elves/scripts/install_doctor.py --startup
-# or from a checkout:
+# Codex (use this instead):
+python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup
+# Elves source checkout:
 python3 scripts/verify_repo.py --version 2.1.0
 # before operational-artifact cleanup, from a clean worktree:
 python3 scripts/verify_repo.py --version 2.1.0 --final-readiness \
@@ -60,13 +67,24 @@ python3 scripts/verify_repo.py --ci --version 2.1.0 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 
-The pre-cleanup Final Readiness gate carries the authoritative session/plan acceptance walk. The
-cleanup commit is a narrow post-readiness exception: it may remove only the recorded operational
-session files. The strict `--ci` command plus an empty status is the final current-tip attestation
-after that commit. If cleanup contains any other change or the attestation fails, restore the run
-documents from the pre-cleanup commit, fix the issue, and repeat full Final Readiness. The session
-must record its tracked in-repo `plan_path`; optional `--plan <path>` is only an exact-equality
-assertion and must name that same path.
+The `verify_repo.py` commands above are maintainers' gates for this Elves source checkout; that
+repo-only helper is not shipped in a global skill install. Generic installed runs use their target
+project's broad gates plus the installed `elves_landing_check.py`, as described in
+[`references/runtime-helper-paths.md`](references/runtime-helper-paths.md).
+
+Intentional source-checkout public-API breaks must be declared in the tracked
+`api-break-approvals.json` for the exact `--version`. Every entry names one surface, a non-empty
+reason, and a tracked in-repo plan. Strict verification rejects malformed, stale, untracked, or
+plan-less approvals, and direct compatibility checks remain blocking unless approvals are supplied
+explicitly.
+
+For this repository, the pre-cleanup Final Readiness gate carries the authoritative session/plan
+acceptance walk. The cleanup commit is a narrow post-readiness exception: it may remove only the
+recorded operational session files. The strict `--ci` command plus an empty status is the final
+current-tip attestation after that commit. If cleanup contains any other change or the attestation
+fails, restore the run documents from the pre-cleanup commit, fix the issue, and repeat full Final
+Readiness. The session must record its tracked in-repo `plan_path`; optional `--plan <path>` is only
+an exact-equality assertion and must name that same path.
 
 ### First run (single kickoff)
 
@@ -215,6 +233,11 @@ slash-skill entry points are installed.
 For Codex, the sync helper updates the main skill bundle only. Invoke Cobbler with
 `$elves cobbler: <task>` or natural language rather than a top-level slash alias.
 
+Installed runtime helpers are not placed on `PATH`. Resolve them from the skill that is actually
+active, keep the target repository as `cwd`, and use `--repo-root` if `cwd` differs. The normal
+global roots are `~/.claude/skills/elves` and `~/.codex/skills/elves`; project-local copies may
+shadow them. Full examples: [`references/runtime-helper-paths.md`](references/runtime-helper-paths.md).
+
 The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
 `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
 `scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`,
@@ -279,6 +302,11 @@ python3 scripts/release_checklist.py --allow-unreleased
 
 Model onboarding (optional providers): see [`references/model-onboarding.md`](references/model-onboarding.md)
 and [`references/cobbler-setup-recipes.md`](references/cobbler-setup-recipes.md). Operator flow:
+
+The command examples below use source-checkout shorthand. For an installed skill, replace
+`scripts/<helper>` with `<active-elves-skill-root>/scripts/<helper>` and keep this project as the
+working directory, as described in
+[`references/runtime-helper-paths.md`](references/runtime-helper-paths.md).
 
 ```bash
 python3 scripts/cobbler_agents.py onboard plan|show|apply|probe --json
@@ -750,9 +778,10 @@ permanently valid, and does not install hooks or repair git state.
 Codex Goals can be a useful continuation backend for Elves. Goals keeps Codex working across turns;
 Elves tells it what "working well" means. On host-native and legacy bounded routes, the Goal runs
 the full per-batch loop. On a trusted Grok full-run, the Goal creates the `b0` launch ref, launches
-one exact worker session, then stays parked on bounded monitor/log reads with light updates—no
-per-batch review, memory, or push chatter—until a terminal or safety wake triggers one cumulative
-final review.
+one exact worker session, then stays parked on bounded monitor reads—no per-batch review, memory, or
+push chatter—until a terminal or safety wake triggers one cumulative final review. Unchanged
+healthy polls produce no chat. Polling defaults to half the stale window (60-second floor, 5-minute
+cap), and the host coalesces nonterminal progress into at most one short update per 15 minutes.
 
 Goals are for full Elves runs, not Quick Cobbler. For a one-off Cobbler answer in Codex, use `$elves cobbler: <task>` or ask naturally: "Ask the Cobbler to..."
 
@@ -1119,6 +1148,7 @@ elves/
 ├── CHANGELOG.md                          # Version history
 ├── TODO.md                               # Project backlog and deferred tasks
 ├── LICENSE
+├── api-break-approvals.json              # Version-scoped intentional public-API changes
 ├── config.json.example                   # Persistent preferences template
 ├── assets/
 │   ├── cobbler-infographic.png           # Cobbler flow infographic

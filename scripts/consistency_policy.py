@@ -213,6 +213,59 @@ EXACT_FULL_RUN_COMMAND_FORBIDDEN_PATTERNS = {
     )
 }
 
+INSTALLED_HELPER_PATH_PHRASES = {
+    "SKILL.md": [
+        "source-checkout shorthand",
+        "active Elves skill root",
+        "~/.claude/skills/elves",
+        "~/.codex/skills/elves",
+        "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py",
+        "installed Elves bundle never requires a repo-only helper",
+    ],
+    "AGENTS.md": [
+        "source-checkout shorthand",
+        "active Elves skill root",
+        "~/.claude/skills/elves",
+        "~/.codex/skills/elves",
+        "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py",
+        "installed Elves bundle never requires a repo-only helper",
+    ],
+    "README.md": [
+        "source-checkout shorthand",
+        "active Elves skill root",
+        "references/runtime-helper-paths.md",
+        "repo-only helper is not shipped in a global skill install",
+    ],
+    "references/runtime-helper-paths.md": [
+        "## Source checkout shorthand",
+        "## Installed Claude Code or Codex skill",
+        "target repository as the working directory",
+        "$HOME/.claude/skills/elves",
+        "$HOME/.codex/skills/elves",
+        "scripts/elves_landing_check.py",
+        "Never make an ordinary installed Elves run",
+        "depend on a repo-only helper",
+    ],
+    "references/grok-implementer-launch-prompt.md": [
+        "runtime-helper-paths.md",
+        "source-checkout shorthand",
+    ],
+}
+
+_INSTALLED_FINAL_READINESS_SURFACES = (
+    "SKILL.md",
+    "AGENTS.md",
+    "references/kickoff-prompt-template.md",
+    "references/review-subagent.md",
+    "references/survival-guide-template.md",
+)
+INSTALLED_REPO_ONLY_HELPER_FORBIDDEN_PATTERNS = {
+    label: [
+        r"python3\s+(?:\./)?scripts/(?:verify_repo|release_checklist|check_repo_consistency|installed_bundle_smoke|pr_portfolio_report|sync_installed_skills)\.py\b"
+    ]
+    for label in _INSTALLED_FINAL_READINESS_SURFACES
+}
+
 REPO_CONSISTENCY_WORKFLOW_PHRASES = {
     ".github/workflows/repo-consistency.yml": [
         '"config.json.example"',

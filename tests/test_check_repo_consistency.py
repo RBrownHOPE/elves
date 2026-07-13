@@ -157,6 +157,56 @@ class ConsistencyPhraseTests(unittest.TestCase):
         )
         self.assertTrue(errors)
 
+    def test_installed_helper_path_contract_covers_both_hosts_and_readiness(self) -> None:
+        for label in ("SKILL.md", "AGENTS.md"):
+            with self.subTest(label=label):
+                phrases = self.consistency.INSTALLED_HELPER_PATH_PHRASES[label]
+                self.assertIn("~/.claude/skills/elves", phrases)
+                self.assertIn("~/.codex/skills/elves", phrases)
+                self.assertIn(
+                    "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py",
+                    phrases,
+                )
+                self.assertIn(
+                    "installed Elves bundle never requires a repo-only helper",
+                    phrases,
+                )
+
+    def test_installed_surfaces_reject_executable_repo_only_helper(self) -> None:
+        label = "SKILL.md"
+        errors = self.consistency.find_forbidden_patterns(
+            {label: "python3 scripts/verify_repo.py --ci --version 9.9.9"},
+            {
+                label: self.consistency.INSTALLED_REPO_ONLY_HELPER_FORBIDDEN_PATTERNS[
+                    label
+                ]
+            },
+            "installed repo-only helper",
+        )
+        self.assertEqual(len(errors), 1)
+        self.assertIn("installed repo-only helper", errors[0])
+
+    def test_main_rejects_repo_only_helper_regression_in_installed_docs(self) -> None:
+        skill_path = self.consistency.REPO_ROOT / "SKILL.md"
+        original_read_text = self.consistency.read_text
+
+        def fake_read_text(path: Path) -> str:
+            text = original_read_text(path)
+            if path == skill_path:
+                return text + "\npython3 scripts/verify_repo.py --ci --version 9.9.9\n"
+            return text
+
+        self.consistency.read_text = fake_read_text
+        output = io.StringIO()
+        try:
+            with redirect_stdout(output):
+                exit_code = self.consistency.main()
+        finally:
+            self.consistency.read_text = original_read_text
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("installed repo-only helper", output.getvalue())
+
     def test_implementer_handoff_phrases_cover_skill_and_templates(self) -> None:
         for label in (
             "SKILL.md",

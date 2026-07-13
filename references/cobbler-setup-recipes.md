@@ -10,6 +10,10 @@ These recipes map common host tool mixes onto Cobbler roles **without source cha
 
 Public default: **native-only** (no setup, no keys, no external executables).
 
+The `python3 scripts/...` forms below are source-checkout shorthand. From an installed Claude Code
+or Codex skill, invoke the helper from the active Elves skill root while keeping the target
+repository as the working directory; see [`runtime-helper-paths.md`](runtime-helper-paths.md).
+
 Recipes beyond host-native Claude Code / Codex are **best-effort**. We have **not** fully tested
 every work-driver matrix (OpenCode, Antigravity, Gemini CLI, OpenRouter models, Grok, …), and we
 are **not** treating OpenCode/Antigravity as supported **main drivers**. Those paths **may or may

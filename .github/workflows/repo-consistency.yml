@@ -86,6 +86,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes bubblewrap
           bwrap --version
+          if bwrap --die-with-parent --unshare-all --share-net \
+              --ro-bind /usr /usr --ro-bind /bin /bin \
+              --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64 \
+              --dev /dev --proc /proc --chdir / /bin/true; then
+            echo "bubblewrap capability probe: usable"
+          else
+            echo "::notice::bubblewrap is installed but user namespaces are unavailable; the suite will exercise unavailable-backend fallback paths"
+          fi
 
       - name: Canonical repository verification
         env:

@@ -222,10 +222,13 @@ The acceptance-bearing Final Readiness review is mandatory before operational-ar
 the run then commits that narrow cleanup, a strict current-tip attestation is the final gate. Before
 the final handoff, the agent should run a fresh cumulative review of `git diff <default-branch>...HEAD`, read
 every PR review comment, run every test that makes sense, and confirm checks, docs, and memory
-hygiene are clean. After cleanup, require `python3 scripts/verify_repo.py --ci --version
-<release-version> --base-ref <default-branch>` on a clean worktree and verify the cleanup commit
-removed only the recorded session artifacts. Use a review subagent when the platform supports one;
-otherwise do the review directly. Fix blockers and repeat until you are confident the branch is green. Then hand the user
+hygiene are clean. Before cleanup, run the target project's broad gates plus
+`python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session <session-path> --repo-root .`.
+After cleanup, rerun the project-native broad gates on a clean current tip and verify the cleanup
+commit removed only the recorded session artifacts. Run a repository-specific aggregate verifier
+only when the target checkout itself provides one; installed Elves never depends on a repo-only
+helper. Use a review subagent when the platform supports one; otherwise do the review directly. Fix
+blockers and repeat until you are confident the branch is green. Then hand the user
 the HTML Elves Report and tell them to review it. Stop for the user to merge unless they explicitly
 set a merge-on-green preference or asked for the reviewed-PR landing command; in either opt-in path,
 perform a regular merge commit (never a squash).

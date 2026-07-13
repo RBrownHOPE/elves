@@ -43,6 +43,27 @@ FORBIDDEN_FULL_RUN_WAKE_TRIGGERS: frozenset[str] = frozenset(
     }
 )
 
+# Quiet parked monitoring is part of the product contract, not a prose hint.
+# The driver should use a host wait/monitor primitive when one exists. A host
+# that must poll uses half the stale window, bounded so it neither spins nor
+# sleeps past a practical safety check. Unchanged healthy polls never justify
+# a chat message; nonterminal progress updates are coalesced separately.
+PARKED_MONITOR_MIN_POLL_SECONDS = 60
+PARKED_MONITOR_MAX_POLL_SECONDS = 300
+PARKED_MONITOR_USER_HEARTBEAT_SECONDS = 900
+PARKED_MONITOR_UPDATE_POLICY = "material_transition_or_coalesced_15m_heartbeat"
+
+
+def parked_monitor_poll_after_seconds(stale_after_seconds: int) -> int:
+    """Return the quiet polling interval derived from the configured stale window."""
+    if isinstance(stale_after_seconds, bool) or not isinstance(stale_after_seconds, int):
+        raise TypeError("stale_after_seconds must be an integer")
+    half_window = max(1, stale_after_seconds) // 2
+    return max(
+        PARKED_MONITOR_MIN_POLL_SECONDS,
+        min(PARKED_MONITOR_MAX_POLL_SECONDS, half_window),
+    )
+
 
 @dataclass(frozen=True)
 class BehaviorDecision:
@@ -430,6 +451,13 @@ def policy_snapshot() -> dict[str, Any]:
         "policy_version": POLICY_VERSION,
         "parked_monitor_wake_conditions": sorted(PARKED_MONITOR_WAKE_CONDITIONS),
         "forbidden_full_run_wake_triggers": sorted(FORBIDDEN_FULL_RUN_WAKE_TRIGGERS),
+        "parked_monitor_quiet_policy": {
+            "min_poll_seconds": PARKED_MONITOR_MIN_POLL_SECONDS,
+            "max_poll_seconds": PARKED_MONITOR_MAX_POLL_SECONDS,
+            "user_heartbeat_seconds": PARKED_MONITOR_USER_HEARTBEAT_SECONDS,
+            "update_policy": PARKED_MONITOR_UPDATE_POLICY,
+            "unchanged_healthy_poll_silent": True,
+        },
         "scenarios": [s.to_dict() for s in list_scenarios()],
     }
 

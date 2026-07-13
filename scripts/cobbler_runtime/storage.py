@@ -10,16 +10,19 @@
 
 from __future__ import annotations
 
-import hashlib
+import ctypes
 import errno
+import hashlib
 import json
 import os
 import secrets
 import stat
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterator, Mapping, TextIO
 
@@ -34,6 +37,9 @@ DEFAULT_JSON_MAX_BYTES = 4 * 1024 * 1024
 DEFAULT_TAIL_MAX_BYTES = 256 * 1024
 DEFAULT_TAIL_MAX_LINES = 100
 
+_LINUX_RENAME_NOREPLACE = 1
+_DARWIN_RENAME_EXCL = 0x00000004
+
 
 class StorageError(Exception):
     """Fail-closed storage boundary error."""
@@ -42,6 +48,99 @@ class StorageError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+@lru_cache(maxsize=1)
+def _load_atomic_noreplace_rename() -> tuple[Any, Any, int, str] | None:
+    """Load one descriptor-relative native no-replace rename primitive.
+
+    Keep the library object in the cached tuple so the typed function pointer
+    remains valid. Unsupported platforms or missing libc symbols fail closed;
+    callers must never emulate this with a separate existence check.
+    """
+    if sys.platform.startswith("linux"):
+        symbol = "renameat2"
+        flag = _LINUX_RENAME_NOREPLACE
+    elif sys.platform == "darwin":
+        symbol = "renameatx_np"
+        flag = _DARWIN_RENAME_EXCL
+    else:
+        return None
+    try:
+        library = ctypes.CDLL(None, use_errno=True)
+        function = getattr(library, symbol)
+    except (AttributeError, OSError):
+        return None
+    function.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    function.restype = ctypes.c_int
+    return library, function, flag, symbol
+
+
+def _atomic_rename_noreplace_at(
+    source_parent_fd: int,
+    source_name: str,
+    destination_parent_fd: int,
+    destination_name: str,
+) -> None:
+    """Atomically rename one leaf without replacement, relative to open parents."""
+    native = _load_atomic_noreplace_rename()
+    if native is None:
+        raise StorageError(
+            "atomic_noreplace_unsupported",
+            "This platform has no supported atomic no-replace rename primitive",
+        )
+    _library, function, flag, symbol = native
+    source_bytes = os.fsencode(source_name)
+    destination_bytes = os.fsencode(destination_name)
+    if b"\0" in source_bytes or b"\0" in destination_bytes:
+        raise StorageError(
+            "invalid_leaf_name",
+            "Atomic no-replace rename leaf names must not contain NUL",
+        )
+
+    ctypes.set_errno(0)
+    result = function(
+        source_parent_fd,
+        source_bytes,
+        destination_parent_fd,
+        destination_bytes,
+        flag,
+    )
+    if result == 0:
+        return
+    error_number = ctypes.get_errno()
+    if error_number == errno.EEXIST:
+        raise StorageError(
+            "destination_exists",
+            "Atomic no-replace move destination already exists",
+        )
+    if error_number == errno.EXDEV:
+        raise StorageError(
+            "cross_device_move",
+            "Atomic no-replace store moves require one filesystem",
+        )
+    unsupported_errors = {
+        errno.ENOSYS,
+        errno.EINVAL,
+        getattr(errno, "ENOTSUP", errno.EINVAL),
+        getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+    }
+    if error_number in unsupported_errors:
+        raise StorageError(
+            "atomic_noreplace_unsupported",
+            f"{symbol} does not support atomic no-replace rename here",
+        )
+    detail = os.strerror(error_number) if error_number else "unknown native error"
+    raise StorageError(
+        "atomic_noreplace_failed",
+        f"{symbol} failed; refusing a non-atomic fallback: {detail}",
+    )
 
 
 def digest_key(record_id: str, *, prefix: str = "rec") -> str:
@@ -709,9 +808,10 @@ def move_repo_regular_file(
     replace: bool = False,
 ) -> Path:
     """Atomically move one regular single-link leaf within the same repository."""
-    root = Path(repo_root).expanduser().resolve(strict=True)
-    source_path = guard_repo_path(root, source)
-    destination_path = guard_repo_path(root, destination)
+    lexical_root = Path(repo_root).expanduser()
+    source_path = guard_repo_path(lexical_root, source)
+    destination_path = guard_repo_path(lexical_root, destination)
+    root = lexical_root.resolve(strict=True)
     if source_path == destination_path:
         raise StorageError("same_path", f"Source and destination are identical: {source_path}")
     if source_path == root or destination_path == root:
@@ -817,13 +917,23 @@ def move_repo_regular_file(
             )
         _assert_directory_fd_identity(root, source_path.parent, source_parent_fd)
         _assert_directory_fd_identity(root, destination_path.parent, destination_parent_fd)
-        operation = os.replace if replace else os.rename
-        operation(
-            source_path.name,
-            destination_path.name,
-            src_dir_fd=source_parent_fd,
-            dst_dir_fd=destination_parent_fd,
-        )
+        if replace:
+            os.replace(
+                source_path.name,
+                destination_path.name,
+                src_dir_fd=source_parent_fd,
+                dst_dir_fd=destination_parent_fd,
+            )
+        else:
+            # The native syscall is the only publication boundary. It either
+            # moves the source name or reports EEXIST while leaving both names
+            # untouched; there is no racy precheck+rename or link+unlink path.
+            _atomic_rename_noreplace_at(
+                source_parent_fd,
+                source_path.name,
+                destination_parent_fd,
+                destination_path.name,
+            )
 
         _assert_directory_fd_identity(root, source_path.parent, source_parent_fd)
         _assert_directory_fd_identity(root, destination_path.parent, destination_parent_fd)

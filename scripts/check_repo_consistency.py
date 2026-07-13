@@ -137,6 +137,26 @@ def main() -> int:
         )
     )
 
+    installed_helper_texts = {
+        label: read_text(REPO_ROOT / label)
+        for label in set(INSTALLED_HELPER_PATH_PHRASES)
+        | set(INSTALLED_REPO_ONLY_HELPER_FORBIDDEN_PATTERNS)
+    }
+    errors.extend(
+        find_missing_phrases(
+            installed_helper_texts,
+            INSTALLED_HELPER_PATH_PHRASES,
+            "installed helper path",
+        )
+    )
+    errors.extend(
+        find_forbidden_patterns(
+            installed_helper_texts,
+            INSTALLED_REPO_ONLY_HELPER_FORBIDDEN_PATTERNS,
+            "installed repo-only helper",
+        )
+    )
+
     for label, phrases in ACCEPTANCE_EVIDENCE_PHRASES.items():
         path = REPO_ROOT / label
         text = read_text(path)
@@ -509,6 +529,7 @@ def main() -> int:
     print("- Non-stop guardrails are aligned across runtime and template docs")
     print("- Effort guardrails are aligned across runtime and template docs")
     print("- Final readiness review guardrails are aligned")
+    print("- Installed helper paths and generic final-readiness gates are aligned")
     print("- Single-kickoff E2E and legacy handoff guidance are aligned")
     print("- Acceptance-evidence and landing-check guardrails are aligned")
     print("- Repo consistency workflow guardrails are aligned")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import signal
@@ -24,7 +25,9 @@ if str(SCRIPTS) not in sys.path:
 from cobbler_runtime import full_run as full_run_module  # noqa: E402
 from cobbler_runtime.behavior_policy import (  # noqa: E402
     FORBIDDEN_FULL_RUN_WAKE_TRIGGERS,
+    PARKED_MONITOR_UPDATE_POLICY,
     PARKED_MONITOR_WAKE_CONDITIONS,
+    parked_monitor_poll_after_seconds,
     resolve_from_signals,
     resolve_scenario,
 )
@@ -261,6 +264,13 @@ class BehaviorPolicyCompositionTests(unittest.TestCase):
         self.assertIn("per_push", FORBIDDEN_FULL_RUN_WAKE_TRIGGERS)
         self.assertIn("worker_exit", PARKED_MONITOR_WAKE_CONDITIONS)
 
+    def test_quiet_poll_interval_is_derived_from_stale_window(self) -> None:
+        self.assertEqual(parked_monitor_poll_after_seconds(30), 60)
+        self.assertEqual(parked_monitor_poll_after_seconds(300), 150)
+        self.assertEqual(parked_monitor_poll_after_seconds(3600), 300)
+        with self.assertRaises(TypeError):
+            parked_monitor_poll_after_seconds(True)
+
     def test_natural_turn_it_over_to_grok_routes_full_run(self) -> None:
         decision = resolve_from_signals(
             {}, intent="Please turn it over to Grok for the full run"
@@ -419,6 +429,39 @@ class FullRunReportValidationTests(unittest.TestCase):
                     expected_run_id="run-1",
                 )
                 self.assertTrue(any(key in error for error in errors), errors)
+
+    def test_grok_launch_prompt_complete_example_and_terminal_invariants_match_runtime(self) -> None:
+        prompt = (
+            Path(__file__).resolve().parents[1]
+            / "references"
+            / "grok-implementer-launch-prompt.md"
+        ).read_text(encoding="utf-8")
+        section = prompt.split("### Full-run report v1", 1)[1].split(
+            "## Legacy bounded-batch done report schema", 1
+        )[0]
+        example = json.loads(section.split("```json", 1)[1].split("```", 1)[0])
+        self.assertEqual(
+            validate_run_report(
+                example,
+                expected_run_id="full-run-run-a1b2c3d4",
+                expected_attempt=1,
+                expected_session_id="20e34572-1a71-44aa-8b90-0123456789ab",
+                expected_branch="feat/delegated-worker",
+                expected_start_head="a" * 40,
+                require_complete_acceptance=True,
+            ),
+            [],
+        )
+        normalized_section = " ".join(section.split())
+        for runtime_invariant in (
+            'status: "complete"',
+            "both `blockers` and `remaining_risks` must be empty",
+            "exact ordered `start_head..final_head` Git chain",
+            "tracked and untracked worktree state clean",
+            "final report id set must exactly equal the staged id set",
+        ):
+            with self.subTest(runtime_invariant=runtime_invariant):
+                self.assertIn(runtime_invariant, normalized_section)
 
     def test_event_rejects_future_timestamp_post_terminal_and_secret_key(self) -> None:
         valid = {
@@ -767,6 +810,9 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 "OPENAI_API_KEY": "other-secret",
                 "UNRELATED_SENTINEL": "should-not-appear",
                 "HOME": "/host-home",
+                "TMPDIR": "/host-tmp",
+                "XDG_CONFIG_HOME": "/host-config",
+                "HTTPS_PROXY": "https://proxy-user:proxy-secret@example.invalid",
             }
             env = build_full_run_env(
                 state=state,
@@ -777,11 +823,43 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertEqual(env.get("XAI_API_KEY"), "grant-secret")
             self.assertNotIn("UNRELATED_SENTINEL", env)
             self.assertNotIn("OPENAI_API_KEY", env)
+            self.assertEqual(env["HOME"], str(root / "worker-home"))
+            self.assertEqual(env["TMPDIR"], str(root / "worker-tmp"))
+            self.assertEqual(env["XDG_CONFIG_HOME"], str(root / "worker-home" / ".config"))
+            self.assertNotIn("HTTPS_PROXY", env)
+            stop_secret = str(state.supervision_token)
+            descendant_marker = env["ELVES_FULL_RUN_SUPERVISION_MARKER"]
+            self.assertEqual(
+                descendant_marker,
+                full_run_module._descendant_supervision_marker(state),
+            )
+            self.assertEqual(len(descendant_marker), 64)
+            self.assertNotEqual(descendant_marker, stop_secret)
+            self.assertNotIn(stop_secret, json.dumps(env, sort_keys=True))
             # argv never carries KEY=VALUE secrets
             argv = build_full_run_argv(state)
             joined = " ".join(argv)
             self.assertNotIn("grant-secret", joined)
             self.assertNotIn("XAI_API_KEY=", joined)
+            supervisor_argv = full_run_module._provider_supervisor_argv(
+                root=root,
+                session_id=state.session_id,
+                provider_argv=argv,
+                attempt=state.attempt,
+                supervisor_executable=state.supervisor_executable or "/proc",
+            )
+            self.assertNotIn(stop_secret, json.dumps(supervisor_argv))
+            with self.assertRaises(ValidationIssue) as ctx:
+                build_full_run_env(
+                    state=state,
+                    root=root,
+                    parent_env=parent,
+                    credential_grant_names=["HOME"],
+                )
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_isolation_control_grant_forbidden",
+            )
 
     def test_digest_keyed_dirs_and_collision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1132,6 +1210,39 @@ class FullRunLifecycleTests(unittest.TestCase):
         second_stop = stop_full_run(self.repo, session_id=self.session, grace_seconds=1.0)
         self.assertTrue(second_stop["ok"], second_stop)
 
+    def test_attempt_archive_fails_closed_without_atomic_noreplace(self) -> None:
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=self.worker,
+        )
+        state = load_state(self.repo, self.session)
+        root = full_run_root(self.repo, self.session)
+        events = root / "events.jsonl"
+        self.assertTrue(events.is_file())
+
+        with mock.patch(
+            "cobbler_runtime.storage._load_atomic_noreplace_rename",
+            return_value=None,
+        ), self.assertRaises(StorageError) as ctx:
+            full_run_module._archive_and_reset_resume_attempt(
+                self.repo,
+                state,
+                checkpoint_head=self.start_head,
+            )
+
+        self.assertEqual(ctx.exception.code, "atomic_noreplace_unsupported")
+        self.assertEqual(state.attempt, 1)
+        self.assertTrue(events.is_file())
+        archive = root / "attempts" / "attempt-0001"
+        self.assertTrue((archive / "state.json").is_file())
+        self.assertFalse((archive / "events.jsonl").exists())
+
     def test_complete_report_waits_for_real_clean_exit(self) -> None:
         delayed = Path(self.tmp.name) / "delayed_worker.py"
         delayed.write_text(FAKE_WORKER + "\ntime.sleep(0.6)\n", encoding="utf-8")
@@ -1243,6 +1354,10 @@ class FullRunLifecycleTests(unittest.TestCase):
         self.assertEqual(status["check_summary"]["exit_code"], 0)
         self.assertIn("without a validated complete report", status["blocker"])
 
+    @unittest.skipIf(
+        sys.platform == "darwin",
+        "Darwin has no pidfd; detached descendants fail closed instead of numeric PID signaling",
+    )
     def test_recursive_supervisor_reaps_setsid_double_fork_before_completion(self) -> None:
         worker = Path(self.tmp.name) / "lingering_child.py"
         worker.write_text(COMPLETE_WITH_LINGERING_CHILD, encoding="utf-8")
@@ -1611,6 +1726,196 @@ class FullRunLifecycleTests(unittest.TestCase):
         self.assertTrue(stop["ok"], stop)
         self.assertFalse(stop["still_alive"], stop)
 
+    def test_unchanged_healthy_monitor_poll_is_explicitly_silent(self) -> None:
+        sleeper = Path(self.tmp.name) / "quiet-monitor-sleeper.py"
+        sleeper.write_text(LONG_SLEEPER, encoding="utf-8")
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=sleeper,
+        )
+        launch_full_run(self.repo, session_id=self.session)
+        time.sleep(0.2)
+        first = monitor_full_run(
+            self.repo,
+            session_id=self.session,
+            stale_after_seconds=300,
+        )
+        second = monitor_full_run(
+            self.repo,
+            session_id=self.session,
+            stale_after_seconds=300,
+        )
+        self.assertEqual(first["state"], "healthy", first)
+        self.assertEqual(second["state"], "healthy", second)
+        self.assertEqual(second["poll_after_seconds"], 150)
+        self.assertEqual(second["user_heartbeat_seconds"], 900)
+        self.assertEqual(second["chat_update_policy"], PARKED_MONITOR_UPDATE_POLICY)
+        self.assertFalse(second["chat_update_recommended"], second)
+        self.assertTrue(second["unchanged_healthy_poll_silent"], second)
+        stopped = stop_full_run(
+            self.repo,
+            session_id=self.session,
+            grace_seconds=0.1,
+        )
+        self.assertTrue(stopped["ok"], stopped)
+        stop_request = json.loads(
+            (
+                full_run_root(self.repo, self.session)
+                / full_run_module.STOP_REQUEST_NAME
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(stop_request["session_id"], self.session)
+        self.assertEqual(len(stop_request["authority"]), 64)
+        self.assertNotIn(
+            str(load_state(self.repo, self.session).supervision_token),
+            json.dumps(stop_request, sort_keys=True),
+        )
+
+    def test_provider_receives_only_derived_marker_and_no_secret_fd(self) -> None:
+        observer = Path(self.tmp.name) / "supervision-boundary-observer.py"
+        observer.write_text(
+            "import hashlib, json, os, sys, time\n"
+            "from pathlib import Path\n"
+            "open_fds = []\n"
+            "for fd in range(3, 64):\n"
+            "    try:\n"
+            "        os.fstat(fd)\n"
+            "    except OSError:\n"
+            "        continue\n"
+            "    open_fds.append(fd)\n"
+            "snapshot = {\n"
+            "    'argv': sys.argv,\n"
+            "    'marker': os.environ.get('ELVES_FULL_RUN_SUPERVISION_MARKER'),\n"
+            "    'env_value_hashes': sorted(hashlib.sha256(value.encode()).hexdigest() "
+            "for value in os.environ.values()),\n"
+            "    'open_fds_above_stderr': open_fds,\n"
+            "    'stdin_eof': os.read(0, 1) == b'',\n"
+            "}\n"
+            "Path(os.environ['ELVES_FULL_RUN_TRANSCRIPT']).write_text("
+            "json.dumps(snapshot), encoding='utf-8')\n"
+            "time.sleep(30)\n",
+            encoding="utf-8",
+        )
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=observer,
+        )
+        launch = launch_full_run(self.repo, session_id=self.session)
+        state = load_state(self.repo, self.session)
+        stop_secret = str(state.supervision_token)
+        expected_marker = full_run_module._descendant_supervision_marker(state)
+        transcript = full_run_root(self.repo, self.session) / "transcript.log"
+        deadline = time.time() + 5
+        snapshot = None
+        while snapshot is None and time.time() < deadline:
+            try:
+                snapshot = json.loads(transcript.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                time.sleep(0.02)
+
+        self.assertIsNotNone(snapshot)
+        assert snapshot is not None
+        self.assertEqual(snapshot["marker"], expected_marker)
+        self.assertNotEqual(snapshot["marker"], stop_secret)
+        self.assertNotIn(stop_secret, json.dumps(snapshot["argv"]))
+        self.assertNotIn(
+            hashlib.sha256(stop_secret.encode()).hexdigest(),
+            snapshot["env_value_hashes"],
+        )
+        self.assertEqual(snapshot["open_fds_above_stderr"], [])
+        self.assertTrue(snapshot["stdin_eof"])
+        self.assertNotIn(stop_secret, json.dumps(launch, sort_keys=True))
+
+        stopped = stop_full_run(
+            self.repo,
+            session_id=self.session,
+            grace_seconds=0.1,
+        )
+        self.assertTrue(stopped["ok"], stopped)
+        exit_record = json.loads(
+            (full_run_root(self.repo, self.session) / "exit_record.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(exit_record["supervision_marker"], expected_marker)
+        self.assertNotIn("supervision_token", exit_record)
+        self.assertNotIn(stop_secret, json.dumps(exit_record, sort_keys=True))
+
+    def test_worker_stop_forgery_malformed_json_and_fifo_are_ignored(self) -> None:
+        ready = Path(self.tmp.name) / "stop-artifact-attacks-complete"
+        attacker = Path(self.tmp.name) / "stop-artifact-attacker.py"
+        attacker.write_text(
+            "import hashlib, hmac, json, os, time\n"
+            "from pathlib import Path\n"
+            f"ready = Path({str(ready)!r})\n"
+            "root = Path(os.environ['ELVES_FULL_RUN_EVENTS']).parent\n"
+            "request = root / 'stop_request.json'\n"
+            "session_id = os.environ['ELVES_FULL_RUN_SESSION']\n"
+            "attempt = int(os.environ['ELVES_FULL_RUN_ATTEMPT'])\n"
+            "marker = os.environ['ELVES_FULL_RUN_SUPERVISION_MARKER']\n"
+            "message = f'stop\\0{session_id}\\0{attempt}'.encode('utf-8')\n"
+            "forged = hmac.new(marker.encode(), message, hashlib.sha256).hexdigest()\n"
+            "request.write_text(json.dumps({'session_id': session_id, "
+            "'attempt': attempt, 'authority': forged}), encoding='utf-8')\n"
+            "time.sleep(0.25)\n"
+            "request.write_text('{}', encoding='utf-8')\n"
+            "time.sleep(0.25)\n"
+            "request.unlink()\n"
+            "os.mkfifo(request)\n"
+            "time.sleep(0.25)\n"
+            "ready.write_text('done', encoding='utf-8')\n"
+            "time.sleep(30)\n",
+            encoding="utf-8",
+        )
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=attacker,
+        )
+        launch_full_run(self.repo, session_id=self.session)
+        deadline = time.time() + 5
+        while not ready.exists() and time.time() < deadline:
+            time.sleep(0.02)
+
+        self.assertTrue(ready.exists(), "worker was terminated or supervisor wedged")
+        root = full_run_root(self.repo, self.session)
+        self.assertFalse((root / "exit_record.json").exists())
+        status = monitor_full_run(
+            self.repo,
+            session_id=self.session,
+            stale_after_seconds=300,
+        )
+        self.assertEqual(status["state"], "healthy", status)
+
+        stopped = stop_full_run(
+            self.repo,
+            session_id=self.session,
+            grace_seconds=0.1,
+        )
+        self.assertTrue(stopped["ok"], stopped)
+        exit_record = json.loads(
+            (root / "exit_record.json").read_text(encoding="utf-8")
+        )
+        self.assertIsNone(exit_record["supervision_error"])
+        self.assertEqual(exit_record["interrupted_signal"], signal.SIGTERM)
+
     def test_host_stop_signals_only_verified_supervisor_not_cached_group(self) -> None:
         sleeper = Path(self.tmp.name) / "identity-sleeper.py"
         sleeper.write_text(LONG_SLEEPER, encoding="utf-8")
@@ -1639,7 +1944,7 @@ class FullRunLifecycleTests(unittest.TestCase):
         self.assertTrue(stopped["ok"], stopped)
         self.assertTrue(stopped["fingerprint_verified"], stopped)
 
-    def test_signal_helper_rechecks_identity_immediately_before_darwin_kill(self) -> None:
+    def test_signal_helper_refuses_darwin_numeric_pid_signal(self) -> None:
         fingerprint = {
             "pid": 424242,
             "pgid": 424242,
@@ -1649,10 +1954,6 @@ class FullRunLifecycleTests(unittest.TestCase):
         }
         with (
             mock.patch.object(full_run_module.sys, "platform", "darwin"),
-            mock.patch(
-                "cobbler_runtime.full_run.verify_fingerprint",
-                side_effect=[(True, "ok"), (False, "pid start_time mismatch (reused PID)")],
-            ),
             mock.patch.object(full_run_module.os, "kill") as kill,
         ):
             with self.assertRaises(ValidationIssue) as ctx:
@@ -1661,7 +1962,7 @@ class FullRunLifecycleTests(unittest.TestCase):
                     expected_session_id=self.session,
                     signum=signal.SIGTERM,
                 )
-        self.assertEqual(ctx.exception.code, "full_run_fingerprint_mismatch")
+        self.assertEqual(ctx.exception.code, "full_run_atomic_signal_unavailable")
         kill.assert_not_called()
 
     def test_embedded_supervisor_tracks_start_identity_and_uses_pidfd_on_linux(self) -> None:
@@ -1671,6 +1972,7 @@ class FullRunLifecycleTests(unittest.TestCase):
         self.assertIn("os.pidfd_open", source)
         self.assertIn("signal.pidfd_send_signal", source)
         self.assertIn("current[4] != expected_start", source)
+        self.assertNotIn("os.kill(pid, signum)", source)
 
     def test_recent_meaningful_event_keeps_live_worker_healthy(self) -> None:
         sleeper = Path(self.tmp.name) / "eventful-sleeper.py"

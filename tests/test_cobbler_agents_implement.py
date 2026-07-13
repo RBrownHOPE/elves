@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -25,6 +27,7 @@ def _ensure_import_path() -> None:
 
 _ensure_import_path()
 
+import cobbler_runtime.implement as implement_module  # noqa: E402
 from cobbler_runtime.implement import (  # noqa: E402
     DEFAULT_MODEL,
     DEFAULT_PERMISSION_MODE,
@@ -43,6 +46,27 @@ from cobbler_runtime.implement import (  # noqa: E402
 )
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 import cobbler_runtime.storage as storage_module  # noqa: E402
+
+
+def _fake_bounded_result(
+    *,
+    stdout: str = "",
+    stderr: str = "",
+    exit_code: int = 0,
+    timed_out: bool = False,
+) -> implement_module._BoundedProcessResult:
+    stdout_bytes = stdout.encode()
+    stderr_bytes = stderr.encode()
+    return implement_module._BoundedProcessResult(
+        exit_code=124 if timed_out else exit_code,
+        timed_out=timed_out,
+        stdout_window=stdout,
+        stderr_window=stderr,
+        stdout_digest=hashlib.sha256(stdout_bytes).hexdigest()[:16],
+        stderr_digest=hashlib.sha256(stderr_bytes).hexdigest()[:16],
+        stdout_bytes=len(stdout_bytes),
+        stderr_bytes=len(stderr_bytes),
+    )
 
 
 def _run_cli(repo_root: Path, *args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
@@ -514,6 +538,91 @@ class RunGateTests(unittest.TestCase):
             self.assertFalse(Path(home_line.removeprefix("HOME=")).exists())
             self.assertFalse(Path(tmp_line.removeprefix("TMPDIR=")).exists())
 
+    def test_gate_redacts_semantic_secret_fields_without_collapsing_records(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root)
+            secrets = {
+                "api_key": "opaque-api-key-value-123456789",
+                "refresh_token": "opaque-refresh-token-value-123456789",
+                "password": "opaque-password-value-123456789",
+                "authorization": "Bearer opaque-authorization-value-123456789",
+            }
+            done = implement_root(root) / "done" / "batch-11.json"
+            done.write_text(
+                json.dumps(
+                    {
+                        "batch": 11,
+                        "status": "complete",
+                        # Force a collision with the suffix that the second
+                        # semantic secret field would otherwise receive.
+                        "[REDACTED:secret_field_name]#4": "operator-note",
+                        "api_key": secrets["api_key"],
+                        "refresh_token": secrets["refresh_token"],
+                        # A descriptive, non-secret field containing the phrase
+                        # must remain available as useful evidence.
+                        "test_api_key_redaction": "passed",
+                        "nested": {
+                            "password": secrets["password"],
+                            "safe": "kept",
+                        },
+                        "items": [
+                            {"Authorization": secrets["authorization"]},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            command = [
+                sys.executable,
+                "-c",
+                "print('Ran 1 test in 0.0s'); print('OK')",
+            ]
+
+            returned_record = run_gate(root, batch=11, test_command=command)
+            saved_record = json.loads(
+                (implement_root(root) / "gates" / "batch-11.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            for record in (returned_record, saved_record):
+                serialized = json.dumps(record, sort_keys=True)
+                for secret in secrets.values():
+                    self.assertNotIn(secret, serialized)
+                for raw_key in (
+                    '"api_key"',
+                    '"refresh_token"',
+                    '"password"',
+                    '"Authorization"',
+                ):
+                    self.assertNotIn(raw_key, serialized)
+                report = record["done_report"]
+                secret_keys = [
+                    key
+                    for key in report
+                    if report[key] == "[REDACTED:secret_field]"
+                ]
+                self.assertEqual(len(secret_keys), 2)
+                self.assertEqual(
+                    {report[key] for key in secret_keys},
+                    {"[REDACTED:secret_field]"},
+                )
+                self.assertEqual(
+                    report["[REDACTED:secret_field_name]#4"],
+                    "operator-note",
+                )
+                self.assertEqual(report["test_api_key_redaction"], "passed")
+                self.assertEqual(report["nested"]["safe"], "kept")
+                self.assertEqual(
+                    report["nested"]["[REDACTED:secret_field_name]"],
+                    "[REDACTED:secret_field]",
+                )
+                self.assertEqual(
+                    report["items"][0]["[REDACTED:secret_field_name]"],
+                    "[REDACTED:secret_field]",
+                )
+
     def test_gate_bounds_done_report_and_rejects_runtime_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -940,12 +1049,10 @@ class LaunchExecOptionalTests(unittest.TestCase):
             packet = root / "p.md"
             packet.write_text("p\n", encoding="utf-8")
             # On Unix `true` succeeds; argv[0] is "true" with flags that true ignores.
-            proc = mock.Mock()
-            proc.returncode = 0
-            proc.communicate.return_value = ("", "")
-            proc.pid = 12345
-            with mock.patch("cobbler_runtime.implement.subprocess.Popen") as popen_mock:
-                popen_mock.return_value = proc
+            with mock.patch(
+                "cobbler_runtime.implement._execute_bounded_process",
+                return_value=_fake_bounded_result(),
+            ) as execute_mock:
                 payload = launch_payload(
                     root,
                     packet=packet,
@@ -954,12 +1061,12 @@ class LaunchExecOptionalTests(unittest.TestCase):
                 )
             self.assertTrue(payload["launched"])
             self.assertTrue(payload["ok"])
-            popen_mock.assert_called_once()
+            execute_mock.assert_called_once()
             self.assertIn("stdout_digest", payload)
             self.assertEqual(payload["stdout_tail"], "")
             self.assertEqual(payload["stderr_tail"], "")
             # Minimal env: no wholesale host secret inheritance in call kwargs.
-            env = popen_mock.call_args.kwargs.get("env") or {}
+            env = execute_mock.call_args.kwargs.get("env") or {}
             self.assertNotIn("OPENAI_API_KEY", env)
             self.assertFalse(Path(env["HOME"]).exists())
             self.assertFalse(Path(env["TMPDIR"]).exists())
@@ -971,13 +1078,16 @@ class LaunchExecOptionalTests(unittest.TestCase):
             packet = root / "p.md"
             packet.write_text("p\n", encoding="utf-8")
             secret = "xai-failure-secret-123456789"
-            proc = mock.Mock(returncode=17, pid=12345)
-            proc.communicate.return_value = (secret, f"provider failed: {secret}")
             with (
                 mock.patch.dict(os.environ, {"XAI_API_KEY": secret}, clear=False),
                 mock.patch(
-                    "cobbler_runtime.implement.subprocess.Popen", return_value=proc
-                ) as popen_mock,
+                    "cobbler_runtime.implement._execute_bounded_process",
+                    return_value=_fake_bounded_result(
+                        stdout=secret,
+                        stderr=f"provider failed: {secret}",
+                        exit_code=17,
+                    ),
+                ) as execute_mock,
             ):
                 payload = launch_payload(
                     root,
@@ -989,7 +1099,7 @@ class LaunchExecOptionalTests(unittest.TestCase):
             self.assertFalse(payload["ok"])
             self.assertEqual(payload["exit_code"], 17)
             self.assertNotIn(secret, json.dumps(payload, sort_keys=True))
-            child_env = popen_mock.call_args.kwargs["env"]
+            child_env = execute_mock.call_args.kwargs["env"]
             self.assertEqual(child_env["XAI_API_KEY"], secret)
             self.assertFalse(Path(child_env["HOME"]).exists())
             self.assertFalse(Path(child_env["TMPDIR"]).exists())
@@ -1004,9 +1114,9 @@ class LaunchExecOptionalTests(unittest.TestCase):
             with (
                 mock.patch.dict(os.environ, {"XAI_API_KEY": secret}, clear=False),
                 mock.patch(
-                    "cobbler_runtime.implement.subprocess.Popen",
+                    "cobbler_runtime.implement._execute_bounded_process",
                     side_effect=OSError(f"cannot start {secret}"),
-                ) as popen_mock,
+                ) as execute_mock,
                 self.assertRaises(ValidationIssue) as ctx,
             ):
                 launch_payload(
@@ -1018,7 +1128,7 @@ class LaunchExecOptionalTests(unittest.TestCase):
 
             self.assertEqual(ctx.exception.code, "implement_launch_spawn_failed")
             self.assertNotIn(secret, ctx.exception.message)
-            child_env = popen_mock.call_args.kwargs["env"]
+            child_env = execute_mock.call_args.kwargs["env"]
             self.assertFalse(Path(child_env["HOME"]).exists())
             self.assertFalse(Path(child_env["TMPDIR"]).exists())
 
@@ -1028,10 +1138,12 @@ class LaunchExecOptionalTests(unittest.TestCase):
             prepare_implement(root, session_id="resume-tail", executable="tool")
             packet = root / "p.md"
             packet.write_text("p\n", encoding="utf-8")
-            proc = mock.Mock(returncode=0, pid=12345)
-            proc.communicate.return_value = ("x" * 5000, "y" * 5000)
             with mock.patch(
-                "cobbler_runtime.implement.subprocess.Popen", return_value=proc
+                "cobbler_runtime.implement._execute_bounded_process",
+                return_value=_fake_bounded_result(
+                    stdout="x" * 5000,
+                    stderr="y" * 5000,
+                ),
             ):
                 payload = resume_batch_payload(
                     root,
@@ -1044,26 +1156,20 @@ class LaunchExecOptionalTests(unittest.TestCase):
             self.assertEqual(len(payload["stdout_tail"]), 4000)
             self.assertEqual(len(payload["stderr_tail"]), 4000)
 
-    def test_timeout_escalates_term_to_kill_for_process_group_and_reaps(self) -> None:
+    def test_timeout_result_preserves_legacy_payload_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             prepare_implement(root, session_id="timeout-sess", executable="tool")
             packet = root / "p.md"
             packet.write_text("p\n", encoding="utf-8")
-            proc = mock.Mock()
-            proc.pid = 24680
-            proc.communicate.side_effect = [
-                subprocess.TimeoutExpired(["tool"], 3600),
-                subprocess.TimeoutExpired(["tool"], 5),
-                ("", ""),
-            ]
-            with (
-                mock.patch(
-                    "cobbler_runtime.implement.subprocess.Popen", return_value=proc
-                ) as popen_mock,
-                mock.patch("cobbler_runtime.implement.os.getpgid", return_value=24680),
-                mock.patch("cobbler_runtime.implement.os.killpg") as killpg,
-            ):
+            with mock.patch(
+                "cobbler_runtime.implement._execute_bounded_process",
+                return_value=_fake_bounded_result(
+                    stdout="before timeout",
+                    stderr="still running",
+                    timed_out=True,
+                ),
+            ) as execute_mock:
                 payload = launch_payload(
                     root,
                     packet=packet,
@@ -1072,11 +1178,105 @@ class LaunchExecOptionalTests(unittest.TestCase):
                 )
             self.assertFalse(payload["ok"])
             self.assertEqual(payload["exit_code"], 124)
-            self.assertEqual(killpg.call_args_list, [mock.call(24680, 15), mock.call(24680, 9)])
-            self.assertEqual(proc.communicate.call_count, 3)
-            child_env = popen_mock.call_args.kwargs["env"]
+            self.assertIn("process group terminated", payload["error_human"])
+            self.assertEqual(payload["stdout_tail"], "before timeout")
+            child_env = execute_mock.call_args.kwargs["env"]
             self.assertFalse(Path(child_env["HOME"]).exists())
             self.assertFalse(Path(child_env["TMPDIR"]).exists())
+
+    def test_bounded_executor_streams_chatty_stdout_and_stderr(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chunk_bytes = 64 * 1024
+            chunk_count = 32
+            capture_bytes = 8192
+            script = (
+                "import os; "
+                f"chunk_out = b'x' * {chunk_bytes}; "
+                f"chunk_err = b'y' * {chunk_bytes}; "
+                f"[(os.write(1, chunk_out), os.write(2, chunk_err)) for _ in range({chunk_count})]"
+            )
+
+            result = implement_module._execute_bounded_process(
+                [sys.executable, "-c", script],
+                cwd=root,
+                env={"PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8"},
+                timeout_seconds=10,
+                term_grace_seconds=0.1,
+                kill_grace_seconds=0.5,
+                capture_window_bytes=capture_bytes,
+            )
+
+            expected_bytes = chunk_bytes * chunk_count
+            self.assertFalse(result.timed_out)
+            self.assertEqual(result.exit_code, 0)
+            self.assertEqual(result.stdout_bytes, expected_bytes)
+            self.assertEqual(result.stderr_bytes, expected_bytes)
+            self.assertLessEqual(len(result.stdout_window.encode()), capture_bytes)
+            self.assertLessEqual(len(result.stderr_window.encode()), capture_bytes)
+            self.assertEqual(result.stdout_window, "x" * capture_bytes)
+            self.assertEqual(result.stderr_window, "y" * capture_bytes)
+            self.assertEqual(
+                result.stdout_digest,
+                hashlib.sha256(b"x" * expected_bytes).hexdigest()[:16],
+            )
+            self.assertEqual(
+                result.stderr_digest,
+                hashlib.sha256(b"y" * expected_bytes).hexdigest()[:16],
+            )
+
+    def test_bounded_executor_times_out_descendant_that_holds_pipes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pid_path = root / "descendant.pid"
+            child_script = (
+                "import os, pathlib, signal, sys, time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()), encoding='utf-8'); "
+                "print('descendant-ready', flush=True); "
+                "time.sleep(30)"
+            )
+            script = (
+                "import subprocess, sys; "
+                f"subprocess.Popen([sys.executable, '-c', {child_script!r}, sys.argv[1]]); "
+                "print('parent-exited', flush=True)"
+            )
+            descendant_pid: int | None = None
+            started = time.monotonic()
+            try:
+                result = implement_module._execute_bounded_process(
+                    [sys.executable, "-c", script, str(pid_path)],
+                    cwd=root,
+                    env={"PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8"},
+                    timeout_seconds=0.3,
+                    term_grace_seconds=0.2,
+                    kill_grace_seconds=0.5,
+                    capture_window_bytes=4096,
+                )
+                elapsed = time.monotonic() - started
+                descendant_pid = int(pid_path.read_text(encoding="utf-8"))
+
+                self.assertTrue(result.timed_out)
+                self.assertEqual(result.exit_code, 124)
+                self.assertIn("parent-exited", result.stdout_window)
+                self.assertIn("descendant-ready", result.stdout_window)
+                self.assertLess(elapsed, 3.0)
+
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    try:
+                        os.kill(descendant_pid, 0)
+                    except ProcessLookupError:
+                        break
+                    time.sleep(0.02)
+                else:
+                    self.fail("pipe-holding descendant survived timeout cleanup")
+            finally:
+                if descendant_pid is not None:
+                    try:
+                        os.kill(descendant_pid, 9)
+                    except ProcessLookupError:
+                        pass
 
 
 if __name__ == "__main__":

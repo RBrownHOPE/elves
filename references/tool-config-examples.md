@@ -8,6 +8,10 @@
 > preference to auto-discovery. If a field is blank or commented out, the agent falls back to
 > auto-discovery as documented in SKILL.md.
 
+Elves helper commands in this reference use source-checkout shorthand. From an installed Claude
+Code or Codex skill, invoke helpers from the active Elves skill root while the target repository
+stays the working directory; see [`runtime-helper-paths.md`](runtime-helper-paths.md).
+
 ---
 
 ## Node.js - npm (Minimal)

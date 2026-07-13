@@ -16,6 +16,10 @@
 >
 > Recommended read order after any compaction: survival guide -> `.elves-session.json` ->
 > learnings -> plan -> execution log -> `.ai-docs/manifest.md` (if present) -> constitution/TODO.
+>
+> Helper commands written as `python3 scripts/...` are source-checkout shorthand. From an installed
+> Claude Code or Codex skill, invoke them from the active Elves skill root while keeping the target
+> repository as the working directory; see `references/runtime-helper-paths.md`.
 
 ---
 
@@ -73,7 +77,9 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
 - **Delegation scope:** [none | batch | full_run]
 - **Git mode:** [host_only | branch_progress | detached_lease]
 - **Driver monitor mode:** [interactive | parked_monitor | n_a]
-- **Driver update policy:** [bounded events + heartbeats | interactive]
+- **Driver update policy:** [material transitions + host-coalesced heartbeat at most every 15m;
+  unchanged healthy polls silent | interactive]
+- **Driver poll policy:** [host wait primitive | half stale window, bounded 60–300s | interactive]
 - **Driver review policy:** [final independent review only | per-batch]
 - **Stable plan IDs:** [batches `B#`; batch acceptance `B#-A#`; Master Acceptance `M-A#`; legacy
   aliases mapped deterministically by document order and never renumbered]
@@ -415,8 +421,11 @@ document-order aliases recorded before completion; never renumber an established
   commit/events/report plus one terminal/safety host reconciliation for trusted full-run
 - [ ] Rollback proof matches route: host-created `bN` before a host-native/legacy batch, or one
   host-created `b0` before trusted full-run handoff plus recorded worker commit SHAs
-- [ ] Before operational-artifact cleanup, with run docs committed and Git clean:
-  `python3 scripts/verify_repo.py --version <release-version> --final-readiness --session <session-path>` passes (when available)
+- [ ] Before operational-artifact cleanup, with run docs committed and Git clean, project-native
+  broad gates pass and `python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session
+  <session-path> --repo-root .` passes
+- [ ] Any repository-specific aggregate verifier runs only when the target checkout itself provides
+  it; an installed Elves bundle does not depend on repo-only helpers
 
 ---
 

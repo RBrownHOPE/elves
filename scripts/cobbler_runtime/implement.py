@@ -7,16 +7,21 @@ to launch (or resume-batch --exec). Network is never required for prepare/status
 
 from __future__ import annotations
 
+import errno
+import hashlib
 import os
 import re
+import selectors
+import signal
 import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .context import is_secret_env_name, redact_structure, redact_text
+from .context import is_secret_env_name, redact_text
 from .executables import resolve_executable_for_launch
 from .isolation import _managed_implement_env
 from .schema import ValidationIssue
@@ -54,11 +59,70 @@ PACKETS_REL = Path(".elves") / "runtime" / "packets"
 MAX_DONE_REPORT_BYTES = 256 * 1024
 MAX_STATE_BYTES = 256 * 1024
 
+# ``implement --exec`` is a compatibility convenience, so keep its driver-facing
+# output small even when a provider is extremely chatty. The larger private
+# rolling window lets redaction run before the legacy 4,000-character tail is
+# selected; bytes before that window are digested and discarded as they arrive.
+_EXEC_TIMEOUT_SECONDS = 60 * 60
+_EXEC_TERM_GRACE_SECONDS = 5.0
+_EXEC_KILL_GRACE_SECONDS = 5.0
+_EXEC_SELECTOR_POLL_SECONDS = 0.05
+_EXEC_READ_CHUNK_BYTES = 64 * 1024
+_EXEC_CAPTURE_WINDOW_BYTES = 512 * 1024
+_EXEC_OUTPUT_TAIL_CHARS = 4000
+_EXEC_OUTPUT_SUMMARY_CHARS = 500
+
+_GATE_SECRET_FIELD_RE = re.compile(
+    r"(?i)(?:api[_-]?key|[A-Za-z0-9_-]*token|jwt|bearer|authorization|auth|"
+    r"password|passwd|secret|credentials?|cookie|private[_-]?key)"
+    r"(?:_value|_header)?$"
+)
+
 _RAN_RE = re.compile(r"^Ran\s+(\d+)\s+tests?\b", re.MULTILINE)
 _FAIL_RE = re.compile(
     r"FAILED\s*\((?:[^)]*failures=(\d+))?[^)]*(?:errors=(\d+))?[^)]*\)"
 )
 _SKIP_RE = re.compile(r"(?:skipped=(\d+)|OK\s*\([^)]*skipped=(\d+))", re.IGNORECASE)
+
+
+class _RollingCapture:
+    """Digest an arbitrary byte stream while retaining only a bounded suffix."""
+
+    def __init__(self, max_bytes: int) -> None:
+        self.max_bytes = max(0, int(max_bytes))
+        self.total_bytes = 0
+        self.digest = hashlib.sha256()
+        self.tail = bytearray()
+
+    def add(self, chunk: bytes) -> None:
+        if not chunk:
+            return
+        self.total_bytes += len(chunk)
+        self.digest.update(chunk)
+        if self.max_bytes <= 0:
+            return
+        self.tail.extend(chunk)
+        overflow = len(self.tail) - self.max_bytes
+        if overflow > 0:
+            del self.tail[:overflow]
+
+    def text(self) -> str:
+        return bytes(self.tail).decode("utf-8", errors="replace")
+
+    def digest_prefix(self) -> str:
+        return self.digest.hexdigest()[:16]
+
+
+@dataclass(frozen=True)
+class _BoundedProcessResult:
+    exit_code: int
+    timed_out: bool
+    stdout_window: str
+    stderr_window: str
+    stdout_digest: str
+    stderr_digest: str
+    stdout_bytes: int
+    stderr_bytes: int
 
 
 @dataclass
@@ -580,6 +644,220 @@ def build_launch_argv(
     return argv
 
 
+def _close_selector_stream(selector: selectors.BaseSelector, fileobj: Any) -> None:
+    try:
+        selector.unregister(fileobj)
+    except (KeyError, OSError, ValueError):
+        pass
+    try:
+        fileobj.close()
+    except OSError:
+        pass
+
+
+def _close_selector_streams(selector: selectors.BaseSelector) -> None:
+    for key in list(selector.get_map().values()):
+        _close_selector_stream(selector, key.fileobj)
+
+
+def _drain_selector_once(
+    selector: selectors.BaseSelector,
+    *,
+    timeout_seconds: float,
+) -> None:
+    for key, _mask in selector.select(max(0.0, timeout_seconds)):
+        capture = key.data
+        try:
+            chunk = os.read(key.fd, _EXEC_READ_CHUNK_BYTES)
+        except BlockingIOError:
+            continue
+        except OSError as exc:
+            if exc.errno in {errno.EBADF, errno.EIO}:
+                _close_selector_stream(selector, key.fileobj)
+                continue
+            raise
+        if chunk:
+            capture.add(chunk)
+        else:
+            _close_selector_stream(selector, key.fileobj)
+
+
+def _drain_selector_until(
+    selector: selectors.BaseSelector,
+    *,
+    deadline: float,
+) -> None:
+    while selector.get_map():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        _drain_selector_once(
+            selector,
+            timeout_seconds=min(_EXEC_SELECTOR_POLL_SECONDS, remaining),
+        )
+
+
+def _signal_process_group(pgid: int, signum: int) -> None:
+    try:
+        os.killpg(pgid, signum)
+    except OSError as exc:
+        # Darwin can report EPERM, rather than ESRCH, when the leader remains an
+        # unreaped zombie but TERM already removed the group's last signalable
+        # member. The pinned leader prevents identity reuse, so ignoring either
+        # result cannot redirect this cleanup signal toward an unrelated launch.
+        if exc.errno not in {errno.ESRCH, errno.EPERM}:
+            raise
+
+
+def _terminate_and_reap_process_group(
+    proc: subprocess.Popen[bytes],
+    *,
+    pgid: int,
+    selector: selectors.BaseSelector,
+    term_grace_seconds: float,
+    kill_grace_seconds: float,
+) -> None:
+    """Terminate the launch session while its unreaped leader pins PID/PGID identity."""
+    _signal_process_group(pgid, signal.SIGTERM)
+    _drain_selector_until(
+        selector,
+        deadline=time.monotonic() + max(0.0, term_grace_seconds),
+    )
+
+    # Always escalate before wait()/reap. Until then the direct session leader
+    # pins its numeric PID/PGID, so the stored group identifier cannot be reused
+    # by an unrelated launch between TERM and KILL.
+    _signal_process_group(pgid, signal.SIGKILL)
+    _drain_selector_until(
+        selector,
+        deadline=time.monotonic() + max(0.0, kill_grace_seconds),
+    )
+    # A descendant that inherited a pipe must never make cleanup perform another
+    # unbounded communicate(). Closing our nonblocking readers is deterministic;
+    # the killed launch group then observes EPIPE if anything races a final write.
+    _close_selector_streams(selector)
+
+    wait_timeout = max(0.05, kill_grace_seconds)
+    try:
+        proc.wait(timeout=wait_timeout)
+    except subprocess.TimeoutExpired:
+        # The direct child is still unreaped, so Popen.kill() cannot target a
+        # reused PID. This is a final direct-process fallback, not group discovery.
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=wait_timeout)
+        except subprocess.TimeoutExpired as exc:
+            raise ValidationIssue(
+                "implement_timeout_cleanup_failed",
+                "Timed-out implementer could not be reaped after SIGKILL",
+            ) from exc
+
+
+def _execute_bounded_process(
+    argv: list[str],
+    *,
+    cwd: Path,
+    env: Mapping[str, str],
+    timeout_seconds: float = _EXEC_TIMEOUT_SECONDS,
+    term_grace_seconds: float = _EXEC_TERM_GRACE_SECONDS,
+    kill_grace_seconds: float = _EXEC_KILL_GRACE_SECONDS,
+    capture_window_bytes: int = _EXEC_CAPTURE_WINDOW_BYTES,
+) -> _BoundedProcessResult:
+    """Run one session leader while streaming output into bounded rolling windows."""
+    proc = subprocess.Popen(
+        argv,
+        cwd=str(cwd),
+        env=dict(env),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=False,
+        start_new_session=True,
+    )
+    # start_new_session=True makes the direct child's PID the launch PGID. Keep
+    # the child unreaped until all timeout signaling is complete so this numeric
+    # identity cannot be recycled underneath cleanup.
+    pgid = int(proc.pid)
+    stdout_capture = _RollingCapture(capture_window_bytes)
+    stderr_capture = _RollingCapture(capture_window_bytes)
+    selector = selectors.DefaultSelector()
+    timed_out = False
+    completed = False
+    cleanup_started = False
+    try:
+        if proc.stdout is None or proc.stderr is None:  # pragma: no cover - Popen contract
+            raise OSError("bounded implement capture requires stdout/stderr pipes")
+        for stream, capture in (
+            (proc.stdout, stdout_capture),
+            (proc.stderr, stderr_capture),
+        ):
+            os.set_blocking(stream.fileno(), False)
+            selector.register(stream, selectors.EVENT_READ, capture)
+
+        deadline = time.monotonic() + max(0.0, float(timeout_seconds))
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                break
+            _drain_selector_once(
+                selector,
+                timeout_seconds=min(_EXEC_SELECTOR_POLL_SECONDS, remaining),
+            )
+
+        if not timed_out:
+            remaining = max(0.0, deadline - time.monotonic())
+            try:
+                proc.wait(timeout=remaining)
+                completed = True
+            except subprocess.TimeoutExpired:
+                timed_out = True
+
+        if timed_out:
+            cleanup_started = True
+            _terminate_and_reap_process_group(
+                proc,
+                pgid=pgid,
+                selector=selector,
+                term_grace_seconds=term_grace_seconds,
+                kill_grace_seconds=kill_grace_seconds,
+            )
+            completed = True
+
+        return _BoundedProcessResult(
+            exit_code=124 if timed_out else int(proc.returncode or 0),
+            timed_out=timed_out,
+            stdout_window=stdout_capture.text(),
+            stderr_window=stderr_capture.text(),
+            stdout_digest=stdout_capture.digest_prefix(),
+            stderr_digest=stderr_capture.digest_prefix(),
+            stdout_bytes=stdout_capture.total_bytes,
+            stderr_bytes=stderr_capture.total_bytes,
+        )
+    except BaseException:
+        if not completed and not cleanup_started:
+            cleanup_started = True
+            _terminate_and_reap_process_group(
+                proc,
+                pgid=pgid,
+                selector=selector,
+                term_grace_seconds=term_grace_seconds,
+                kill_grace_seconds=kill_grace_seconds,
+            )
+        raise
+    finally:
+        _close_selector_streams(selector)
+        for stream in (proc.stdout, proc.stderr):
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+        selector.close()
+
+
 def launch_payload(
     repo_root: Path,
     *,
@@ -709,56 +987,11 @@ def launch_payload(
             credential_grants=grants,
         ) as child_env:
             try:
-                proc = subprocess.Popen(
+                result = _execute_bounded_process(
                     argv,
-                    cwd=str(Path(worktree).expanduser().resolve()),
+                    cwd=Path(worktree).expanduser().resolve(),
                     env=child_env,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    start_new_session=True,
                 )
-                try:
-                    stdout, stderr = proc.communicate(timeout=3600)
-                except subprocess.TimeoutExpired:
-                    pgid: int | None = None
-                    try:
-                        pgid = os.getpgid(proc.pid)
-                        os.killpg(pgid, 15)
-                    except (ProcessLookupError, PermissionError, OSError):
-                        proc.kill()
-                    try:
-                        stdout, stderr = proc.communicate(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        # A provider or child may ignore SIGTERM. Kill the entire
-                        # launch session, then reap the direct process before return.
-                        try:
-                            if pgid is None:
-                                pgid = os.getpgid(proc.pid)
-                            os.killpg(pgid, 9)
-                        except (ProcessLookupError, PermissionError, OSError):
-                            proc.kill()
-                        stdout, stderr = proc.communicate(timeout=5)
-                    payload["launched"] = True
-                    payload["model_calls_made"] = True
-                    payload["exit_code"] = 124
-                    payload["ok"] = False
-                    payload["error_human"] = (
-                        "implement --exec timed out; process group terminated"
-                    )
-                    payload["stdout_digest"] = __import__("hashlib").sha256(
-                        (stdout or "").encode()
-                    ).hexdigest()[:16]
-                    payload["stderr_digest"] = __import__("hashlib").sha256(
-                        (stderr or "").encode()
-                    ).hexdigest()[:16]
-                    payload["stdout_tail"] = redact_text(
-                        (stdout or "")[-4000:], exact_values=exact_grants
-                    ).text
-                    payload["stderr_tail"] = redact_text(
-                        (stderr or "")[-4000:], exact_values=exact_grants
-                    ).text
-                    return payload
             except OSError as exc:
                 message = redact_text(
                     f"Unable to spawn implementer argv {argv!r}: {exc}",
@@ -771,35 +1004,35 @@ def launch_payload(
                 ) from exc
             payload["launched"] = True
             payload["model_calls_made"] = True
-            payload["exit_code"] = int(proc.returncode)
-            payload["ok"] = proc.returncode == 0
-            # Preserve the legacy keys, but keep them bounded and credential-redacted.
-            stdout = stdout or ""
-            stderr = stderr or ""
-            payload["stdout_digest"] = __import__("hashlib").sha256(
-                stdout.encode()
-            ).hexdigest()[:16]
-            payload["stderr_digest"] = __import__("hashlib").sha256(
-                stderr.encode()
-            ).hexdigest()[:16]
-            payload["stdout_summary"] = redact_text(
-                stdout[-500:], exact_values=exact_grants
+            payload["exit_code"] = int(result.exit_code)
+            payload["ok"] = not result.timed_out and result.exit_code == 0
+            # Redact the bounded rolling window before selecting legacy tails. A
+            # cutoff therefore cannot retain a partial exact grant merely because
+            # truncation happened first.
+            stdout_redacted = redact_text(
+                result.stdout_window, exact_values=exact_grants
             ).text
-            payload["stderr_summary"] = redact_text(
-                stderr[-500:], exact_values=exact_grants
+            stderr_redacted = redact_text(
+                result.stderr_window, exact_values=exact_grants
             ).text
-            payload["stdout_tail"] = redact_text(
-                stdout[-4000:], exact_values=exact_grants
-            ).text
-            payload["stderr_tail"] = redact_text(
-                stderr[-4000:], exact_values=exact_grants
-            ).text
+            stdout_tail = stdout_redacted[-_EXEC_OUTPUT_TAIL_CHARS:]
+            stderr_tail = stderr_redacted[-_EXEC_OUTPUT_TAIL_CHARS:]
+            payload["stdout_digest"] = result.stdout_digest
+            payload["stderr_digest"] = result.stderr_digest
+            payload["stdout_summary"] = stdout_tail[-_EXEC_OUTPUT_SUMMARY_CHARS:]
+            payload["stderr_summary"] = stderr_tail[-_EXEC_OUTPUT_SUMMARY_CHARS:]
+            payload["stdout_tail"] = stdout_tail
+            payload["stderr_tail"] = stderr_tail
             payload["credential_grant_names_present"] = sorted(grants.keys())
-            if not payload["ok"] and not is_opencode:
+            if result.timed_out:
+                payload["error_human"] = (
+                    "implement --exec timed out; process group terminated"
+                )
+            elif not payload["ok"] and not is_opencode:
                 payload["error_human"] = humanize_grok_failure(
-                    stderr=redact_text(stderr, exact_values=exact_grants).text,
-                    stdout=redact_text(stdout, exact_values=exact_grants).text,
-                    exit_code=int(proc.returncode),
+                    stderr=stderr_redacted,
+                    stdout=stdout_redacted,
+                    exit_code=int(result.exit_code),
                 )
             return payload
 
@@ -941,25 +1174,42 @@ def _redact_gate_record_in_place(
     *,
     exact_secret_values: frozenset[str],
 ) -> None:
-    redacted = redact_structure(record, exact_values=exact_secret_values)
-
-    def redact_keys(value: Any) -> Any:
+    def redact_gate_value(value: Any) -> Any:
+        if isinstance(value, str):
+            return redact_text(value, exact_values=exact_secret_values).text
         if isinstance(value, Mapping):
-            return {
-                redact_text(
-                    str(key), exact_values=exact_secret_values
-                ).text: redact_keys(item)
-                for key, item in value.items()
-            }
+            redacted_mapping: dict[str, Any] = {}
+            for index, (key, item) in enumerate(value.items()):
+                raw_key = str(key)
+                redacted_key = redact_text(
+                    raw_key,
+                    exact_values=exact_secret_values,
+                ).text
+                semantic_secret_field = bool(_GATE_SECRET_FIELD_RE.search(raw_key))
+                key_contains_secret = redacted_key != raw_key
+                if semantic_secret_field:
+                    redacted_key = "[REDACTED:secret_field_name]"
+                if redacted_key in redacted_mapping:
+                    # Redaction must never collapse two source fields and silently
+                    # discard one. Preserve cardinality without restoring the key.
+                    base_key = redacted_key
+                    suffix = index
+                    while f"{base_key}#{suffix}" in redacted_mapping:
+                        suffix += 1
+                    redacted_key = f"{base_key}#{suffix}"
+                redacted_mapping[redacted_key] = (
+                    "[REDACTED:secret_field]"
+                    if semantic_secret_field or key_contains_secret
+                    else redact_gate_value(item)
+                )
+            return redacted_mapping
         if isinstance(value, list):
-            return [redact_keys(item) for item in value]
+            return [redact_gate_value(item) for item in value]
         if isinstance(value, tuple):
-            return tuple(redact_keys(item) for item in value)
+            return tuple(redact_gate_value(item) for item in value)
         return value
 
-    # Shared structural redaction deliberately preserves mapping keys. Gate
-    # evidence is persisted, so scrub keys too before it crosses that boundary.
-    redacted = redact_keys(redacted)
+    redacted = redact_gate_value(record)
     if not isinstance(redacted, dict):  # pragma: no cover - mapping contract
         raise ValidationIssue(
             "implement_gate_record_invalid",

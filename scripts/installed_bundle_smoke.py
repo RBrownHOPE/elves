@@ -50,6 +50,32 @@ REQUIRED_TOP_LEVEL_RUNTIME_PATHS = (
     "scripts/workspace_guard.py",
 )
 
+# These helpers maintain this source repository and must not become mandatory
+# installed-skill dependencies. Installed docs may name them conditionally, but
+# must never present a directly executable source-relative command for one.
+REPO_ONLY_HELPER_PATHS = (
+    "scripts/check_repo_consistency.py",
+    "scripts/release_checklist.py",
+    "scripts/pr_portfolio_report.py",
+    "scripts/sync_installed_skills.py",
+    "scripts/verify_repo.py",
+    "scripts/installed_bundle_smoke.py",
+)
+REPO_ONLY_COMMAND_RE = re.compile(
+    r"python3\s+(?:\./)?scripts/(?:"
+    + "|".join(re.escape(Path(path).name) for path in REPO_ONLY_HELPER_PATHS)
+    + r")\b"
+)
+INSTALLED_PATH_CONTRACT_PHRASES = (
+    "source-checkout shorthand",
+    "active elves skill root",
+    "target repository as the working directory",
+    "~/.claude/skills/elves",
+    "~/.codex/skills/elves",
+    "$elves_skill_root/scripts/elves_landing_check.py",
+    "installed elves bundle never requires a repo-only helper",
+)
+
 MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 MARKDOWN_REFERENCE_DEFINITION_RE = re.compile(
     r"(?m)^\s{0,3}\[([^]]+)\]:\s*(<[^>]+>|\S+)(?:\s+.*)?$"
@@ -68,6 +94,7 @@ SMOKE_COMMANDS: list[tuple[str, list[str]]] = [
 ]
 
 RUNTIME_HELP_COMMANDS = (
+    ("landing-check-help", "scripts/elves_landing_check.py", ["--help"]),
     ("openrouter-help", "scripts/openrouter_lens.py", ["--help"]),
     ("workspace-guard-help", "scripts/workspace_guard.py", ["--help"]),
 )
@@ -253,6 +280,40 @@ def _validate_installed_markdown_links(install_root: Path) -> tuple[list[str], i
     return failures, checked
 
 
+def _validate_installed_document_contract(bundle_root: Path) -> tuple[list[str], int]:
+    """Pin installed helper paths and reject executable repo-only commands."""
+    failures: list[str] = []
+    checked = 0
+    for relative in ("SKILL.md", "AGENTS.md"):
+        path = bundle_root / relative
+        if not path.is_file():
+            failures.append(f"installed document contract missing {relative}")
+            continue
+        checked += 1
+        normalized = path.read_text(encoding="utf-8").casefold()
+        for phrase in INSTALLED_PATH_CONTRACT_PHRASES:
+            if phrase not in normalized:
+                failures.append(
+                    f"{relative}: missing installed helper-path contract `{phrase}`"
+                )
+
+    reference = bundle_root / "references" / "runtime-helper-paths.md"
+    checked += 1
+    if not reference.is_file():
+        failures.append("installed bundle missing references/runtime-helper-paths.md")
+
+    for markdown in sorted(bundle_root.rglob("*.md")):
+        checked += 1
+        text = markdown.read_text(encoding="utf-8")
+        match = REPO_ONLY_COMMAND_RE.search(text)
+        if match:
+            failures.append(
+                f"{markdown.relative_to(bundle_root)}: executable repo-only helper "
+                f"command `{match.group(0)}`"
+            )
+    return failures, checked
+
+
 def _runtime_module_names(package: Path) -> set[str]:
     """Map every recursively shipped Python file to its import name."""
     names: set[str] = set()
@@ -311,9 +372,15 @@ def smoke_host(
         )
         failures.extend(link_failures)
 
+        document_failures, installed_document_count = (
+            _validate_installed_document_contract(bundle_root)
+        )
+        failures.extend(document_failures)
+
         agents = bundle_root / "scripts" / "cobbler_agents.py"
         openrouter = bundle_root / "scripts" / "openrouter_lens.py"
         workspace_guard = bundle_root / "scripts" / "workspace_guard.py"
+        landing_check = bundle_root / "scripts" / "elves_landing_check.py"
         package = bundle_root / "scripts" / "cobbler_runtime"
         missing_runtime_paths = [
             relative
@@ -322,6 +389,9 @@ def smoke_host(
         ]
         for relative in missing_runtime_paths:
             failures.append(f"missing required runtime dependency {relative}")
+        for relative in REPO_ONLY_HELPER_PATHS:
+            if (bundle_root / relative).exists():
+                failures.append(f"repo-only helper leaked into installed bundle {relative}")
         if not package.is_dir():
             failures.append("missing cobbler_runtime package in installed bundle")
         # Removing any shipped runtime module must be detectable: assert at least
@@ -394,9 +464,62 @@ def smoke_host(
                     )
                 else:
                     notes.append(f"{label}=ok")
+                    if label == "doctor":
+                        try:
+                            payload = json.loads(proc.stdout)
+                        except (json.JSONDecodeError, TypeError) as exc:
+                            failures.append(f"doctor invalid JSON output: {exc}")
+                        else:
+                            observed_root = Path(
+                                str(payload.get("repo_root") or "")
+                            ).resolve()
+                            if observed_root != outside_cwd.resolve():
+                                failures.append(
+                                    "installed helper did not keep target cwd as repo_root"
+                                )
+                            else:
+                                notes.append("installed-cli-target-cwd=ok")
+
+            # The documented alternative keeps an unrelated command cwd but
+            # points runtime state back at the target explicitly.
+            proc = _run(
+                [
+                    sys.executable,
+                    str(agents),
+                    "doctor",
+                    "--repo-root",
+                    str(outside_cwd),
+                    "--json",
+                ],
+                cwd=tmp_parent,
+                env=env,
+            )
+            if proc.returncode != 0:
+                failures.append(
+                    "installed-cli-explicit-repo-root "
+                    f"exit={proc.returncode} stderr={_clip(proc.stderr)}"
+                )
+            else:
+                try:
+                    payload = json.loads(proc.stdout)
+                except (json.JSONDecodeError, TypeError) as exc:
+                    failures.append(
+                        f"installed-cli-explicit-repo-root invalid JSON: {exc}"
+                    )
+                else:
+                    observed_root = Path(
+                        str(payload.get("repo_root") or "")
+                    ).resolve()
+                    if observed_root != outside_cwd.resolve():
+                        failures.append(
+                            "installed helper ignored explicit target --repo-root"
+                        )
+                    else:
+                        notes.append("installed-cli-explicit-repo-root=ok")
 
             # Required standalone helpers must start without credentials/model calls.
             helper_paths = {
+                "scripts/elves_landing_check.py": landing_check,
                 "scripts/openrouter_lens.py": openrouter,
                 "scripts/workspace_guard.py": workspace_guard,
             }
@@ -443,6 +566,7 @@ def smoke_host(
             "required_runtime_count": len(REQUIRED_TOP_LEVEL_RUNTIME_PATHS),
             "alias_count": alias_count,
             "markdown_link_count": markdown_link_count,
+            "installed_document_count": installed_document_count,
             "skill_present": (bundle_root / "SKILL.md").is_file(),
             "agents_present": (bundle_root / "AGENTS.md").is_file(),
         }

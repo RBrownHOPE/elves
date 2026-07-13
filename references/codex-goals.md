@@ -13,6 +13,10 @@ Codex Goals are not required for Quick Cobbler. For a one-off Cobbler answer in 
 `$elves cobbler: <task>` or natural language such as "Ask the Cobbler to..." Use
 `$elves council: <task>` only as the Council-compatible path.
 
+The `python3 scripts/...` forms below are source-checkout shorthand. From an installed Codex skill,
+invoke the helper from the active Elves skill root while the target repository stays the working
+directory; see [`runtime-helper-paths.md`](runtime-helper-paths.md).
+
 ## When To Use Goals
 
 Use Codex Goals when:

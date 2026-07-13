@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "approvals": [
+    {
+      "surface": "cli:cobbler_agents session list",
+      "release": "2.1.0",
+      "reason": "Read-only session listing now reports corrupt or unsafe session-store state as a structured exit 1, preserving fail-closed behavior without creating runtime directories.",
+      "plan_path": "docs/plans/v2.1.0-delegated-worker-stabilization.md"
+    }
+  ]
+}

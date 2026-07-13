@@ -271,6 +271,10 @@ class StoragePrimitiveTests(unittest.TestCase):
                 move_repo_regular_file(repo, source, destination)
             self.assertEqual(ctx.exception.code, "destination_exists")
             self.assertEqual(source.read_text(encoding="utf-8"), "replacement\n")
+            self.assertEqual(
+                destination.read_text(encoding="utf-8"),
+                '{"ok": true}\n',
+            )
             move_repo_regular_file(repo, source, destination, replace=True)
             self.assertEqual(destination.read_text(encoding="utf-8"), "replacement\n")
 
@@ -292,6 +296,191 @@ class StoragePrimitiveTests(unittest.TestCase):
             self.assertEqual(ctx.exception.code, "unsafe_link_count")
             self.assertEqual(outside_target.read_text(encoding="utf-8"), original)
             self.assertEqual(source.read_text(encoding="utf-8"), "do-not-move\n")
+
+    def test_repo_regular_move_no_replace_atomically_preserves_racing_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            source_dir = ensure_private_dir(repo / "source", repo_root=repo)
+            destination_dir = ensure_private_dir(repo / "destination", repo_root=repo)
+            source = source_dir / "state.json"
+            destination = destination_dir / "state.json"
+            source.write_text("original-source\n", encoding="utf-8")
+            original_rename = storage_module._atomic_rename_noreplace_at
+            raced = False
+
+            def create_destination_then_rename(
+                source_parent_fd,
+                source_name,
+                destination_parent_fd,
+                destination_name,
+            ):
+                nonlocal raced
+                self.assertFalse(raced)
+                raced = True
+                writer_fd = os.open(
+                    destination_name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                    dir_fd=destination_parent_fd,
+                )
+                try:
+                    os.write(writer_fd, b"racing-writer\n")
+                finally:
+                    os.close(writer_fd)
+                return original_rename(
+                    source_parent_fd,
+                    source_name,
+                    destination_parent_fd,
+                    destination_name,
+                )
+
+            with mock.patch.object(
+                storage_module,
+                "_atomic_rename_noreplace_at",
+                side_effect=create_destination_then_rename,
+            ), self.assertRaises(StorageError) as ctx:
+                move_repo_regular_file(repo, source, destination, replace=False)
+
+            self.assertTrue(raced)
+            self.assertEqual(ctx.exception.code, "destination_exists")
+            self.assertEqual(source.read_text(encoding="utf-8"), "original-source\n")
+            self.assertEqual(destination.read_text(encoding="utf-8"), "racing-writer\n")
+
+    def test_repo_regular_move_source_swap_never_deletes_concurrent_writer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            source_dir = ensure_private_dir(repo / "source", repo_root=repo)
+            destination_dir = ensure_private_dir(repo / "destination", repo_root=repo)
+            source = source_dir / "state.json"
+            displaced = source_dir / "opened-original.json"
+            destination = destination_dir / "state.json"
+            source.write_text("opened-original\n", encoding="utf-8")
+            original_rename = storage_module._atomic_rename_noreplace_at
+
+            def swap_source_then_rename(
+                source_parent_fd,
+                source_name,
+                destination_parent_fd,
+                destination_name,
+            ):
+                os.rename(
+                    source_name,
+                    displaced.name,
+                    src_dir_fd=source_parent_fd,
+                    dst_dir_fd=source_parent_fd,
+                )
+                writer_fd = os.open(
+                    source_name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                    dir_fd=source_parent_fd,
+                )
+                try:
+                    os.write(writer_fd, b"concurrent-writer\n")
+                finally:
+                    os.close(writer_fd)
+                return original_rename(
+                    source_parent_fd,
+                    source_name,
+                    destination_parent_fd,
+                    destination_name,
+                )
+
+            with mock.patch.object(
+                storage_module,
+                "_atomic_rename_noreplace_at",
+                side_effect=swap_source_then_rename,
+            ), self.assertRaises(StorageError) as ctx:
+                move_repo_regular_file(repo, source, destination, replace=False)
+
+            self.assertEqual(ctx.exception.code, "move_verification_failed")
+            self.assertFalse(source.exists())
+            self.assertEqual(
+                destination.read_text(encoding="utf-8"),
+                "concurrent-writer\n",
+            )
+            self.assertEqual(
+                displaced.read_text(encoding="utf-8"),
+                "opened-original\n",
+            )
+
+    def test_repo_regular_move_native_failure_leaves_names_coherent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            source_dir = ensure_private_dir(repo / "source", repo_root=repo)
+            destination_dir = ensure_private_dir(repo / "destination", repo_root=repo)
+            source = source_dir / "state.json"
+            destination = destination_dir / "state.json"
+            source.write_text("source-intact\n", encoding="utf-8")
+
+            def fail_native_call(*_args):
+                storage_module.ctypes.set_errno(errno.EIO)
+                return -1
+
+            with mock.patch.object(
+                storage_module,
+                "_load_atomic_noreplace_rename",
+                return_value=(object(), fail_native_call, 1, "injected_rename"),
+            ), self.assertRaises(StorageError) as ctx:
+                move_repo_regular_file(repo, source, destination, replace=False)
+
+            self.assertEqual(ctx.exception.code, "atomic_noreplace_failed")
+            self.assertEqual(source.read_text(encoding="utf-8"), "source-intact\n")
+            self.assertFalse(destination.exists())
+
+    def test_repo_regular_move_unsupported_primitive_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            source_dir = ensure_private_dir(repo / "source", repo_root=repo)
+            destination_dir = ensure_private_dir(repo / "destination", repo_root=repo)
+            source = source_dir / "state.json"
+            destination = destination_dir / "state.json"
+            source.write_text("source-intact\n", encoding="utf-8")
+
+            with mock.patch.object(
+                storage_module,
+                "_load_atomic_noreplace_rename",
+                return_value=None,
+            ), mock.patch.object(
+                storage_module.os,
+                "link",
+                side_effect=AssertionError("link fallback must not run"),
+            ), mock.patch.object(
+                storage_module.os,
+                "replace",
+                side_effect=AssertionError("replace fallback must not run"),
+            ), self.assertRaises(StorageError) as ctx:
+                move_repo_regular_file(repo, source, destination, replace=False)
+
+            self.assertEqual(ctx.exception.code, "atomic_noreplace_unsupported")
+            self.assertEqual(source.read_text(encoding="utf-8"), "source-intact\n")
+            self.assertFalse(destination.exists())
+
+    def test_repo_regular_move_accepts_lexical_symlink_entry_to_repo_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo = base / "real" / "repo"
+            repo.mkdir(parents=True)
+            alias = base / "repo-alias"
+            alias.symlink_to(repo, target_is_directory=True)
+            source_dir = ensure_private_dir(repo / "source", repo_root=repo)
+            destination_dir = ensure_private_dir(repo / "destination", repo_root=repo)
+            (source_dir / "state.json").write_text("move-me\n", encoding="utf-8")
+
+            moved = move_repo_regular_file(
+                alias,
+                alias / "source" / "state.json",
+                alias / "destination" / "state.json",
+                replace=False,
+            )
+
+            self.assertEqual(moved, destination_dir / "state.json")
+            self.assertFalse((source_dir / "state.json").exists())
+            self.assertEqual(moved.read_text(encoding="utf-8"), "move-me\n")
 
     def test_ancestor_swap_after_dirfd_open_fails_before_tail_or_move(self) -> None:
         for operation in ("tail", "move"):

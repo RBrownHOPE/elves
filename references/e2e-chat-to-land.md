@@ -72,7 +72,9 @@ Record in the survival guide `## Run Control` (and mirror in `.elves-session.jso
 - work driver: host-native | grok-build | opencode-cli | …
 - delegation scope: none | batch | full_run
 - driver monitor mode: interactive | parked_monitor | n_a
-- driver update policy: bounded events + heartbeats | interactive
+- driver update policy: material transitions + host-coalesced heartbeat at most every 15m;
+  unchanged healthy polls silent | interactive
+- driver poll policy: host wait primitive | half stale window, bounded 60–300s | interactive
 - driver review policy: final independent review only | per-batch
 - labor re-drive budget: 3
 - multi-planner: optional | required-for-plan

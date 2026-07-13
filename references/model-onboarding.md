@@ -6,6 +6,10 @@ interviews the user; the CLI inventories, stores preferences, and probes.
 
 Native-only remains fully valid. Onboarding is optional.
 
+The `python3 scripts/...` forms below are source-checkout shorthand. From an installed Claude Code
+or Codex skill, invoke the helper from the active Elves skill root while the target repository stays
+the working directory; see [`runtime-helper-paths.md`](runtime-helper-paths.md).
+
 ## Supported hosts (main drivers)
 
 **Elves is designed and tested with Claude Code or Codex as the main driver** — the process that

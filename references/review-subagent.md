@@ -368,9 +368,12 @@ If everything is clean, say: "Final readiness review clean."
 
 The coordinator fixes blocking findings, resolves or replies to PR comments, updates
 `.elves-session.json`, reruns relevant validation, pushes, and repeats this final review until it
-is clean. Before cleanup, require the canonical
-`python3 scripts/verify_repo.py --version <release-version> --final-readiness --session <session-path>` gate from a clean
-worktree. After the operational-artifact cleanup commit, poll comments and checks one last time.
+is clean. Before cleanup, require the target project's broad gates plus
+`python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session <session-path> --repo-root .`
+from a clean worktree. A repository-specific aggregate verifier is additional proof only when the
+target checkout itself provides one; installed Elves never depends on a repo-only helper. After the
+operational-artifact cleanup commit, rerun project-native broad gates on the clean tip, then poll
+comments and checks one last time.
 Then hand the user the Elves Report and tell them to review it, and either stop for the user to
 merge or — only if the user set a merge-on-green preference or invoked the reviewed-PR landing
 command — land a regular merge commit (never a squash).

@@ -106,6 +106,7 @@ _SANDBOX_BACKEND_CANDIDATES: tuple[tuple[str, Path], ...] = (
     ("sandbox-exec", Path("/usr/bin/sandbox-exec")),
     ("bwrap", Path("/usr/bin/bwrap")),
 )
+_SANDBOX_PROBE_TIMEOUT_SECONDS = 5.0
 _MACOS_SUPERVISOR_CANDIDATES: tuple[Path, ...] = (
     Path("/bin/ps"),
     Path("/usr/bin/ps"),
@@ -601,13 +602,13 @@ def _qualified_system_executable(
 
 
 def resolve_fs_sandbox_backend() -> QualifiedSandboxBackend | None:
-    """Resolve one trusted absolute sandbox backend; never trust PATH."""
+    """Resolve one trusted and usable sandbox backend; never trust PATH."""
     for name, candidate in _SANDBOX_BACKEND_CANDIDATES:
         executable = _qualified_system_executable(
             candidate,
             exact_path_required=True,
         )
-        if executable is not None:
+        if executable is not None and _probe_fs_sandbox_backend(name, executable):
             return QualifiedSandboxBackend(name=name, executable=executable)
     return None
 
@@ -674,6 +675,118 @@ def _sbpl_rule(action: str, match: str, path: str | Path) -> str:
     return f"({action} ({match} {_sbpl_string(path)}))"
 
 
+@lru_cache(maxsize=4)
+def _probe_fs_sandbox_backend(name: str, executable: Path) -> bool:
+    """Prove that a statically qualified backend can launch and enforce policy.
+
+    Package presence is insufficient: Linux CI and some containers install
+    bubblewrap while denying the user namespaces it needs. Keep this bounded,
+    independent of caller-controlled environment variables, and cached for the
+    process lifetime.
+    """
+    try:
+        with tempfile.TemporaryDirectory(prefix="elves-sandbox-probe-") as raw_root:
+            root = Path(raw_root)
+            home = root / "home"
+            tmp = root / "tmp"
+            home.mkdir()
+            tmp.mkdir()
+            probe_env = {
+                "HOME": str(home),
+                "TMPDIR": str(tmp),
+                "TMP": str(tmp),
+                "TEMP": str(tmp),
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C",
+                "LC_ALL": "C",
+            }
+            sentinel = root / "must-not-read.txt"
+            sentinel.write_text("sandbox probe\n", encoding="utf-8")
+            # macOS exposes /var through /private/var; policy literals must use
+            # the canonical path seen by the kernel.
+            canonical_sentinel = sentinel.resolve()
+
+            if name == "sandbox-exec":
+                allow_result = subprocess.run(
+                    [
+                        str(executable),
+                        "-p",
+                        "(version 1)\n(allow default)\n",
+                        "/bin/cat",
+                        str(sentinel),
+                    ],
+                    env=probe_env,
+                    capture_output=True,
+                    check=False,
+                    timeout=_SANDBOX_PROBE_TIMEOUT_SECONDS,
+                )
+                if (
+                    allow_result.returncode != 0
+                    or allow_result.stdout != b"sandbox probe\n"
+                ):
+                    return False
+
+                deny_profile = (
+                    "(version 1)\n"
+                    "(allow default)\n"
+                    f"(deny file-read* (literal {_sbpl_string(canonical_sentinel)}))\n"
+                )
+                deny_result = subprocess.run(
+                    [
+                        str(executable),
+                        "-p",
+                        deny_profile,
+                        "/bin/cat",
+                        str(sentinel),
+                    ],
+                    env=probe_env,
+                    capture_output=True,
+                    check=False,
+                    timeout=_SANDBOX_PROBE_TIMEOUT_SECONDS,
+                )
+                return deny_result.returncode != 0
+
+            if name == "bwrap":
+                result = subprocess.run(
+                    [
+                        str(executable),
+                        "--die-with-parent",
+                        "--unshare-all",
+                        "--share-net",
+                        "--ro-bind",
+                        "/usr",
+                        "/usr",
+                        "--ro-bind",
+                        "/bin",
+                        "/bin",
+                        "--ro-bind-try",
+                        "/lib",
+                        "/lib",
+                        "--ro-bind-try",
+                        "/lib64",
+                        "/lib64",
+                        "--dev",
+                        "/dev",
+                        "--proc",
+                        "/proc",
+                        "--chdir",
+                        "/",
+                        "/usr/bin/test",
+                        "!",
+                        "-e",
+                        str(canonical_sentinel),
+                    ],
+                    env=probe_env,
+                    capture_output=True,
+                    check=False,
+                    timeout=_SANDBOX_PROBE_TIMEOUT_SECONDS,
+                )
+                return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return False
+
+
 def prepare_fs_sandbox(
     lane: IsolatedLane,
     *,
@@ -698,6 +811,14 @@ def prepare_fs_sandbox(
         return None, None
 
     selected = _validate_qualified_backend(selected)
+    if not _probe_fs_sandbox_backend(selected.name, selected.executable):
+        if required:
+            raise ValidationIssue(
+                "isolation_sandbox_unusable",
+                "Required filesystem sandbox backend failed its capability probe",
+                path=str(selected.executable),
+            )
+        return None, None
     backend = selected.name
     lane.sandbox_executable = str(selected.executable)
 

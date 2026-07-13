@@ -26,7 +26,8 @@ Grok Build stays optional and explicit.
 
 - Structured behavior policy and full-run supervisor (prepare/launch/monitor/logs/stop)
 - Versioned full-run event/report v1 contract, exact-session/branch validation, and cumulative
-  terminal review while the Claude Code or Codex driver remains parked during healthy worker work
+  terminal review while the Claude Code or Codex driver remains quietly parked: unchanged health is
+  silent and nonterminal updates are host-coalesced
 - Digest-keyed private session/lease storage, locks, write qualification fail-closed
 - Disposable tracked-source isolation, minimal implement env grants, process-group cleanup
 - Export only from `AUDITED_PASS` with hashed manifests and cumulative apply-check
@@ -40,7 +41,8 @@ Grok Build stays optional and explicit.
 - Attempt path decomposed into transport/artifact/result helpers
 - Preflight evidence reuse keyed by HEAD/config; final readiness never cache-only
 - Evidence-aware focused review selection with high-risk escalation
-- Implemented public-API snapshot compatibility gate
+- Public-API snapshot compatibility gate with cycle-safe literal-helper exit resolution and a
+  tracked, release-scoped approval manifest for intentional contract changes
 
 ### Documentation and release
 

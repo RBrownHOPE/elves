@@ -30,6 +30,13 @@ final readiness review passes, never a squash.**
 agreement (optionally with multi-planner lenses), then one prompt covers plan + stage + full batch
 loop. Merge only if they chose chat-to-land / merge opt-in; otherwise leave a landable PR.
 
+**Quiet parked rule:** after the first healthy monitor result, use a host wait/monitor primitive when
+available. Otherwise poll at half the stale window, floored at 60 seconds and capped at 5 minutes.
+An unchanged healthy poll is silent: do not narrate it, read raw output, re-review, or rewrite run
+memory. The host coalesces nonterminal progress into at most one 1–3 sentence user update per 15
+minutes; blocked, stale, failed, safety, user-input, and terminal wakes remain immediate. If host UX
+requires more frequent presence, emit only the smallest bounded status and do not re-enter reasoning.
+
 **Agent-internal order still has two phases** (never skip either): (1) **stage** — plan on disk,
 branch/PR, survival guide, learnings, execution log, preflight, launch-ready checklist; (2)
 **execute** — batch loop until Readiness (and landing if opted in). In a single-kickoff E2E run,
@@ -40,6 +47,14 @@ Elves memory.
 **Legacy two-call handoff** (stage call, then separate launch call) remains valid for huge or
 unstable plans. The old failure mode was users who never staged properly; single-kickoff E2E puts
 staging ownership on the agent.
+
+**Runtime helper paths:** every `python3 scripts/...` example in this skill and its references is
+**source-checkout shorthand**. In an installed Claude Code or Codex skill, resolve the helper from
+the **active Elves skill root** (the directory containing the loaded `SKILL.md`) while keeping the
+target repository as the working directory, or pass `--repo-root <target-repository>`. Global roots
+are normally `~/.claude/skills/elves` and `~/.codex/skills/elves`; a project-local skill may shadow
+them. Never `cd` into the installed skill merely to make a relative command work. See
+[`references/runtime-helper-paths.md`](references/runtime-helper-paths.md).
 
 ## Reviewed PR Landing Command
 
@@ -1544,7 +1559,7 @@ When all batches are done or time is up:
 2. Update `.elves-session.json`.
 3. Do a final TODO.md pass.
 4. Update the survival guide and perform strategic forgetting: condense live state, archive old execution-log entries in place if the log is large, promote durable lessons, prune superseded lessons, and leave a concise reactivation handoff for any remaining work or future follow-up.
-5. **Run the acceptance-bearing Final Readiness Review before operational-artifact cleanup; never skip it.** With the run documents committed and the worktree clean, run `python3 scripts/verify_repo.py --version <release-version> --final-readiness --session <session-path>`. The session must record its tracked in-repo plan path; an explicit `--plan <plan-path>` is only an equality assertion and must match that recorded path exactly. This canonical gate includes `elves_landing_check.py`, full tests, installed smokes, cumulative API/link/secret proof, and clean-Git enforcement. Fix any acceptance-evidence failures. Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if the platform supports it; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json` (including per-batch `acceptance` proof), and **every** PR review comment (resolved and unresolved, from humans, bots, and CI), and must run every test that makes sense — the full suite plus any E2E or browser checks that apply — so you can be confident the branch is green to merge. Fix blocking findings, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun this acceptance-bearing review.
+5. **Run the acceptance-bearing Final Readiness Review before operational-artifact cleanup; never skip it.** With the run documents committed, the target repository as the working directory, and the worktree clean, run the project's own broad gates (tests, lint/typecheck/build, links, secret/API checks, and any E2E or browser checks that apply), then run the installed acceptance checker: `python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session <session-path> --repo-root .`. The session must record its tracked in-repo plan path; an explicit `--plan <plan-path>` is only an equality assertion and must match that recorded path exactly. Repository-specific aggregate helpers are additional gates only when the target checkout itself provides them; an installed Elves bundle never requires a repo-only helper. Fix any acceptance-evidence failures. Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if the platform supports it; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json` (including per-batch `acceptance` proof), and **every** PR review comment (resolved and unresolved, from humans, bots, and CI). Fix blocking findings, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun this acceptance-bearing review.
 6. **Generate the Elves Report** for substantial runs. Use the current survival guide, execution log, `.elves-session.json`, learnings file, plan, and live PR/CI state. Include problems found, lessons learned, batch timeline, verification proof, residual risks, and human next steps. Save it under `/tmp` by default and do not commit it unless explicitly configured. This is the last normal point where all operational source documents are guaranteed present; fully regenerate the report here before cleanup if its content changed. The report is the user's morning briefing: surface its path in the final notification and explicitly tell them to read it before reviewing or merging the PR.
 7. **Clean up operational artifacts.** Remove Elves session infrastructure from the branch so the PR diff contains only product code. Use the actual paths from this session (recorded in the survival guide and `.elves-session.json`), not hard-coded defaults:
    ```bash
@@ -1555,7 +1570,7 @@ When all batches are done or time is up:
    
    **Important:** the execution log and survival guide still exist in the branch history if you need to reference them. This commit just removes them from the final diff.
 8. Push.
-9. **Run a post-cleanup current-tip attestation.** First inspect `git diff --name-status HEAD^..HEAD` and confirm the cleanup commit removed only the exact operational paths recorded in the session (plus the plan only when `cleanup.keep_plan: false`). From a clean worktree, run `python3 scripts/verify_repo.py --ci --version <release-version> --base-ref <default-branch>` and require `git status --porcelain` to be empty, then poll PR comments and checks one last time. This strict non-landing gate re-earns compile, tests, installed-smoke, API, link, secret, and cumulative-diff proof on the actual cleanup tip; the pre-cleanup Final Readiness gate remains the authoritative acceptance/landing proof. If cleanup contains any other change, the attestation fails, or new feedback requires a fix, restore the run documents from the pre-cleanup commit, make and document the fix, rerun the acceptance-bearing Final Readiness review, regenerate the report, and clean up again. Do not silently carry pre-cleanup proof across a product or documentation change.
+9. **Run a post-cleanup current-tip attestation.** First inspect `git diff --name-status HEAD^..HEAD` and confirm the cleanup commit removed only the exact operational paths recorded in the session (plus the plan only when `cleanup.keep_plan: false`). From a clean worktree, rerun the target project's broad non-landing gates on the current tip, run any aggregate verifier the target checkout itself provides, require `git status --porcelain` to be empty, and poll PR comments and checks one last time. This re-earns test/build/type/link/secret/API and cumulative-diff proof as applicable; the pre-cleanup Final Readiness gate remains the authoritative acceptance/landing proof. If cleanup contains any other change, proof fails, or new feedback requires a fix, restore the run documents from the pre-cleanup commit, make and document the fix, rerun the acceptance-bearing Final Readiness review, regenerate the report, and clean up again. Do not silently carry pre-cleanup proof across a product or documentation change.
 10. Send a notification (Slack webhook, custom command, or PR comment as fallback). Include the
     Elves Report path and tell the user to review it, or write `Elves Report: not generated` if the
     run did not meet report criteria.

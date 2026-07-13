@@ -5,6 +5,10 @@ work, routes agents/tools/skills, preserves useful dissent, and synthesizes the 
 the loop moves forward. The user can also ask Cobbler once in chat; that one-off form returns a
 fitted answer from direct analysis or independent lenses.
 
+The `python3 scripts/...` form used later is source-checkout shorthand. From an installed Claude
+Code or Codex skill, invoke the helper from the active Elves skill root while keeping the target
+repository as the working directory; see [`runtime-helper-paths.md`](runtime-helper-paths.md).
+
 This file keeps its `council-workflow.md` name for `v1.14.0` compatibility. In `v1.15.0+`, Cobbler
 is the user-facing coordinator and default orchestration model. Council is the compatibility path
 and gathering mechanism, not a separate product.

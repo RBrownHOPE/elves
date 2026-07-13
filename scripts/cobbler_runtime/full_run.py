@@ -42,6 +42,8 @@ from .implement import (
 from .schema import ValidationIssue
 from .storage import (
     StorageError,
+    _assert_directory_fd_identity,
+    _open_repo_directory,
     assert_embedded_id,
     atomic_write_json,
     directory_lock,
@@ -98,18 +100,33 @@ MAX_REPORT_BYTES = 512 * 1024
 MAX_TRANSCRIPT_TAIL_BYTES = 256 * 1024
 MAX_TRANSCRIPT_LINE_CHARS = 1000
 MAX_EVENT_FUTURE_SKEW_SECONDS = 300
+MAX_STOP_REQUEST_BYTES = 4096
+STOP_REQUEST_NAME = "stop_request.json"
 
-# Named non-secret essentials preserved for a usable logged-in Grok process.
+# Named non-secret essentials preserved for a usable Grok process. Home, temp,
+# XDG, and proxy controls are deliberately absent: they either cross the
+# isolation boundary or may embed opaque credentials.
 NON_SECRET_ESSENTIALS: frozenset[str] = frozenset(
     {
         "PATH",
-        "HOME",
         "USER",
         "LOGNAME",
         "LANG",
         "LC_ALL",
         "LC_CTYPE",
         "TERM",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+        "PYTHONUNBUFFERED",
+        "COLORTERM",
+    }
+)
+
+ISOLATED_ENV_CONTROLS: frozenset[str] = frozenset(
+    {
+        "HOME",
         "TMPDIR",
         "TMP",
         "TEMP",
@@ -117,18 +134,6 @@ NON_SECRET_ESSENTIALS: frozenset[str] = frozenset(
         "XDG_CONFIG_HOME",
         "XDG_CACHE_HOME",
         "XDG_DATA_HOME",
-        "SSL_CERT_FILE",
-        "SSL_CERT_DIR",
-        "REQUESTS_CA_BUNDLE",
-        "CURL_CA_BUNDLE",
-        "HTTP_PROXY",
-        "HTTPS_PROXY",
-        "NO_PROXY",
-        "http_proxy",
-        "https_proxy",
-        "no_proxy",
-        "PYTHONUNBUFFERED",
-        "COLORTERM",
     }
 )
 
@@ -156,6 +161,11 @@ STATUS_KEYS = frozenset(
         "blocker",
         "driver_contract",
         "driver_monitor_mode",
+        "poll_after_seconds",
+        "user_heartbeat_seconds",
+        "chat_update_policy",
+        "chat_update_recommended",
+        "unchanged_healthy_poll_silent",
         "wake_conditions",
         "check_summary",
         "report_path",
@@ -750,11 +760,32 @@ class FullRunState:
 
 def _state_secret_values(state: FullRunState) -> frozenset[str]:
     """Resolve current granted values in memory without serializing them."""
-    return frozenset(
+    values = {
         value
         for name in state.credential_grant_names
         if (value := os.environ.get(name))
-    )
+    }
+    if state.supervision_token:
+        values.add(str(state.supervision_token))
+    return frozenset(values)
+
+
+def _supervision_secret(state: FullRunState) -> str:
+    """Return the host-only stop secret after validating its persisted shape."""
+    secret = str(state.supervision_token or "")
+    if not re.fullmatch(r"[0-9a-f]{48}", secret):
+        raise ValidationIssue(
+            "full_run_supervision_unavailable",
+            "Full-run host stop secret is missing or malformed",
+        )
+    return secret
+
+
+def _descendant_supervision_marker(state: FullRunState) -> str:
+    """Derive the public process marker without exposing the host stop secret."""
+    secret = _supervision_secret(state)
+    message = f"descendant-marker\0{state.session_id}\0{state.attempt}".encode("utf-8")
+    return hmac.new(secret.encode("ascii"), message, hashlib.sha256).hexdigest()
 
 
 def _credential_grant_digest(state: FullRunState, name: str, value: str) -> str:
@@ -762,6 +793,120 @@ def _credential_grant_digest(state: FullRunState, name: str, value: str) -> str:
     key = str(state.supervision_token or state.session_id).encode("utf-8")
     material = f"{name}\0{value}".encode("utf-8")
     return hmac.new(key, material, hashlib.sha256).hexdigest()
+
+
+def _stop_request_authority(state: FullRunState) -> str:
+    """Authenticate a private stop request without publishing the supervision token."""
+    token = _supervision_secret(state)
+    message = f"stop\0{state.session_id}\0{state.attempt}".encode("utf-8")
+    return hmac.new(token.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
+def _write_supervisor_stop_request(
+    repo_root: Path,
+    root: Path,
+    state: FullRunState,
+) -> Path:
+    """Atomically publish a host-authenticated stop over an untrusted leaf.
+
+    The worker can create artifacts in its runtime directory, including a FIFO
+    or symlink at the request name. Publishing through a directory descriptor
+    replaces that leaf without opening or following it, so a hostile FIFO
+    cannot block either the host or supervisor stop path.
+    """
+    repo_root = Path(repo_root)
+    guarded_root = guard_repo_path(repo_root, root)
+    request_path = guarded_root / STOP_REQUEST_NAME
+    payload = (
+        json.dumps(
+            {
+                "session_id": state.session_id,
+                "attempt": state.attempt,
+                "authority": _stop_request_authority(state),
+                "requested_at": _utc_now(),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    temporary_name = f".{STOP_REQUEST_NAME}.{secrets.token_hex(12)}.host"
+    runtime_fd = -1
+    temporary_fd = -1
+    try:
+        guarded_root, runtime_fd = _open_repo_directory(
+            repo_root,
+            guarded_root,
+            create=False,
+        )
+        _assert_directory_fd_identity(repo_root, guarded_root, runtime_fd)
+        temporary_fd = os.open(
+            temporary_name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=runtime_fd,
+        )
+        os.fchmod(temporary_fd, 0o600)
+        offset = 0
+        while offset < len(payload):
+            written = os.write(temporary_fd, payload[offset:])
+            if written <= 0:
+                raise OSError(errno.EIO, "short stop-request write")
+            offset += written
+        os.fsync(temporary_fd)
+        temporary_info = os.fstat(temporary_fd)
+        named_temporary = os.stat(
+            temporary_name,
+            dir_fd=runtime_fd,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(temporary_info.st_mode)
+            or temporary_info.st_nlink != 1
+            or (temporary_info.st_dev, temporary_info.st_ino)
+            != (named_temporary.st_dev, named_temporary.st_ino)
+        ):
+            raise OSError(errno.ESTALE, "stop-request temporary identity changed")
+        _assert_directory_fd_identity(repo_root, guarded_root, runtime_fd)
+        os.replace(
+            temporary_name,
+            STOP_REQUEST_NAME,
+            src_dir_fd=runtime_fd,
+            dst_dir_fd=runtime_fd,
+        )
+        published = os.stat(
+            STOP_REQUEST_NAME,
+            dir_fd=runtime_fd,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(published.st_mode)
+            or published.st_nlink != 1
+            or (published.st_dev, published.st_ino)
+            != (temporary_info.st_dev, temporary_info.st_ino)
+        ):
+            raise OSError(errno.ESTALE, "published stop-request identity changed")
+    except OSError as exc:
+        raise StorageError(
+            "stop_request_write_failed",
+            "Cannot publish authenticated supervisor stop request: "
+            f"{type(exc).__name__}: {exc}",
+        ) from exc
+    finally:
+        if temporary_fd >= 0:
+            os.close(temporary_fd)
+        if runtime_fd >= 0:
+            try:
+                os.unlink(temporary_name, dir_fd=runtime_fd)
+            except FileNotFoundError:
+                pass
+            finally:
+                os.close(runtime_fd)
+    return request_path
 
 
 def _launch_grants_verified(state: FullRunState) -> bool:
@@ -795,15 +940,26 @@ def build_full_run_env(
     for name in NON_SECRET_ESSENTIALS:
         if name in parent and parent[name] is not None:
             env[name] = str(parent[name])
-    # Isolated temp under runtime dir when not provided.
-    env.setdefault("TMPDIR", str(root / "worker-tmp"))
-    env.setdefault("TMP", env["TMPDIR"])
-    env.setdefault("TEMP", env["TMPDIR"])
-    env.setdefault("HOME", str(root / "worker-home"))
+    # Isolation controls are assigned, never inherited or setdefault-preserved.
+    worker_home = root / "worker-home"
+    worker_tmp = root / "worker-tmp"
+    env["HOME"] = str(worker_home)
+    env["TMPDIR"] = str(worker_tmp)
+    env["TMP"] = str(worker_tmp)
+    env["TEMP"] = str(worker_tmp)
+    env["XDG_RUNTIME_DIR"] = str(worker_tmp / "runtime")
+    env["XDG_CONFIG_HOME"] = str(worker_home / ".config")
+    env["XDG_CACHE_HOME"] = str(worker_home / ".cache")
+    env["XDG_DATA_HOME"] = str(worker_home / ".local" / "share")
     env.setdefault("PATH", parent.get("PATH", "/usr/bin:/bin"))
     env.setdefault("PYTHONUNBUFFERED", "1")
     grants = list(credential_grant_names or state.credential_grant_names or [])
     for name in grants:
+        if name in ISOLATED_ENV_CONTROLS:
+            raise ValidationIssue(
+                "full_run_isolation_control_grant_forbidden",
+                f"Credential grants cannot override isolated environment control `{name}`",
+            )
         if name in parent and parent[name]:
             env[name] = str(parent[name])
     # Non-secret full-run contract values for real adapters and fixtures.
@@ -819,7 +975,7 @@ def build_full_run_env(
     env["ELVES_FULL_RUN_ATTEMPT"] = str(state.attempt)
     env["ELVES_DRIVER_MONITOR_MODE"] = "parked_monitor"
     if state.supervision_token:
-        env["ELVES_FULL_RUN_SUPERVISION_MARKER"] = state.supervision_token
+        env["ELVES_FULL_RUN_SUPERVISION_MARKER"] = _descendant_supervision_marker(state)
     return env
 
 
@@ -950,7 +1106,16 @@ def _signal_verified_supervisor(
     expected_session_id: str,
     signum: int,
 ) -> bool:
-    """Signal only the exact live supervisor identity, using pidfd on Linux."""
+    """Signal only through a kernel-bound pidfd; numeric PID signaling is forbidden."""
+    if not (
+        sys.platform.startswith("linux")
+        and hasattr(os, "pidfd_open")
+        and hasattr(signal, "pidfd_send_signal")
+    ):
+        raise ValidationIssue(
+            "full_run_atomic_signal_unavailable",
+            "This platform has no kernel-bound process signal handle; use the private supervisor stop request",
+        )
     try:
         pid = int(fingerprint.get("pid") or 0)
     except (TypeError, ValueError) as exc:
@@ -979,19 +1144,17 @@ def _signal_verified_supervisor(
 
     pidfd: int | None = None
     try:
-        if sys.platform.startswith("linux") and hasattr(os, "pidfd_open"):
-            try:
-                pidfd = os.pidfd_open(pid, 0)
-            except ProcessLookupError:
-                return False
-            except OSError as exc:
-                raise ValidationIssue(
-                    "full_run_pidfd_unavailable",
-                    f"Cannot bind the live supervisor process handle: {type(exc).__name__}",
-                ) from exc
+        try:
+            pidfd = os.pidfd_open(pid, 0)
+        except ProcessLookupError:
+            return False
+        except OSError as exc:
+            raise ValidationIssue(
+                "full_run_pidfd_unavailable",
+                f"Cannot bind the live supervisor process handle: {type(exc).__name__}",
+            ) from exc
 
-        # Revalidate after acquiring the kernel-bound handle (or immediately
-        # before Darwin's standard-library signal fallback). This rejects reuse
+        # Revalidate after acquiring the kernel-bound handle. This rejects reuse
         # between the first liveness probe and the signal operation.
         ok, reason = verify_fingerprint(
             fingerprint,
@@ -1007,10 +1170,7 @@ def _signal_verified_supervisor(
             )
 
         try:
-            if pidfd is not None and hasattr(signal, "pidfd_send_signal"):
-                signal.pidfd_send_signal(pidfd, signum)
-            else:
-                os.kill(pid, signum)
+            signal.pidfd_send_signal(pidfd, signum)
         except ProcessLookupError:
             return False
         except (PermissionError, OSError) as exc:
@@ -1073,8 +1233,8 @@ def _validate_exit_record(
         errors.append("exit record requires an integer exit_code")
     if record.get("attempt") != state.attempt:
         errors.append("exit record attempt mismatch")
-    if record.get("supervision_token") != state.supervision_token:
-        errors.append("exit record supervision token mismatch")
+    if record.get("supervision_marker") != _descendant_supervision_marker(state):
+        errors.append("exit record supervision marker mismatch")
     if record.get("descendants_absent") is not True:
         errors.append("exit record does not prove recursive descendant absence")
     if record.get("supervision_error") not in {None, ""}:
@@ -1115,7 +1275,7 @@ def write_exit_record(
 
 
 _PROVIDER_SUPERVISOR_SCRIPT = r"""
-import errno, json, os, signal, stat, subprocess, sys, time
+import errno, hashlib, hmac, json, os, signal, stat, subprocess, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1138,8 +1298,38 @@ session_id = sys.argv[3]
 provider_argv = json.loads(sys.argv[4])
 attempt = int(sys.argv[5])
 supervision_backend = sys.argv[6]
-supervision_token = sys.argv[7]
-marker = "ELVES_FULL_RUN_SUPERVISION_MARKER=" + supervision_token
+max_stop_request_bytes = int(sys.argv[7])
+if max_stop_request_bytes <= 0 or max_stop_request_bytes > 64 * 1024:
+    raise SystemExit(126)
+try:
+    # The launcher supplies exactly one bounded host secret over an anonymous
+    # pipe. Close fd 0 before provider spawn so neither it nor descendants can
+    # inherit or recover the stop capability from argv, env, or open fds.
+    supervision_secret_payload = sys.stdin.buffer.read(65)
+finally:
+    sys.stdin.close()
+if (
+    len(supervision_secret_payload) != 49
+    or not supervision_secret_payload.endswith(b"\n")
+):
+    raise SystemExit(126)
+try:
+    supervision_secret = supervision_secret_payload[:-1].decode("ascii")
+except UnicodeDecodeError:
+    raise SystemExit(126)
+if len(supervision_secret) != 48 or any(
+    char not in "0123456789abcdef" for char in supervision_secret
+):
+    raise SystemExit(126)
+descendant_marker = os.environ.get("ELVES_FULL_RUN_SUPERVISION_MARKER", "")
+expected_marker = hmac.new(
+    supervision_secret.encode("ascii"),
+    ("descendant-marker\0%s\0%s" % (session_id, attempt)).encode("utf-8"),
+    hashlib.sha256,
+).hexdigest()
+if not hmac.compare_digest(descendant_marker, expected_marker):
+    raise SystemExit(126)
+marker = "ELVES_FULL_RUN_SUPERVISION_MARKER=" + descendant_marker
 marker_bytes = marker.encode("utf-8")
 provider_pid = None
 provider = None
@@ -1155,6 +1345,57 @@ def request_stop(signum, _frame):
 
 signal.signal(signal.SIGTERM, request_stop)
 signal.signal(signal.SIGINT, request_stop)
+
+def requested_stop_signal():
+    request_fd = None
+    try:
+        request_fd = os.open(
+            "stop_request.json",
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=runtime_fd,
+        )
+    except FileNotFoundError:
+        return None
+    except OSError:
+        # Worker-created symlinks or other unsafe leaves are untrusted noise,
+        # never authorization and never a reason to terminate a healthy run.
+        return None
+    try:
+        info = os.fstat(request_fd)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_size > max_stop_request_bytes
+        ):
+            raise RuntimeError("unsafe_stop_request")
+        raw = os.read(request_fd, max_stop_request_bytes + 1)
+        if len(raw) > max_stop_request_bytes:
+            raise RuntimeError("oversized_stop_request")
+        request = json.loads(raw.decode("utf-8"))
+        message = ("stop\0%s\0%s" % (session_id, attempt)).encode("utf-8")
+        expected = hmac.new(
+            supervision_secret.encode("ascii"),
+            message,
+            hashlib.sha256,
+        ).hexdigest()
+        if (
+            not isinstance(request, dict)
+            or request.get("session_id") != session_id
+            or request.get("attempt") != attempt
+            or not isinstance(request.get("authority"), str)
+            or not hmac.compare_digest(request["authority"], expected)
+        ):
+            raise RuntimeError("unauthorized_stop_request")
+        return signal.SIGTERM
+    except Exception:
+        # Malformed, oversized, non-regular, or unauthorized artifacts are
+        # ignored. Only the host-authenticated request may alter run control.
+        return None
+    finally:
+        os.close(request_fd)
 
 PROC_SKIP_ERRNOS = {errno.EACCES, errno.EPERM, errno.ENOENT, errno.ESRCH}
 
@@ -1262,10 +1503,10 @@ def darwin_records():
 def current_records():
     global supervision_error
     try:
-        if len(supervision_token) != 48 or any(
-            char not in "0123456789abcdef" for char in supervision_token
+        if len(descendant_marker) != 64 or any(
+            char not in "0123456789abcdef" for char in descendant_marker
         ):
-            raise RuntimeError("invalid_supervision_token")
+            raise RuntimeError("invalid_supervision_marker")
         if sys.platform.startswith("linux"):
             records, marked, scanner_pid = linux_records()
         elif sys.platform == "darwin":
@@ -1324,6 +1565,13 @@ def scan_alive():
 
 def signal_pids(pids, signum):
     global supervision_error
+    if not (
+        sys.platform.startswith("linux")
+        and hasattr(os, "pidfd_open")
+        and hasattr(signal, "pidfd_send_signal")
+    ):
+        supervision_error = "atomic_process_signal_unavailable"
+        return
     for pid in sorted(pids, reverse=True):
         if pid == os.getpid():
             continue
@@ -1331,18 +1579,17 @@ def signal_pids(pids, signum):
         if expected_start is None:
             continue
         pidfd = None
-        if sys.platform.startswith("linux") and hasattr(os, "pidfd_open"):
-            try:
-                # Open the process handle before the final identity read. If the
-                # numeric PID was reused, the following start-time comparison
-                # rejects the replacement; if it exits afterward, the pidfd stays
-                # bound to the original process and cannot target the replacement.
-                pidfd = os.pidfd_open(pid, 0)
-            except ProcessLookupError:
-                continue
-            except OSError as exc:
-                supervision_error = "pidfd_open_failed:%s:%s" % (pid, exc)
-                return
+        try:
+            # Open the process handle before the final identity read. If the
+            # numeric PID was reused, the following start-time comparison
+            # rejects the replacement; if it exits afterward, the pidfd stays
+            # bound to the original process and cannot target the replacement.
+            pidfd = os.pidfd_open(pid, 0)
+        except ProcessLookupError:
+            continue
+        except OSError as exc:
+            supervision_error = "pidfd_open_failed:%s:%s" % (pid, exc)
+            return
         records, _marked, _scanner_pid = current_records()
         if supervision_error is not None:
             if pidfd is not None:
@@ -1358,14 +1605,7 @@ def signal_pids(pids, signum):
                 os.close(pidfd)
             continue
         try:
-            if pidfd is not None and hasattr(signal, "pidfd_send_signal"):
-                signal.pidfd_send_signal(pidfd, signum)
-            else:
-                # Darwin has no pidfd. Re-reading the exact start identity for
-                # each target immediately before this call is the strongest
-                # standard-library boundary available; never signal from a
-                # batch-cached process table.
-                os.kill(pid, signum)
+            signal.pidfd_send_signal(pidfd, signum)
         except ProcessLookupError:
             pass
         except OSError as exc:
@@ -1375,7 +1615,24 @@ def signal_pids(pids, signum):
                 os.close(pidfd)
 
 def terminate_descendants():
+    global supervision_error
     alive = scan_alive()
+    if sys.platform == "darwin":
+        if alive:
+            try:
+                # The supervisor is the live session/group leader, so its own
+                # current group cannot be numerically reused during this call.
+                # Detached descendants are never signaled by reusable PID; they
+                # remain explicit failure evidence for operator handling.
+                os.killpg(os.getpgrp(), signal.SIGTERM)
+            except OSError as exc:
+                supervision_error = "group_signal_failed:%s" % exc
+                return False
+        deadline = time.monotonic() + 1.25
+        while alive and time.monotonic() < deadline and supervision_error is None:
+            time.sleep(0.03)
+            alive = scan_alive()
+        return not alive
     signal_pids(alive, signal.SIGTERM)
     deadline = time.monotonic() + 0.5
     while alive and time.monotonic() < deadline and supervision_error is None:
@@ -1401,6 +1658,10 @@ try:
     provider_pid = provider.pid
     scan_alive()
     while provider.poll() is None and stop_signal is None:
+        requested = requested_stop_signal()
+        if requested is not None:
+            stop_signal = requested
+            break
         scan_alive()
         if supervision_error is not None:
             break
@@ -1466,7 +1727,7 @@ payload = {
     "session_id": session_id,
     "provider_executable": provider_argv[0] if provider_argv else None,
     "attempt": attempt,
-    "supervision_token": supervision_token,
+    "supervision_marker": descendant_marker,
     "supervised_pids": sorted(historical_pids),
     "descendants_absent": bool(descendants_absent),
     "supervision_error": supervision_error,
@@ -1525,9 +1786,8 @@ def _provider_supervisor_argv(
     provider_argv: Sequence[str],
     attempt: int,
     supervisor_executable: str,
-    supervision_token: str,
 ) -> list[str]:
-    """Build a parent supervisor that waits and records the provider's real exit."""
+    """Build a parent supervisor without putting its signaling token on argv."""
     return [
         sys.executable,
         "-c",
@@ -1538,8 +1798,37 @@ def _provider_supervisor_argv(
         json.dumps(list(provider_argv)),
         str(attempt),
         supervisor_executable,
-        supervision_token,
+        str(MAX_STOP_REQUEST_BYTES),
     ]
+
+
+def _handoff_supervision_secret(
+    proc: subprocess.Popen[bytes],
+    state: FullRunState,
+) -> None:
+    """Write one bounded stop secret to supervisor stdin, then close the pipe."""
+    stream = proc.stdin
+    if stream is None:
+        raise ValidationIssue(
+            "full_run_supervision_secret_handoff_failed",
+            "Supervisor launch did not create its private stdin channel",
+        )
+    payload = (_supervision_secret(state) + "\n").encode("ascii")
+    try:
+        written = stream.write(payload)
+        stream.flush()
+        if written != len(payload):
+            raise OSError("short supervision secret write")
+    except (BrokenPipeError, OSError) as exc:
+        raise ValidationIssue(
+            "full_run_supervision_secret_handoff_failed",
+            f"Cannot deliver the private supervisor stop capability: {type(exc).__name__}",
+        ) from exc
+    finally:
+        try:
+            stream.close()
+        finally:
+            proc.stdin = None
 
 
 def _origin_present(repo_root: Path) -> bool:
@@ -1985,8 +2274,8 @@ def _linux_proc_state(proc_dir: Path) -> str | None:
     return fields[0]
 
 
-def _scan_linux_proc_supervision_pids(proc_root: Path, token: str) -> set[int]:
-    marker = f"ELVES_FULL_RUN_SUPERVISION_MARKER={token}".encode("utf-8")
+def _scan_linux_proc_supervision_pids(proc_root: Path, marker_value: str) -> set[int]:
+    marker = f"ELVES_FULL_RUN_SUPERVISION_MARKER={marker_value}".encode("utf-8")
     try:
         entries = list(os.scandir(proc_root))
     except OSError as exc:
@@ -2021,8 +2310,8 @@ def _scan_linux_proc_supervision_pids(proc_root: Path, token: str) -> set[int]:
     return found
 
 
-def _scan_bsd_ps_supervision_pids(executable: Path, token: str) -> set[int]:
-    marker = f"ELVES_FULL_RUN_SUPERVISION_MARKER={token}"
+def _scan_bsd_ps_supervision_pids(executable: Path, marker_value: str) -> set[int]:
+    marker = f"ELVES_FULL_RUN_SUPERVISION_MARKER={marker_value}"
     try:
         result = subprocess.run(
             [str(executable), "e", "-axo", "pid=,ppid=,pgid=,command="],
@@ -2054,11 +2343,11 @@ def _scan_bsd_ps_supervision_pids(executable: Path, token: str) -> set[int]:
     return found
 
 
-def _scan_supervision_pids(executable: str | Path, token: str) -> set[int]:
-    if not re.fullmatch(r"[0-9a-f]{48}", str(token or "")):
+def _scan_supervision_pids(executable: str | Path, marker_value: str) -> set[int]:
+    if not re.fullmatch(r"[0-9a-f]{64}", str(marker_value or "")):
         raise ValidationIssue(
             "full_run_supervision_scan_failed",
-            "Recursive supervision token is missing or malformed",
+            "Recursive supervision marker is missing or malformed",
         )
     qualified = _qualified_process_supervisor()
     observed = Path(executable).resolve()
@@ -2068,14 +2357,14 @@ def _scan_supervision_pids(executable: str | Path, token: str) -> set[int]:
             "Recorded recursive supervision backend is not currently qualified",
         )
     if sys.platform.startswith("linux"):
-        return _scan_linux_proc_supervision_pids(qualified, token)
-    return _scan_bsd_ps_supervision_pids(qualified, token)
+        return _scan_linux_proc_supervision_pids(qualified, marker_value)
+    return _scan_bsd_ps_supervision_pids(qualified, marker_value)
 
 
 def _run_supervision_canary(executable: Path) -> bool:
-    token = secrets.token_hex(24)
+    marker_value = secrets.token_hex(32)
     env = dict(os.environ)
-    env["ELVES_FULL_RUN_SUPERVISION_MARKER"] = token
+    env["ELVES_FULL_RUN_SUPERVISION_MARKER"] = marker_value
     proc = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(1)"],
         env=env,
@@ -2088,7 +2377,7 @@ def _run_supervision_canary(executable: Path) -> bool:
     try:
         deadline = time.monotonic() + 0.75
         while time.monotonic() < deadline:
-            if proc.pid in _scan_supervision_pids(executable, token):
+            if proc.pid in _scan_supervision_pids(executable, marker_value):
                 return True
             time.sleep(0.03)
         raise ValidationIssue(
@@ -2410,8 +2699,8 @@ def prepare_full_run(
         repo_root=Path(repo_root),
     )
     public_state = state.to_dict()
-    # This is a signaling capability for marker-bound descendant supervision,
-    # not operator telemetry. Keep it only in the mode-0600 private state file.
+    # This is the host-only stop capability used to derive the public descendant
+    # marker. It is not operator telemetry; retain it only in private state.
     public_state.pop("supervision_token", None)
     return {
         "ok": True,
@@ -2574,6 +2863,7 @@ def _archive_and_reset_resume_attempt(
         "worker.pid",
         "worker.pgid",
         "transcript.log",
+        STOP_REQUEST_NAME,
     ):
         source = root / name
         if repo_regular_file_exists(Path(repo_root), source):
@@ -2814,11 +3104,20 @@ def launch_full_run(
     save_state(repo_root, state)
 
     transcript = root / "transcript.log"
-    ensure_private_dir(root / "worker-home", repo_root=Path(repo_root))
-    ensure_private_dir(root / "worker-tmp", repo_root=Path(repo_root))
+    for isolated_dir in (
+        root / "worker-home",
+        root / "worker-home" / ".config",
+        root / "worker-home" / ".cache",
+        root / "worker-home" / ".local",
+        root / "worker-home" / ".local" / "share",
+        root / "worker-tmp",
+        root / "worker-tmp" / "runtime",
+    ):
+        ensure_private_dir(isolated_dir, repo_root=Path(repo_root))
     for stale_path in (
         root / "exit_record.json",
         root / "supervisor.fingerprint.json",
+        root / STOP_REQUEST_NAME,
     ):
         if repo_regular_file_exists(Path(repo_root), stale_path):
             raise ValidationIssue(
@@ -2837,7 +3136,6 @@ def launch_full_run(
         provider_argv=provider_argv,
         attempt=state.attempt,
         supervisor_executable=state.supervisor_executable,
-        supervision_token=state.supervision_token,
     )
     # Open transcript for inheritance, then close parent fd so launchers across
     # separate CLI invocations do not leave unclosed handles / ResourceWarnings.
@@ -2848,10 +3146,24 @@ def launch_full_run(
             env=launch_env,
             stdout=stdout_handle,
             stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
             start_new_session=True,
             close_fds=True,
         )
+        try:
+            _handoff_supervision_secret(proc, state)
+        except ValidationIssue:
+            # The exact unreaped Popen child cannot be a reused PID. It has not
+            # passed secret validation, so no provider or descendants can exist.
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=1.0)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            raise
 
     pgid = os.getpgid(proc.pid) if hasattr(os, "getpgid") else proc.pid
     # Brief settle so ps can observe the process.
@@ -3006,7 +3318,7 @@ def _supervised_alive(state: FullRunState) -> set[int]:
             "full_run_supervision_executable_changed",
             "Recorded recursive supervisor is not the currently qualified system executable",
         )
-    return _scan_supervision_pids(qualified, state.supervision_token)
+    return _scan_supervision_pids(qualified, _descendant_supervision_marker(state))
 
 
 def _identity_digest(identity: Mapping[str, Any]) -> str:
@@ -3289,6 +3601,7 @@ def monitor_full_run(
     initial_next_action = state.next_action
     initial_blocker = state.blocker
     initial_completed_at = state.completed_at
+    initial_batch = state.batch
     identity_retired = bool(
         state.closed_process_identity
         and state.pid is None
@@ -3619,7 +3932,23 @@ def monitor_full_run(
             state.blocker, exact_values=exact_secret_values
         )
     save_state(repo_root, state)
-    from .behavior_policy import PARKED_MONITOR_WAKE_CONDITIONS  # noqa: PLC0415
+    from .behavior_policy import (  # noqa: PLC0415
+        PARKED_MONITOR_UPDATE_POLICY,
+        PARKED_MONITOR_USER_HEARTBEAT_SECONDS,
+        PARKED_MONITOR_WAKE_CONDITIONS,
+        parked_monitor_poll_after_seconds,
+    )
+
+    material_state_change = bool(
+        state.status != initial_status
+        or state.next_action != initial_next_action
+        or state.blocker != initial_blocker
+        or state.completed_at != initial_completed_at
+        or state.batch != initial_batch
+    )
+    unchanged_healthy_poll_silent = bool(
+        state.status == "healthy" and not material_state_change
+    )
 
     status = {
         "ok": state.status in {"healthy", "complete", "pending"},
@@ -3635,6 +3964,11 @@ def monitor_full_run(
         "blocker": state.blocker,
         "driver_contract": "parked_monitor",
         "driver_monitor_mode": "parked_monitor",
+        "poll_after_seconds": parked_monitor_poll_after_seconds(stale_after_seconds),
+        "user_heartbeat_seconds": PARKED_MONITOR_USER_HEARTBEAT_SECONDS,
+        "chat_update_policy": PARKED_MONITOR_UPDATE_POLICY,
+        "chat_update_recommended": material_state_change,
+        "unchanged_healthy_poll_silent": unchanged_healthy_poll_silent,
         "wake_conditions": sorted(PARKED_MONITOR_WAKE_CONDITIONS),
         "check_summary": {
             "events": len(events),
@@ -3805,11 +4139,10 @@ def stop_full_run(
 
     signaled = False
     if pid_alive and state.fingerprint:
-        signaled = _signal_verified_supervisor(
-            state.fingerprint,
-            expected_session_id=session_id,
-            signum=signal.SIGTERM,
-        )
+        _write_supervisor_stop_request(Path(repo_root), root, state)
+        # Compatibility field: true now means the authenticated supervisor stop
+        # channel was engaged, not that a reusable numeric PID/PGID was signaled.
+        signaled = True
 
     # The embedded supervisor may need to terminate a provider plus recursively
     # discovered descendants before it publishes the exit record. Give that
@@ -3827,17 +4160,18 @@ def stop_full_run(
     supervised_pids = _supervised_alive(state)
     still_alive = pid_alive or bool(supervised_pids)
     if still_alive:
-        # Escalate only the exact supervisor identity. If it has already exited,
-        # do not target reusable PGID/descendant integers; the final state below
-        # remains failed with the surviving-domain evidence intact.
-        if pid_alive and state.fingerprint:
+        # A Linux pidfd can safely nudge a supervisor that did not consume its
+        # request. Platforms without a kernel-bound process handle fail closed;
+        # never fall back to a reusable numeric PID or PGID, and never SIGKILL
+        # the supervisor out from under still-live descendants.
+        if pid_alive and state.fingerprint and sys.platform.startswith("linux"):
             _signal_verified_supervisor(
                 state.fingerprint,
                 expected_session_id=session_id,
-                signum=signal.SIGKILL,
+                signum=signal.SIGTERM,
             )
-        kill_deadline = time.monotonic() + 1.0
-        while time.monotonic() < kill_deadline:
+        retry_deadline = time.monotonic() + 1.0
+        while time.monotonic() < retry_deadline:
             if (
                 not bool(pid and _pid_alive(pid))
                 and not _supervised_alive(state)
@@ -3853,15 +4187,14 @@ def stop_full_run(
     state.next_action = "driver_wake_error" if still_alive else "stopped"
     if still_alive:
         state.blocker = (
-            "supervised process domain remains alive after identity-bound supervisor signals"
+            "supervised process domain remains alive after authenticated stop request"
         )
     state.completed_at = _utc_now()
     if not still_alive:
         evidence = completed_record or {
             "authority": "host_stop",
-            "signaled": signaled,
+            "stop_request_delivered": signaled,
             "observed_pid_dead": True,
-            "observed_pgid_dead": True,
             "observed_descendants_absent": True,
         }
         closed = _retire_process_identity(
@@ -3882,7 +4215,7 @@ def stop_full_run(
             "head": state.head or state.start_head,
             "batch": state.batch or 0,
             "type": "heartbeat",
-            "summary": "Supervisor stop requested; exact supervisor identity signaled",
+            "summary": "Authenticated supervisor stop requested through private runtime channel",
         },
         expected_session_id=session_id,
         expected_branch=state.branch,

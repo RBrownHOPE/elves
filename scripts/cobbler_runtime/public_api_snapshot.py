@@ -414,7 +414,74 @@ _CLI_INSPECTOR = textwrap.dedent(
                 ]
             return []
 
-        def literal_exit_codes(value):
+        def block_guarantees_exit(statements):
+            # Conservatively prove every path through a helper exits explicitly.
+            for statement in statements:
+                if isinstance(statement, (ast.Return, ast.Raise)):
+                    return True
+                if isinstance(statement, ast.If):
+                    if (
+                        statement.orelse
+                        and block_guarantees_exit(statement.body)
+                        and block_guarantees_exit(statement.orelse)
+                    ):
+                        return True
+                if isinstance(statement, (ast.With, ast.AsyncWith)):
+                    if block_guarantees_exit(statement.body):
+                        return True
+            return False
+
+        def helper_exit_nodes(function):
+            # Collect exits from one function body, excluding nested definitions.
+            found = []
+            unresolved = False
+
+            class ExitVisitor(ast.NodeVisitor):
+                def visit_FunctionDef(self, child):
+                    if child is function:
+                        self.generic_visit(child)
+
+                def visit_AsyncFunctionDef(self, child):
+                    if child is function:
+                        self.generic_visit(child)
+
+                def visit_ClassDef(self, child):
+                    return
+
+                def visit_Lambda(self, child):
+                    return
+
+                def visit_Return(self, child):
+                    found.append(("return", child.value))
+
+                def visit_Raise(self, child):
+                    nonlocal unresolved
+                    if (
+                        isinstance(child.exc, ast.Call)
+                        and call_name(child.exc.func) == "SystemExit"
+                    ):
+                        if len(child.exc.args) == 1:
+                            found.append(("raise", child.exc.args[0]))
+                        elif not child.exc.args:
+                            found.append(("raise", ast.Constant(value=0)))
+                        else:
+                            unresolved = True
+                    else:
+                        unresolved = True
+
+                def visit_Yield(self, child):
+                    nonlocal unresolved
+                    unresolved = True
+
+                def visit_YieldFrom(self, child):
+                    nonlocal unresolved
+                    unresolved = True
+
+            ExitVisitor().visit(function)
+            return found, unresolved
+
+        def literal_exit_codes(value, seen_helpers=None):
+            seen_helpers = frozenset(seen_helpers or ())
             if isinstance(value, ast.Constant) and isinstance(value.value, int) and not isinstance(
                 value.value, bool
             ):
@@ -426,11 +493,53 @@ _CLI_INSPECTOR = textwrap.dedent(
                 and isinstance(value.operand.value, int)
             ):
                 return {-value.operand.value}, False
+            if isinstance(value, ast.Await):
+                return literal_exit_codes(value.value, seen_helpers)
             if isinstance(value, ast.IfExp):
-                left, left_dynamic = literal_exit_codes(value.body)
-                right, right_dynamic = literal_exit_codes(value.orelse)
+                left, left_dynamic = literal_exit_codes(value.body, seen_helpers)
+                right, right_dynamic = literal_exit_codes(value.orelse, seen_helpers)
                 return left | right, left_dynamic or right_dynamic
+            if isinstance(value, ast.Call):
+                target_name = call_name(value.func)
+                if target_name == "_emit_json":
+                    exit_values = [
+                        keyword.value
+                        for keyword in value.keywords
+                        if keyword.arg == "exit_code"
+                    ]
+                    if len(exit_values) != 1:
+                        return set(), True
+                    return literal_exit_codes(exit_values[0], seen_helpers)
+                if isinstance(value.func, ast.Name) and target_name in functions:
+                    return helper_exit_codes(target_name, seen_helpers)
             return set(), value is not None
+
+        def helper_exit_codes(helper_name, seen_helpers):
+            # Resolve a direct local helper's literal process-exit contract.
+            if helper_name in seen_helpers:
+                return set(), True
+            helper = functions.get(helper_name)
+            if (
+                helper is None
+                or isinstance(helper, ast.AsyncFunctionDef)
+                or helper.decorator_list
+                or not block_guarantees_exit(helper.body)
+            ):
+                return set(), True
+            nested_seen = frozenset((*seen_helpers, helper_name))
+            exits_found, unresolved = helper_exit_nodes(helper)
+            if not exits_found:
+                return set(), True
+            known = set()
+            dynamic = unresolved
+            for _kind, exit_value in exits_found:
+                resolved, unresolved = literal_exit_codes(
+                    exit_value,
+                    nested_seen,
+                )
+                known.update(resolved)
+                dynamic = dynamic or unresolved
+            return known, dynamic
 
         # First pass: map simple payload variables to their declared top-level
         # JSON keys.  This deliberately does not collect every dict literal in

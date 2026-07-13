@@ -86,4 +86,6 @@
 
 ## v2.1.0 full-run note
 
-Trusted Grok full-run uses one session, feature-branch progress, parked-monitor driver, and bounded events. Untrusted detached leases remain a distinct authority model.
+Trusted Grok full-run uses one session, feature-branch progress, parked-monitor driver, and bounded
+events. Unchanged healthy polls are silent; the host coalesces nonterminal user updates to at most
+one short update per 15 minutes. Untrusted detached leases remain a distinct authority model.

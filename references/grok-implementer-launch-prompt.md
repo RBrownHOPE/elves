@@ -37,6 +37,10 @@ Omit `implementation_lane` entirely for host-native runs.
 
 ## Operator CLI
 
+The `python3 scripts/...` forms below are source-checkout shorthand. From an installed Claude Code
+or Codex skill, invoke the helper from the active Elves skill root and keep the target repository as
+the working directory; see [`runtime-helper-paths.md`](runtime-helper-paths.md).
+
 Primary trusted full-run (one launch, one persistent session, bounded driver monitoring):
 
 ```bash
@@ -71,10 +75,14 @@ points. Grok never creates, moves, or pushes refs other than its assigned featur
 `full-run-stop` explicitly cancels or recovers a live/wedged worker. It is not a normal close step,
 does not prove completion, and must not be used after a successful worker exit.
 
-After `full-run-launch` returns healthy, the driver parks. It may poll bounded monitor telemetry and
-give light user updates; it does not re-enter per-batch implementation/review loops. Wake only for
-blocked/stale/failed state, a safety tripwire, explicit user input, or actual worker exit. Raw
-transcripts remain private unless explicitly requested.
+After `full-run-launch` returns healthy, the driver parks. Prefer a host wait/monitor primitive;
+otherwise use the monitor response's `poll_after_seconds` (half the stale window, bounded to 60–300
+seconds). `chat_update_recommended: false` with `unchanged_healthy_poll_silent: true` means exactly
+that: emit no chat, do not read raw output, and do not re-enter reasoning. The response exposes
+`user_heartbeat_seconds` (default 900); the host owns coalescing nonterminal progress into at most one
+1–3 sentence update in that window. Wake immediately only for blocked/stale/failed state, a safety
+tripwire, explicit user input, or actual worker exit. Raw transcripts remain private unless
+explicitly requested.
 
 Legacy bounded-batch path (use only when the user selected a bounded task or legacy batch resume):
 
@@ -240,16 +248,19 @@ The report is one JSON object with these required fields:
 | `start_head` | string | exact launch head from the baseline report |
 | `final_head` | string | observed final feature-branch SHA; non-empty when `status` is `complete` |
 | `status` | string enum | `running`, `complete`, `blocked`, `failed`, or `stopped` |
-| `batches` | array | internal batch summaries/evidence using stable `B#` ids |
+| `batches` | array | internal batch summaries; each complete row has non-empty `id`, `status: "complete"`, and non-empty string `evidence` |
 | `acceptance` | array of objects | exact staged `B#-A#` and `M-A#` rows described below |
-| `commits` | array | worker commit SHAs or SHA/subject records |
+| `commits` | array | exact 40-character worker SHAs, or `{sha, subject}` records with an exact SHA and non-empty subject |
 
 When present, `blockers`, `docs_changed`, and `remaining_risks` must also be arrays. A `complete`
-report requires non-empty `final_head` and non-empty `acceptance`. A production prepare fails closed
-unless the packet stages at least one stable `B#-A#` or `M-A#` id. Every acceptance item requires
-the fields `id` (an exact staged stable id), `criterion` (non-empty string), `met` (boolean), and
-`evidence` (string). A row with `met: true` requires non-empty evidence, and the final report id set
-must exactly equal the staged id set.
+report requires non-empty `final_head`, `batches`, `acceptance`, and `commits`; every batch must have
+a non-empty `id`, `status: "complete"`, and non-empty string `evidence`; and both `blockers` and
+`remaining_risks` must be empty. Its commit SHAs must equal the exact ordered
+`start_head..final_head` Git chain, not merely a subset or summary, and the worker must leave both
+tracked and untracked worktree state clean before publishing completion. A production prepare fails
+closed unless the packet stages at least one stable `B#-A#` or `M-A#` id. Every acceptance item
+requires the fields `id` (an exact staged stable id), `criterion` (non-empty string), `met: true`,
+and non-empty string `evidence`; the final report id set must exactly equal the staged id set.
 
 ```json
 {
@@ -275,8 +286,9 @@ must exactly equal the staged id set.
 ```
 
 The report is evidence only. Completion additionally requires the supervisor to validate report
-identity and acceptance, feature-branch descendant progress, the process fingerprint/exit record,
-and unchanged protected refs.
+identity and acceptance, the exact ordered commit chain, a clean worktree including untracked files,
+feature-branch descendant progress, the process fingerprint/exit record, and unchanged protected
+refs.
 
 ## Legacy bounded-batch done report schema
 
@@ -328,7 +340,7 @@ described above. Host still owns protected refs, merge, and final readiness.
 | Moment | Host does |
 |--------|-----------|
 | Staging | plan, PR, worktree, host-created `b0` rollback ref, prepare metadata, write packet |
-| During run | park; read bounded monitor/events only; give light updates |
+| During run | park; wait or poll at `poll_after_seconds`; stay silent on unchanged health; host-coalesce nonterminal updates using `user_heartbeat_seconds` |
 | Safety wake | handle blocked/stale/failed state or a safety tripwire |
 | Worker exit | verify report, feature-branch ancestry, actual exit, and protected refs |
 | Final | independent cumulative readiness; merge only if authorized |
@@ -342,5 +354,5 @@ Do not wait for per-batch host prompts. Commit and push progress with the packet
 Run the packet's validation commands before claiming done. Write bounded events and the final run
 report to the paths supplied in the environment. Do not
 merge, tag, or open a second PR. Do not review your own work as independent review. If blocked,
-write status=blocked with blockers[] and stop.
+write status=blocked, populate blockers with concrete bounded and redacted reasons, and stop.
 ```

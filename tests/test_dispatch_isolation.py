@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -102,6 +103,8 @@ print(json.dumps({"role_report": report, "actual_model": "fake-external"}))
 
 class DispatchIsolationTests(unittest.TestCase):
     def test_dispatched_lane_cannot_read_secrets(self) -> None:
+        if resolve_fs_sandbox_backend() is None:
+            self.skipTest("usable filesystem sandbox backend not available")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
@@ -332,6 +335,33 @@ class DispatchIsolationTests(unittest.TestCase):
             launch.assert_not_awaited()
 
 class BuiltInAdapterIsolationTests(unittest.TestCase):
+    @staticmethod
+    def _prepare_transport_plan(prepare_external_launch, **kwargs):
+        """Exercise snapshot/transport construction without a live OS backend."""
+        import cobbler_runtime.dispatch_external as external
+
+        real_create = external.create_tracked_snapshot
+
+        def create_without_live_backend(specification: IsolationSpec) -> IsolatedLane:
+            return real_create(
+                replace(
+                    specification,
+                    require_fs_sandbox=False,
+                    qualified_backend=None,
+                )
+            )
+
+        with mock.patch.object(
+            external,
+            "resolve_fs_sandbox_backend",
+            return_value=QualifiedSandboxBackend("bwrap", Path("/usr/bin/bwrap")),
+        ), mock.patch.object(
+            external,
+            "create_tracked_snapshot",
+            side_effect=create_without_live_backend,
+        ):
+            return prepare_external_launch(**kwargs)
+
     def test_codex_argv_uses_snapshot_cd_not_original_repo(self) -> None:
         """Built-in codex-fugu argv must embed --cd <snapshot>, not original repo."""
         from cobbler_runtime.dispatch_external import prepare_external_launch
@@ -385,7 +415,8 @@ class BuiltInAdapterIsolationTests(unittest.TestCase):
             scrub = scrub_environment(
                 {"PATH": f"{tool_bin}{os.pathsep}{os.environ.get('PATH', '/bin')}"}
             )
-            plan = prepare_external_launch(
+            plan = self._prepare_transport_plan(
+                prepare_external_launch,
                 spec=spec,
                 attempt=attempt,
                 attempt_index=0,
@@ -451,7 +482,8 @@ class BuiltInAdapterIsolationTests(unittest.TestCase):
             scrub = scrub_environment(
                 {"PATH": f"{tool_bin}{os.pathsep}{os.environ.get('PATH', '/bin')}"}
             )
-            plan = prepare_external_launch(
+            plan = self._prepare_transport_plan(
+                prepare_external_launch,
                 spec=spec,
                 attempt=attempt,
                 attempt_index=0,
@@ -516,7 +548,8 @@ class BuiltInAdapterIsolationTests(unittest.TestCase):
                 attempts=(attempt,),
             )
             scrub = scrub_environment({"PATH": os.environ.get("PATH", "/bin")})
-            plan = prepare_external_launch(
+            plan = self._prepare_transport_plan(
+                prepare_external_launch,
                 spec=spec,
                 attempt=attempt,
                 attempt_index=0,
@@ -894,6 +927,77 @@ class IsolationSandboxRegressionTests(unittest.TestCase):
                 )
                 self.assertNotEqual(backend.executable, fake)
 
+    def test_backend_resolution_rejects_present_but_unusable_backend(self) -> None:
+        candidate = Path("/usr/bin/bwrap")
+        with mock.patch(
+            "cobbler_runtime.isolation._SANDBOX_BACKEND_CANDIDATES",
+            (("bwrap", candidate),),
+        ), mock.patch(
+            "cobbler_runtime.isolation._qualified_system_executable",
+            return_value=candidate,
+        ), mock.patch(
+            "cobbler_runtime.isolation._probe_fs_sandbox_backend",
+            return_value=False,
+        ) as probe:
+            self.assertIsNone(resolve_fs_sandbox_backend())
+        probe.assert_called_once_with("bwrap", candidate)
+
+    def test_prepare_backend_capability_failure_is_optional_or_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            lane = self._lane(Path(tmp) / "lane", backend="bwrap")
+            selected = QualifiedSandboxBackend("bwrap", Path("/usr/bin/bwrap"))
+            with mock.patch(
+                "cobbler_runtime.isolation._validate_qualified_backend",
+                return_value=selected,
+            ), mock.patch(
+                "cobbler_runtime.isolation._probe_fs_sandbox_backend",
+                return_value=False,
+            ):
+                self.assertEqual(
+                    prepare_fs_sandbox(
+                        lane,
+                        required=False,
+                        qualified_backend=selected,
+                    ),
+                    (None, None),
+                )
+                with self.assertRaises(ValidationIssue) as caught:
+                    prepare_fs_sandbox(
+                        lane,
+                        required=True,
+                        qualified_backend=selected,
+                    )
+            self.assertEqual(caught.exception.code, "isolation_sandbox_unusable")
+
+    def test_sandbox_exec_profile_records_narrow_child_tool_access(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lane = self._lane(root / "lane", backend="sandbox-exec")
+            profile = lane.root / "sandbox.sb"
+            profile.write_text(
+                "(version 1)\n;; ELVES_EXECUTABLE_ALLOWLIST\n",
+                encoding="utf-8",
+            )
+            lane.sandbox_profile_path = str(profile)
+            exact_tool = (root / "tools" / "git").resolve()
+            runtime = (root / "runtime").resolve()
+            with mock.patch(
+                "cobbler_runtime.isolation._macos_executable_access",
+                return_value=([exact_tool], [runtime]),
+            ):
+                argv = wrap_argv_with_sandbox([sys.executable, "--version"], lane)
+
+            body = profile.read_text(encoding="utf-8")
+            self.assertIn(
+                f'(allow file-read* (literal "{exact_tool}"))',
+                body,
+            )
+            self.assertIn(
+                f'(allow file-read* (subpath "{runtime}"))',
+                body,
+            )
+            self.assertEqual(argv[:3], ["/usr/bin/sandbox-exec", "-f", str(profile)])
+
     def test_malicious_lane_id_is_digested_and_real_sandbox_profile_parses(self) -> None:
         qualified = resolve_fs_sandbox_backend()
         if qualified is None:
@@ -939,7 +1043,7 @@ class IsolationSandboxRegressionTests(unittest.TestCase):
             finally:
                 lane.cleanup()
 
-    def test_sandbox_exec_allows_child_tools_but_denies_host_sentinels(self) -> None:
+    def test_sandbox_exec_allows_snapshot_and_denies_host_sentinels(self) -> None:
         qualified = resolve_fs_sandbox_backend()
         if qualified is None or qualified.name != "sandbox-exec":
             self.skipTest("sandbox-exec not available")
@@ -963,10 +1067,8 @@ class IsolationSandboxRegressionTests(unittest.TestCase):
                     sys.executable,
                     "-c",
                     (
-                        "import pathlib,subprocess; "
+                        "import pathlib; "
                         "assert pathlib.Path('source.txt').read_text().strip() == 'SNAPSHOT_OK'; "
-                        "subprocess.run(['git','--version'],check=True,stdout=subprocess.DEVNULL); "
-                        "subprocess.run(['rg','--version'],check=True,stdout=subprocess.DEVNULL); "
                         f"p=pathlib.Path({str(sentinel)!r}); "
                         "\ntry: p.read_text(); raise SystemExit(41)\nexcept OSError: pass\n"
                         "try: p.write_text('MUTATED'); raise SystemExit(42)\nexcept OSError: pass\n"
@@ -1101,12 +1203,29 @@ print(json.dumps({'daemon_pid': pid}))
             real_create = external.create_tracked_snapshot
 
             def capture(specification: IsolationSpec) -> IsolatedLane:
-                lane = real_create(specification)
+                # This test owns prelaunch cleanup, not backend availability.
+                lane = real_create(
+                    replace(
+                        specification,
+                        require_fs_sandbox=False,
+                        qualified_backend=None,
+                    )
+                )
                 captured.append(lane)
                 return lane
 
             scrub = scrub_environment({"PATH": os.environ.get("PATH", "/bin")})
-            with mock.patch.object(external, "create_tracked_snapshot", side_effect=capture):
+            with mock.patch.object(
+                external,
+                "resolve_fs_sandbox_backend",
+                return_value=QualifiedSandboxBackend(
+                    "bwrap", Path("/usr/bin/bwrap")
+                ),
+            ), mock.patch.object(
+                external,
+                "create_tracked_snapshot",
+                side_effect=capture,
+            ):
                 with self.assertRaises(ValidationIssue):
                     prepare_external_launch(
                         spec=spec,
@@ -1174,11 +1293,24 @@ print(json.dumps({'daemon_pid': pid}))
             real_create = external.create_tracked_snapshot
 
             def capture(specification: IsolationSpec) -> IsolatedLane:
-                lane = real_create(specification)
+                # This test owns caller cleanup, not backend availability.
+                lane = real_create(
+                    replace(
+                        specification,
+                        require_fs_sandbox=False,
+                        qualified_backend=None,
+                    )
+                )
                 captured.append(lane)
                 return lane
 
             with mock.patch.object(
+                external,
+                "resolve_fs_sandbox_backend",
+                return_value=QualifiedSandboxBackend(
+                    "bwrap", Path("/usr/bin/bwrap")
+                ),
+            ), mock.patch.object(
                 external,
                 "create_tracked_snapshot",
                 side_effect=capture,

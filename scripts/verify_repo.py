@@ -8,10 +8,11 @@ Runs the local proof gates in a stable order without duplicate noisy discovery:
 3. JSON validation for schema/example files
 4. repo consistency checker
 5. release checklist (optional version pin)
-6. unittest discovery under tests/ (single discovery surface)
-7. installed-bundle smokes for Claude and Codex (optional, default on)
-8. landing plan/session acceptance in final-readiness mode
-9. cumulative/index/worktree git checks
+6. public-API compatibility plus tracked, release-scoped break approvals
+7. unittest discovery under tests/ (single discovery surface)
+8. installed-bundle smokes for Claude and Codex (optional, default on)
+9. landing plan/session acceptance in final-readiness mode
+10. cumulative/index/worktree git checks
 
 Exit non-zero on the first hard failure unless --continue-on-error is set.
 """
@@ -50,9 +51,13 @@ SHELL_SCRIPTS = [
 ]
 
 JSON_PATHS = [
+    "api-break-approvals.json",
     "config.json.example",
     "references/implement-done-report.schema.json",
 ]
+
+API_BREAK_APPROVALS_PATH = Path("api-break-approvals.json")
+API_BREAK_APPROVAL_SCHEMA_VERSION = 1
 
 UNIT_TEST_FAILURE_MAX_LINES = 60
 UNIT_TEST_FAILURE_MAX_CHARS = 8_000
@@ -62,6 +67,7 @@ SECRET_SCAN_FILES = (
     "README.md",
     "SKILL.md",
     "AGENTS.md",
+    "api-break-approvals.json",
     "CHANGELOG.md",
     "TODO.md",
     "config.json.example",
@@ -342,14 +348,15 @@ def check_landing(
     return True, "landing acceptance ok"
 
 
-def _verified_repo_file(
+def _tracked_repo_regular_file(
     repo_root: Path,
     raw_path: Path,
     *,
     base: Path,
     label: str,
+    context: str,
 ) -> tuple[bool, Path | None, str]:
-    """Require an ordinary non-symlink tracked file from the current HEAD tree."""
+    """Require an ordinary non-symlink file tracked by the repository index."""
     root = repo_root.resolve()
     candidate = raw_path.expanduser()
     if not candidate.is_absolute():
@@ -359,12 +366,12 @@ def _verified_repo_file(
         resolved = lexical.resolve(strict=True)
         relative = resolved.relative_to(root)
     except (OSError, ValueError):
-        return False, None, f"landing {label} must stay inside repository: {lexical}"
+        return False, None, f"{context} {label} must stay inside repository: {lexical}"
 
     cursor = lexical
     while cursor != cursor.parent:
         if cursor.is_symlink():
-            return False, None, f"landing {label} must not use a symlink: {cursor}"
+            return False, None, f"{context} {label} must not use a symlink: {cursor}"
         try:
             at_repo_root = cursor.resolve(strict=False) == root
         except OSError:
@@ -373,14 +380,36 @@ def _verified_repo_file(
             break
         cursor = cursor.parent
     if not lexical.is_file():
-        return False, None, f"landing {label} must be a regular file: {lexical}"
+        return False, None, f"{context} {label} must be a regular file: {lexical}"
 
     rel_text = relative.as_posix()
     tracked = _run(
         ["git", "ls-files", "--error-unmatch", "--", rel_text], cwd=root
     )
     if tracked.returncode != 0:
-        return False, None, f"landing {label} must be tracked by Git: {rel_text}"
+        return False, None, f"{context} {label} must be tracked by Git: {rel_text}"
+    return True, resolved, f"{context} {label} tracked-file provenance ok"
+
+
+def _verified_repo_file(
+    repo_root: Path,
+    raw_path: Path,
+    *,
+    base: Path,
+    label: str,
+) -> tuple[bool, Path | None, str]:
+    """Require an ordinary non-symlink tracked file from the current HEAD tree."""
+    tracked_ok, resolved, detail = _tracked_repo_regular_file(
+        repo_root,
+        raw_path,
+        base=base,
+        label=label,
+        context="landing",
+    )
+    if not tracked_ok or resolved is None:
+        return False, None, detail
+    root = repo_root.resolve()
+    rel_text = resolved.relative_to(root).as_posix()
     committed = _run(["git", "cat-file", "-e", f"HEAD:{rel_text}"], cwd=root)
     if committed.returncode != 0:
         return False, None, f"landing {label} must exist in current HEAD: {rel_text}"
@@ -520,11 +549,127 @@ def check_preflight_cache(
         return False, _redact_message(f"preflight cache failed: {exc}")
 
 
+def load_api_break_approvals(
+    repo_root: Path,
+    *,
+    release_version: str,
+    manifest_path: Path = API_BREAK_APPROVALS_PATH,
+) -> tuple[bool, list[str], str]:
+    """Load exact, release-scoped API break approvals from a tracked manifest."""
+    if not isinstance(release_version, str) or not release_version.strip():
+        return False, [], "public-API approvals require a non-empty release version"
+
+    root = repo_root.resolve()
+    candidate = manifest_path if manifest_path.is_absolute() else root / manifest_path
+    if not candidate.exists() and not candidate.is_symlink():
+        return True, [], f"no public-API approval manifest at {manifest_path}"
+    manifest_ok, resolved_manifest, manifest_detail = _tracked_repo_regular_file(
+        root,
+        manifest_path,
+        base=root,
+        label="manifest",
+        context="public-API approval",
+    )
+    if not manifest_ok or resolved_manifest is None:
+        return False, [], manifest_detail
+
+    try:
+        payload = json.loads(resolved_manifest.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return False, [], _redact_message(
+            f"public-API approval manifest is unreadable: {exc}"
+        )
+    if not isinstance(payload, dict):
+        return False, [], "public-API approval manifest must be a JSON object"
+    expected_top_level = {"schema_version", "approvals"}
+    if set(payload) != expected_top_level:
+        return False, [], (
+            "public-API approval manifest keys must be exactly "
+            "approvals and schema_version"
+        )
+    if type(payload.get("schema_version")) is not int or payload["schema_version"] != (
+        API_BREAK_APPROVAL_SCHEMA_VERSION
+    ):
+        return False, [], (
+            "public-API approval manifest schema_version must be "
+            f"{API_BREAK_APPROVAL_SCHEMA_VERSION}"
+        )
+    entries = payload.get("approvals")
+    if not isinstance(entries, list):
+        return False, [], "public-API approval manifest approvals must be a list"
+
+    expected_entry_keys = {"surface", "release", "reason", "plan_path"}
+    surfaces: list[str] = []
+    seen: set[str] = set()
+    for index, entry in enumerate(entries):
+        prefix = f"public-API approval entry {index}"
+        if not isinstance(entry, dict) or set(entry) != expected_entry_keys:
+            return False, [], (
+                f"{prefix} keys must be exactly plan_path, reason, release, and surface"
+            )
+
+        surface = entry.get("surface")
+        if (
+            not isinstance(surface, str)
+            or not surface.strip()
+            or surface != surface.strip()
+            or re.fullmatch(r"[a-z][a-z0-9_-]*:.+", surface) is None
+        ):
+            return False, [], f"{prefix} surface must be a canonical non-empty identifier"
+        if surface in seen:
+            return False, [], f"{prefix} duplicates surface {surface!r}"
+
+        entry_release = entry.get("release")
+        if not isinstance(entry_release, str) or not entry_release.strip():
+            return False, [], f"{prefix} release must be non-empty"
+        if entry_release != release_version:
+            return False, [], (
+                f"{prefix} is stale for release {release_version}: "
+                f"declares {entry_release}"
+            )
+
+        reason = entry.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            return False, [], f"{prefix} reason must be non-empty"
+
+        raw_plan = entry.get("plan_path")
+        if not isinstance(raw_plan, str) or not raw_plan.strip():
+            return False, [], f"{prefix} plan_path must be non-empty"
+        plan_path = Path(raw_plan)
+        if (
+            raw_plan != raw_plan.strip()
+            or plan_path.is_absolute()
+            or raw_plan != plan_path.as_posix()
+            or ".." in plan_path.parts
+        ):
+            return False, [], f"{prefix} plan_path must be a canonical repo-relative path"
+        if not (root / plan_path).exists():
+            return False, [], f"{prefix} plan is missing: {raw_plan}"
+        plan_ok, _resolved_plan, plan_detail = _tracked_repo_regular_file(
+            root,
+            plan_path,
+            base=root,
+            label=f"entry {index} plan",
+            context="public-API approval",
+        )
+        if not plan_ok:
+            return False, [], plan_detail
+
+        seen.add(surface)
+        surfaces.append(surface)
+
+    return True, surfaces, (
+        f"public-API approvals loaded release={release_version} "
+        f"count={len(surfaces)} path={resolved_manifest.relative_to(root)}"
+    )
+
+
 def check_public_api(
     repo_root: Path,
     *,
     required: bool = False,
     base_ref: str | None = None,
+    release_version: str | None = None,
 ) -> tuple[bool, str]:
     try:
         scripts = str(repo_root / "scripts")
@@ -532,9 +677,35 @@ def check_public_api(
             sys.path.insert(0, scripts)
         from cobbler_runtime.public_api_snapshot import compatibility_gate  # noqa: PLC0415
 
-        result = compatibility_gate(repo_root, required=required, base_ref=base_ref)
+        approved_breaks: list[str] = []
+        approval_detail = "public-API approvals not requested without --version"
+        if release_version is not None:
+            approvals_ok, approved_breaks, approval_detail = load_api_break_approvals(
+                repo_root,
+                release_version=release_version,
+            )
+            if not approvals_ok:
+                return False, _redact_message(approval_detail)
+        result = compatibility_gate(
+            repo_root,
+            required=required,
+            approved_breaks=approved_breaks,
+            base_ref=base_ref,
+        )
+        diff = result.get("diff")
+        if isinstance(diff, Mapping):
+            actual_breaks = {str(item) for item in (diff.get("breaking") or [])}
+            stale_approvals = sorted(set(approved_breaks) - actual_breaks)
+            if stale_approvals:
+                return False, _redact_message(
+                    "public-API approval manifest contains stale surfaces not present in the "
+                    "current compatibility diff: " + ", ".join(stale_approvals)
+                )
         if result.get("ok"):
-            return True, f"public-api gate ok action={result.get('action')} required={required}"
+            return True, (
+                f"public-api gate ok action={result.get('action')} required={required}; "
+                f"{approval_detail}"
+            )
         return False, _redact_message(
             f"public-api gate failed: {result.get('breaking') or result}"
         )
@@ -1214,7 +1385,10 @@ def main(argv: list[str] | None = None) -> int:
         (
             "public-api",
             lambda: check_public_api(
-                repo_root, required=strict, base_ref=args.base_ref
+                repo_root,
+                required=strict,
+                base_ref=args.base_ref,
+                release_version=args.version,
             ),
         ),
     ]

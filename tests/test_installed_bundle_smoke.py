@@ -53,6 +53,13 @@ class InstalledBundleSmokeTests(unittest.TestCase):
                 )
                 self.assertEqual(result["alias_count"], 7 if host == "claude" else 0)
                 self.assertGreater(int(result["markdown_link_count"]), 0)
+                self.assertGreater(int(result["installed_document_count"]), 2)
+                self.assertIn("installed-cli-target-cwd=ok", result["notes"])
+                self.assertIn(
+                    "installed-cli-explicit-repo-root=ok",
+                    result["notes"],
+                )
+                self.assertIn("landing-check-help=ok", result["notes"])
                 self.assertTrue(result["skill_present"])
                 self.assertTrue(result["agents_present"])
 
@@ -138,6 +145,52 @@ class InstalledBundleSmokeTests(unittest.TestCase):
         self.assertEqual(checked, 1)
         self.assertEqual(len(failures), 1)
         self.assertIn("unshipped link target README.md", failures[0])
+
+    def test_installed_document_contract_rejects_repo_only_command(self) -> None:
+        contract = "\n".join(self.smoke.INSTALLED_PATH_CONTRACT_PHRASES)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle = Path(tmpdir) / "elves"
+            references = bundle / "references"
+            references.mkdir(parents=True)
+            for name in ("SKILL.md", "AGENTS.md"):
+                (bundle / name).write_text(contract, encoding="utf-8")
+            (references / "runtime-helper-paths.md").write_text(
+                "python3 scripts/verify_repo.py --ci\n",
+                encoding="utf-8",
+            )
+
+            failures, checked = self.smoke._validate_installed_document_contract(
+                bundle
+            )
+
+        self.assertGreater(checked, 2)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("executable repo-only helper command", failures[0])
+
+    def test_installed_document_contract_requires_both_host_paths(self) -> None:
+        incomplete = "\n".join(
+            phrase
+            for phrase in self.smoke.INSTALLED_PATH_CONTRACT_PHRASES
+            if phrase != "~/.codex/skills/elves"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle = Path(tmpdir) / "elves"
+            references = bundle / "references"
+            references.mkdir(parents=True)
+            (bundle / "SKILL.md").write_text(incomplete, encoding="utf-8")
+            (bundle / "AGENTS.md").write_text(incomplete, encoding="utf-8")
+            (references / "runtime-helper-paths.md").write_text(
+                "Installed helper rules.\n",
+                encoding="utf-8",
+            )
+
+            failures, _ = self.smoke._validate_installed_document_contract(bundle)
+
+        self.assertEqual(len(failures), 2)
+        self.assertTrue(
+            all("~/.codex/skills/elves" in failure for failure in failures),
+            failures,
+        )
 
     def test_claude_alias_inventory_rejects_an_eighth_alias(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

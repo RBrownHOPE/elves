@@ -3,6 +3,10 @@
 Cobbler is the coordinator. "CouncilElves" is the compatibility name for the same loop: plan with
 independent lenses, implement, review independently, integrate on the host, and repeat.
 
+The `python3 scripts/...` forms below are source-checkout shorthand. From an installed Claude Code
+or Codex skill, invoke the helper from the active Elves skill root while keeping the target
+repository as the working directory; see [`runtime-helper-paths.md`](runtime-helper-paths.md).
+
 ## Default first
 
 **Vanilla path:** Claude Code or Codex out of the box. The host implements batches itself under
