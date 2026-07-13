@@ -673,13 +673,13 @@ def cmd_worker(args: argparse.Namespace) -> int:
                 for c in chain
                 if isinstance(c, dict)
             ]
+            # Do not mark EXPORTED until export (+ optional apply-check) succeeds.
             patches = export_binary_patches(
                 lease,
                 output_dir=out,
                 chain=commit_objs,
                 audit_evidence=evidence,
             )
-            store.mark_exported(args.lease_id, str(out))
             apply_result = None
             if args.host_apply_check:
                 apply_result = host_apply_check(
@@ -689,10 +689,17 @@ def cmd_worker(args: argparse.Namespace) -> int:
                     cumulative=True,
                     disposable=True,
                 )
+                store.mark_apply_checked(args.lease_id)
+            store.mark_exported(args.lease_id, str(out))
+            if apply_result is not None and apply_result.get("ok"):
+                # Re-assert apply-checked after successful export when check ran.
+                lease2 = store.get(args.lease_id)
+                if lease2.state.value == "exported":
+                    store.mark_apply_checked(args.lease_id)
             payload = {
                 "ok": True,
                 "patches": [str(p) for p in patches],
-                "audit": audit.to_dict(),
+                "audit": evidence,
                 "host_apply_check": apply_result,
                 "mutated_repo": False,
                 "note": "Host creates sanitized branch commits after apply-check",
@@ -703,6 +710,14 @@ def cmd_worker(args: argparse.Namespace) -> int:
             return 0
 
         if action == "refresh":
+            lease = store.get(args.lease_id)
+            if lease.state.value != "apply_checked" and lease.state.value != "integrated":
+                raise ValidationIssue(
+                    "refresh_requires_apply_checked",
+                    f"refresh requires APPLY_CHECKED (got {lease.state.value}); "
+                    "never synthesize from EXPORTED alone",
+                    path=f"leases.{args.lease_id}.state",
+                )
             store.mark_integrated(args.lease_id)
             result = store.refresh_worker_to_tip(args.lease_id, new_tip=args.new_tip)
             store.close(args.lease_id)
