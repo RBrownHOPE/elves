@@ -26,12 +26,16 @@ Cobbler sits inside Elves, not beside it:
 - **Cobbler** handles coordination: intent, routing, context, evidence, dissent, medium, and fitted
   answer.
 - **Domain workflows** handle specialized work under Cobbler.
-- **Providers** are optional role routes.
+- **Providers / optional multi-agent tools** are role routes, work drivers, and domain tools — not
+  the orchestration layer.
 
 Math is the first domain workflow. When a task is mathematical, Cobbler routes into the math
 workflow: Discovery Sprint, scout lanes, proof critics, derivation checkers, source auditors,
-artifact ledgers, and human verification. The math ledgers are domain evidence ledgers, not a
-separate Cobbler or Council memory system.
+artifact ledgers, optional evolutionary search (e.g. Google AlphaEvolve when configured), and human
+verification. The math ledgers are domain evidence ledgers, not a separate Cobbler or Council memory
+system. Capability scan may also surface implement work drivers (Grok Build, OpenCode) and
+plan/review lenses (OpenRouter, Gemini CLI, Antigravity, Muse) for ordinary coding runs — same
+native-first rule: missing optional tools never block host-native Cobbler.
 
 ## The handling paths
 
@@ -163,21 +167,32 @@ slash command.
 Legacy Council aliases still work and now route to Cobbler. Claude Code supports `/council`, `/ec`,
 and `/elves-council`. Codex supports `$elves council: <task>` and natural Council references.
 
-## External-agent setup
+## External-agent setup and model onboarding
 
-Setup is optional. Native-only Elves needs no external tools or keys.
+Setup is optional. Native-only Elves needs no external tools or keys. **Supported main drivers are
+Claude Code and Codex** — they run Elves. Other CLIs and services (Antigravity, Gemini, OpenCode,
+Grok Build, OpenRouter, Muse, AlphaEvolve, etc.) are optional multi-agent routes only; running Elves
+with those as the primary host is not our focus. Exotic interfaces are **not heavily tested**
+(including without maintainer subscriptions to dogfood them). **Prefer PRs** (or issues) when
+something breaks. **Claude Code and Codex** share one onboarding protocol
+(`references/model-onboarding.md`):
 
 ```bash
+python3 scripts/cobbler_agents.py onboard plan --json    # interview packet
+python3 scripts/cobbler_agents.py onboard apply --json --planning host-native --review claude-code --force
+python3 scripts/cobbler_agents.py onboard show --json
+python3 scripts/cobbler_agents.py onboard probe --json   # structural; optional --smoke
 python3 scripts/cobbler_agents.py setup --json --dry-run
-python3 scripts/cobbler_agents.py setup --json --implement grok-build --review claude-code
 ```
 
-Setup inventories tools without printing credentials, writes only ignored local
-`.elves/models.toml` (Never stage it), and never pastes API keys into TOML/chat/Survival Guide.
+Claude Code: `/setup-cobbler` or `/setup-council`. Codex: `$elves setup-cobbler` or
+`$elves setup-council` / natural language — not a top-level Codex slash.
+
+Onboarding interviews purpose→route choices, writes only ignored local `.elves/models.toml`
+(Never stage it), probes that routes work, and never pastes API keys into TOML/chat/Survival Guide.
 Host coordinators should snapshot effective routes into the Survival Guide during staging.
-Recipes for Claude-only, Grok-only, Sakana-only, custom wrappers, OpenRouter breadth, and API-only
-models live in `references/cobbler-setup-recipes.md`. Commit/push/PR remain host operations, not
-model roles. `remaining_quota` stays unknown unless a harness explicitly exposes it.
+Recipes: `references/cobbler-setup-recipes.md`. Commit/push/PR remain host operations, not model
+roles. `remaining_quota` stays unknown unless a harness explicitly exposes it.
 
 ## Provider routing
 
@@ -214,8 +229,10 @@ guardrails.
 ## CouncilElves launch
 
 See [`references/councilelves-launch-prompt.md`](../references/councilelves-launch-prompt.md) for the
-plan→implement→review loop overview (two lanes: `implementation_lane: fast | untrusted`). For the
-default “have Grok run it” path, use
+plan→implement→review loop overview. **Default is host-native** (Claude Code or Codex implements
+itself). Optional external implementers and the host-import writer lease are capability upgrades
+when those tools exist — same pattern as math optional providers. When using an external
+implementer, see
 [`references/grok-implementer-launch-prompt.md`](../references/grok-implementer-launch-prompt.md) and
 `python3 scripts/cobbler_agents.py implement …`. Design:
 [`docs/plans/smart-plan-grok-implement.md`](plans/smart-plan-grok-implement.md).

@@ -82,6 +82,8 @@ class LaneSpec:
     qualified_capabilities: tuple[str, ...] = ()
     # When True, lane grants come only from attempt.env_grants (no LaneSpec inherit).
     isolate_attempt_env_grants: bool = True
+    # Exact external chat/session id for plan→review continuity (never latest/continue).
+    session_id: str | None = None
 
 
 @dataclass
@@ -959,6 +961,8 @@ async def _run_single_attempt(
         )
     else:
         try:
+            # Prefer attempt-level session if present, else lane session (plan→review continuity).
+            attempt_session = getattr(attempt, "session_id", None) or spec.session_id
             invocation = build_readonly_invocation(
                 adapter=attempt.adapter,
                 profile=attempt.profile,
@@ -973,6 +977,7 @@ async def _run_single_attempt(
                 input_contract=attempt_input_contract,
                 output_contract=attempt_output_contract,
                 repo_root=repo_root,
+                session_id=attempt_session,
             )
         except ValidationIssue as issue:
             return _fail(

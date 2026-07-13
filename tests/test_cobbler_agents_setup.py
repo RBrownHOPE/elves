@@ -29,6 +29,7 @@ from cobbler_runtime.setup import (  # noqa: E402
     render_models_toml,
     run_setup,
     write_models_toml,
+    PROFILE_RECIPES,
 )
 
 
@@ -40,6 +41,9 @@ class InventoryTests(unittest.TestCase):
                 "grok-build": False,
                 "codex-fugu": False,
                 "custom-cli": False,
+                "gemini-cli": False,
+                "antigravity-cli": False,
+                "opencode-cli": False,
             }
         )
         by_name = {i.adapter: i for i in items}
@@ -114,6 +118,36 @@ class TomlGenerationTests(unittest.TestCase):
             [e.profile for e in resolved.roles["implement"].fallback_chain],
             ["host-native"],
         )
+
+    def test_tier_and_google_profiles_render(self) -> None:
+        prefs = preferences_from_flags(
+            planning="claude-code-planning",
+            review="gemini-cli",
+            implement="claude-code-labor",
+        )
+        text = render_models_toml(prefs)
+        self.assertIn("[profiles.claude-code-planning]", text)
+        self.assertIn("[profiles.claude-code-labor]", text)
+        self.assertIn("[profiles.gemini-cli]", text)
+        self.assertIn('adapter = "gemini-cli"', text)
+        self.assertIn("requested_model", text)
+        self.assertIn("claude-code-planning", PROFILE_RECIPES)
+        self.assertIn("antigravity-cli", PROFILE_RECIPES)
+        self.assertIn("antigravity-labor", PROFILE_RECIPES)
+        self.assertTrue(PROFILE_RECIPES["gemini-cli"].get("plan_review_only"))
+        self.assertTrue(PROFILE_RECIPES["antigravity-cli"].get("plan_review_only"))
+        self.assertFalse(PROFILE_RECIPES["antigravity-labor"].get("plan_review_only"))
+        self.assertEqual(PROFILE_RECIPES["antigravity-labor"].get("adapter"), "antigravity-cli")
+        try:
+            import tomllib
+
+            parsed = tomllib.loads(text)
+            self.assertEqual(parsed["roles"]["planning"]["profile"], "claude-code-planning")
+            self.assertEqual(parsed["roles"]["implement"]["profile"], "claude-code-labor")
+            self.assertEqual(parsed["profiles"]["gemini-cli"]["adapter"], "gemini-cli")
+            self.assertEqual(parsed["profiles"]["claude-code-planning"]["adapter"], "claude-code")
+        except ModuleNotFoundError:
+            self.assertIn('profile = "claude-code-labor"', text)
 
     def test_secret_patterns_rejected(self) -> None:
         with self.assertRaises(ValidationIssue):
@@ -271,6 +305,58 @@ class SetupCliTests(unittest.TestCase):
         self.assertFalse(payload["models_toml_written"])
         self.assertFalse(payload["credentials_printed"])
         self.assertFalse(payload["staged_models_toml"])
+
+    def test_setup_cli_partial_apply_preserves_profile_and_top_level_values(self) -> None:
+        cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / ".elves" / "models.toml"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                """
+sharing_policy = "private-machine"
+document_owner = "custom-host"
+session_mode_default = "exact_resume"
+usage_budget_warning_tokens = 1234
+
+[profiles.claude-code-planning]
+adapter = "claude-code"
+executable = "claude"
+requested_model = "claude-opus-user-pin"
+
+[roles.planning]
+profile = "claude-code-planning"
+required = false
+
+[roles.review]
+profile = "host-native"
+required = true
+""".lstrip(),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(cli),
+                    "setup",
+                    "--json",
+                    "--repo-root",
+                    tmp,
+                    "--implement",
+                    "host-native",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            text = path.read_text(encoding="utf-8")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('requested_model = "claude-opus-user-pin"', text)
+        self.assertIn('sharing_policy = "private-machine"', text)
+        self.assertIn('document_owner = "custom-host"', text)
+        self.assertIn('session_mode_default = "exact_resume"', text)
+        self.assertIn("usage_budget_warning_tokens = 1234", text)
 
 
 class AliasDelegationTests(unittest.TestCase):

@@ -64,6 +64,7 @@ cobbler-provider-backed-fallback: native-subagent-and-note
 cobbler-provider-backed-required-env: []
 cobbler-provider-backed-optional-env:
   - OPENROUTER_API_KEY
+  - META_API_KEY
   - GEMINI_API_KEY
   - ANTHROPIC_API_KEY
   - XAI_API_KEY
@@ -80,11 +81,27 @@ cobbler-provider-backed-role-effort:
   skeptic: high
   tester: medium
 
-# Example external routes when provider-backed council is explicitly enabled:
+# Example external routes when provider-backed council is explicitly enabled and keys exist:
 # cobbler-provider-backed-role-models:
-#   skeptic: "openrouter:<model-id>"
+#   architect: "meta:muse-spark-1.1"           # Meta Model API; env META_API_KEY
+#   skeptic: "openrouter:<model-id>"         # any OpenRouter model; env OPENROUTER_API_KEY
 #   fast_sanity: "openrouter:<fast-model-id>"
 ```
+
+**OpenRouter (reference: multi-model review panels):** if `OPENROUTER_API_KEY` is set, projects may
+expose named presets (`or-…`) that shell out to an OpenRouter chat wrapper with any
+`provider/model-id` the user wants. Cobbler role hints use `openrouter:<model-id>`. Use for
+read-only plan/review/scout breadth. Missing key → native fallback.
+
+**Meta Muse Spark 1.1 (reference: Meta Model API wrapper + panel preset):** if `META_API_KEY` or
+`MODEL_API_KEY` is set, projects may call model id **`muse-spark-1.1`** via the Meta Responses API
+(`https://api.meta.ai`, optional `META_API_BASE_URL`). Name the lane (e.g. `meta-muse-spark11`) and
+run it as one independent planner/reviewer among others — never sole authority. Pin the catalog id
+from `/v1/models`; do not assume aliases like `muse-spark-latest`. Missing/empty key → native
+fallback.
+
+Operational recipe detail: `references/cobbler-setup-recipes.md` (OpenRouter + Muse sections).
+
 
 Leave `cobbler-provider-backed-required-env` empty unless a specific project intentionally makes
 provider-backed council a required workflow. Do not make ordinary Cobbler or Council-compatible use

@@ -1451,6 +1451,121 @@ class AdapterBuilderTests(unittest.TestCase):
                                 f"{adapter}: unexpected flag {token}; fixture has {sorted(family)[:20]}...",
                             )
 
+    def test_google_cli_readonly_uses_print_flags_not_bare_stdin(self) -> None:
+        """Gemini / Antigravity dogfood: headless -p/--print, no session create."""
+        from cobbler_runtime.adapters import (  # noqa: PLC0415
+            build_session_create_invocation,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "packet.json"
+            prompt = Path(tmp) / "prompt.txt"
+            packet.write_text("{}", encoding="utf-8")
+            prompt.write_text("task", encoding="utf-8")
+            gem = build_readonly_invocation(
+                adapter="gemini-cli",
+                profile="gemini-cli",
+                packet_path=packet,
+                prompt_path=prompt,
+                requested_model="gemini-2.5-pro",
+                task="review the patch",
+                role="review",
+                repo_root=Path(tmp),
+            )
+            self.assertTrue(gem.read_only)
+            self.assertEqual(gem.input_mode, "none")
+            self.assertIsNone(gem.stdin_text)
+            self.assertIn("-p", gem.argv)
+            self.assertIn("--skip-trust", gem.argv)
+            self.assertIn("--approval-mode", gem.argv)
+            self.assertIn("plan", gem.argv)
+            self.assertIn("-m", gem.argv)
+            self.assertIn("gemini-2.5-pro", gem.argv)
+            self.assertEqual(gem.decoder, "custom-json-envelope")
+
+            agy = build_readonly_invocation(
+                adapter="antigravity-cli",
+                profile="antigravity-cli",
+                packet_path=packet,
+                prompt_path=prompt,
+                executable="agy",
+                requested_model="Gemini 3.1 Pro (High)",
+                task="review the patch",
+                role="review",
+                repo_root=Path(tmp),
+            )
+            self.assertTrue(agy.read_only)
+            self.assertEqual(agy.input_mode, "none")
+            self.assertIsNone(agy.stdin_text)
+            self.assertIn("--print", agy.argv)
+            self.assertIn("--mode", agy.argv)
+            self.assertIn("plan", agy.argv)
+            self.assertIn("--model", agy.argv)
+            self.assertIn("Gemini 3.1 Pro (High)", agy.argv)
+            # prompt body is an argv element after --print
+            print_idx = agy.argv.index("--print")
+            self.assertGreater(len(agy.argv[print_idx + 1]), 10)
+
+            from cobbler_runtime.adapters import (  # noqa: PLC0415
+                assert_exact_session_id,
+                build_session_create_invocation,
+                build_session_resume_invocation,
+            )
+
+            created = build_session_create_invocation(
+                adapter="gemini-cli",
+                profile="gemini-cli",
+            )
+            self.assertIsNotNone(created.session_id)
+            self.assertIn("--session-id", created.argv)
+            sid = created.session_id or ""
+            resumed = build_session_resume_invocation(
+                adapter="gemini-cli",
+                profile="gemini-cli",
+                session_id=sid,
+            )
+            self.assertIn("--resume", resumed.argv)
+            self.assertIn(sid, resumed.argv)
+            with self.assertRaises(ValidationIssue) as amb:
+                assert_exact_session_id("latest", adapter="gemini-cli")
+            self.assertEqual(amb.exception.code, "ambiguous_session_id")
+
+            agy_resume = build_readonly_invocation(
+                adapter="antigravity-cli",
+                profile="antigravity-cli",
+                packet_path=packet,
+                prompt_path=prompt,
+                executable="agy",
+                session_id="11111111-2222-3333-4444-555555555555",
+                task="review",
+                role="review",
+                repo_root=Path(tmp),
+            )
+            self.assertIn("--conversation", agy_resume.argv)
+            self.assertIn("11111111-2222-3333-4444-555555555555", agy_resume.argv)
+
+            oc = build_readonly_invocation(
+                adapter="opencode-cli",
+                profile="opencode-cli",
+                packet_path=packet,
+                prompt_path=prompt,
+                executable="opencode",
+                requested_model="openrouter/qwen/qwen3-max",
+                session_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                task="plan the batch",
+                role="planning",
+                repo_root=Path(tmp),
+            )
+            self.assertEqual(oc.argv[0], "opencode")
+            self.assertEqual(oc.argv[1], "run")
+            self.assertIn("plan the batch", oc.argv[2])
+            self.assertIn("--session", oc.argv)
+            self.assertIn("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", oc.argv)
+            self.assertIn("--model", oc.argv)
+            self.assertIn("openrouter/qwen/qwen3-max", oc.argv)
+            self.assertIn("--agent", oc.argv)
+            self.assertIn("plan", oc.argv)
+
     def test_custom_cli_requires_executable(self) -> None:
         with self.assertRaises(ValidationIssue) as ctx:
             build_readonly_invocation(

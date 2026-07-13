@@ -301,9 +301,18 @@ math-role-models:
   source_auditor: native-subagent
   exposition_editor: native-subagent
   formalization_scout: native-subagent
+  evolutionary_search: off
+math-optional-tools:
+  # - alphaevolve
 math-external-route-examples:
   # subfield_scout: openrouter:<model-id>
   # proof_critic: openrouter:<model-id>
+  # evolutionary_search: alphaevolve:<task-id>
+math-alphaevolve:
+  enabled: false
+  auth: gcloud-impersonation
+  artifact_dir: alphaevolve_runs
+  promote_policy: independent-local-replay-only
 math-fallback-policy: record-before-switching-provider
 math-ledger-dir: docs/math
 ```

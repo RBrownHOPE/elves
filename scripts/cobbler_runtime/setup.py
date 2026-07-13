@@ -9,17 +9,18 @@ Public default remains native-only with zero external tools or keys.
 
 from __future__ import annotations
 
+import json
 import re
-import shutil
 import stat
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence  # Any used by PROFILE_RECIPES
 
 from .adapters import default_profiles
 from .capabilities import doctor_inventory
 from .config import models_toml_is_local_only, resolve_config
+from .executables import resolve_executable
 from .schema import NATIVE_PROFILE_NAME, RoleName, ValidationIssue
 
 
@@ -37,10 +38,13 @@ SETUP_ROLE_SLOTS: tuple[str, ...] = (
 # Env var *names* only — never values.
 OPTIONAL_ENV_NAMES: tuple[str, ...] = (
     "OPENROUTER_API_KEY",
+    "META_API_KEY",
+    "MODEL_API_KEY",
     "ANTHROPIC_API_KEY",
     "XAI_API_KEY",
     "OPENAI_API_KEY",
     "GEMINI_API_KEY",
+    "EXA_API_KEY",
 )
 
 _SECRET_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -125,9 +129,188 @@ def _utc_now() -> str:
 
 
 def which_executable(name: str | None) -> str | None:
-    if not name or name.startswith("("):
-        return None
-    return shutil.which(name)
+    return resolve_executable(name)
+
+
+# Named profiles beyond bare adapter names: planning-quality vs labor tiers, Google plan/review.
+PROFILE_RECIPES: dict[str, dict[str, Any]] = {
+    NATIVE_PROFILE_NAME: {"adapter": NATIVE_PROFILE_NAME},
+    "claude-code": {"adapter": "claude-code"},
+    "claude-code-planning": {
+        "adapter": "claude-code",
+        "notes": "High-quality Claude for planning/review (set requested_model in TOML if desired)",
+        "tier": "planning",
+    },
+    "claude-code-labor": {
+        "adapter": "claude-code",
+        "notes": "Volume Claude for implement labor (cheaper/faster model via requested_model)",
+        "tier": "labor",
+    },
+    "grok-build": {"adapter": "grok-build"},
+    "codex-fugu": {"adapter": "codex-fugu"},
+    "codex-fugu-planning": {
+        "adapter": "codex-fugu",
+        "notes": "High-quality Codex for planning/review (set requested_model in TOML if desired)",
+        "tier": "planning",
+    },
+    "codex-fugu-labor": {
+        "adapter": "codex-fugu",
+        "notes": "Volume Codex for implement labor (cheaper/faster model via requested_model)",
+        "tier": "labor",
+    },
+    "gemini-cli": {
+        "adapter": "gemini-cli",
+        "executable": "gemini",
+        "notes": (
+            "Google Gemini CLI (API key / GEMINI_API_KEY) — plan/review lens. "
+            "Pin a current model via requested_model (prefer latest Gemini, e.g. "
+            "gemini-2.5-pro or newer when available). Headless needs --skip-trust. "
+            "Not recommended for bulk implement."
+        ),
+        "plan_review_only": True,
+    },
+    "antigravity-cli": {
+        "adapter": "antigravity-cli",
+        "executable": "agy",
+        "notes": (
+            "Google Antigravity CLI (agy) — preferred Google plan/review lens. "
+            "Pin latest Gemini via requested_model (e.g. 'Gemini 3.1 Pro (High)' for "
+            "plan/review). OAuth or GCP project; not a main Elves host."
+        ),
+        "plan_review_only": True,
+        "executable_fallbacks": ("antigravity",),
+    },
+    # Experimental labor: same adapter, Flash-class model for volume implement.
+    # Not Lane A (that remains Grok-oriented). Host must qualify tools/yolo.
+    "antigravity-labor": {
+        "adapter": "antigravity-cli",
+        "executable": "agy",
+        "notes": (
+            "Experimental Antigravity labor tier — pin a fast current model "
+            "(e.g. 'Gemini 3.5 Flash (High)' or Medium). Not host-import write-lease "
+            "qualified; not cobbler implement prepare/launch (Grok Lane A). "
+            "Use only when you accept Google CLI tool semantics and cost."
+        ),
+        "tier": "labor",
+        "plan_review_only": False,
+        "executable_fallbacks": ("antigravity",),
+    },
+    "opencode-cli": {
+        "adapter": "opencode-cli",
+        "executable": "opencode",
+        "notes": (
+            "OpenCode (opencode.ai) — Claude Code–like terminal agent; OpenRouter and 75+ "
+            "providers. Prefer plan/review with --agent plan; pin model as provider/model "
+            "(e.g. openrouter/qwen/qwen3-max). Exact --session for continuity."
+        ),
+        "plan_review_only": True,
+    },
+    "opencode-labor": {
+        "adapter": "opencode-cli",
+        "executable": "opencode",
+        "notes": (
+            "Experimental OpenCode implement labor (main batch coding) via "
+            "`opencode run --auto` + OpenRouter/other models. Not host-import write-lease "
+            "qualified; not Grok Lane A default. Pin requested_model (provider/model). "
+            "Prefer exact --session for continuity."
+        ),
+        "tier": "labor",
+        "plan_review_only": False,
+    },
+    "custom-cli": {"adapter": "custom-cli"},
+    # Provider-breadth tokens used in interview — not bare apply targets.
+    # Host must configure a custom-cli wrapper (see cobbler-setup-recipes.md).
+    "openrouter": {
+        "adapter": "custom-cli",
+        "apply_blocked": True,
+        "notes": (
+            "Bare token blocked. Use openrouter-lens or a named or-* preset "
+            "(scripts/openrouter_lens.py + OPENROUTER_API_KEY)."
+        ),
+    },
+    # Apply-ready OpenRouter plan/review lenses (custom-cli → scripts/openrouter_lens.py).
+    "openrouter-lens": {
+        "adapter": "custom-cli",
+        "executable": "scripts/openrouter_lens.py",
+        "notes": (
+            "OpenRouter plan/review lens (read-only). Requires OPENROUTER_API_KEY. "
+            "Pin requested_model to a current OpenRouter id (e.g. qwen/qwen3-max, "
+            "z-ai/glm-5). Prefer exact session_id for plan→review; else attach plan "
+            "docs via packet/context files. Never main host or bulk implement."
+        ),
+        "plan_review_only": True,
+    },
+    "or-qwen-max": {
+        "adapter": "custom-cli",
+        "executable": "scripts/openrouter_lens.py",
+        "notes": (
+            "Named OpenRouter preset for a strong Qwen-class plan/review model. "
+            "Set requested_model to the current OpenRouter slug (re-check catalog). "
+            "Example dogfood: qwen/qwen3-max — update when OpenRouter renames."
+        ),
+        "plan_review_only": True,
+        "default_requested_model": "qwen/qwen3-max",
+    },
+    "or-glm": {
+        "adapter": "custom-cli",
+        "executable": "scripts/openrouter_lens.py",
+        "notes": (
+            "Named OpenRouter preset for a strong GLM-class plan/review model. "
+            "Set requested_model to the current OpenRouter slug (re-check catalog). "
+            "Example dogfood: z-ai/glm-5 — update when OpenRouter renames."
+        ),
+        "plan_review_only": True,
+        "default_requested_model": "z-ai/glm-5",
+    },
+    "meta-muse": {
+        "adapter": "custom-cli",
+        "apply_blocked": True,
+        "notes": (
+            "Meta Muse is not a bare CLI. Configure a custom-cli wrapper profile "
+            "(see cobbler-setup-recipes.md) and apply that profile name."
+        ),
+    },
+    "alphaevolve": {
+        "adapter": "custom-cli",
+        "apply_blocked": True,
+        "notes": (
+            "AlphaEvolve is math Survival Guide config, not an onboard apply role "
+            "(see math-alphaevolve.md)."
+        ),
+    },
+}
+
+
+def profile_adapter_name(profile: str) -> str:
+    """Resolve a profile or tier name to its inventory adapter key."""
+    recipe = PROFILE_RECIPES.get(profile)
+    if recipe:
+        return str(recipe.get("adapter") or profile)
+    return profile
+
+
+def profile_is_apply_blocked(profile: str) -> bool:
+    recipe = PROFILE_RECIPES.get(profile) or {}
+    return bool(recipe.get("apply_blocked"))
+
+
+def resolve_recipe_executable(profile: str) -> str | None:
+    """Pick executable from recipe, preferring PATH-present fallbacks."""
+    recipe = PROFILE_RECIPES.get(profile) or {}
+    primary = recipe.get("executable")
+    if primary and which_executable(str(primary)):
+        return str(primary)
+    for alt in recipe.get("executable_fallbacks") or ():
+        if which_executable(str(alt)):
+            return str(alt)
+    if primary:
+        return str(primary)
+    # Bare adapter profiles use default_profiles executable hints.
+    defaults = default_profiles()
+    adapter = profile_adapter_name(profile)
+    if adapter in defaults and defaults[adapter].executable:
+        return defaults[adapter].executable
+    return None
 
 
 def inventory_tools(
@@ -161,6 +344,13 @@ def inventory_tools(
             present = bool(fake_presence[name])
         else:
             present = which_executable(exe) is not None
+            if name == "antigravity-cli" and not present:
+                # Prefer agy; accept legacy antigravity binary name.
+                for alt in ("agy", "antigravity"):
+                    if which_executable(alt):
+                        present = True
+                        exe = alt
+                        break
         version = fake_versions.get(name)
         auth = fake_auth.get(name, "unknown" if present else "missing")
         # Never infer auth from env var *presence of values* — only name existence as hint.
@@ -173,6 +363,8 @@ def inventory_tools(
             notes = "Headless worktree-resume broken on 0.2.93; use exact child + registered worktree"
         if name == "custom-cli":
             notes = "User-defined wrapper; qualify capabilities before write roles"
+        if name in {"gemini-cli", "antigravity-cli"}:
+            notes = "Google subscription CLI — prefer planning/review; avoid bulk implement cost"
         items.append(
             ToolInventoryItem(
                 adapter=name,
@@ -195,11 +387,13 @@ def recommend_routes(inventory: Sequence[ToolInventoryItem]) -> list[str]:
         f"Generated {_utc_now()}: prefer host-native for validate/synthesize by default.",
         "Setup is optional; native-only Elves needs no external tools or keys.",
         "Commit/push/PR are host operations, not model roles.",
+        "Within a family, prefer a high-quality model for plan/review and a labor model for implement.",
     ]
     if "claude-code" in present:
         recs.append(
-            "claude-code present: suitable for planning/review lenses when authenticated; "
-            "do not hardcode a specific model id as a public default."
+            "claude-code present: use claude-code-planning for plan/review and "
+            "claude-code-labor for implement volume when you want a tier split; "
+            "set requested_model on each profile in models.toml (no public prestige defaults)."
         )
     if "grok-build" in present:
         recs.append(
@@ -208,8 +402,13 @@ def recommend_routes(inventory: Sequence[ToolInventoryItem]) -> list[str]:
         )
     if "codex-fugu" in present:
         recs.append(
-            "codex-fugu present: candidate for independent review/planning lenses; "
-            "MCP OAuth warnings are not inference failures."
+            "codex-fugu present: use codex-fugu-planning vs codex-fugu-labor for plan/review vs "
+            "implement volume; MCP OAuth warnings are not inference failures."
+        )
+    if "gemini-cli" in present or "antigravity-cli" in present:
+        recs.append(
+            "Google Gemini CLI / Antigravity CLI present: good optional plan/review lenses; "
+            "usually not cost-effective for the main implement batch."
         )
     if present <= {NATIVE_PROFILE_NAME}:
         recs.append("No external CLIs detected: stay fully native-host for all roles.")
@@ -235,7 +434,37 @@ def assert_toml_has_no_secrets(text: str) -> None:
             )
 
 
-def render_models_toml(preferences: SetupPreferences) -> str:
+def _toml_key(value: str) -> str:
+    return value if re.fullmatch(r"[A-Za-z0-9_-]+", value) else json.dumps(value)
+
+
+def _toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    if isinstance(value, Mapping):
+        entries = ", ".join(
+            f"{_toml_key(str(key))} = {_toml_value(item)}"
+            for key, item in value.items()
+            if item is not None
+        )
+        return "{ " + entries + " }"
+    raise ValidationIssue(
+        "unsupported_profile_value",
+        f"Cannot preserve models.toml profile value of type {type(value).__name__}",
+    )
+
+
+def render_models_toml(
+    preferences: SetupPreferences,
+    *,
+    existing_profiles: Mapping[str, Mapping[str, Any]] | None = None,
+) -> str:
     """Render a local models.toml from preferences (no credentials)."""
     lines: list[str] = [
         "# Local Cobbler external-agent preferences (machine-local; do not stage)",
@@ -259,22 +488,72 @@ def render_models_toml(preferences: SetupPreferences) -> str:
         profiles_needed.add(profile)
     for chain in preferences.fallbacks.values():
         profiles_needed.update(chain)
+    # Partial apply must preserve every existing profile body, including inactive
+    # custom wrappers the user may route to again later.
+    profiles_needed.update((existing_profiles or {}).keys())
     profiles_needed.discard("")
 
-    adapter_for = {
-        NATIVE_PROFILE_NAME: NATIVE_PROFILE_NAME,
-        "claude-code": "claude-code",
-        "grok-build": "grok-build",
-        "codex-fugu": "codex-fugu",
-        "custom-cli": "custom-cli",
-    }
     for profile_name in sorted(profiles_needed):
-        adapter = adapter_for.get(profile_name, "custom-cli")
-        lines.append(f"[profiles.{profile_name}]")
+        recipe = PROFILE_RECIPES.get(profile_name)
+        if recipe is None:
+            adapter = "custom-cli"
+            executable = None
+            notes = (
+                "Unknown profile name — set adapter/executable explicitly before use; "
+                "onboard apply rejects bare openrouter/meta-muse/alphaevolve tokens"
+            )
+        else:
+            adapter = str(recipe.get("adapter") or "custom-cli")
+            executable = resolve_recipe_executable(profile_name)
+            notes = recipe.get("notes")
+        lines.append(f"[profiles.{_toml_key(profile_name)}]")
+        existing_body = dict((existing_profiles or {}).get(profile_name) or {})
+        if existing_body:
+            existing_body.setdefault("adapter", adapter)
+            if executable:
+                existing_body.setdefault("executable", executable)
+            priority = ("adapter", "executable", "requested_model", "extra_args", "notes")
+            ordered_keys = [key for key in priority if key in existing_body]
+            ordered_keys.extend(key for key in existing_body if key not in ordered_keys)
+            for key in ordered_keys:
+                value = existing_body[key]
+                if value is not None:
+                    lines.append(f"{_toml_key(str(key))} = {_toml_value(value)}")
+            lines.append("")
+            continue
         lines.append(f'adapter = "{adapter}"')
-        if adapter == "custom-cli" and profile_name != "custom-cli":
-            lines.append('executable = "my-coding-agent"')
-            lines.append('notes = "Replace executable for your wrapper"')
+        if executable:
+            lines.append(f'executable = "{executable}"')
+        if (
+            adapter == "custom-cli"
+            and profile_name not in PROFILE_RECIPES
+            and not executable
+        ):
+            # Do not invent my-coding-agent for known apply-blocked tokens.
+            lines.append(
+                '# executable = "…"  # required for custom-cli — set your wrapper path'
+            )
+        if notes:
+            safe = str(notes).replace('"', "'")
+            lines.append(f'notes = "{safe}"')
+        if recipe and recipe.get("tier") in {"planning", "labor"}:
+            lines.append(
+                '# requested_model = "…"  # optional: pin high-quality vs labor model for this tier'
+            )
+        default_model = (recipe or {}).get("default_requested_model")
+        if default_model:
+            lines.append(
+                f'# requested_model = "{default_model}"  '
+                "# pin current OpenRouter slug; re-check catalog after upgrades"
+            )
+        if recipe and recipe.get("plan_review_only"):
+            lines.append(
+                "# Prefer this profile on planning/review/scout roles only — not bulk implement."
+            )
+        if recipe and recipe.get("apply_blocked"):
+            lines.append(
+                "# apply_blocked: do not use this token as roles.*.profile without a real wrapper."
+            )
         lines.append("")
 
     for role in SETUP_ROLE_SLOTS:
@@ -378,9 +657,18 @@ def preferences_from_flags(
     session_mode: str = "ephemeral",
     sharing_policy: str = "local-only",
     native_fallback: bool = True,
+    base_roles: Mapping[str, str] | None = None,
 ) -> SetupPreferences:
-    """Deterministic non-interactive preference builder."""
+    """Deterministic non-interactive preference builder.
+
+    When ``base_roles`` is provided (e.g. existing models.toml), only roles with
+    explicit non-empty flags are overwritten — partial apply is merge semantics.
+    """
     roles = {role: NATIVE_PROFILE_NAME for role in SETUP_ROLE_SLOTS}
+    if base_roles:
+        for role, profile in base_roles.items():
+            if role in roles and profile:
+                roles[role] = str(profile)
     mapping = {
         "implement": implement,
         "review": review,
@@ -399,7 +687,6 @@ def preferences_from_flags(
             if profile != NATIVE_PROFILE_NAME:
                 fallbacks[role] = [NATIVE_PROFILE_NAME]
     required_roles = [r for r in (required or []) if r in SETUP_ROLE_SLOTS]
-    # validate/synthesize default required for safety of host ownership messaging
     return SetupPreferences(
         roles=roles,
         fallbacks=fallbacks,
@@ -422,6 +709,7 @@ def run_setup(
     fake_presence: Mapping[str, bool] | None = None,
     fake_versions: Mapping[str, str | None] | None = None,
     fake_auth: Mapping[str, str] | None = None,
+    existing_profiles: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> SetupResult:
     """Run setup inventory + optional local models.toml generation.
 
@@ -491,17 +779,46 @@ def run_setup(
                     "Smoke executor returned a non-mapping result; smoked=false"
                 )
 
-    # Validate required roles against inventory presence.
+    # Reject apply-blocked tokens (openrouter/meta-muse/alphaevolve bare names).
+    for role, profile in prefs.roles.items():
+        if profile_is_apply_blocked(profile):
+            result.ok = False
+            result.issues.append(
+                {
+                    "code": "apply_blocked_profile",
+                    "message": (
+                        f"Role `{role}` uses apply-blocked profile `{profile}`. "
+                        f"{(PROFILE_RECIPES.get(profile) or {}).get('notes', '')}"
+                    ),
+                }
+            )
+
+    # Warn when plan_review_only profile is used for implement.
+    implement_profile = prefs.roles.get("implement", NATIVE_PROFILE_NAME)
+    impl_recipe = PROFILE_RECIPES.get(implement_profile) or {}
+    if impl_recipe.get("plan_review_only"):
+        result.warnings.append(
+            f"Implement role uses plan/review-only profile `{implement_profile}` — "
+            "usually not cost-effective for bulk implement; prefer host-native or labor tier."
+        )
+
+    # Validate required roles against inventory presence (tier → underlying adapter).
     present = {item.adapter for item in inventory if item.present}
     for role in prefs.required_roles:
         profile = prefs.roles.get(role, NATIVE_PROFILE_NAME)
-        if profile != NATIVE_PROFILE_NAME and profile not in present:
+        if profile == NATIVE_PROFILE_NAME:
+            continue
+        if profile_is_apply_blocked(profile):
+            continue  # already recorded
+        adapter = profile_adapter_name(profile)
+        if adapter not in present and profile not in present:
             result.ok = False
             result.issues.append(
                 {
                     "code": "required_route_unavailable",
                     "message": (
-                        f"Required role `{role}` maps to `{profile}` but that tool is not present"
+                        f"Required role `{role}` maps to profile `{profile}` "
+                        f"(adapter `{adapter}`) but that tool is not present"
                     ),
                 }
             )
@@ -515,7 +832,10 @@ def run_setup(
         result.notes.append("Dry-run: no files written")
     if should_write:
         try:
-            text = render_models_toml(prefs)
+            text = render_models_toml(
+                prefs,
+                existing_profiles=existing_profiles,
+            )
             path, written = write_models_toml(root, text, force=force_toml)
             result.models_toml_written = written
             result.models_toml_path = str(path)

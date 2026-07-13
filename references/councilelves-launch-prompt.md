@@ -3,33 +3,46 @@
 Cobbler is the coordinator. "CouncilElves" is the compatibility name for the same loop: plan with
 independent lenses, implement, review independently, integrate on the host, and repeat.
 
-## Two implementation lanes
+## Default first
 
-Record `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
-`.elves-session.json`).
+**Vanilla path:** Claude Code or Codex out of the box. The host implements batches itself under
+Cobbler. Native subagents (or direct analysis) handle extra lenses. No Grok, OpenRouter, Sakana,
+or external implement CLI required. Missing optional tools never block the run.
 
-| Lane | When | Default? |
-|------|------|----------|
-| **`fast`** | User says “have Grok run it”; overnight volume implementation | **Yes** |
-| **`untrusted`** | Prove the writer boundary; repair lease/runtime itself | Explicit opt-in |
+**Optional upgrades** (capability scan — same idea as the math module):
 
-- **Fast path (Lane A):** smart host stages plan/PR/worktree and writes one batch packet; a
-  persistent Grok Build session implements the whole batch with normal coding permissions (`auto`,
-  subagents on). Host gates with tests between batches. See
-  [`grok-implementer-launch-prompt.md`](grok-implementer-launch-prompt.md) and
-  [`docs/plans/smart-plan-grok-implement.md`](../docs/plans/smart-plan-grok-implement.md).
+| Option | When | Default overnight? |
+|--------|------|--------------------|
+| Host-native implement | Always available on Claude Code / Codex | **Yes** |
+| External batch implementer (`implement …`) | User has Grok Build (or similar) and wants it | Opt-in |
+| Stricter host-import writer (`worker …`) | Prove a hard writer boundary; repair that runtime | Explicit opt-in |
+
+When using an external implementer or the host-import writer, record:
+
+```text
+implementation_lane: fast | untrusted
+```
+
+- **External implementer (`fast`):** host stages plan/PR/worktree and one batch packet; e.g. a
+  persistent Grok Build session implements the batch; host gates between batches. See
+  [`grok-implementer-launch-prompt.md`](grok-implementer-launch-prompt.md).
   Operator CLI: `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
-- **Untrusted path (Lane B):** exclusive writer lease, detached commits, host audit/import only
-  (this document’s legacy launch text below). CLI: `python3 scripts/cobbler_agents.py worker …`.
+- **Host-import writer (`untrusted`):** exclusive writer lease, detached commits, host audit/import
+  only (launch text below). CLI: `python3 scripts/cobbler_agents.py worker …`.
 
-Do **not** use the untrusted lease path as the default overnight “turn it over to Grok” path.
+Do **not** use the untrusted lease path as the default overnight path. Do **not** require Grok
+Build for ordinary Elves.
 
-## When to use
+## When to use this file
 
-Use this prompt after staging is launch-ready (plan, Survival Guide, PR, preflight, Stop Gate ready).
-For Lane A, prefer the Grok implementer launch prompt linked above.
+Use after staging is launch-ready (plan, Survival Guide, PR, preflight, Stop Gate ready).
 
-## Launch text (Lane B — untrusted writer)
+- **Host-native run:** ordinary Elves launch prompt (stage, then start) — no `implementation_lane`
+  field required.
+- **External Grok implementer:** prefer [`grok-implementer-launch-prompt.md`](grok-implementer-launch-prompt.md).
+- **Host-import writer lease:** use the launch text below.
+
+## Launch text (host-import writer — advanced)
 
 ```text
 Start the staged Elves run now. Read the Survival Guide first, then .elves-session.json, learnings,
@@ -43,7 +56,7 @@ project Survival Guide). Remediate through the same worker. Repeat through all p
 Never merge unless the user explicitly opts in after Final Readiness.
 ```
 
-## Loop shape (Lane B)
+## Loop shape (host-import writer)
 
 1. **Planning fan-out (read-only, concurrent):** host + optional configured independent reviewers (or native
    fallbacks). Same redacted context packet; no peer reports before synthesis.
@@ -58,14 +71,14 @@ Never merge unless the user explicitly opts in after Final Readiness.
 - Native-only remains complete without external tools/keys.
 - `required = true` only via explicit project Survival Guide.
 - No credentials in config/packets/logs/git.
-- Lane B worker never creates/moves refs, pushes, owns PRs, or edits run memory.
-- Lane A still never merges/tags or opens a second PR; host owns final readiness.
+- Host-import worker never creates/moves refs, pushes, owns PRs, or edits run memory.
+- External implementer still never merges/tags or opens a second PR; host owns final readiness.
 - Git history is operator UI: meaningful Contract/Implement/Validate/Review/Close subjects.
 
 ## Related surfaces
 
-- Runtime CLI: `scripts/cobbler_agents.py` (`implement` for Lane A, `worker` for Lane B)
-- Fast implementer: `references/grok-implementer-launch-prompt.md`
+- Runtime CLI: `scripts/cobbler_agents.py` (`implement` optional external implementer; `worker` host-import)
+- Optional Grok implementer: `references/grok-implementer-launch-prompt.md`
 - Design: `docs/plans/smart-plan-grok-implement.md`
 - Setup: `/setup-cobbler`, `/setup-council`, `$elves setup-cobbler` / natural Codex wording
 - Recipes: `references/cobbler-setup-recipes.md`

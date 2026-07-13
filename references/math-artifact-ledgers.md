@@ -74,6 +74,7 @@ Use `docs/math/model-calls.md`.
 |---|---|---|---|---|---|---|---|
 | M001 | YYYY-MM-DD | proof_critic | openrouter:<model-id> | references/math-review-prompts.md#proof-critic | C001 proof draft | PATCH_REQUIRED | patched Lemma 2 statement |
 | M002 | YYYY-MM-DD | source_auditor | native-subagent | references/math-review-prompts.md#source-auditor | S001 theorem use | verified | updated source ledger |
+| M003 | YYYY-MM-DD | evolutionary_search | alphaevolve:<task-id> | tools/alphaevolve_<task>.py | metric + N programs | numerical_signal / no_signal / idle | local replay path; not proof |
 ```
 
 Rules:
@@ -82,6 +83,8 @@ Rules:
 - If a provider fallback occurs, record the reason and confidence impact.
 - Do not use model agreement as proof status.
 - Record when reviewers disagree and how the disagreement was adjudicated.
+- For AlphaEvolve / evolutionary search: record metric, program count, artifact dir, and whether
+  independent local replay completed before any claim ledger update.
 
 ## Open-Question Ledger
 
@@ -143,6 +146,8 @@ Before sharing a paper or research packet:
 - [ ] Every theorem, lemma, proposition, and conjecture appears in the claim ledger.
 - [ ] Every external theorem used in a proof appears in the source ledger.
 - [ ] Every material model review appears in the model-call ledger.
+- [ ] Evolutionary-search (AlphaEvolve) results, if any, are independently replayed and labeled as
+      numerical signals — not as proofs.
 - [ ] Open questions and failed approaches are not hidden in the manuscript text.
 - [ ] Human verification status is clear for every retained mathematical result.
 - [ ] The final document distinguishes proved results, conjectures, and research directions.

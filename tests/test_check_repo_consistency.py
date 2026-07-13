@@ -99,6 +99,30 @@ class ConsistencyPhraseTests(unittest.TestCase):
                 self.assertIn("\\land-pr", self.consistency.REVIEWED_PR_LANDING_PHRASES[label])
                 self.assertIn("/land-pr", self.consistency.REVIEWED_PR_LANDING_PHRASES[label])
 
+    def test_single_kickoff_corpus_covers_primary_user_and_agent_surfaces(self) -> None:
+        for label in (
+            "SKILL.md",
+            "AGENTS.md",
+            "README.md",
+            "references/kickoff-prompt-template.md",
+            "references/e2e-chat-to-land.md",
+        ):
+            with self.subTest(label=label):
+                self.assertIn(label, self.consistency.SINGLE_KICKOFF_PHRASES)
+
+    def test_single_kickoff_forbidden_corpus_catches_legacy_default_drift(self) -> None:
+        label = "README.md"
+        stale = "**Two-step operator flow**"
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            self.consistency.SINGLE_KICKOFF_FORBIDDEN_PHRASES,
+            "single-kickoff E2E",
+        )
+        self.assertEqual(
+            errors,
+            [f"{label}: stale single-kickoff E2E phrase `{stale}`"],
+        )
+
     def test_implementer_handoff_phrases_cover_skill_and_templates(self) -> None:
         for label in (
             "SKILL.md",

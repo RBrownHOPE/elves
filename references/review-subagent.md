@@ -13,7 +13,16 @@ After each batch, the coordinator spawns this subagent to perform an independent
 5. **Evaluates code quality** against the Code Quality Philosophy (see SKILL.md)
 6. Produces a structured assessment: what's blocking, what's a warning, what's fine, whether every contract item was delivered, and whether the code leaves the repo in better shape
 
-The reviewer has three jobs: find bugs, verify the contract, and enforce code quality. A bug-free batch that only implements half its contract is incomplete. A fully-implemented batch with a security hole needs fixing. A batch that works perfectly but introduces duplicated utilities, ignores existing patterns, or band-aids over root causes makes every future batch harder — that's blocking too.
+The reviewer has **four jobs**, in this priority order:
+
+1. **Completeness vs plan and contract** — not only “do the changes look correct,” but “is the batch done relative to the plan?”
+2. **No regressions** — correct local changes can still break other behavior. Shared surfaces, callers, flows that were not edited can still break.
+3. **Constitution / legality** — if `docs/constitution.md` or `CONSTITUTION.md` exists, deal-breaker behaviors must still hold even when those areas were not the focus of the batch.
+4. **Bugs and code quality** — security holes, wrong logic, duplication, band-aids, architecture drift.
+
+A bug-free batch that only implements half its contract is incomplete. A fully-implemented batch with a security hole isn’t done. A batch whose diff is “correct” but breaks an untouched flow or a constitution invariant is a **regression FAIL**. A batch that works perfectly but introduces duplicated utilities or band-aids makes every future batch harder — that's blocking too.
+
+**Correct changes can still break things.** Prefer finding indirect breakage over congratulating a clean-looking patch.
 
 The coordinator then acts on the findings. It fixes blockers, finishes missing contract items, logs decisions, pushes fixes. New pushes trigger new bot reviews. The coordinator runs the review subagent again. This loop continues until the batch is clean and the contract is fully delivered.
 
@@ -32,15 +41,22 @@ Review the current state of PR #[NUMBER] for repo [OWNER/REPO].
 2. All PR review threads (focus on **unresolved** threads — resolved threads have already been addressed)
 3. All issue comments (focus on comments **without a reply from the agent** — replied comments have been addressed)
 4. CI check status: gh api "repos/OWNER/REPO/commits/HEAD/check-runs"
-5. The plan at [PLAN_PATH]
+5. The plan at [PLAN_PATH] — full batch list and Acceptance, not only the current batch narrative
 6. The batch contract in the execution log at [EXECUTION_LOG_PATH] under the current batch heading
-7. Any full-run `model-routing` preferences in the survival guide, execution-log contract, or
-   `.elves-session.json`: requested route, actual route, and fallback reason
-8. Any `## Cobbler Session State` block or `.elves-session.json` `cobbler.default_for_session`
+7. The **constitution** at `docs/constitution.md` or `CONSTITUTION.md` if it exists — deal-breaker
+   flows/invariants that must still work even when not directly edited
+8. Any full-run `model-routing` preferences in the survival guide, execution-log contract, or
+   `.elves-session.json`: requested route, actual route, and fallback reason. If an external
+   reviewer (e.g. Gemini/Antigravity) also helped plan, **prefer** resuming its **exact
+   session_id** when available (most robust; never latest/continue). **If no session id**, fall
+   back to **repo documents** the agent can see (plan, contract, execution log, Survival Guide,
+   constitution, PR). Missing chat memory is not an excuse to skip completeness review; missing
+   documents when a session id exists is not an excuse to skip re-reading the plan/constitution.
+9. Any `## Cobbler Session State` block or `.elves-session.json` `cobbler.default_for_session`
    state that explains how the run is being coordinated
-9. For mathematical runs, the relevant `docs/math/*` ledgers: claim, source, model-call,
+10. For mathematical runs, the relevant `docs/math/*` ledgers: claim, source, model-call,
    open-question, failed-approach, and human-verification ledgers
-10. The `review_comments` array in [SESSION_JSON_PATH] to see what was already handled in previous cycles
+11. The `review_comments` array in [SESSION_JSON_PATH] to see what was already handled in previous cycles
 
 ```bash
 # Commit history for the batch
@@ -80,9 +96,11 @@ claims need source status, proof status, model-review status, and human-verifica
 - Summarize what the issue is and what file/line it references
 - Note the comment ID so the coordinator can resolve/reply to it after fixing
 
-## Contract verification (this is as important as bug-finding):
+## Completeness verification (plan + contract — as important as bug-finding):
 
-Read the batch contract carefully. For EACH behavior listed in the contract:
+Read the **plan** and the **batch contract**. Do not only grade the diff’s local correctness.
+
+For EACH behavior listed in the contract:
 - Is it implemented in the diff? Show the evidence (file, function, or route).
 - Is it tested? Point to the specific test.
 - If missing or partially implemented, mark it BLOCKING.
@@ -90,6 +108,28 @@ Read the batch contract carefully. For EACH behavior listed in the contract:
 For EACH acceptance criterion:
 - Can it be verified from the diff and test results?
 - If a criterion has no corresponding test or verification, mark it BLOCKING.
+
+Also check **plan-level completeness** for this batch’s scope:
+- Does the batch leave plan Acceptance criteria for this scope open without a hard-stop note?
+- Did “correct” implementation skip a promised behavior that only appears in the plan narrative?
+
+## Constitution / legality (if a constitution file exists):
+
+Read the constitution. For each intention that *could* be affected — including **indirectly**
+(shared utilities, data model, auth, payments, API contracts):
+
+- **PASS** — still holds
+- **WARN** — ambiguous / fragile
+- **FAIL** — broken (BLOCKING)
+- **UNCHANGED** — batch cannot affect it
+
+Mark FAIL if a deal-breaker flow/invariant is broken even when that code was not the edit focus.
+The ideal of the constitution is: some things must still work even if they were not directly worked on.
+
+## Regression verification (correct changes can still break things):
+
+Ask only: “What existing behavior could this break?” Trace shared surfaces and non-obvious callers.
+A patch that is locally correct but breaks an unedited path is a regression finding, not a pass.
 
 ## Coordinator-to-implementer handoff obligations:
 

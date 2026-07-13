@@ -72,6 +72,9 @@ BUILTIN_ADAPTER_NAMES: tuple[str, ...] = (
     "claude-code",
     "grok-build",
     "codex-fugu",
+    "gemini-cli",
+    "antigravity-cli",
+    "opencode-cli",
     "custom-cli",
     "host-native",
 )
@@ -247,6 +250,8 @@ class EffectiveAttempt:
     qualified_capabilities: tuple[str, ...] = ()
     reason: str = "primary"
     notes: str = ""
+    # Exact external chat id for continuity (plan → review). Never latest/continue.
+    session_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {

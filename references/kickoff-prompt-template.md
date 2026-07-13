@@ -1,12 +1,17 @@
 # Kickoff Prompt Template
 
-> Elves works best as a two-call handoff:
+> **Recommended (v2.0+): one kickoff after conceptual agreement.**
 >
-> 1. **Stage the run**
-> 2. **Launch the run**
+> Chat with the main agent (optional multi-planner lenses) until the work is clear, then send
+> **Chat-to-work** (landable PR, no merge) or **Chat-to-land** (through merge) — templates at the
+> bottom of this file. Design: [`e2e-chat-to-land.md`](e2e-chat-to-land.md).
 >
-> Most "the elves stopped" failures come from combining a giant plan and the launch instructions
-> into one overloaded message. The plan already lives on disk. The launch prompt should stay short.
+> The agent plans, stages (branch/PR/docs/preflight), and runs batches in that same run. It does not
+> stop after staging to wait for a second human message. Merge only if you chose chat-to-land.
+>
+> **Legacy two-call handoff** (below) is for huge or unstable plans: stage until launch-ready, stop,
+> then a short launch prompt. Most historical "elves stopped" failures were incomplete staging —
+> single-kickoff E2E puts staging on the agent.
 >
 > Think of staging as winding the spring: clean the docs, line up the branch and PR, run
 > preflight, and stop only when the runway is clear. Then use a fresh launch call to start the
@@ -163,17 +168,19 @@ Keep going until the plan is done, I stop you, or you hit a true blocker.
 
 ## Tips
 
-**Stage and launch in separate calls**
-The split is the point. Staging should absorb plan cleanup and setup churn. Launch should begin
-with a short, behavior-heavy prompt.
+**Use separate calls only for the legacy path**
+Staging must still absorb plan cleanup and setup churn, but chat-to-work/chat-to-land continue into
+execution in the same run once launch-ready. A fresh launch call is for an explicitly chosen legacy
+handoff or a plan that is still too unstable to freeze.
 
-**If you only send one message, the agent should stage first**
-If you paste a large plan and also say "run now," the agent should treat that message as a staging
-request, not a launch request.
+**If you send one E2E kickoff, the agent should stage first and then continue**
+A large plan plus “run now” still forbids coding before launch readiness. It does not create a
+second human gate: finish staging, then enter the batch loop unless intent or merge policy remains
+genuinely ambiguous.
 
-**The agent should push back explicitly**
-When the prompt is overloaded, the agent should say some version of: "Hang on, we need to get
-this right. I'm going to stage the run and wait for your final launch command."
+**The agent should push back only on unresolved intent**
+Ask for clarification when scope, non-negotiables, or merge authorization cannot be inferred
+safely. Do not turn routine internal staging into an unnecessary second user call.
 
 **Don't repeat the whole plan in the launch prompt**
 Point to the plan by path. If the launch prompt starts looking like a second plan file, it is too
@@ -229,3 +236,96 @@ will respond briefly and keep going without stopping.
 **Friday staging is leverage**
 Use Friday afternoon to build a clear plan, stage the run, and make sure preflight is green. Then
 launch in a clean second call and let the agent work through the weekend.
+
+---
+
+## Chat-to-work (E2E, no merge)
+
+> One kickoff: clarify intent (optionally multi-planner), materialize plan + stage, run all batches
+> to a **landable PR**. **Do not merge.** Design: [`e2e-chat-to-land.md`](e2e-chat-to-land.md).
+>
+> Internally still stage-then-execute (docs/PR before coding). User may send one message.
+
+```
+Elves E2E: chat-to-work (no merge).
+
+**Intent / brief:**
+[What I want built or researched. Constraints, non-negotiables, deadline if any.]
+
+**Repo / branch preference:** [auto or feat/…]
+**Work driver:** [host-native | grok-build | opencode-cli | …]
+**Multi-planner:** [optional host Cobbler only | also use available plan/review lenses]
+
+**Your job (one continuous run after planning is solid):**
+1. Chat only as needed to sharpen intent. Optionally route independent planners (Cobbler / available
+   lenses). Reach conceptual agreement; synthesize one plan on disk.
+2. Stage fully (you own staging quality): survival guide, learnings, execution log, branch, PR,
+   preflight, Cobbler session state. Set Run Control: `e2e mode: chat-to-work`,
+   `merge policy: never-merge`, labor re-drive budget 3.
+3. **Do not stop for a second human “launch” message.** Once launch-ready, execute every planned
+   batch: contract → implement → validate → review PR feedback → document → commit/push. Re-read
+   survival guide after every push.
+4. If a work driver returns incomplete work (common with Grok Build): gap-packet + re-drive up to
+   budget; if still incomplete, host finishes the gap or hard-stop with remaining contract. Never
+   mark complete on partial labor.
+5. Run Final Readiness / Readiness Gate. Leave a landable PR for me. Generate Elves Report if the
+   run is substantial.
+
+**Continuation:** Prefer `/goal` (Codex) or host long-run continuation with the same rules once
+staging is launch-ready. Goal/memory authority is the survival guide Stop Gate + Readiness Gate.
+
+**Hard rules:**
+- You never merge.
+- Supported main driver is this host (Claude Code or Codex). Optional tools never required.
+- Do not stop unless Stop Gate allows it, I stop you, or a true blocker.
+
+**Stop when:** plan batches are done (or true blocker), PR is landable, you did not merge.
+```
+
+---
+
+## Chat-to-land (E2E through merge)
+
+> Same as chat-to-work, then **reviewed-PR landing** through a regular merge commit.
+> This is an explicit merge opt-in. Design: [`e2e-chat-to-land.md`](e2e-chat-to-land.md).
+
+```
+Elves E2E: chat-to-land (merge when green).
+
+**Intent / brief:**
+[What I want built or researched. Constraints, non-negotiables, deadline if any.]
+
+**Repo / branch preference:** [auto or feat/…]
+**Work driver:** [host-native | grok-build | opencode-cli | …]
+**Multi-planner:** [optional host Cobbler only | also use available plan/review lenses]
+
+**Your job (one continuous run after planning is solid):**
+1. Chat only as needed to sharpen intent. Optionally route independent planners. Reach conceptual
+   agreement; synthesize one plan on disk.
+2. Stage fully (you own staging quality): survival guide, learnings, execution log, branch, PR,
+   preflight, Cobbler session state. Set Run Control: `e2e mode: chat-to-land`,
+   `merge policy: reviewed-pr-landing-command`, labor re-drive budget 3.
+3. **Do not stop for a second human “launch” message.** Once launch-ready, execute every planned
+   batch end-to-end (same quality bar as a normal Elves run).
+4. Labor completeness: after every work-driver return, verify contract + evidence; re-drive gaps
+   (budget 3) or host-complete / hard-stop. Never accept partial Grok/OpenCode labor as done.
+5. Final Readiness Gate on the tip. Elves Report for substantial runs.
+6. **Reviewed PR landing (explicit merge opt-in):** fresh cumulative review of
+   `git diff <default-branch>...HEAD`, every PR comment/check, fix blockers, re-poll async review/CI,
+   then `gh pr merge --merge` only when not draft, checks green, no blocking review, clean worktree.
+   Never squash or rebase.
+
+**Continuation:** Prefer `/goal` (Codex) or host long-run continuation once staging is ready.
+Authority remains Stop Gate until Readiness; then landing rules above.
+
+**Hard rules:**
+- Merge only via regular merge commit after landing criteria; never squash.
+- Main driver is this host; optional tools are optional.
+- Do not stop mid-run because a work driver "finished a turn" — check completeness.
+
+**Stop when:** PR is merged with a merge commit, or a true blocker prevents safe merge (report exactly what remains).
+```
+
+**Codex tip:** after stage inside the same E2E run (or in a second call), you can wrap the
+execution tail with `/goal` using the short launch body from [`codex-goals.md`](codex-goals.md),
+plus the e2e mode and merge policy from the survival guide.

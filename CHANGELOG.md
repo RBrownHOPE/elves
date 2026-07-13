@@ -4,14 +4,154 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-12
+
+### Efficient multi-model workflows under Cobbler (major)
+
+**Elves 2.0** is about **efficient, intelligent workflows for agentic development and research** —
+not loyalty to a single vendor stack. The default coordinator (**Cobbler**) routes plan, implement,
+review, and math-domain work across agents and models when that helps, while **vanilla Cobbler is
+host-native** (Claude Code or Codex out of the box). Optional tools never block an ordinary
+overnight run. Multi-model support exists so people are **not locked into one ecosystem**; the
+product is still the loop (plan → batches → gates → review → memory), not a model catalog.
+
+This is a major product release (orchestration surface + multi-agent tooling), not only a docs
+pass. Host-native runs stay fully valid without any external provider.
+
+| Layer | What landed (summary) |
+| --- | --- |
+| **Main drivers** | Claude Code / Codex only as supported Elves skill hosts (orchestrators) |
+| **Onboarding** | `onboard plan\|show\|apply\|probe`, partial apply merge, apply-blocked bare tokens, relative probe paths |
+| **Plan/review lenses** | OpenRouter lens + presets; Gemini CLI / Antigravity headless adapters; Muse Spark docs |
+| **Work drivers** | Grok Build Lane A (`implement …`); OpenCode plan/labor adapter (`--file` packets) |
+| **Math domain** | Google **AlphaEvolve** as optional `evolutionary_search` (runner + local evaluator; not a proof engine) |
+| **Honesty** | Exotic main/work paths lightly tested; prefer PRs; exact session ids over `latest`/`continue` |
+
+Canonical maps: [`references/model-onboarding.md`](references/model-onboarding.md),
+[`references/cobbler-setup-recipes.md`](references/cobbler-setup-recipes.md),
+[`references/math-alphaevolve.md`](references/math-alphaevolve.md).
+
+### E2E chat-to-work / chat-to-land (recommended single kickoff)
+
+- **Default user path:** one kickoff after conceptual agreement (optional multi-planner) —
+  plan + stage + batch loop → landable PR (**chat-to-work**) or through reviewed-PR merge
+  (**chat-to-land**). Fixes the old failure mode where users never staged properly.
+- Agent still stages before coding; does not wait for a second human call once launch-ready.
+- Labor completeness: main driver re-drives lazy work drivers (e.g. partial Grok Build turns).
+- Optional `/goal` (Codex) as continuation seatbelt. Docs:
+  [`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md),
+  [`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md).
+
+### Grok implement: aliases, --check, humanized failures (community credit)
+
+- Lane A `implement prepare|launch|resume-batch` accepts Grok model aliases **`fast`** /
+  **`deep`** and optional **`--check`** / **`--effort`**. Failed `--exec` surfaces short
+  `error_human` messages for common CLI dumps (auth, tool-config, rate limit).
+- Documented Grok Build ~0.2.93 **denylist vs allowlist** guidance for read-only/media-style
+  invocations in `references/grok-implementer-launch-prompt.md`.
+- Future backlog (structured review schema, review packet builder, concurrent job status, etc.):
+  [`references/community-grok-plugin-ideas.md`](references/community-grok-plugin-ideas.md).
+- **Credit:** patterns adapted from [stdevMac/grok-in-claude](https://github.com/stdevMac/grok-in-claude)
+  and [stdevMac/grok-in-codex](https://github.com/stdevMac/grok-in-codex) (Apache-2.0). Elves does
+  not vendor those plugins; host-owned leases and run memory remain Elves-native.
+
+### Docs: native-first implement framing
+
+- Clarified that **vanilla Cobbler is host-native** (Claude Code or Codex out of the box). Grok
+  Build, multi-provider plan/review, and the stricter host-import writer lease are **optional
+  upgrades** when those tools exist — same pattern as the math module’s optional providers.
+- Kept operator CLIs (`implement …`, `worker …`) and `implementation_lane: fast | untrusted` as
+  opt-in surfaces; they are not the default overnight path.
+
+### Docs: Muse Spark and OpenRouter as optional planner/reviewer routes
+
+- Documented optional multi-model **plan/review** lanes after the production math-run pattern
+  (thin CLI wrappers, named presets, panel orchestration):
+  - **OpenRouter:** `OPENROUTER_API_KEY` + any `provider/model-id` via named `or-…` presets
+  - **Meta Muse Spark 1.1:** `META_API_KEY` / `MODEL_API_KEY`, catalog id **`muse-spark-1.1`**,
+    preset e.g. `meta-muse-spark11`, Responses API at `api.meta.ai`
+- Independent read-only evidence only; native fallback if key/wrapper missing; never sole
+  authority. Recipes in `references/cobbler-setup-recipes.md` and
+  `references/council-provider-config.md`.
+
+### Docs: Google AlphaEvolve in the math module
+
+- Added optional math role `evolutionary_search` and
+  [`references/math-alphaevolve.md`](references/math-alphaevolve.md) for Google Cloud AlphaEvolve:
+  managed program mutation + **deterministic local evaluator** for high-quality examples and
+  counterexample *signals* (not proofs).
+- Pattern from production math runs: gcloud impersonation (no long-lived keys), sandbox candidates,
+  independent local replay before promotion, artifacts under `alphaevolve_runs/`.
+- Wired into math workflow, provider config, plan/survival templates, ledgers, review prompts, and
+  setup recipes. Still optional; missing AlphaEvolve never blocks native Discovery Sprint.
+
+### Model onboarding (Claude Code + Codex)
+
+- Host-mediated **purpose → route** interview with CLI support:
+  `python3 scripts/cobbler_agents.py onboard plan|show|apply|probe`.
+- Users choose (and later update) which tools handle planning, implement, review, scout, etc.;
+  defaults stay **host-native**.
+- Structural **probe** verifies PATH/`--help` and env **names** (OpenRouter/Meta/AlphaEvolve hints);
+  live smoke remains opt-in and never prints secrets.
+- Protocol: [`references/model-onboarding.md`](references/model-onboarding.md); wired into
+  `/setup-cobbler`, skill surfaces, and setup recipes for both Claude Code and Codex.
+- **Within-family tiers:** `claude-code-planning` / `claude-code-labor` and
+  `codex-fugu-planning` / `codex-fugu-labor` so plan/review can use a high-quality model and
+  implement can use a labor model (pin `requested_model` locally).
+- **Google subscription CLIs:** `gemini-cli` and `antigravity-cli` as optional **plan/review/scout**
+  routes (usually not cost-effective for bulk implement). **Supported main drivers remain Claude
+  Code and Codex only**; other tools are optional lenses, not claimed Elves hosts. Exotic
+  interfaces (Antigravity included) are **not heavily tested** — no maintainer dogfood without
+  the right subscription. Prefer PRs (or issues) when something breaks.
+- **Onboard correctness (pre-merge review fixes):**
+  - Partial `onboard apply` / `setup` **merges** into existing models.toml roles (use
+    `--reset-roles` to wipe unspecified roles back to host-native).
+  - Bare `openrouter` / `meta-muse` / `alphaevolve` tokens are **apply-blocked**; configure a
+    custom-cli wrapper (or math Survival Guide for AlphaEvolve). No placeholder `my-coding-agent`.
+  - `--required` resolves tier profiles to underlying adapters (e.g. `claude-code-planning` →
+    `claude-code`).
+  - Probe reads `[profiles.*].executable` (custom wrappers, antigravity `agy` fallback).
+  - Probe resolves **relative** recipe/profile executables (e.g. `scripts/openrouter_lens.py`)
+    against the repo root so `onboard probe` matches adapter dispatch when cwd ≠ checkout.
+  - Env **name** presence also scans ignored `.env.local` (values never returned).
+  - Plan/review-only profiles on implement emit a warning; corrupt models.toml surfaces warnings
+    instead of silent host-native pass.
+- **Google CLI adapter support (dogfood):**
+  - `gemini-cli` / `antigravity-cli` headless builders use `-p`/`--print` (not bare stdin), Gemini
+    `--skip-trust` + plan approval, Antigravity `--mode plan`.
+  - Prefer **current** Gemini models (dogfood: 3.1 Pro plan/review, 3.5 Flash optional labor);
+    pin via `requested_model` in ignored models.toml — re-check `agy models` after upgrades.
+  - Experimental `antigravity-labor` profile for Flash-class implement; **not** Lane A / Grok
+    `implement prepare|launch`, not write-lease qualified.
+  - **Exact session continuity (preferred, most robust):** `session_id` on readonly invocations and
+    session create/resume for Gemini (`--session-id` / `--resume <uuid>`) and Antigravity
+    (`--conversation <id>`); reject ambiguous latest/continue. Plan→review should resume the same
+    chat when possible.
+  - **No session id (fallback):** repo documents the agent can read (plan, contract, execution log,
+    Survival Guide, constitution) — never invent `latest`/`continue`.
+  - Review protocol: completeness (plan+contract), constitution deal-breakers, and regressions
+    (indirect breakage), not only local correctness of the diff.
+- **OpenRouter plan/review lens:** `scripts/openrouter_lens.py` + apply-ready profiles
+  `openrouter-lens`, `or-qwen-max`, `or-glm` (custom-cli). Exact `--session-id` for plan→review
+  continuity; context files / packet when no session. Bare `openrouter` remains apply-blocked.
+  Pin current OpenRouter model slugs locally (examples: `qwen/qwen3-max`, `z-ai/glm-5`).
+- **OpenCode implement/plan adapter:** `opencode-cli` / `opencode-labor` for the OpenCode terminal
+  agent (Claude Code–like; OpenRouter + 75+ providers). Headless `opencode run` with exact
+  `--session`; labor uses `--auto`. `implement prepare --adapter opencode-cli` alongside Grok.
+  Framed as **work driver (laborer)** under a **main driver** Claude Code/Codex orchestrator
+  (not Elves skill host). Example: OpenCode + OpenRouter GLM for batch coding.
+- **Exotic honesty:** OpenCode/Antigravity as main driver may or may not work (untested / not a
+  design focus). Work-driver matrices (OpenCode, Antigravity, Gemini CLI, OpenRouter, …) are
+  incomplete coverage. Prefer PRs/tests to harden community paths.
+
 ## [1.20.2] - 2026-07-12
 
-### Lane A fast implementer
+### Optional external batch implementer
 
-- Documented `implementation_lane: fast | untrusted` on skill surfaces (`SKILL.md`, `AGENTS.md`) with
-  Lane A as the default “have Grok run it” path.
+- Documented optional `implementation_lane: fast | untrusted` on skill surfaces (`SKILL.md`,
+  `AGENTS.md`) for when an external implement CLI (e.g. Grok Build) is available.
 - Operator CLI: `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
-- Launch recipe: `references/grok-implementer-launch-prompt.md`. Untrusted `worker` lease remains
+- Launch recipe: `references/grok-implementer-launch-prompt.md`. Host-import `worker` lease remains
   advanced and is not the default overnight path.
 
 ## [1.20.1] - 2026-07-12

@@ -1,14 +1,27 @@
 ---
-version: "1.20.2"
+version: "2.0.0"
 ---
 
 # Elves: Autonomous Development Agent (Codex)
 
-You are the night shift. Execute plan-driven work autonomously, batch by batch, with testing, review, and documentation, until the plan is complete or you hit a genuine blocker.
+You are the night shift for **efficient, intelligent agentic workflows** (development and research)
+that do not lock the user into one model ecosystem. Execute plan-driven work autonomously, batch by
+batch, with testing, review, and documentation, until the plan is complete or you hit a genuine
+blocker. Cobbler coordinates multi-model and multi-tool routes when useful; host-native Claude Code
+or Codex is enough for a full overnight run.
 
 **You never merge by default — the user merges when they return. The exceptions are an explicit merge-on-green opt-in recorded in Run Control, or the Reviewed PR Landing Command below. Either way, land only with a regular merge commit after the final readiness review passes, never a squash.**
 
-**A run happens in two stages, and they are separate calls.** First you **stage** the run (Planning + Staging below: clean the plan, set up the branch / PR / worktree, write the survival guide, run preflight) and then stop. Then, in a fresh call, you **start** the run (a short launch prompt turns the loop loose). Most "the elves stopped" failures come from collapsing these into one overloaded message. Stage, then start.
+**Default user path (v2.0+): one kickoff.** Prefer **chat-to-work** or **chat-to-land**
+(`references/e2e-chat-to-land.md`): chat to conceptual agreement (optional multi-planner), then one
+prompt plans, stages, and runs batches. Merge only if chat-to-land / explicit merge opt-in;
+otherwise landable PR only.
+
+**Agent-internal order still has two phases:** stage (plan, branch/PR, run docs, preflight,
+launch-ready) then execute (batch loop). In single-kickoff E2E, do **not** stop after staging for a
+second human message — continue once launch-ready. `/goal` is a continuation seatbelt, not memory.
+
+**Legacy two-call** (stage, then separate launch) remains valid for huge/unstable plans.
 
 ## Reviewed PR Landing Command
 
@@ -96,10 +109,13 @@ verification burden, and likely value to a human mathematician.
 The math workflow is configurable. Native host subagents or direct analysis are the default
 fallback. OpenRouter is a useful optional math role preset because it gives broad model access
 through one key; native Gemini, Claude, xAI, OpenAI, Exa, or local tools can also be configured as
-role-specific upgrades. Missing optional provider access never blocks ordinary Cobbler use or a math
-Discovery Sprint; note the fallback and confidence change in the ledgers. Never treat model output
-as mathematical authority: models may propose ideas, critique derivations, audit sources, and
-improve exposition, but claims remain unverified until a human records the proof and source checks.
+role-specific upgrades. Google Cloud AlphaEvolve is an optional evolutionary-search tool for
+high-quality numerical examples and counterexample signals when a project runner and deterministic
+evaluator exist (`references/math-alphaevolve.md`); it is not a proof engine and is never required.
+Missing optional provider access never blocks ordinary Cobbler use or a math Discovery Sprint; note
+the fallback and confidence change in the ledgers. Never treat model output as mathematical
+authority: models may propose ideas, critique derivations, audit sources, and improve exposition,
+but claims remain unverified until a human records the proof and source checks.
 
 ## Cobbler
 
@@ -167,11 +183,13 @@ reports plus synthesis; it does not copy vendor identity, policy, persona, or sa
 
 Optional model routing is role-scoped, not a new user mode. The default route is always the host's
 native subagent, worker agent, or direct analysis according to the task. If a survival guide or
-config maps a Cobbler role to a provider model such as `openrouter:<model-id>`, use it only when
-provider-backed council is enabled and the named environment variable is present; otherwise fall
-back to native and note the fallback in the answer. Treat model diversity as another source of
-evidence, not authority: resolve dissent by repo facts, tests, sources, and user constraints
-rather than by model prestige.
+config maps a Cobbler role to a provider model such as `openrouter:<model-id>` or
+`meta:muse-spark-1.1` (Meta catalog id `muse-spark-1.1`), use it only when provider-backed routes
+are enabled **and** the named environment variable is present (`OPENROUTER_API_KEY`,
+`META_API_KEY` / `MODEL_API_KEY`, etc.) **and** a project wrapper can actually call the API;
+otherwise fall back to native and note the fallback. Prefer named presets + multi-lane panels over
+ad-hoc shell one-offs. Treat model diversity as evidence, not authority: resolve dissent by repo
+facts, tests, sources, and user constraints rather than by model prestige.
 
 Full-run model routing is a separate optional staging preference, not a Quick Cobbler mode. A plan
 or survival guide may record `model-routing` phase preferences for implementation, validation,
@@ -184,36 +202,70 @@ never blocks an ordinary run. Treat `required: true` as valid only when the user
 the project survival guide; never infer it from provider config, Quick Cobbler, or legacy Council
 aliases.
 
-### Implementation lanes
+### Who implements (native default, optional extras)
 
-When routing implement work, record `implementation_lane: fast | untrusted` in the Survival Guide
-(and optionally `.elves-session.json`):
+**Default: host-native only.** Vanilla Cobbler uses whatever host is running the skill — Claude Code
+or Codex out of the box. The host plans, implements, validates, and reviews with its own tools and
+native subagents (or direct analysis when subagents are unavailable). No Grok Build, OpenRouter,
+Sakana, multi-provider council, or external implement CLI is required. Missing optional tools never
+block an ordinary overnight run.
 
-- **`fast` (default for “have Grok run it”)** — Lane A: smart host stages plan/PR/worktree and one
-  batch packet; a persistent Grok Build session implements the whole batch with feature-branch
-  progress commits; host gates between batches. Operator CLI:
-  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
-  Launch recipe: `references/grok-implementer-launch-prompt.md`.
-- **`untrusted` (advanced)** — Lane B: exclusive `worker` lease, detached commits, host audit/import
-  only. Do **not** use as the default overnight path. CLI:
-  `python3 scripts/cobbler_agents.py worker …`. See `references/councilelves-launch-prompt.md`.
+**Optional multi-agent tooling (same pattern as the math module):** if the capability scan finds
+extra tools or keys the user already has, Cobbler may route them for additional benefit. They are
+role routes, work drivers, and domain tools — not a second product, and never required for a
+native overnight run:
+
+- **Extra models for planning / review / council** — when keys + project wrappers exist: OpenRouter
+  (`OPENROUTER_API_KEY` + `scripts/openrouter_lens.py` / named `or-…` presets), Meta Muse Spark
+  1.1 (`META_API_KEY` or `MODEL_API_KEY`, model id `muse-spark-1.1`), Gemini CLI, and Antigravity
+  CLI as **independent read-only** planner/reviewer/scout lanes. Fall back to native if missing.
+  Never treat them as sole authority. See `references/council-provider-config.md` and
+  `references/cobbler-setup-recipes.md`.
+- **Work drivers (batch labor)** — only when the user has the CLI and wants it. Record
+  `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
+  `.elves-session.json`). Grok Build via
+  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status` (Lane A;
+  optional `--model fast|deep`, `--check`) and OpenCode via `--adapter opencode-cli` / labor
+  profiles. Host owns packets, gates, and merge. Launch recipe:
+  `references/grok-implementer-launch-prompt.md`.
+- **Math domain tools** — OpenRouter math role presets; Google **AlphaEvolve** as optional
+  `evolutionary_search` when a project runner + deterministic local evaluator exist
+  (`references/math-alphaevolve.md`). Signals and examples only — **not** a proof engine; never
+  required for Discovery Sprint.
+- **Stricter host-import writer** — advanced lease path for proving a hard writer boundary
+  (`implementation_lane: untrusted`). Detached commits, host audit/import only. Do **not** use as
+  the default overnight path. CLI: `python3 scripts/cobbler_agents.py worker …`. See
+  `references/councilelves-launch-prompt.md`.
 
 In Codex, use natural language or `$elves …` skill forms (for example `$elves setup-cobbler` or
 “Ask the Cobbler…”). Do not invent top-level Codex slash commands for implement, setup, or cobbler.
 
-### External-agent setup
+### External-agent setup and model onboarding
 
-Optional checkout setup for external harness preferences:
+Optional checkout setup for which tools handle planning, implement, review, scout, and related
+purposes. **Supported main drivers are Claude Code and Codex only** (orchestrators) — they run
+Elves and own the overnight loop. Optional **work drivers**, lenses, and math tools (OpenCode, Grok,
+Antigravity, Gemini CLI, OpenRouter models, Muse, AlphaEvolve, etc.) may do labor, plan/review, or
+evolutionary search under that host when installed; that is not our focus, and **not every
+configuration is fully tested**. Using OpenCode or Antigravity as the **main driver** (skill host)
+is exotic — it **may or may not work**; we are not designing for it right now. If an optional or
+exotic route fails, **prefer a PR** with a fix, recipe note, or test (or open a GitHub issue, no
+secrets). **Claude Code and Codex** use the same host-mediated onboarding flow (agent interviews
+the user; CLI stores and probes). Native-only remains fully valid without setup.
 
-- Claude Code: `/setup-cobbler` (primary) and `/setup-council` (compatibility)
+- Claude Code: `/setup-cobbler` (primary) and `/setup-council` (compatibility), or natural language
+  (“onboard models”, “update model routes”)
 - Codex: `$elves setup-cobbler`, `$elves setup-council`, or natural language — not a top-level
   Codex slash command
-- Operator CLI: `python3 scripts/cobbler_agents.py setup [--json] [--dry-run] ...`
+- Operator CLI:
+  - `python3 scripts/cobbler_agents.py onboard plan|show|apply|probe [--json]`
+  - `python3 scripts/cobbler_agents.py setup [--json] [--dry-run] ...` (apply/inventory)
 
-Setup inventories tools without printing credentials, does not launch paid model turns unless the
-user opts into smoke, and writes only ignored local `.elves/models.toml` (never stage it; never paste
-keys). Snapshot effective routes into the Survival Guide during staging. Recipes:
-`references/cobbler-setup-recipes.md`. Setup is not required for native-only Elves.
+**Flow:** `onboard plan` → interview purpose→route choices → `onboard apply` → `onboard probe`
+(structural; optional live `--smoke`). Re-run anytime to update. Never print credentials; write only
+ignored local `.elves/models.toml` (never stage it). Snapshot effective routes into the Survival
+Guide during staging. Full protocol: `references/model-onboarding.md`. Recipes:
+`references/cobbler-setup-recipes.md`.
 
 ## Strategic Forgetting
 
@@ -364,7 +416,11 @@ Elves starts with planning. There are two modes:
 
 **Autonomous planning:** If the user provides a brief prompt (1-4 sentences), expand it into a full spec with batches. Focus on product context and high-level design, not granular implementation details. The user must approve before execution begins.
 
-**If the user pastes a big plan and also says "run now," do not launch in that same call.** Slow it down. Say some version of: "Hang on, we need to get this right. I'm going to stage the run and wait for your final launch command." Then clean the plan, prepare the docs, line up the branch and PR, run preflight, and stop once the run is launch-ready.
+**If the user pastes a big plan and also says "run now," stage before coding.** Treat a clear
+end-to-end request as **chat-to-work** unless the user explicitly opts into chat-to-land/merge:
+clean the plan, prepare the docs, line up the branch and PR, run preflight, and then continue into
+execution in the same run once launch-ready. Stop for a separate launch message only when the user
+explicitly chose the legacy two-call path or the plan is still too ambiguous to freeze safely.
 
 ### Required inputs
 
@@ -394,7 +450,8 @@ Launch only when all of these are true:
 6. There are no unresolved planning questions that would obviously stall the overnight run.
 7. You can start from a short launch prompt without re-pasting the whole plan.
 
-If any item is false, keep staging. Execution starts only from a fresh short launch prompt in the next call.
+If any item is false, keep staging. Once all are true, continue immediately in single-kickoff E2E;
+wait for a fresh short launch prompt only in the explicit legacy two-call path.
 
 ## Preflight
 
@@ -466,7 +523,10 @@ gh pr create --title "<title>" --body "<plan summary with batch list>"
 PR_NUMBER=$(gh pr view --json number -q .number)
 ```
 
-4. Prepare the short launch prompt for the next call. Keep it behavior-heavy: don't stop unless genuinely blocked, use judgment, work in small batches, commit frequently, run all relevant validation including E2E where sensible, read PR comments/checks after every push, and watch for regressions.
+4. Prepare a short behavior-heavy execution body. In E2E mode, use it immediately (optionally via
+   `/goal`) after launch readiness; in legacy two-call mode, hand it to the user for the next call.
+   Reinforce: don't stop unless genuinely blocked, use judgment, work in small batches, commit
+   frequently, run relevant E2E validation, read PR feedback after every push, and watch regressions.
 
 If a PR already exists on the branch, detect it and skip.
 
@@ -474,7 +534,8 @@ If a PR already exists on the branch, detect it and skip.
 
 **The PR isn't the deliverable. The deliverable is work that is ready to review.** You never merge by default — that gate stays with the user unless they set a merge-on-green preference or invoke the Reviewed PR Landing Command.
 
-When staging is complete, stop and hand the user the launch prompt. The unattended run begins in the next call.
+When staging is complete: in **E2E single-kickoff**, continue into execution immediately; in
+**legacy two-call**, stop and hand the user a short launch prompt for the next call.
 
 ## Batch Decomposition
 

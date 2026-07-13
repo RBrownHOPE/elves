@@ -1,22 +1,33 @@
-# Grok Implementer Launch Prompt (Lane A — Fast Path)
+# Grok Implementer Launch Prompt (optional external implementer)
 
-Default path when the user says **“have Grok run it.”** Smart host plans and gates; one persistent
-Grok Build session implements whole batches. Design authority:
+**This is not the Elves default.** Vanilla Cobbler implements with the host agent (Claude Code or
+Codex) only. Use this document when the user already has Grok Build (or a similar CLI) and wants it
+to implement a whole batch under host staging and gates — same optional-upgrade pattern as the math
+module’s provider routes.
+
+Smart host plans and gates; one persistent Grok Build session implements whole batches. Design
+authority:
 [`docs/plans/smart-plan-grok-implement.md`](../docs/plans/smart-plan-grok-implement.md).
 
-For the untrusted detached-writer lease path (Lane B), use the advanced worker lease flow in
-[`councilelves-launch-prompt.md`](councilelves-launch-prompt.md) and
-`python3 scripts/cobbler_agents.py worker …`. Do **not** use Lane B as the default overnight path.
+For the stricter host-import writer lease (detached commits, host audit/import only), use the
+advanced worker flow in [`councilelves-launch-prompt.md`](councilelves-launch-prompt.md) and
+`python3 scripts/cobbler_agents.py worker …`. Do **not** use that lease path as the default
+overnight path.
 
-## Survival Guide field
+Future community-plugin ideas (not implemented):
+[`community-grok-plugin-ideas.md`](community-grok-plugin-ideas.md).
+
+## Survival Guide field (only when using an external implementer)
 
 ```text
 implementation_lane: fast | untrusted
 ```
 
-- **`fast` (default)** — Lane A: Grok owns feature-branch progress in a host-created worktree;
-  host launches once, gates between batches, final readiness stays smart-host-owned.
-- **`untrusted`** — Lane B: exclusive writer lease, detached commits, host audit/import only.
+- **`fast`** — external implementer (e.g. Grok) owns feature-branch progress in a host-created
+  worktree; host launches once, gates between batches, final readiness stays host-owned.
+- **`untrusted`** — exclusive writer lease, detached commits, host audit/import only (advanced).
+
+Omit `implementation_lane` entirely for host-native runs.
 
 ## Operator CLI
 
@@ -39,7 +50,7 @@ python3 scripts/cobbler_agents.py implement status
 Runtime metadata lives under `.elves/runtime/implement/` (mode `0700` dirs). Network is not required
 for `prepare` / `status` / argv emission.
 
-## Launch invariants (Lane A)
+## Launch invariants (external Grok implementer)
 
 | Setting | Value | Why |
 |---------|-------|-----|
@@ -50,7 +61,23 @@ for `prepare` / `status` / argv emission.
 | Unit of work | whole batch per packet | avoid mid-breath host tax |
 | Prompt | `--prompt-file` packet **or** `-p` text — never both | CLI rejects combining them |
 | Model default | `grok-4.5` | product default for this path |
+| Model aliases | `fast` → `grok-composer-2.5-fast`; `deep` → `grok-4.5` + `--effort high` | operator shorthand on `implement prepare/launch --model` (re-check `grok models`) |
+| Optional verify | `--check` on `implement launch` / `resume-batch` | passes Grok CLI `--check` (post-work verification; higher latency — opt-in) |
 | Git default | `branch_progress` (Mode A1) | Grok commits/pushes progress slices on the feature branch |
+| Failure UX | `error_human` on failed `--exec` | short mapped messages for auth / tool-config / rate-limit dumps |
+
+### Grok CLI 0.2.93 tool-gating note
+
+For **read-only review / media-style** Grok invocations (not Lane A implement), prefer the
+**default toolset + `--disallowed-tools` denylist** over a `--tools` allowlist. On Grok Build
+~0.2.93, allowlists have failed session create with `RequirementError` / `run_terminal_cmd`
+background constraints. Lane A implement still uses the default toolset + **`--yolo`** for
+unattended writes.
+
+This denylist guidance is informed by community companion battle-scars in
+[stdevMac/grok-in-claude](https://github.com/stdevMac/grok-in-claude) and
+[stdevMac/grok-in-codex](https://github.com/stdevMac/grok-in-codex) (Apache-2.0). Elves does not
+vendor those plugins; host-owned implement leases and run memory remain Elves-native.
 
 ### Headless recipe that worked in dogfood (Grok Build 0.2.93)
 
@@ -96,6 +123,7 @@ grok --model grok-4.5 \
 | Nested host loop (Codex drives every tool call) | Hours of ceremony tax |
 | `--reasoning-effort high` on volume implement | ~2× tiny-task latency; long thought streams |
 | `--permission-mode auto` without `--yolo` | May not auto-approve writes unattended |
+| `--tools` allowlist for read-only/media on 0.2.93 | Session-create `RequirementError` — use denylist instead |
 | Host re-audits / full suite between every amend | Recreates nested-driver slowness |
 
 ## Packet contract (versioned expectations)
@@ -104,15 +132,15 @@ Packet file version: **1** (markdown preferred; JSON optional for machine fields
 
 A batch packet must stand alone after compaction and include:
 
-1. **batch** name / number and why it exists  
-2. **intent / behaviors** — product-level done criteria  
-3. **Build On** — existing paths, patterns, and utilities to extend  
-4. **owned surfaces** — exact files/modules the implementer may edit  
-5. **forbidden surfaces** — run memory, credentials, other worktrees, out-of-scope paths  
-6. **acceptance** — concrete criteria and what evidence looks like  
-7. **validation commands** — focused + full suite the implementer must run  
-8. **commit subject prefix** — e.g. `[feat/… · Batch N/M · Implement] …`  
-9. **stop conditions** — when to stop and what to write back  
+1. **batch** name / number and why it exists
+2. **intent / behaviors** — product-level done criteria
+3. **Build On** — existing paths, patterns, and utilities to extend
+4. **owned surfaces** — exact files/modules the implementer may edit
+5. **forbidden surfaces** — run memory, credentials, other worktrees, out-of-scope paths
+6. **acceptance** — concrete criteria and what evidence looks like
+7. **validation commands** — focused + full suite the implementer must run
+8. **commit subject prefix** — e.g. `[feat/… · Batch N/M · Implement] …`
+9. **stop conditions** — when to stop and what to write back
 10. **done report path** — typically `.elves/runtime/implement/done/batch-N.json`
 
 Store packets under `.elves/runtime/packets/` (ignored runtime tree). Prefer absolute `--prompt-file`
@@ -145,20 +173,20 @@ Minimum fields:
 `implement gate` may read the done report when present and **warn** if missing (dogfood default:
 missing report is non-fatal). Host still owns merge/tag and final readiness.
 
-## What Grok may do (Lane A / Mode A1)
+## What Grok may do (when selected as implementer / Mode A1)
 
-- Edit owned product surfaces only  
-- Run focused and full tests  
-- Commit and push progress slices on the feature branch  
-- Write the done report for the batch  
+- Edit owned product surfaces only
+- Run focused and full tests
+- Commit and push progress slices on the feature branch
+- Write the done report for the batch
 
 ## What Grok must not do
 
-- Merge to main, tag, or open a second PR  
-- Change Survival Guide stop/merge policy unless the packet assigns it  
-- Touch credentials or secrets  
-- Review its own work as if it were independent host review  
-- Use Lane B lease commands unless the packet explicitly selects `untrusted`  
+- Merge to main, tag, or open a second PR
+- Change Survival Guide stop/merge policy unless the packet assigns it
+- Touch credentials or secrets
+- Review its own work as if it were independent host review
+- Use the host-import lease commands unless the packet explicitly selects `untrusted`
 
 ## Host after handoff
 

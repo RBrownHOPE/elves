@@ -57,6 +57,11 @@ silently deleting it.
 
 ## Validation and Tooling
 
+- [2026-07-12] Grok Build ~0.2.93: for read-only/media-style CLI calls prefer default tools +
+  `--disallowed-tools` denylist; `--tools` allowlists can fail session create. Lane A implement
+  still uses default tools + `--yolo`. Model aliases `fast`/`deep` and optional `--check` are
+  supported on `implement prepare|launch`. Battle-scar credit: stdevMac/grok-in-claude and
+  grok-in-codex (Apache-2.0); backlog in `references/community-grok-plugin-ideas.md`.
 - [2026-07-12] Never update an accepted session context digest before rehydration proof. Store
   pending digests/heads on expected canonical drift and promote only after an exact resume matches
   the pending packet; otherwise a later resume silently erases the rehydration obligation.
@@ -97,19 +102,36 @@ silently deleting it.
   qualified, no worker ref/push/PR/run-memory ownership, full chain+ref+remote+config+hook+path audit,
   and host-only binary-patch import, validation, branch commit, and push. The implementer is excluded
   from independent review quorum.
-- [2026-07-12] Prefer `implementation_lane: fast` (Lane A) as the default when the user says “have
-  Grok run it.” Smart host plans and gates; one persistent Grok session implements whole batches with
-  `auto` permissions and subagents enabled (never default `dontAsk`, never `--no-subagents`). Use
-  `untrusted` (Lane B lease/import) only when proving the writer boundary or repairing that runtime.
-  Operator surface: `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
+- [2026-07-12] **Default implementer is the host** (Claude Code or Codex). Grok Build, multi-provider
+  plan/review, and the host-import writer lease are optional upgrades when those tools exist — same
+  pattern as the math module. Do not imply overnight Elves requires Grok or “Lane A.”
+- [2026-07-12] Optional plan/review routes follow the geometry-exploration multi-model panel
+  pattern: OpenRouter via `OPENROUTER_API_KEY` + wrapper + named `or-…` presets (any
+  `provider/model-id`); Meta Muse Spark 1.1 via `META_API_KEY`/`MODEL_API_KEY` + wrapper, model id
+  **`muse-spark-1.1`**, preset e.g. `meta-muse-spark11`. Independent read-only lanes only; pin the
+  Meta catalog id (not assumed aliases); native fallback when key/wrapper missing; never sole
+  authority. Recipes: `references/cobbler-setup-recipes.md`, `references/council-provider-config.md`.
+- [2026-07-12] Google Cloud AlphaEvolve is an optional math-module evolutionary-search lane for
+  numerical examples / counterexample signals: managed mutation + local deterministic evaluator,
+  gcloud impersonation (no SA keys), independent replay before promotion. Role
+  `evolutionary_search`. Not a proof engine. Guide: `references/math-alphaevolve.md`.
+- [2026-07-12] Model onboarding is host-mediated on both Claude Code and Codex: `onboard
+  plan → interview → apply → probe`. Preferences in ignored `.elves/models.toml`; structural probe
+  by default; live smoke opt-in; never print secrets. Protocol: `references/model-onboarding.md`.
+- [2026-07-12] Prefer high-quality Claude/Codex for plan+review and a labor model for implement
+  (`*-planning` / `*-labor` profiles + local `requested_model`). Google Gemini CLI / Antigravity
+  CLI are optional plan/review lenses, usually not cost-effective for the main implement batch.
+- [2026-07-12] **Supported Elves main drivers are Claude Code and Codex only.** Optional routes
+  (Antigravity, Gemini CLI, Muse, OpenRouter, Grok, AlphaEvolve) may work as tools the host calls;
+  that is not our focus. Exotic interfaces are not heavily tested (e.g. no Antigravity subscription
+  for maintainer dogfood). Prefer contributor PRs (or issues) when optional paths fail.
+- [2026-07-12] When the user *does* have Grok Build and wants it, prefer
+  `implementation_lane: fast` with one whole-batch launch
+  (`--prompt-file <packet> --yolo --effort medium`, session create/resume, sensible `--max-turns`)
+  over nested host driving. Operator surface:
+  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`. Use
+  `untrusted` (host-import lease) only when proving the writer boundary or repairing that runtime.
   Docs: `docs/plans/smart-plan-grok-implement.md`, `references/grok-implementer-launch-prompt.md`.
-- [2026-07-12] Prefer one whole-batch Grok Build launch with
-  `--prompt-file <packet> --yolo --effort medium` (plus session create/resume and a sensible
-  `--max-turns`) over a nested host driver that re-invokes Grok tool-call by tool-call. Dogfood on
-  this repo finished real multi-file implement work in ~3 minutes that way; nested Codex→Grok
-  headless ceremony was dominated by host audit/suite/review tax between breaths. Host owns staging
-  and between-batch gates; do not reintroduce mid-batch nested driving as the default overnight path.
-  See `docs/plans/smart-plan-grok-implement.md` and `references/grok-implementer-launch-prompt.md`.
 - [2026-04-11] Elves is intentionally lightweight. Borrow architectural ideas from richer systems,
   but avoid pulling in hydration, skeleton generation, or opaque automation unless the repo
   genuinely needs them.

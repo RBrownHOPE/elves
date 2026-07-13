@@ -140,5 +140,13 @@ math-ledger-dir: docs/math
 math-external-route-examples:
   # proof_critic: openrouter:<model-id>
   # derivation_checker: gemini:<model-id>
+  # evolutionary_search: alphaevolve:<task-id>
+math-optional-tools:
+  # - alphaevolve
+math-alphaevolve:
+  enabled: false
+  auth: gcloud-impersonation
+  artifact_dir: alphaevolve_runs
+  promote_policy: independent-local-replay-only
 review: github-pr-comments
 ```

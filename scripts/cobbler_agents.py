@@ -11,8 +11,10 @@ Commands:
   worker prepare|audit|export|refresh
                              Single external writer lease lifecycle (host-owned)
   implement prepare|launch|gate|resume-batch|status
-                             Lane A fast implementer (default for "have Grok run it")
+                             Optional external batch implementer (e.g. Grok Build under host import)
   setup [--json]             Inventory tools and write local .elves/models.toml
+  onboard plan|show|apply|probe
+                             Model onboarding: interview packet, update routes, probe
 
 This entry point stays thin; implementation lives under scripts/cobbler_runtime/.
 """
@@ -69,6 +71,12 @@ from cobbler_runtime.implement import (  # noqa: E402
 from cobbler_runtime.setup import (  # noqa: E402
     preferences_from_flags,
     run_setup,
+)
+from cobbler_runtime.onboard import (  # noqa: E402
+    apply_onboarding,
+    build_onboarding_packet,
+    probe_routes,
+    show_onboarding,
 )
 
 
@@ -272,7 +280,32 @@ def cmd_session(args: argparse.Namespace) -> int:
 def cmd_setup(args: argparse.Namespace) -> int:
     """Inventory tools and optionally write ignored local models.toml."""
     repo_root = _repo_root_from_args(args)
-    required = [r.strip() for r in (args.required or "").split(",") if r.strip()]
+    # Partial flag updates merge into existing models.toml roles (same as onboard apply).
+    from cobbler_runtime.onboard import load_models_toml_state  # noqa: PLC0415
+
+    base_roles = None
+    existing_profiles = None
+    session_mode = args.session_mode or "ephemeral"
+    sharing_policy = args.sharing_policy or "local-only"
+    document_owner = "host-coordinator"
+    usage_budget_warning = None
+    required: list[str] | None
+    if getattr(args, "required", None) is None:
+        required = None
+    else:
+        required = [r.strip() for r in str(args.required).split(",") if r.strip()]
+    if not getattr(args, "reset_roles", False):
+        state = load_models_toml_state(repo_root)
+        base_roles = state.roles
+        existing_profiles = state.profiles
+        session_mode = args.session_mode or state.session_mode
+        sharing_policy = args.sharing_policy or state.sharing_policy
+        document_owner = state.document_owner
+        usage_budget_warning = state.usage_budget_warning
+        if required is None:
+            required = list(state.required_roles)
+    else:
+        required = required or []
     prefs = preferences_from_flags(
         implement=args.implement,
         review=args.review,
@@ -281,11 +314,14 @@ def cmd_setup(args: argparse.Namespace) -> int:
         validate=args.validate,
         synthesize=args.synthesize,
         scout=args.scout,
-        required=required,
-        session_mode=args.session_mode,
-        sharing_policy=args.sharing_policy,
+        required=required or [],
+        session_mode=session_mode,
+        sharing_policy=sharing_policy,
         native_fallback=not args.no_native_fallback,
+        base_roles=base_roles,
     )
+    prefs.document_owner = document_owner
+    prefs.usage_budget_warning = usage_budget_warning
     try:
         result = run_setup(
             repo_root,
@@ -293,6 +329,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
             write_toml=not args.dry_run,
             force_toml=bool(args.force),
             run_smoke=bool(args.smoke),
+            existing_profiles=existing_profiles,
         )
     except ValidationIssue as issue:
         payload = {"ok": False, "issues": [issue.to_dict()], "credentials_printed": False}
@@ -320,6 +357,104 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print(f"  issue: [{issue.get('code')}] {issue.get('message')}")
     print("  note: never stage .elves/models.toml; snapshot routes into Survival Guide when staging")
     return 0 if result.ok else 1
+
+
+def cmd_onboard(args: argparse.Namespace) -> int:
+    """Model onboarding: plan / show / apply / probe (Claude Code + Codex)."""
+    repo_root = _repo_root_from_args(args)
+    action = getattr(args, "onboard_action", None) or "plan"
+
+    if action == "plan":
+        packet = build_onboarding_packet(repo_root)
+        payload = packet.to_dict()
+        payload["ok"] = True
+        payload["credentials_printed"] = False
+        if args.json:
+            return _emit_json(payload, exit_code=0)
+        print("onboard plan: interview packet ready")
+        print(f"  purposes: {len(packet.purposes)}")
+        print(f"  questions: {len(packet.questions)}")
+        for q in packet.questions:
+            print(f"  - {q['purpose_id']}: current={q['current']}")
+        for note in packet.notes[:5]:
+            print(f"  note: {note}")
+        print("  next: host agent asks questions, then onboard apply with chosen routes")
+        return 0
+
+    if action == "show":
+        payload = show_onboarding(repo_root)
+        if args.json:
+            return _emit_json(payload, exit_code=0)
+        print("onboard show:")
+        print(f"  models_toml_exists: {payload['models_toml_exists']}")
+        for role, profile in sorted(payload["roles"].items()):
+            print(f"  {role}: {profile}")
+        print(f"  update: {payload['update_hint']}")
+        return 0
+
+    if action == "apply":
+        # None = preserve existing required flags on merge; list = explicit set (may be empty).
+        required_raw = getattr(args, "required", None)
+        required: list[str] | None
+        if required_raw is None:
+            required = None
+        else:
+            required = [r.strip() for r in str(required_raw).split(",") if r.strip()]
+        role_flags = {
+            "implement": getattr(args, "implement", None),
+            "review": getattr(args, "review", None),
+            "planning": getattr(args, "planning", None),
+            "lightweight_review": getattr(args, "lightweight_review", None),
+            "validate": getattr(args, "validate", None),
+            "synthesize": getattr(args, "synthesize", None),
+            "scout": getattr(args, "scout", None),
+        }
+        payload = apply_onboarding(
+            repo_root,
+            role_flags=role_flags,
+            required=required,
+            force=bool(getattr(args, "force", False)),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            run_smoke=bool(getattr(args, "smoke", False)),
+            merge_existing=not bool(getattr(args, "reset_roles", False)),
+        )
+        if args.json:
+            return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
+        print(f"onboard apply: {'OK' if payload.get('ok') else 'FAILED'}")
+        print(f"  models_toml_written: {payload.get('models_toml_written')}")
+        for rec in payload.get("recommendations") or []:
+            print(f"  recommend: {rec}")
+        for warning in payload.get("warnings") or []:
+            print(f"  warning: {warning}")
+        for issue in payload.get("issues") or []:
+            print(f"  issue: [{issue.get('code')}] {issue.get('message')}")
+        print("  next: python3 scripts/cobbler_agents.py onboard probe --json")
+        return 0 if payload.get("ok") else 1
+
+    if action == "probe":
+        payload = probe_routes(
+            repo_root,
+            live_smoke=bool(getattr(args, "smoke", False)),
+        )
+        if args.json:
+            return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
+        print(f"onboard probe: {'OK' if payload.get('ok') else 'FAILED'}")
+        summary = payload.get("summary") or {}
+        print(
+            f"  pass={summary.get('pass')} warn={summary.get('warn')} fail={summary.get('fail')}"
+        )
+        for probe in payload.get("probes") or []:
+            print(
+                f"  [{probe.get('status')}] {probe.get('route')}"
+                f"{'/' + probe['purpose'] if probe.get('purpose') else ''}: "
+                f"{probe.get('detail')}"
+            )
+        if payload.get("smoke", {}).get("requested") and not payload.get("smoke", {}).get("ran"):
+            print("  note: live smoke needs host-provided executor or follow-up host turns")
+        return 0 if payload.get("ok") else 1
+
+    print(f"unknown onboard action: {action}", file=sys.stderr)
+    return 2
 
 
 def cmd_worker(args: argparse.Namespace) -> int:
@@ -468,7 +603,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
 
 
 def cmd_implement(args: argparse.Namespace) -> int:
-    """Lane A fast implementer: prepare|launch|gate|resume-batch|status."""
+    """Optional external batch implementer: prepare|launch|gate|resume-batch|status."""
     repo_root = _repo_root_from_args(args)
     action = args.implement_action
 
@@ -484,6 +619,7 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 git_mode=args.git_mode,
                 permission_mode=args.permission_mode,
                 executable=args.executable,
+                adapter=getattr(args, "adapter", None) or "grok-build",
             )
             if args.json:
                 return _emit_json(payload, exit_code=0)
@@ -502,6 +638,8 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 create=bool(args.create),
                 batch=args.batch,
                 exec_process=bool(args.exec),
+                effort=getattr(args, "effort", None),
+                check=bool(getattr(args, "check", False)),
             )
             if args.json:
                 return _emit_json(
@@ -510,6 +648,8 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 )
             # Default human surface: exact argv line (host/human launches).
             print(payload["argv_joined"])
+            if payload.get("error_human"):
+                print(f"error: {payload['error_human']}", file=sys.stderr)
             if payload.get("launched"):
                 return int(payload.get("exit_code") or 0)
             return 0
@@ -525,6 +665,8 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 permission_mode=args.permission_mode,
                 executable=args.executable,
                 exec_process=bool(args.exec),
+                effort=getattr(args, "effort", None),
+                check=bool(getattr(args, "check", False)),
             )
             if args.json:
                 return _emit_json(
@@ -532,6 +674,8 @@ def cmd_implement(args: argparse.Namespace) -> int:
                     exit_code=0 if payload.get("ok") else int(payload.get("exit_code") or 1),
                 )
             print(payload["argv_joined"])
+            if payload.get("error_human"):
+                print(f"error: {payload['error_human']}", file=sys.stderr)
             if payload.get("launched"):
                 return int(payload.get("exit_code") or 0)
             return 0
@@ -754,19 +898,19 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--scout", default=None, help="Profile for scout role")
     setup.add_argument(
         "--required",
-        default="",
-        help="Comma-separated roles that are required (explicit opt-in)",
+        default=None,
+        help="Comma-separated roles that are required (explicit opt-in; omit to preserve existing)",
     )
     setup.add_argument(
         "--session-mode",
-        default="ephemeral",
+        default=None,
         choices=["ephemeral", "persistent", "exact_resume"],
-        help="Default session mode preference",
+        help="Default session mode preference (omit to preserve existing)",
     )
     setup.add_argument(
         "--sharing-policy",
-        default="local-only",
-        help="models.toml sharing policy (local-only by default; never team-shared automatically)",
+        default=None,
+        help="models.toml sharing policy (omit to preserve existing; local-only for new config)",
     )
     setup.add_argument(
         "--no-native-fallback",
@@ -788,7 +932,72 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Opt into smoke acknowledgment (still does not print secrets or require paid turns)",
     )
+    setup.add_argument(
+        "--reset-roles",
+        action="store_true",
+        help="Reset unspecified roles to host-native instead of merging into existing models.toml",
+    )
     setup.set_defaults(func=cmd_setup)
+
+    onboard = sub.add_parser(
+        "onboard",
+        help="Model onboarding: plan interview, show/apply routes, probe (Claude Code + Codex)",
+    )
+    _add_common_flags(onboard)
+    onboard_sub = onboard.add_subparsers(dest="onboard_action", required=True)
+
+    onboard_plan = onboard_sub.add_parser(
+        "plan",
+        help="Emit interview packet (inventory, env presence, purpose questions)",
+    )
+    _add_common_flags(onboard_plan)
+    onboard_plan.set_defaults(func=cmd_onboard, onboard_action="plan")
+
+    onboard_show = onboard_sub.add_parser(
+        "show",
+        help="Show current role→route map from ignored models.toml",
+    )
+    _add_common_flags(onboard_show)
+    onboard_show.set_defaults(func=cmd_onboard, onboard_action="show")
+
+    onboard_apply = onboard_sub.add_parser(
+        "apply",
+        help="Write role preferences to ignored .elves/models.toml (same as setup)",
+    )
+    _add_common_flags(onboard_apply)
+    onboard_apply.add_argument("--implement", default=None)
+    onboard_apply.add_argument("--review", default=None)
+    onboard_apply.add_argument("--planning", default=None)
+    onboard_apply.add_argument("--lightweight-review", default=None)
+    onboard_apply.add_argument("--validate", default=None)
+    onboard_apply.add_argument("--synthesize", default=None)
+    onboard_apply.add_argument("--scout", default=None)
+    onboard_apply.add_argument(
+        "--required",
+        default=None,
+        help="Comma-separated roles marked required (omit to preserve existing required flags)",
+    )
+    onboard_apply.add_argument("--dry-run", action="store_true")
+    onboard_apply.add_argument("--force", action="store_true")
+    onboard_apply.add_argument("--smoke", action="store_true")
+    onboard_apply.add_argument(
+        "--reset-roles",
+        action="store_true",
+        help="Reset unspecified roles to host-native instead of merging into existing models.toml",
+    )
+    onboard_apply.set_defaults(func=cmd_onboard, onboard_action="apply")
+
+    onboard_probe = onboard_sub.add_parser(
+        "probe",
+        help="Structural probes for configured routes; optional --smoke (host executor)",
+    )
+    _add_common_flags(onboard_probe)
+    onboard_probe.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Request live smoke (needs host smoke_executor; never prints secrets)",
+    )
+    onboard_probe.set_defaults(func=cmd_onboard, onboard_action="probe")
 
     council = sub.add_parser(
         "council",
@@ -937,8 +1146,8 @@ def build_parser() -> argparse.ArgumentParser:
     implement = sub.add_parser(
         "implement",
         help=(
-            "Lane A fast implementer lifecycle "
-            "(prepare|launch|gate|resume-batch|status); default for 'have Grok run it'"
+            "Optional external batch implementer lifecycle "
+            "(prepare|launch|gate|resume-batch|status); Grok Build or OpenCode"
         ),
     )
     implement_sub = implement.add_subparsers(dest="implement_action", required=True)
@@ -957,12 +1166,20 @@ def build_parser() -> argparse.ArgumentParser:
     i_prepare.add_argument(
         "--session-id",
         default=None,
-        help="Optional exact Grok session id (can set later on launch)",
+        help="Optional exact session id (Grok or OpenCode; never latest/continue)",
+    )
+    i_prepare.add_argument(
+        "--adapter",
+        default="grok-build",
+        help="Implementer adapter: grok-build (default) or opencode-cli",
     )
     i_prepare.add_argument(
         "--model",
-        default="grok-4.5",
-        help="Default implementer model (default: grok-4.5)",
+        default=None,
+        help=(
+            "Default model (Grok: grok-4.5, or aliases fast/deep; "
+            "OpenCode: provider/model e.g. openrouter/qwen/qwen3-max)"
+        ),
     )
     i_prepare.add_argument(
         "--lane",
@@ -982,14 +1199,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     i_prepare.add_argument(
         "--executable",
-        default="grok",
-        help="Grok CLI executable (default: grok)",
+        default=None,
+        help="CLI executable (default: grok or opencode based on --adapter)",
     )
     i_prepare.set_defaults(func=cmd_implement)
 
     i_launch = implement_sub.add_parser(
         "launch",
-        help="Emit exact grok argv (print-only by default; --exec optional)",
+        help="Emit exact implementer argv (print-only by default; --exec optional)",
     )
     _add_common_flags(i_launch)
     i_launch.add_argument(
@@ -1015,7 +1232,17 @@ def build_parser() -> argparse.ArgumentParser:
     i_launch.add_argument(
         "--model",
         default=None,
-        help="Model (default: prepare state or grok-4.5)",
+        help="Model (default: prepare state or grok-4.5; Grok aliases: fast, deep)",
+    )
+    i_launch.add_argument(
+        "--effort",
+        default=None,
+        help="Grok --effort (default: medium; deep alias forces high unless overridden)",
+    )
+    i_launch.add_argument(
+        "--check",
+        action="store_true",
+        help="Pass Grok --check for post-work verification (higher latency; Grok only)",
     )
     i_launch.add_argument(
         "--permission-mode",
@@ -1077,7 +1304,21 @@ def build_parser() -> argparse.ArgumentParser:
     i_resume.add_argument("--session-id", default=None, help="Exact session id")
     i_resume.add_argument("--cwd", default=None, help="Worktree / CWD")
     i_resume.add_argument("--worktree", default=None, help="Alias for --cwd")
-    i_resume.add_argument("--model", default=None, help="Model override")
+    i_resume.add_argument(
+        "--model",
+        default=None,
+        help="Model override (Grok aliases: fast, deep)",
+    )
+    i_resume.add_argument(
+        "--effort",
+        default=None,
+        help="Grok --effort override",
+    )
+    i_resume.add_argument(
+        "--check",
+        action="store_true",
+        help="Pass Grok --check (Grok only)",
+    )
     i_resume.add_argument(
         "--permission-mode",
         default=None,

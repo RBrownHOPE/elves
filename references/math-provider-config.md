@@ -17,6 +17,9 @@ Use this default policy unless the user overrides it in the survival guide:
 - treat OpenRouter as an optional math role preset for broad model diversity;
 - use native Gemini, Claude, xAI, OpenAI, Exa, or local tools when the user has configured keys,
   spend, or a model-specific reason;
+- treat **Google Cloud AlphaEvolve** as an optional evolutionary-search tool for numerical
+  examples and counterexample *signals* when a project runner + deterministic evaluator exist
+  (see [`math-alphaevolve.md`](math-alphaevolve.md));
 - record material provider choices and fallbacks in the model-call ledger;
 - never silently switch providers for an expensive role.
 
@@ -48,6 +51,7 @@ These role names are stable. The model assignments are user-editable.
 | `source_auditor` | Verify references, hypotheses, citation use, and primary-source grounding. | native-subagent plus search tools |
 | `exposition_editor` | Improve mathematical prose without changing claim status. | cost-effective configured route, else native-subagent |
 | `formalization_scout` | Assess theorem-statement hygiene and possible Lean/Coq/Isabelle entry points. | native-subagent or local expert tool |
+| `evolutionary_search` | Bounded program evolution with a deterministic evaluator for high-quality examples, extremal families, and counterexample signals (e.g. Google AlphaEvolve). | off unless project configures AlphaEvolve / similar |
 
 Optional OpenRouter examples:
 
@@ -75,6 +79,10 @@ export ANTHROPIC_API_KEY=...
 export XAI_API_KEY=...
 export OPENAI_API_KEY=...
 export EXA_API_KEY=...
+
+# Optional AlphaEvolve: prefer short-lived gcloud impersonation (no service-account key in repo).
+# Project runners typically call `gcloud auth print-access-token --impersonate-service-account=...`
+# rather than reading a long-lived secret from the environment.
 ```
 
 Never write these keys into the survival guide, plan, prompt files, execution log, ledgers, or
@@ -95,6 +103,8 @@ math-optional-env:
   - XAI_API_KEY
   - OPENAI_API_KEY
   - EXA_API_KEY
+math-optional-tools:
+  # - alphaevolve   # Google Cloud AlphaEvolve when project runner + evaluator exist
 math-role-models:
   subfield_scout: native-subagent
   cross_field_synthesizer: native-coordinator
@@ -103,13 +113,21 @@ math-role-models:
   source_auditor: native-subagent
   exposition_editor: native-subagent
   formalization_scout: native-subagent
+  evolutionary_search: off
 math-native-overrides:
   # proof_critic: gemini:<model-id>
   # derivation_checker: anthropic:<model-id>
   # source_search: exa
+  # evolutionary_search: alphaevolve
 math-external-route-examples:
   # subfield_scout: openrouter:<model-id>
   # proof_critic: openrouter:<model-id>
+  # evolutionary_search: alphaevolve:<task-id>
+math-alphaevolve:
+  enabled: false
+  auth: gcloud-impersonation
+  artifact_dir: alphaevolve_runs
+  promote_policy: independent-local-replay-only
 math-fallback-policy: record-before-switching-provider
 math-ledger-dir: docs/math
 ```

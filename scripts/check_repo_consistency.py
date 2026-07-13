@@ -139,6 +139,53 @@ FINAL_READINESS_REVIEW_PHRASES = {
     ],
 }
 
+SINGLE_KICKOFF_PHRASES = {
+    "SKILL.md": [
+        "Default user path (v2.0+): one kickoff",
+        "chat-to-work",
+        "chat-to-land",
+        "Legacy two-call handoff",
+    ],
+    "AGENTS.md": [
+        "Default user path (v2.0+): one kickoff",
+        "single-kickoff E2E",
+        "legacy two-call",
+    ],
+    "README.md": [
+        "Default (v2.0+): one kickoff",
+        "Chat-to-work",
+        "Chat-to-land",
+        "legacy stage-then-launch",
+    ],
+    "references/kickoff-prompt-template.md": [
+        "Recommended (v2.0+): one kickoff",
+        "Chat-to-work (E2E, no merge)",
+        "Chat-to-land (E2E through merge)",
+        "Use separate calls only for the legacy path",
+    ],
+    "references/e2e-chat-to-land.md": [
+        "recommended default user path (v2.0+)",
+        "without waiting for a second human call",
+        "Legacy / advanced",
+    ],
+}
+
+SINGLE_KICKOFF_FORBIDDEN_PHRASES = {
+    "AGENTS.md": [
+        "do not launch in that same call",
+        "Execution starts only from a fresh short launch prompt in the next call",
+    ],
+    "README.md": [
+        "Use the launch template from the same reference file in a fresh call",
+        "**Two-step operator flow**",
+    ],
+    "references/kickoff-prompt-template.md": [
+        "**Stage and launch in separate calls**",
+        "**If you only send one message, the agent should stage first**",
+        "wait for your final launch command",
+    ],
+}
+
 REPO_CONSISTENCY_WORKFLOW_PHRASES = {
     ".github/workflows/repo-consistency.yml": [
         '"config.json.example"',
@@ -461,6 +508,8 @@ MATH_MODULE_PHRASES = {
         "Discovery Sprint",
         "Native host subagents or direct analysis are the default",
         "useful optional math role preset",
+        "Google Cloud AlphaEvolve",
+        "math-alphaevolve.md",
         "Never treat model output",
     ],
     "AGENTS.md": [
@@ -469,6 +518,8 @@ MATH_MODULE_PHRASES = {
         "Discovery Sprint",
         "Native host subagents or direct analysis are the default",
         "useful optional math role preset",
+        "Google Cloud AlphaEvolve",
+        "math-alphaevolve.md",
         "Never treat model output",
     ],
     "README.md": [
@@ -477,6 +528,7 @@ MATH_MODULE_PHRASES = {
         "Discovery Sprint",
         "references/math-workflow.md",
         "references/math-provider-config.md",
+        "references/math-alphaevolve.md",
         "references/math-artifact-ledgers.md",
     ],
     "references/survival-guide-template.md": [
@@ -504,11 +556,14 @@ MATH_MODULE_PHRASES = {
         "## Cross-Pollination",
         "## Claim Lifecycle",
         "math-artifact-ledgers.md",
+        "math-alphaevolve.md",
+        "Evolutionary example search",
     ],
     "references/math-plan-template.md": [
         "## Batch 1: Discovery Sprint",
         "algebraic/combinatorial analogs",
         "Every `quick_win` item has a plausible proof path",
+        "evolutionary_search: alphaevolve",
     ],
     "references/math-provider-config.md": [
         "Cobbler-managed domain-workflow setting",
@@ -517,12 +572,23 @@ MATH_MODULE_PHRASES = {
         "native-first-with-optional-external-routes",
         "OPENROUTER_API_KEY",
         "record-before-switching-provider",
+        "evolutionary_search",
+        "math-alphaevolve.md",
+    ],
+    "references/math-alphaevolve.md": [
+        "Google Cloud **AlphaEvolve**",
+        "not a proof engine",
+        "evolutionary_search",
+        "independent-local-replay-only",
+        "gcloud-impersonation",
+        "deterministic local evaluator",
     ],
     "references/math-review-prompts.md": [
         "## Subfield Scout",
         "## Proof Critic",
         "## Source Auditor",
         "## Formalization Scout",
+        "## Evolutionary Search (AlphaEvolve / similar)",
     ],
     "references/math-artifact-ledgers.md": [
         "domain evidence ledgers",
@@ -530,6 +596,7 @@ MATH_MODULE_PHRASES = {
         "## Source Ledger",
         "## Model-Call Ledger",
         "## Human-Verification Ledger",
+        "alphaevolve:<task-id>",
     ],
     "config.json.example": [
         '"math"',
@@ -537,6 +604,8 @@ MATH_MODULE_PHRASES = {
         '"provider_policy": "native-first-with-optional-external-routes"',
         '"required_env": []',
         '"subfield_scout"',
+        '"evolutionary_search"',
+        '"alphaevolve"',
         '"fallback_policy": "record-before-switching-provider"',
     ],
 }
@@ -1088,7 +1157,7 @@ CLAUDE_ALIAS_SKILL_PHRASES = {
         CLAUDE_ALIAS_MARKER,
         "name: setup-cobbler",
         "/setup-cobbler",
-        "cobbler_agents.py setup",
+        "onboard plan|show|apply|probe",
         "Never stage",
         ".elves/models.toml",
         "must not require OpenRouter",
@@ -1097,7 +1166,7 @@ CLAUDE_ALIAS_SKILL_PHRASES = {
         CLAUDE_ALIAS_MARKER,
         "name: setup-council",
         "/setup-council",
-        "cobbler_agents.py setup",
+        "onboard plan|show|apply|probe",
         "compatibility",
         "must not require OpenRouter",
         "Never stage",
@@ -1648,47 +1717,58 @@ FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS = {
     for label in FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES
 }
 
-# Implementation lanes (Lane A fast implementer + Lane B untrusted worker).
+# Who implements: host-native default + optional external implementer / host-import writer.
 IMPLEMENTATION_LANES_PHRASES = {
     "SKILL.md": [
-        "### Implementation lanes",
+        "### Who implements (native default, optional extras)",
+        "Default: host-native only",
+        "Vanilla Cobbler uses whatever host is running the skill",
+        "same pattern as the math module",
         "implementation_lane: fast | untrusted",
-        "default for “have Grok run it”",
         "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
         "references/grok-implementer-launch-prompt.md",
-        "not** use as the default overnight path",
+        "the default overnight path",
         "cobbler_agents.py worker",
         "Do not invent top-level Codex slash commands",
     ],
     "AGENTS.md": [
-        "### Implementation lanes",
+        "### Who implements (native default, optional extras)",
+        "Default: host-native only",
+        "Vanilla Cobbler uses whatever host is running the skill",
+        "same pattern as the math module",
         "implementation_lane: fast | untrusted",
-        "default for “have Grok run it”",
         "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
         "references/grok-implementer-launch-prompt.md",
-        "not** use as the default overnight path",
+        "the default overnight path",
         "cobbler_agents.py worker",
         "Do not invent top-level Codex slash commands",
     ],
     "README.md": [
+        "by default the **host agent**",
         "implementation_lane: fast",
         "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
         "grok-implementer-launch-prompt.md",
         "not the default overnight path",
     ],
     "CHANGELOG.md": [
-        "### Lane A fast implementer",
+        "### Optional external batch implementer",
         "implementation_lane: fast | untrusted",
         "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
         "references/grok-implementer-launch-prompt.md",
         "not the default overnight path",
+        "### Docs: native-first implement framing",
+        "vanilla Cobbler is host-native",
     ],
     "references/grok-implementer-launch-prompt.md": [
+        "This is not the Elves default",
         "implementation_lane: fast | untrusted",
         "cobbler_agents.py implement prepare",
-        "not** use Lane B as the default overnight path",
+        "not** use that lease path as the default",
+        "Omit `implementation_lane` entirely for host-native runs",
     ],
     "references/councilelves-launch-prompt.md": [
+        "Vanilla path",
+        "Claude Code or Codex out of the box",
         "implementation_lane: fast | untrusted",
         "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
         "not** use the untrusted lease path as the default overnight",
@@ -1699,50 +1779,58 @@ IMPLEMENTATION_LANES_PHRASES = {
 # External-agent setup (v1.20.0 Batch 5).
 SETUP_COBBLER_PHRASES = {
     "SKILL.md": [
-        "### External-agent setup",
+        "### External-agent setup and model onboarding",
+        "Supported main drivers are Claude Code and Codex only",
         "/setup-cobbler",
         "/setup-council",
         "$elves setup-cobbler",
         "$elves setup-council",
         "not a top-level",
+        "cobbler_agents.py onboard",
         "cobbler_agents.py setup",
         ".elves/models.toml",
+        "references/model-onboarding.md",
         "references/cobbler-setup-recipes.md",
-        "Setup is not required for native-only Elves",
     ],
     "AGENTS.md": [
-        "### External-agent setup",
+        "### External-agent setup and model onboarding",
+        "Supported main drivers are Claude Code and Codex only",
         "/setup-cobbler",
         "/setup-council",
         "$elves setup-cobbler",
         "$elves setup-council",
         "not a top-level",
+        "cobbler_agents.py onboard",
         "cobbler_agents.py setup",
         ".elves/models.toml",
+        "references/model-onboarding.md",
         "references/cobbler-setup-recipes.md",
-        "Setup is not required for native-only Elves",
     ],
     "README.md": [
         "/setup-cobbler",
         "/setup-council",
         "$elves setup-cobbler",
         "$elves setup-council",
+        "model-onboarding.md",
         "cobbler-setup-recipes.md",
         ".elves/models.toml",
+        "onboard plan|show|apply|probe",
     ],
     "docs/cobbler.md": [
         "/setup-cobbler",
         "/setup-council",
         "$elves setup-cobbler",
         "$elves setup-council",
-        "External-agent setup",
+        "model onboarding",
         "cobbler-setup-recipes.md",
+        "model-onboarding.md",
         "Never stage",
     ],
     "references/cobbler-setup-recipes.md": [
         "/setup-cobbler",
         "/setup-council",
         "$elves setup-cobbler",
+        "onboard plan",
         "verified",
         "experimental",
         "custom",
@@ -1750,6 +1838,27 @@ SETUP_COBBLER_PHRASES = {
         "native-only",
         "remaining_quota",
         "Never stage",
+    ],
+    "references/model-onboarding.md": [
+        "Model Onboarding",
+        "Claude Code + Codex",
+        "Supported hosts (main drivers)",
+        "not been our focus",
+        "many have not been heavily",
+        "Antigravity CLI",
+        "Prefer a PR",
+        "onboard plan",
+        "onboard apply",
+        "onboard probe",
+        "Never stage",
+        "host-native",
+    ],
+    "aliases/claude/setup-cobbler/SKILL.md": [
+        "model onboarding",
+        "onboard plan|show|apply|probe",
+        "Never stage",
+        ".elves/models.toml",
+        "must not require OpenRouter",
     ],
 }
 
@@ -2121,6 +2230,27 @@ def main() -> int:
             if phrase not in text:
                 errors.append(f"{label}: missing final-readiness-review phrase `{phrase}`")
 
+    single_kickoff_labels = set(SINGLE_KICKOFF_PHRASES) | set(
+        SINGLE_KICKOFF_FORBIDDEN_PHRASES
+    )
+    single_kickoff_texts = {
+        label: read_text(REPO_ROOT / label) for label in single_kickoff_labels
+    }
+    errors.extend(
+        find_missing_phrases(
+            single_kickoff_texts,
+            SINGLE_KICKOFF_PHRASES,
+            "single-kickoff E2E",
+        )
+    )
+    errors.extend(
+        find_forbidden_phrases(
+            single_kickoff_texts,
+            SINGLE_KICKOFF_FORBIDDEN_PHRASES,
+            "single-kickoff E2E",
+        )
+    )
+
     for label, phrases in ACCEPTANCE_EVIDENCE_PHRASES.items():
         path = REPO_ROOT / label
         text = read_text(path)
@@ -2458,6 +2588,7 @@ def main() -> int:
     print("- Non-stop guardrails are aligned across runtime and template docs")
     print("- Effort guardrails are aligned across runtime and template docs")
     print("- Final readiness review guardrails are aligned")
+    print("- Single-kickoff E2E and legacy handoff guidance are aligned")
     print("- Acceptance-evidence and landing-check guardrails are aligned")
     print("- Repo consistency workflow guardrails are aligned")
     print("- Strategic forgetting and memory hygiene guardrails are aligned")

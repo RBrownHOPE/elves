@@ -4,18 +4,36 @@
 
 **They work while you sleep.**
 
-Elves is an open-source Agent Skill for autonomous, multi-batch development. It gives AI coding agents (Claude Code, Codex, or any agent that supports the Agent Skills standard) the ability to execute large development plans unattended (with testing, review, and documentation) while surviving context compaction across long runs. Cobbler is the default coordinator inside Elves: it decides whether to answer directly, ask independent reviewers, assign scoped worker agents, or record a run decision, then returns one clear recommendation.
+Elves is an open-source Agent Skill for **efficient, intelligent workflows** in agentic development
+and research. It turns large plans into unattended multi-batch runs (implement, test, review,
+document) that survive context compaction — for software work and for Cobbler-managed domain
+workflows such as math research. **Cobbler** is the default coordinator: it decides whether to
+answer directly, ask independent reviewers, assign scoped workers, or record a run decision, then
+returns one clear recommendation.
 
-**Current release: v1.20.2.** Adds the **Lane A fast implementer**: smart plan on the host, then
-`python3 scripts/cobbler_agents.py implement prepare|launch|gate` so Grok (or another CLI) runs a
-whole batch headlessly with `--prompt-file --yolo --effort medium`. Skill surfaces document
-`implementation_lane: fast | untrusted`; the untrusted writer lease stays advanced/opt-in. Built on
-v1.20.1 Cobbler runtime hardening. See [`CHANGELOG.md`](CHANGELOG.md) and
-[`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
+**Current release: v2.0.0** — those workflows, coordinated by Cobbler, under a **native-first** rule
+and **without locking you into one model ecosystem**. **Claude Code or Codex is the main driver**
+(orchestrator); Cobbler coordinates natively — no Grok, OpenRouter, or multi-provider setup required
+to run overnight. Optional **work drivers**, **plan/review lenses**, and **math-domain tools**
+(OpenCode, Grok Build, Antigravity, Gemini CLI, OpenRouter models, Muse Spark, Google AlphaEvolve, …)
+may help for labor, review, or evolutionary search when you already have them. Route the best tool
+for the job; fall back to host-native when you don’t. That optional matrix is **not fully tested**;
+OpenCode/Antigravity as the **main driver** (Elves skill host) is exotic and **may or may not
+work**. If something breaks or you harden a path, **prefer a PR** (or
+[file an issue](https://github.com/aigorahub/elves/issues), no secrets). Operator helpers:
+`python3 scripts/cobbler_agents.py`. See [`CHANGELOG.md`](CHANGELOG.md) (`[2.0.0]`),
+[`references/model-onboarding.md`](references/model-onboarding.md), and
+[`references/math-alphaevolve.md`](references/math-alphaevolve.md).
 
 You write the plan and own the merge decision. The agent does everything in between.
 
-**Running Elves is a two-stage process: first you _stage_ the run, then in a separate call you _start_ it.** Staging lines up the plan, branch, PR, and survival guide, then stops. Launching is a short second prompt that turns the agent loose. Keeping the two calls separate is the single biggest thing that prevents "the elves stopped" failures. See [Stage, then launch](#stage-then-launch).
+**Default (v2.0+): one kickoff after conceptual agreement.** Chat with the main agent (and optional
+planning lenses) until the work is clear, then send a single **chat-to-work** or **chat-to-land**
+prompt: Elves plans, stages (branch/PR/docs/preflight), runs batches, and either leaves a landable
+PR or completes the merge ceremony — your choice in the kickoff. See
+[`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md) and
+[Stage, then launch](#stage-then-launch). (Internally the agent still stages before coding; it does
+not wait for a second human call once launch-ready.)
 
 **This is still early.** The system I use in production at [Aigora](https://aigora.ai) is more elaborate than what you see here. It includes custom review tools, proprietary verification infrastructure, and integration with our internal deployment pipeline. I've extracted the key ideas and patterns into something that works with standard tools (git, GitHub PRs, CI) so it's useful to anyone, not just people with my exact setup. I'll be using this open-source version myself going forward (with my additional tooling bolted on), so it will continue to improve from real production use. But this is scaffolding, not a finished product. It may not work for you out of the box. Your model, your stack, your test infrastructure, and your review setup will all be different from mine. I'm relying on community feedback to make this skill more generalizable. If something doesn't work, [open an issue](https://github.com/aigorahub/elves/issues). Your experience makes this better for everyone.
 
@@ -63,7 +81,26 @@ The architecture is intentionally simple:
 - **Math** is the first domain workflow, with scouts, critics, source auditors, ledgers, and
   human-verification gates.
 - **Providers** are optional role routes. They add perspective when configured; they are not the
-  orchestration layer.
+  orchestration layer. Optional work drivers and domain tools (Grok, OpenCode, AlphaEvolve, …)
+  extend the same idea without replacing Cobbler.
+
+### Optional multi-agent tooling (when you already have the tools)
+
+Native-only runs need none of this. When present, Cobbler may route:
+
+| Kind | Examples | Role in Elves |
+| --- | --- | --- |
+| **Main driver** | Claude Code, Codex | Only supported skill hosts / overnight orchestrators |
+| **Work drivers** | Grok Build (`implement …`), OpenCode labor | Batch implement under host packets + gates |
+| **Plan/review lenses** | OpenRouter lens, Gemini CLI, Antigravity (`agy`), Muse Spark | Independent read-only evidence |
+| **Math domain tools** | OpenRouter math roles, Google **AlphaEvolve** (`evolutionary_search`) | Discovery / examples / counterexample *signals* — not proofs |
+| **Writer boundary** | Host-import `worker …` lease | Advanced isolation; not the default overnight path |
+| **E2E kickoffs (recommended v2.0+)** | Chat-to-work / chat-to-land | One prompt after agreement: plan→stage→run to landable PR, or through merge |
+
+Setup: `python3 scripts/cobbler_agents.py onboard …` and recipes in
+[`references/cobbler-setup-recipes.md`](references/cobbler-setup-recipes.md). AlphaEvolve details:
+[`references/math-alphaevolve.md`](references/math-alphaevolve.md). E2E design and prompts:
+[`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md).
 
 ### Reviewed PR landing command
 
@@ -170,6 +207,9 @@ not use the same vocabulary.
 The workflow is provider-configurable. Native host subagents or direct analysis are the default
 fallback. OpenRouter is a useful optional math role preset for broad model diversity, while native
 Gemini, Claude, xAI, OpenAI, Exa, and local tools can be assigned to specific roles when available.
+Google Cloud AlphaEvolve is an optional evolutionary-search lane for high-quality examples and
+counterexample signals when the project has a runner and deterministic evaluator (see
+[`references/math-alphaevolve.md`](references/math-alphaevolve.md)); it is never a proof engine.
 Missing optional provider access should be recorded with the fallback and confidence impact, but it
 does not make ordinary Cobbler or math discovery unusable. Model output is never treated as
 mathematical authority. It can generate ideas, stress-test proofs, check derivations, audit
@@ -179,6 +219,7 @@ proof and source checks.
 Start with [`references/math-workflow.md`](references/math-workflow.md) for the operating model,
 [`references/math-plan-template.md`](references/math-plan-template.md) for a ready-to-edit plan,
 [`references/math-provider-config.md`](references/math-provider-config.md) for provider setup,
+[`references/math-alphaevolve.md`](references/math-alphaevolve.md) for optional AlphaEvolve search,
 [`references/math-review-prompts.md`](references/math-review-prompts.md) for reusable reviewer
 roles, and [`references/math-artifact-ledgers.md`](references/math-artifact-ledgers.md) for claim
 and source traceability.
@@ -247,8 +288,11 @@ The pattern borrows the useful harness idea of independent role reports followed
 without importing vendor identity, policy, persona, or safety text.
 
 Optional model routing stays behind the same Cobbler interaction. The default route is the host's
-native subagents; configured role routes like `openrouter:<model-id>` are opt-in, fall back to
-native when unavailable, and should be weighed by evidence rather than model prestige.
+native subagents; configured role routes like `openrouter:<model-id>` are opt-in (any OpenRouter
+model via named presets when `OPENROUTER_API_KEY` exists). Meta Muse Spark 1.1 is the same kind of
+opt-in lane (`META_API_KEY` / `MODEL_API_KEY`, catalog id `muse-spark-1.1`, e.g. preset
+`meta-muse-spark11`) for planning and independent review. Missing keys fall back to native.
+Weigh evidence rather than model prestige.
 
 For full Elves runs, the Cobbler can prefer different elves for different phases. Add optional
 `model-routing` preferences during staging when implementation, validation, review, scouting, or
@@ -263,6 +307,14 @@ Validate local route preferences without launching models:
 python3 scripts/cobbler_agents.py validate-config --json
 python3 scripts/cobbler_agents.py doctor --json
 python3 scripts/cobbler_agents.py setup --json --dry-run
+```
+
+**Model onboarding** (same on Claude Code and Codex): choose which tools handle planning /
+implement / review, update later, and probe that routes work — see
+[`references/model-onboarding.md`](references/model-onboarding.md).
+
+```bash
+python3 scripts/cobbler_agents.py onboard plan|show|apply|probe --json
 ```
 
 Setup writes only ignored local `.elves/models.toml` (never stage it; never paste keys). Claude Code:
@@ -301,11 +353,16 @@ are forbidden. Grok worktree children get a new UUID — resume the child from i
 worktree, and do not treat headless worktree-resume on Grok 0.2.93 as isolation. Remaining
 subscription quota is `unknown` unless a harness explicitly exposes it.
 
-**Fast implementer (Lane A, default for “have Grok run it”):** record `implementation_lane: fast`
-and use `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
+**Who implements:** by default the **host agent** (Claude Code or Codex) implements the batch.
+External implementers and multi-model planning/review are optional when those tools are installed
+and configured — same native-first rule as the rest of Cobbler and the math module.
+
+**Optional external batch implementer** (e.g. Grok Build, only if you have it): record
+`implementation_lane: fast` and use
+`python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
 See [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
 
-**Writer lease (host-owned, Lane B / untrusted — advanced, not the default overnight path):**
+**Optional stricter host-import writer** (advanced lease path — not the default overnight path):
 
 ```bash
 python3 scripts/cobbler_agents.py worker prepare --json \
@@ -318,8 +375,8 @@ python3 scripts/cobbler_agents.py worker export --json --lease-id lease-1 \
 python3 scripts/cobbler_agents.py worker refresh --json --lease-id lease-1 --new-tip <host-sha>
 ```
 
-Only one live lease is allowed. Worker detached commits are untrusted; the host applies binary
-patches with `git apply --check --index` and owns branch commits/push/PR/run-memory.
+Only one live lease is allowed. Worker detached commits are host-imported only; the host applies
+binary patches with `git apply --check --index` and owns branch commits/push/PR/run-memory.
 
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
 model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
@@ -327,23 +384,23 @@ synthesis prompt templates, and
 [`references/council-provider-config.md`](references/council-provider-config.md) for optional
 provider-backed council setup.
 
-### Stage, then launch
+### One kickoff (recommended) vs stage-then-launch (legacy)
 
-Most "the elves stopped" failures come from one mistake: combining a giant plan and the launch
-instructions into a single overloaded message. The plan already lives on disk. The launch prompt
-should not try to carry the whole project again.
+Historically, Elves asked for **two human calls** (stage, then launch). That failed often: people
+skipped or half-did staging, and the overnight run never really started. **v2.0+ recommends a single
+kickoff** once you and the agent (optionally with other planners) agree on the work:
 
-Elves works best as a two-call handoff:
+1. **Chat** to conceptual agreement (scope, non-negotiables, merge or not).
+2. **One prompt** — **chat-to-work** (landable PR, no merge) or **chat-to-land** (through merge
+   ceremony). The agent owns plan materialization, staging, batches, and labor re-drive.
+3. **Optional** `/goal` (Codex) or host continuation as a seatbelt so the main driver keeps going.
 
-1. **Stage the run.** Clean up the plan, refresh the survival guide, learnings file, and execution log, open the
-   branch and PR, run preflight, and stop only when the run is launch-ready.
-2. **Launch the run.** In a fresh call, send a short hard prompt that points at the prepared docs
-   and reinforces behavior: don't stop unless genuinely blocked, use judgment, work in small
-   batches, commit frequently, validate aggressively, read PR comments after every push, and watch
-   for regressions.
+Internally the agent still **stages before coding** (plan on disk, branch, PR, survival guide,
+preflight). It does **not** stop after staging to wait for a second human “go” in E2E mode.
 
-Think of staging as winding the spring. The launch call should feel small because the energy is
-already loaded into the repo artifacts.
+**Legacy two-call handoff** remains available for huge or still-unstable plans: stage until
+launch-ready, stop, then a short launch prompt. Templates:
+[`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md).
 
 ### One run, one branch, one checkout
 
@@ -454,20 +511,28 @@ See [Installation](#installation) below for full details. The short version:
   `scripts/cobbler_agents.py`, and `scripts/cobbler_runtime/*`)
 - **Claude.ai:** zip the `elves/` directory and upload via Settings > Features > Skills
 
-**2. Write a plan**
+**2. Choose the outcome**
 
-Use [`references/plan-template.md`](references/plan-template.md) as your starting point. The plan describes what needs to be built, broken into logical batches. Commit it to your repo (e.g., `docs/plans/my-feature.md`).
+- **Chat-to-work:** plan, stage, and run to a landable PR; Elves never merges.
+- **Chat-to-land:** the same run plus reviewed-PR landing through a regular merge commit.
 
-**3. Stage the run**
+If you are unsure, choose **chat-to-work**. It preserves the human merge gate.
 
-Use [`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md) to stage the run first. This call cleans the plan up, generates or refreshes the survival guide, learnings file, and execution log, opens or updates the branch and PR, runs preflight, and leaves you with a short launch prompt for the next call.
+**3. Send one kickoff**
 
-**4. Launch in a new call**
+Copy the matching prompt from
+[`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md). Chat until the
+intent is clear, then send that one kickoff. The agent materializes the plan, stages the branch/PR
+and run documents, runs preflight, and continues into the batch loop once launch-ready.
 
-Use the launch template from the same reference file in a fresh call. The launch prompt should be short and behavior-heavy, not a second copy of the plan.
+If you are using Codex Goals, the agent may wrap the execution tail in `/goal`; Elves' Survival
+Guide Stop Gate and Readiness Gate still define completion.
 
-If you are using Codex Goals, wrap the same launch prompt in `/goal` and tell Codex that Elves'
-Readiness Gate, not goal continuation alone, defines completion.
+**4. Use legacy stage-then-launch only when needed**
+
+For a huge or still-unstable plan, you can deliberately use the two-call templates in the same
+reference: stage first, inspect the launch-ready state, then send the short launch prompt in a fresh
+call. This is the advanced fallback, not the normal first-run path.
 
 **5. Walk away**
 
@@ -478,7 +543,8 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 ## Features
 
 - **Multi-batch execution** with configurable batch sizing (default: 4 developers × 2-week sprint)
-- **Two-step operator flow**: stage the run first, then launch it in a fresh short call so the agent starts with momentum instead of a giant overloaded prompt
+- **Single-kickoff default**: chat-to-work or chat-to-land stages internally, then continues into
+  execution without a second human message; legacy two-call staging remains available for unstable plans
 - **Codex Goals compatibility**: use `/goal` as an optional continuation backend while Elves keeps
   ownership of planning, review, memory hygiene, and readiness
 - **Layered memory system**: reads survival guide, `.elves-session.json`, learnings, plan, execution log, and `.ai-docs/manifest.md` (if present) after compaction
@@ -541,7 +607,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Constitution and legality check**: human-authored deal-breaker behaviors (`docs/constitution.md`) verified by a read-only judge after each batch. Three quality layers: correctness (tests), plan compliance (review), legality (judge). Success criteria the agent didn't author.
 - **PR Loop**: poll PR comments, inline reviews, and check status after every push, not just at batch boundaries
 - **Readiness Gate**: branch-level checklist before declaring review-ready (plan Acceptance with proof, `elves_landing_check.py` clean, local proof on current tip, preview proof on exact runtime tip, final cumulative review, PR comments polled, legality check clean, strategic forgetting complete, git status clean, execution log current). Green CI + `status: complete` alone is not landable.
-- **Acceptance evidence (v1.19+/v1.20+)**: each complete batch records `acceptance: [{criterion, met, evidence}]` in `.elves-session.json`; god-file splits cannot close on structure/regex locks alone; prefer one batch per close commit. v1.20 adds optional external-agent orchestration under Cobbler; v1.20.1 hardens that runtime so green tests and schema-shaped reports cannot stand in for real model/session/write evidence.
+- **Acceptance evidence (v1.19+/v2.0+)**: each complete batch records `acceptance: [{criterion, met, evidence}]` in `.elves-session.json`; god-file splits cannot close on structure/regex locks alone; prefer one batch per close commit. v1.20 added optional external-agent orchestration under Cobbler; v1.20.1 hardened that runtime so green tests cannot stand in for real model/session/write evidence; **v2.0.0** is Cobbler-managed multi-model orchestration (native-first hosts + optional work drivers, lenses, and math tools such as AlphaEvolve).
 - **Structured session data** in `.elves-session.json` for tooling, dashboards, and analytics
 - **Install doctor and update advisory**: startup can flag newer published releases and explain
   when a project-local install differs from the global one that you thought you were using
