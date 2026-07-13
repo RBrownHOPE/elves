@@ -281,8 +281,16 @@ class AuditAndPatchTests(unittest.TestCase):
             self.assertEqual(len(audit.commit_chain), 2)
             self.assertEqual(audit.commit_chain[0].parents[0], head)
 
+            store.mark_auditing("lease-ok")
+            store.mark_audited_pass("lease-ok")
+            lease = store.get("lease-ok")
             patch_dir = root / "patches"
-            patches = export_binary_patches(lease, output_dir=patch_dir, chain=audit.commit_chain)
+            patches = export_binary_patches(
+                lease,
+                output_dir=patch_dir,
+                chain=audit.commit_chain,
+                audit_evidence=audit.to_dict(),
+            )
             self.assertGreaterEqual(len(patches), 2)
             self.assertTrue((patch_dir / "chain.json").is_file())
 
@@ -495,6 +503,7 @@ class AuditAndPatchTests(unittest.TestCase):
             new_tip = _git(host, "rev-parse", "HEAD")
             # Worker still at old tip, clean
             store.mark_auditing(lease.lease_id)
+            store.mark_audited_pass(lease.lease_id)
             store.mark_exported(lease.lease_id, str(root / "patches"))
             store.mark_integrated(lease.lease_id)
             result = store.refresh_worker_to_tip(lease.lease_id, new_tip=new_tip)

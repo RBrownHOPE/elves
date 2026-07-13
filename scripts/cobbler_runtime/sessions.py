@@ -24,6 +24,15 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .schema import UsageRecord, ValidationIssue
+from .storage import (
+    StorageError,
+    assert_embedded_id,
+    atomic_write_json,
+    directory_lock,
+    digest_key,
+    record_filename,
+    snapshot_path as storage_snapshot_path,
+)
 
 
 class SessionLifecycle(str, Enum):
@@ -479,6 +488,7 @@ def evaluate_session_continuity(
 
 def _atomic_write_text(path: Path, payload: str, *, mode: int = 0o600) -> None:
     """Write ``payload`` via temp file + os.replace; set permission bits when possible."""
+    # Preserve text-write helper for non-JSON payloads; JSON goes through storage.atomic_write_json.
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
         prefix=f".{path.name}.",
@@ -533,6 +543,11 @@ class SessionRegistry:
             self.root = ensure_sessions_dir(self.repo_root)
 
     def _record_path(self, session_id: str) -> Path:
+        """Digest-keyed path; never use raw session ids (collision/traversal safe)."""
+        return self.root / record_filename(session_id, prefix="sess")
+
+    def _legacy_record_path(self, session_id: str) -> Path:
+        """Legacy sanitized path for read-only migration of pre-digest records."""
         safe = re.sub(r"[^A-Za-z0-9._-]+", "_", session_id)
         return self.root / f"{safe}.json"
 
@@ -542,12 +557,16 @@ class SessionRegistry:
         if not self.root.is_dir():
             return records
         for path in sorted(self.root.glob("*.json")):
-            if path.name == "index.json":
+            if path.name in {"index.json", "store.lock"}:
                 continue
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-                records.append(SessionRecord.from_dict(data))
-            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                record = SessionRecord.from_dict(data)
+                # Embedded-ID must match any digest-keyed filename expectation when present.
+                if "session_id" in data:
+                    assert_embedded_id(data, record.session_id, id_field="session_id")
+                records.append(record)
+            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError, StorageError) as exc:
                 # Fail closed for callers that inspect malformed_records; do not silently drop.
                 self.malformed_records.append(
                     {
@@ -573,7 +592,9 @@ class SessionRegistry:
 
     def get(self, session_id: str) -> SessionRecord:
         path = self._record_path(session_id)
-        if not path.is_file():
+        legacy = self._legacy_record_path(session_id)
+        chosen = path if path.is_file() else legacy if legacy.is_file() else None
+        if chosen is None:
             raise ValidationIssue(
                 "session_not_found",
                 f"No session record for exact id `{session_id}`",
@@ -581,33 +602,44 @@ class SessionRegistry:
                 hint="Exact session IDs are required; never use last/continue selection",
             )
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(chosen.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ValidationIssue(
                 "session_read_error",
                 f"Unable to read session `{session_id}`: {exc}",
-                path=str(path),
+                path=str(chosen),
             ) from exc
         try:
+            assert_embedded_id(data, session_id, id_field="session_id")
             return SessionRecord.from_dict(data)
+        except StorageError as exc:
+            raise ValidationIssue(
+                "session_embedded_id_mismatch",
+                f"Session `{session_id}` embedded id mismatch: {exc.message}",
+                path=str(chosen),
+            ) from exc
         except (KeyError, TypeError, ValueError) as exc:
             raise ValidationIssue(
                 "session_record_malformed",
                 f"Session `{session_id}` record is malformed: {exc}",
-                path=str(path),
+                path=str(chosen),
             ) from exc
 
     def save(self, record: SessionRecord) -> SessionRecord:
         self._ensure_writable()
-        record.revision = int(record.revision or 0) + 1
-        record.updated_at = _utc_now()
-        if not record.created_at:
-            record.created_at = record.updated_at
-        path = self._record_path(record.session_id)
-        payload = json.dumps(record.to_dict(), indent=2, sort_keys=True) + "\n"
-        _atomic_write_text(path, payload, mode=stat.S_IRUSR | stat.S_IWUSR)
-        self._rewrite_index()
-        return record
+        with directory_lock(self.root):
+            record.revision = int(record.revision or 0) + 1
+            record.updated_at = _utc_now()
+            if not record.created_at:
+                record.created_at = record.updated_at
+            path = self._record_path(record.session_id)
+            atomic_write_json(path, record.to_dict(), mode=stat.S_IRUSR | stat.S_IWUSR)
+            self._rewrite_index()
+            return record
+
+    def snapshot_dir(self, session_id: str) -> Path:
+        """Store-owned snapshot path for a session (safe against traversal ids)."""
+        return storage_snapshot_path(self.root, session_id, kind="sess")
 
     def _rewrite_index(self) -> None:
         index = [
@@ -623,9 +655,9 @@ class SessionRegistry:
             }
             for rec in self.list_sessions()
         ]
-        _atomic_write_text(
+        atomic_write_json(
             self._index_path,
-            json.dumps({"sessions": index}, indent=2, sort_keys=True) + "\n",
+            {"sessions": index},
             mode=stat.S_IRUSR | stat.S_IWUSR,
         )
 

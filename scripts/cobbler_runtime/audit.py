@@ -404,11 +404,57 @@ def export_binary_patches(
     *,
     output_dir: Path,
     chain: Sequence[CommitInfo] | None = None,
+    require_audited_pass: bool = True,
+    audit_evidence: dict[str, Any] | None = None,
 ) -> list[Path]:
-    """Export binary-safe per-commit patches via format-patch."""
+    """Export binary-safe per-commit patches via format-patch.
+
+    When ``require_audited_pass`` is true (default), the lease must already be in
+    ``AUDITED_PASS`` (or later export states). Export never implicitly promotes
+    audit state. The export directory must be exclusive and empty.
+    """
+    if require_audited_pass and lease.state.value not in {
+        "audited_pass",
+        "exported",
+        "apply_checked",
+    }:
+        raise ValidationIssue(
+            "export_requires_audited_pass",
+            f"Export refused from lease state `{lease.state.value}`",
+            path=f"leases.{lease.lease_id}.state",
+        )
+    if audit_evidence is not None:
+        if not audit_evidence.get("ok"):
+            raise ValidationIssue(
+                "export_stale_or_failed_audit",
+                "Audit evidence is not ok; refusing export",
+            )
+        evidence_tip = audit_evidence.get("worker_tip")
+        # Prefer audit evidence tip when lease still holds pre-turn tip; reject only
+        # when both tips are set and disagree after an audit-updated lease tip.
+        if (
+            evidence_tip
+            and lease.worker_tip
+            and evidence_tip != lease.worker_tip
+            and lease.worker_tip != lease.base_head
+        ):
+            raise ValidationIssue(
+                "export_stale_audit_tip",
+                "Audit evidence worker_tip does not match lease worker_tip",
+            )
+
     worker = Path(lease.worker_checkout)
     out = Path(output_dir)
-    out.mkdir(parents=True, exist_ok=True)
+    if out.exists():
+        existing = [p for p in out.iterdir() if p.name not in {".", ".."}]
+        if existing:
+            raise ValidationIssue(
+                "export_dir_not_empty",
+                f"Export directory must be exclusive and empty: {out}",
+                path=str(out),
+            )
+    else:
+        out.mkdir(parents=True, exist_ok=True)
     try:
         out.chmod(stat.S_IRWXU)
     except OSError:
@@ -432,13 +478,28 @@ def export_binary_patches(
         ],
     )
     patches = sorted(out.glob("*.patch"))
-    # Also write a chain manifest for host import.
+    # Hash every manifest/patch entry for tamper detection.
+    patch_digests = {
+        p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in patches
+    }
     manifest = {
         "lease_id": lease.lease_id,
         "base_head": lease.base_head,
         "worker_tip": chain[-1].sha if chain else lease.base_head,
         "commits": [c.to_dict() for c in chain],
         "patches": [p.name for p in patches],
+        "patch_digests": patch_digests,
+        "manifest_digest": hashlib.sha256(
+            json.dumps(
+                {
+                    "lease_id": lease.lease_id,
+                    "base_head": lease.base_head,
+                    "patches": [p.name for p in patches],
+                    "patch_digests": patch_digests,
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest(),
     }
     (out / "chain.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -456,50 +517,114 @@ def host_apply_check(
     patch_paths: Sequence[Path],
     *,
     base_head: str | None = None,
+    cumulative: bool = True,
+    disposable: bool = False,
 ) -> dict[str, Any]:
     """Run git apply --check --index for each patch without committing.
 
     Host checkout should be clean and at the expected base when provided.
+    When ``cumulative`` is true, patches are checked in order and each subsequent
+    patch is validated against the prior chain (reversed order fails).
+    When ``disposable`` is true, a temporary clone/worktree is used so host refs,
+    index, and worktree are untouched.
     """
     host = Path(host_checkout)
-    if base_head is not None:
-        head = _git_head(host)
-        if head != base_head:
-            raise ValidationIssue(
-                "host_base_mismatch",
-                f"Host HEAD `{head}` != expected base `{base_head}` for apply-check",
-            )
-    status = _git_status_porcelain(host)
-    if status.strip():
-        raise ValidationIssue(
-            "host_dirty",
-            "Host checkout must be clean before apply-check",
-            hint=status.strip()[:400],
-        )
+    work = host
+    temp_dir = None
+    if disposable:
+        import tempfile
+        import shutil
 
-    checked: list[str] = []
-    for patch in patch_paths:
-        result = subprocess.run(
-            ["git", "apply", "--check", "--index", str(patch)],
-            cwd=str(host),
-            check=False,
+        temp_dir = Path(tempfile.mkdtemp(prefix="elves-apply-check-"))
+        # Lightweight disposable tree: copy .git via clone --shared when possible.
+        clone = subprocess.run(
+            ["git", "clone", "--shared", "--no-checkout", str(host), str(temp_dir / "work")],
             capture_output=True,
             text=True,
+            check=False,
         )
-        if result.returncode != 0:
-            raise ValidationIssue(
-                "apply_check_failed",
-                f"git apply --check --index failed for {patch.name}: "
-                f"{(result.stderr or result.stdout or '').strip()}",
-                path=str(patch),
+        if clone.returncode != 0:
+            # Fallback: plain clone.
+            subprocess.run(
+                ["git", "clone", str(host), str(temp_dir / "work")],
+                capture_output=True,
+                text=True,
+                check=True,
             )
-        checked.append(patch.name)
-    return {
-        "ok": True,
-        "checked": checked,
-        "host_head": _git_head(host),
-        "note": "apply-check only; host creates sanitized commits separately",
-    }
+        work = temp_dir / "work"
+        if base_head:
+            subprocess.run(
+                ["git", "checkout", "--force", base_head],
+                cwd=str(work),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+    try:
+        if base_head is not None and not disposable:
+            head = _git_head(work)
+            if head != base_head:
+                raise ValidationIssue(
+                    "host_base_mismatch",
+                    f"Host HEAD `{head}` != expected base `{base_head}` for apply-check",
+                )
+        if not disposable:
+            status = _git_status_porcelain(work)
+            if status.strip():
+                raise ValidationIssue(
+                    "host_dirty",
+                    "Host checkout must be clean before apply-check",
+                    hint=status.strip()[:400],
+                )
+
+        checked: list[str] = []
+        # Cumulative ordered check: apply --check each patch; if cumulative, also
+        # try sequential apply --index in disposable state only.
+        for patch in patch_paths:
+            result = subprocess.run(
+                ["git", "apply", "--check", "--index", str(patch)],
+                cwd=str(work),
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise ValidationIssue(
+                    "apply_check_failed",
+                    f"git apply --check --index failed for {patch.name}: "
+                    f"{(result.stderr or result.stdout or '').strip()}",
+                    path=str(patch),
+                )
+            if cumulative and disposable:
+                applied = subprocess.run(
+                    ["git", "apply", "--index", str(patch)],
+                    cwd=str(work),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if applied.returncode != 0:
+                    raise ValidationIssue(
+                        "cumulative_apply_failed",
+                        f"cumulative apply failed for {patch.name}: "
+                        f"{(applied.stderr or applied.stdout or '').strip()}",
+                        path=str(patch),
+                    )
+            checked.append(patch.name)
+        return {
+            "ok": True,
+            "checked": checked,
+            "host_head": _git_head(host),
+            "cumulative": cumulative,
+            "disposable": disposable,
+            "note": "apply-check only; host creates sanitized commits separately",
+        }
+    finally:
+        if temp_dir is not None:
+            import shutil
+
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def pre_turn_snapshots(worker_checkout: Path) -> dict[str, Any]:

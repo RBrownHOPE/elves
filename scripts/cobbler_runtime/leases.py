@@ -20,6 +20,15 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .schema import ValidationIssue
+from .storage import (
+    StorageError,
+    assert_embedded_id,
+    atomic_write_json,
+    directory_lock,
+    qualify_write_evidence,
+    record_filename,
+    snapshot_path as storage_snapshot_path,
+)
 
 
 class LeaseState(str, Enum):
@@ -503,51 +512,99 @@ def refs_digest(cwd: Path) -> str:
 class LeaseStore:
     """Disk-backed exclusive writer lease store."""
 
-    def __init__(self, repo_root: Path) -> None:
+    def __init__(self, repo_root: Path, *, create: bool = True) -> None:
         self.repo_root = Path(repo_root)
-        self.root = ensure_leases_dir(self.repo_root)
+        self._create = create
+        if create:
+            self.root = ensure_leases_dir(self.repo_root)
+        else:
+            self.root = leases_root(self.repo_root)
+        self.malformed_records: list[dict[str, str]] = []
+
+    @classmethod
+    def open_readonly(cls, repo_root: Path) -> "LeaseStore":
+        return cls(Path(repo_root), create=False)
 
     def _path(self, lease_id: str) -> Path:
+        return self.root / record_filename(lease_id, prefix="lease")
+
+    def _legacy_path(self, lease_id: str) -> Path:
         safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in lease_id)
         return self.root / f"{safe}.json"
 
     def list_leases(self) -> list[WriterLease]:
         leases: list[WriterLease] = []
+        self.malformed_records = []
+        if not self.root.is_dir():
+            return leases
         for path in sorted(self.root.glob("*.json")):
+            if path.name in {"index.json", "store.lock"}:
+                continue
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-                leases.append(WriterLease.from_dict(data))
-            except (OSError, json.JSONDecodeError, KeyError, ValueError):
-                continue
+                lease = WriterLease.from_dict(data)
+                assert_embedded_id(data, lease.lease_id, id_field="lease_id")
+                leases.append(lease)
+            except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError, StorageError) as exc:
+                self.malformed_records.append(
+                    {"path": str(path), "error": f"{type(exc).__name__}: {exc}"}
+                )
+        return leases
+
+    def list_leases_strict(self) -> list[WriterLease]:
+        leases = self.list_leases()
+        if self.malformed_records:
+            detail = "; ".join(
+                f"{item['path']}: {item['error']}" for item in self.malformed_records
+            )
+            raise ValidationIssue(
+                "lease_record_malformed",
+                f"Malformed lease records block operations: {detail}",
+                path=str(self.root),
+            )
         return leases
 
     def live_leases(self) -> list[WriterLease]:
-        return [lease for lease in self.list_leases() if lease.state in LIVE_LEASE_STATES]
+        return [lease for lease in self.list_leases_strict() if lease.state in LIVE_LEASE_STATES]
 
     def get(self, lease_id: str) -> WriterLease:
         path = self._path(lease_id)
-        if not path.is_file():
+        legacy = self._legacy_path(lease_id)
+        chosen = path if path.is_file() else legacy if legacy.is_file() else None
+        if chosen is None:
             raise ValidationIssue(
                 "lease_not_found",
                 f"No lease record for `{lease_id}`",
                 path=str(path),
             )
-        return WriterLease.from_dict(json.loads(path.read_text(encoding="utf-8")))
+        data = json.loads(chosen.read_text(encoding="utf-8"))
+        try:
+            assert_embedded_id(data, lease_id, id_field="lease_id")
+        except StorageError as exc:
+            raise ValidationIssue(
+                "lease_embedded_id_mismatch",
+                exc.message,
+                path=str(chosen),
+            ) from exc
+        return WriterLease.from_dict(data)
 
     def save(self, lease: WriterLease) -> WriterLease:
-        lease.updated_at = _utc_now()
-        if not lease.created_at:
-            lease.created_at = lease.updated_at
-        path = self._path(lease.lease_id)
-        path.write_text(
-            json.dumps(lease.to_dict(), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        try:
-            path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
-        return lease
+        if not self._create:
+            raise ValidationIssue(
+                "lease_store_read_only",
+                "Lease store was opened read-only; refusing mutation",
+                path=str(self.root),
+            )
+        with directory_lock(self.root):
+            lease.updated_at = _utc_now()
+            if not lease.created_at:
+                lease.created_at = lease.updated_at
+            path = self._path(lease.lease_id)
+            atomic_write_json(path, lease.to_dict(), mode=stat.S_IRUSR | stat.S_IWUSR)
+            return lease
+
+    def snapshot_dir(self, lease_id: str) -> Path:
+        return storage_snapshot_path(self.root, lease_id, kind="lease")
 
     def prepare(
         self,
@@ -567,6 +624,7 @@ class LeaseStore:
         used_headless_worktree_resume: bool = False,
         grok_version: str | None = None,
         notes: str = "",
+        qualification_evidence: Mapping[str, Any] | None = None,
     ) -> WriterLease:
         """Create the sole live lease after worker preflight and profile checks."""
         if not write_profile_qualified:
@@ -574,6 +632,15 @@ class LeaseStore:
                 "write_profile_unqualified",
                 f"Write profile `{profile}` is not qualified for isolated write",
             )
+        # Host-issued observed qualification (when provided) fails closed on gaps.
+        if qualification_evidence is not None:
+            ok, reasons = qualify_write_evidence(qualification_evidence)
+            if not ok:
+                raise ValidationIssue(
+                    "write_qualification_failed",
+                    "Write qualification evidence failed closed: " + ", ".join(reasons),
+                    path="lease.qualification_evidence",
+                )
         if used_headless_worktree_resume and adapter == "grok-build":
             from .sessions import assert_grok_worktree_isolation
 
@@ -584,61 +651,69 @@ class LeaseStore:
                 used_headless_worktree_resume=True,
             )
 
-        live = self.live_leases()
-        if live:
-            raise ValidationIssue(
-                "lease_exclusivity",
-                f"A live writer lease already exists: {live[0].lease_id} ({live[0].state.value})",
-                hint="Only one external writer lease may be active at a time",
-            )
+        with directory_lock(self.root):
+            # Malformed records block exclusivity checks rather than disappearing.
+            live = [
+                lease
+                for lease in self.list_leases_strict()
+                if lease.state in LIVE_LEASE_STATES
+            ]
+            if live:
+                raise ValidationIssue(
+                    "lease_exclusivity",
+                    f"A live writer lease already exists: {live[0].lease_id} ({live[0].state.value})",
+                    hint="Only one external writer lease may be active at a time",
+                )
 
-        paths = list(allowed_paths or [])
-        if not paths:
-            raise ValidationIssue(
-                "empty_path_allowlist",
-                "Writer leases require a non-empty explicit allowed_paths list",
-                hint="Refuse broad empty allow-lists; name product paths the worker may touch",
-            )
-        # Validate paths fail closed before creating the lease record.
-        for rel in paths:
-            normalize_repo_rel_path(rel)
+            paths = list(allowed_paths or [])
+            if not paths:
+                raise ValidationIssue(
+                    "empty_path_allowlist",
+                    "Writer leases require a non-empty explicit allowed_paths list",
+                    hint="Refuse broad empty allow-lists; name product paths the worker may touch",
+                )
+            for rel in paths:
+                normalize_repo_rel_path(rel)
 
-        pre = preflight_worker_checkout(
-            worker_checkout=Path(worker_checkout),
-            base_head=base_head,
-            require_detached=require_detached,
-            require_clean=True,
-            require_registered=True,
-        )
-        digest = refs_digest(Path(worker_checkout))
-        # workspace sandbox is never assumed commit-capable (negative fixture policy).
-        workspace_capable = sandbox_profile != "workspace"
-        lease = WriterLease(
-            lease_id=lease_id,
-            host_checkout=str(Path(host_checkout).resolve()),
-            worker_checkout=str(Path(worker_checkout).resolve()),
-            session_id=session_id,
-            base_head=base_head,
-            adapter=adapter,
-            profile=profile,
-            sandbox_profile=sandbox_profile,
-            allowed_paths=paths,
-            detached_commits_permitted=detached_commits_permitted and workspace_capable,
-            require_detached=require_detached,
-            state=LeaseState.PREPARED,
-            pre_status=pre["status_porcelain"],
-            pre_refs_digest=digest,
-            notes=notes,
-            worker_tip=pre["head"],
-            workspace_sandbox_commit_capable=workspace_capable,
-        )
-        if sandbox_profile == "workspace":
-            lease.notes = (
-                lease.notes + "\nworkspace sandbox: commits not assumed capable; "
-                "detached_commits_permitted forced false"
-            ).strip()
-            lease.detached_commits_permitted = False
-        return self.save(lease)
+            pre = preflight_worker_checkout(
+                worker_checkout=Path(worker_checkout),
+                base_head=base_head,
+                require_detached=require_detached,
+                require_clean=True,
+                require_registered=True,
+            )
+            digest = refs_digest(Path(worker_checkout))
+            workspace_capable = sandbox_profile != "workspace"
+            lease = WriterLease(
+                lease_id=lease_id,
+                host_checkout=str(Path(host_checkout).resolve()),
+                worker_checkout=str(Path(worker_checkout).resolve()),
+                session_id=session_id,
+                base_head=base_head,
+                adapter=adapter,
+                profile=profile,
+                sandbox_profile=sandbox_profile,
+                allowed_paths=paths,
+                detached_commits_permitted=detached_commits_permitted and workspace_capable,
+                require_detached=require_detached,
+                state=LeaseState.PREPARED,
+                pre_status=pre["status_porcelain"],
+                pre_refs_digest=digest,
+                notes=notes,
+                worker_tip=pre["head"],
+                workspace_sandbox_commit_capable=workspace_capable,
+            )
+            if sandbox_profile == "workspace":
+                lease.notes = (
+                    lease.notes + "\nworkspace sandbox: commits not assumed capable; "
+                    "detached_commits_permitted forced false"
+                ).strip()
+                lease.detached_commits_permitted = False
+            lease.updated_at = _utc_now()
+            lease.created_at = lease.updated_at
+            path = self._path(lease.lease_id)
+            atomic_write_json(path, lease.to_dict(), mode=stat.S_IRUSR | stat.S_IWUSR)
+            return lease
 
     def activate(self, lease_id: str) -> WriterLease:
         lease = self.get(lease_id)
@@ -658,9 +733,13 @@ class LeaseStore:
 
     def mark_exported(self, lease_id: str, patch_dir: str) -> WriterLease:
         lease = self.get(lease_id)
-        # Export is legal only from audited_pass (or idempotent re-export).
-        if lease.state == LeaseState.AUDITING:
-            lease.state = transition_lease_state(lease.state, LeaseState.AUDITED_PASS)
+        # Export is legal only from AUDITED_PASS — never implicitly promote.
+        if lease.state != LeaseState.AUDITED_PASS and lease.state != LeaseState.EXPORTED:
+            raise ValidationIssue(
+                "export_requires_audited_pass",
+                f"Export refused from state `{lease.state.value}`; require audited_pass",
+                path=f"leases.{lease_id}.state",
+            )
         lease.state = transition_lease_state(lease.state, LeaseState.EXPORTED)
         lease.exported_patch_dir = patch_dir
         return self.save(lease)
