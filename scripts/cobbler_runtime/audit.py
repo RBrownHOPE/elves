@@ -222,26 +222,41 @@ def list_commit_chain(cwd: Path, base_head: str, tip: str) -> list[CommitInfo]:
 
 
 def detect_symlink_escapes(cwd: Path, paths: Sequence[str], lease: WriterLease) -> list[str]:
+    """Reject every worker-owned symlink, not only targets outside the repo.
+
+    An in-repo target can still point at host-only `.elves`, `.git`, or ignored
+    credentials after import. Untrusted handoff patches therefore may not change
+    or own symlinks at all.
+    """
     escapes: list[str] = []
     root = cwd.resolve()
     for rel in paths:
-        full = (cwd / rel).resolve()
+        lexical = cwd / rel
+        if lexical.is_symlink():
+            escapes.append(rel)
+            continue
+        full = lexical.resolve()
         try:
             full.relative_to(root)
         except ValueError:
             escapes.append(rel)
             continue
-        if full.is_symlink():
-            target = full.resolve()
-            try:
-                target.relative_to(root)
-            except ValueError:
-                escapes.append(rel)
-                continue
         if not is_path_allowed(rel, lease):
             # tracked separately as out_of_scope; still note symlink escapes only for links
             pass
     return escapes
+
+
+def _tree_path_is_symlink(cwd: Path, revision: str, rel_path: str) -> bool:
+    result = run_git(
+        cwd,
+        ["ls-tree", revision, "--", rel_path],
+        check=False,
+    )
+    if result.returncode != 0:
+        return False
+    row = (result.stdout or "").strip()
+    return bool(row and row.split(None, 1)[0] == "120000")
 
 
 def classify_worker_command(command: str) -> dict[str, Any]:
@@ -330,10 +345,23 @@ def audit_lease_turn(
             "out-of-scope paths: " + ", ".join(result.out_of_scope_paths[:20])
         )
 
-    result.symlink_escapes = detect_symlink_escapes(worker, sorted(set(all_paths)), lease)
+    changed_symlinks: set[str] = set()
+    for commit in chain:
+        for path in commit.paths:
+            if _tree_path_is_symlink(worker, commit.sha, path) or any(
+                _tree_path_is_symlink(worker, parent, path) for parent in commit.parents
+            ):
+                changed_symlinks.add(path)
+    changed_symlinks.update(
+        detect_symlink_escapes(worker, sorted(set(all_paths)), lease)
+    )
+    result.symlink_escapes = sorted(changed_symlinks)
     if result.symlink_escapes:
         result.ok = False
-        result.reasons.append("symlink escape paths: " + ", ".join(result.symlink_escapes))
+        result.reasons.append(
+            "symlink paths are forbidden in untrusted handoffs: "
+            + ", ".join(result.symlink_escapes)
+        )
 
     # Refs / remotes / config / hooks
     after_refs = refs_digest(worker)

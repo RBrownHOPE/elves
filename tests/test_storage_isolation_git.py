@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import errno
 import os
 import stat
 import subprocess
@@ -10,6 +11,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -40,15 +42,67 @@ from cobbler_runtime.leases import LeaseStore  # noqa: E402
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.sessions import SessionRegistry  # noqa: E402
 from cobbler_runtime.storage import (  # noqa: E402
+    StorageError,
     digest_key,
+    directory_lock,
     qualify_write_evidence,
     record_filename,
     snapshot_path,
 )
+import cobbler_runtime.storage as storage_module  # noqa: E402
 from cobbler_runtime.context import redact_structure, redact_text  # noqa: E402
 
 
 class StoragePrimitiveTests(unittest.TestCase):
+    def test_directory_lock_retries_eintr_and_releases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            flock = mock.Mock(
+                side_effect=[OSError(errno.EINTR, "interrupted"), None, None]
+            )
+            with mock.patch.object(storage_module.fcntl, "flock", flock):
+                with directory_lock(Path(tmp)):
+                    pass
+            self.assertEqual(flock.call_count, 3)
+
+    def test_directory_lock_times_out_contention_and_fails_other_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                storage_module.fcntl,
+                "flock",
+                side_effect=BlockingIOError(errno.EAGAIN, "busy"),
+            ):
+                with self.assertRaises(StorageError) as ctx:
+                    with directory_lock(Path(tmp), timeout=0):
+                        pass
+                self.assertEqual(ctx.exception.code, "lock_timeout")
+            with mock.patch.object(
+                storage_module.fcntl,
+                "flock",
+                side_effect=OSError(errno.EIO, "io failure"),
+            ):
+                with self.assertRaises(StorageError) as ctx:
+                    with directory_lock(Path(tmp)):
+                        pass
+                self.assertEqual(ctx.exception.code, "lock_failed")
+            with mock.patch.object(
+                storage_module.fcntl,
+                "flock",
+                side_effect=[None, OSError(errno.EIO, "unlock failure")],
+            ):
+                with self.assertRaises(StorageError) as ctx:
+                    with directory_lock(Path(tmp)):
+                        pass
+                self.assertEqual(ctx.exception.code, "lock_release_failed")
+
+    def test_directory_lock_requires_unix_fcntl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            storage_module, "fcntl", None
+        ):
+            with self.assertRaises(StorageError) as ctx:
+                with directory_lock(Path(tmp)):
+                    pass
+            self.assertEqual(ctx.exception.code, "lock_unsupported")
+
     def test_digest_keys_avoid_collision_and_traversal(self) -> None:
         a = digest_key("../etc/passwd")
         b = digest_key(".._etc_passwd")
@@ -308,6 +362,42 @@ class DelegatedGitAndAcceptanceTests(unittest.TestCase):
             self.assertEqual(local, result["head"])
             self.assertEqual(remote_tip, result["head"])
             self.assertTrue(result["pushed"])
+            self.assertTrue(result["local_ref_created"])
+
+            repeated = create_rollback_ref(
+                repo,
+                run_id="run/with/slashes",
+                session_id="session-1",
+                batch=3,
+                push_remote="origin",
+            )
+            self.assertTrue(repeated["idempotent"])
+            self.assertTrue(repeated["remote_idempotent"])
+            self.assertFalse(repeated["local_ref_created"])
+            self.assertFalse(repeated["pushed"])
+
+            (repo / "f.txt").write_text("new tip\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "f.txt"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-q", "-m", "new tip"],
+                check=True,
+            )
+            with self.assertRaises(ValidationIssue) as ctx:
+                create_rollback_ref(
+                    repo,
+                    run_id="run/with/slashes",
+                    session_id="session-1",
+                    batch=3,
+                    push_remote="origin",
+                )
+            self.assertEqual(ctx.exception.code, "delegated_git_rollback_ref_collision")
+            unchanged = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", result["ref"]],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(unchanged, result["head"])
 
     def test_report_reconciliation_preserves_host_controls(self) -> None:
         host = {

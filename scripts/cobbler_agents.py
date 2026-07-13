@@ -10,8 +10,11 @@ Commands:
   session list|probe|resume  Exact persistent session registry helpers
   worker prepare|audit|export|refresh
                              Single external writer lease lifecycle (host-owned)
+  implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop
+                             Trusted persistent external full-run supervisor
   implement prepare|launch|gate|resume-batch|status
-                             Optional external batch implementer (e.g. Grok Build under host import)
+                             Legacy bounded external batch implementer
+  implement rollback-ref    Host-owned run/session-scoped safety ref
   setup [--json]             Inventory tools and write local .elves/models.toml
   onboard plan|show|apply|probe
                              Model onboarding: interview packet, update routes, probe
@@ -287,9 +290,30 @@ def cmd_session(args: argparse.Namespace) -> int:
         if getattr(args, "require_write", False):
             # Observations must come from flags/probe — never substitute stored values.
             from cobbler_runtime.sessions import (  # noqa: PLC0415
-                ContextDigest,
+                SessionLifecycle,
                 evaluate_session_continuity,
+                recompute_context_digest,
             )
+
+            if (
+                rec.lifecycle != SessionLifecycle.ACTIVE
+                or rec.write_reuse_blocked
+                or rec.pending_context_digest
+                or rec.pending_source_head
+                or rec.rehydration_reason
+                or not rec.context_components
+            ):
+                issue = ValidationIssue(
+                    "session_write_reuse_unqualified",
+                    "Write reuse requires an exact ACTIVE session with persisted "
+                    "canonical digest inputs and no drift/rehydration state",
+                    hint=f"lifecycle={rec.lifecycle.value}",
+                )
+                payload = {"ok": False, "issues": [issue.to_dict()]}
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+                return 1
 
             observed_model = getattr(args, "model", None) or None
             observed_cwd = getattr(args, "cwd", None) or None
@@ -303,6 +327,7 @@ def cmd_session(args: argparse.Namespace) -> int:
             missing = []
             for field_name, value in (
                 ("adapter", observed_adapter),
+                ("profile", observed_profile),
                 ("model", observed_model),
                 ("cwd", observed_cwd),
                 ("worktree", observed_worktree),
@@ -358,10 +383,29 @@ def cmd_session(args: argparse.Namespace) -> int:
                         file=sys.stderr,
                     )
                     return 1
-            digest = ContextDigest(
-                digest=str(rec.context_digest or ""),
-                components={},
+            digest = recompute_context_digest(
+                rec,
+                actual_model=observed_model,
+                parent_id=observed_parent,
+                cwd=observed_cwd,
+                worktree=observed_worktree,
+                source_head=observed_head,
             )
+            if not rec.context_digest or digest.digest != rec.context_digest:
+                issue = ValidationIssue(
+                    "session_write_reuse_unqualified",
+                    "Write reuse refused: canonical on-disk context digest changed",
+                )
+                payload = {
+                    "ok": False,
+                    "issues": [issue.to_dict()],
+                    "recorded_digest": rec.context_digest,
+                    "observed_digest": digest.digest,
+                }
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+                return 1
             continuity = evaluate_session_continuity(
                 rec,
                 observed_model=observed_model,
@@ -371,7 +415,13 @@ def cmd_session(args: argparse.Namespace) -> int:
                 observed_head=observed_head,
                 current_digest=digest,
             )
-            if not continuity.ok or continuity.write_reuse_blocked or rec.write_reuse_blocked:
+            if (
+                not continuity.ok
+                or continuity.expected_change
+                or continuity.rehydration is not None
+                or continuity.write_reuse_blocked
+                or rec.write_reuse_blocked
+            ):
                 issue = ValidationIssue(
                     "session_write_reuse_unqualified",
                     "Write reuse refused by exact registry continuity: "
@@ -438,6 +488,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
 
     base_roles = None
     existing_profiles = None
+    existing_top_level = None
     session_mode = args.session_mode or "ephemeral"
     sharing_policy = args.sharing_policy or "local-only"
     document_owner = "host-coordinator"
@@ -451,6 +502,8 @@ def cmd_setup(args: argparse.Namespace) -> int:
         state = load_models_toml_state(repo_root)
         base_roles = state.roles
         existing_profiles = state.profiles
+        if state.parse_ok:
+            existing_top_level = state.unknown_top_level
         session_mode = args.session_mode or state.session_mode
         sharing_policy = args.sharing_policy or state.sharing_policy
         document_owner = state.document_owner
@@ -483,6 +536,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
             force_toml=bool(args.force),
             run_smoke=bool(args.smoke),
             existing_profiles=existing_profiles,
+            existing_top_level=existing_top_level,
         )
     except ValidationIssue as issue:
         payload = {"ok": False, "issues": [issue.to_dict()], "credentials_printed": False}
@@ -869,10 +923,10 @@ def cmd_worker(args: argparse.Namespace) -> int:
                     "never synthesize from EXPORTED alone",
                     path=f"leases.{args.lease_id}.state",
                 )
+            store.mark_integrated(args.lease_id, new_tip=args.new_tip)
             result = store.refresh_worker_to_tip(args.lease_id, new_tip=args.new_tip)
-            store.mark_integrated(args.lease_id)
             store.close(args.lease_id)
-            payload = {"ok": True, "refresh": result, "mutated_repo": False}
+            payload = {"ok": True, "refresh": result, "mutated_repo": True}
             if args.json:
                 return _emit_json(payload, exit_code=0)
             print(f"worker refresh: tip={result['worker_tip']}")
@@ -916,7 +970,9 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 {
                     "action": "rollback_ref",
                     "model_calls_made": False,
-                    "mutated_repo": False,
+                    "mutated_repo": bool(
+                        payload.get("local_ref_created") or payload.get("pushed")
+                    ),
                 }
             )
             if args.json:
@@ -1463,8 +1519,11 @@ def build_parser() -> argparse.ArgumentParser:
     session_resume.add_argument("--session-id", required=True, help="Exact session id")
     session_resume.add_argument(
         "--adapter",
-        default=None,
-        help="Adapter override (must match registered harness when provided)",
+        default="claude-code",
+        help=(
+            "Adapter name (default: claude-code; must match the registered harness, "
+            "so pass an explicit adapter for non-Claude sessions)"
+        ),
     )
     session_resume.add_argument("--profile", default=None, help="Profile name")
     session_resume.add_argument("--executable", default=None, help="Executable override")

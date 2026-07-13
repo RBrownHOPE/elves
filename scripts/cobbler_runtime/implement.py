@@ -674,11 +674,24 @@ def launch_payload(
             try:
                 stdout, stderr = proc.communicate(timeout=3600)
             except subprocess.TimeoutExpired:
+                pgid: int | None = None
                 try:
-                    os.killpg(os.getpgid(proc.pid), 15)
+                    pgid = os.getpgid(proc.pid)
+                    os.killpg(pgid, 15)
                 except (ProcessLookupError, PermissionError, OSError):
                     proc.kill()
-                stdout, stderr = proc.communicate(timeout=5)
+                try:
+                    stdout, stderr = proc.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # A provider or child may ignore SIGTERM. Kill the entire
+                    # launch session, then reap the direct process before return.
+                    try:
+                        if pgid is None:
+                            pgid = os.getpgid(proc.pid)
+                        os.killpg(pgid, 9)
+                    except (ProcessLookupError, PermissionError, OSError):
+                        proc.kill()
+                    stdout, stderr = proc.communicate(timeout=5)
                 payload["launched"] = True
                 payload["model_calls_made"] = True
                 payload["exit_code"] = 124
@@ -690,6 +703,12 @@ def launch_payload(
                 payload["stderr_digest"] = __import__("hashlib").sha256(
                     (stderr or "").encode()
                 ).hexdigest()[:16]
+                payload["stdout_tail"] = redact_text(
+                    (stdout or "")[-4000:], exact_values=set(grants.values())
+                ).text
+                payload["stderr_tail"] = redact_text(
+                    (stderr or "")[-4000:], exact_values=set(grants.values())
+                ).text
                 return payload
         except OSError as exc:
             raise ValidationIssue(
@@ -701,7 +720,7 @@ def launch_payload(
         payload["model_calls_made"] = True
         payload["exit_code"] = int(proc.returncode)
         payload["ok"] = proc.returncode == 0
-        # Never return raw stdout/stderr tails — only redacted summaries + digests.
+        # Preserve the legacy keys, but keep them bounded and credential-redacted.
         stdout = stdout or ""
         stderr = stderr or ""
         payload["stdout_digest"] = __import__("hashlib").sha256(
@@ -712,6 +731,12 @@ def launch_payload(
         ).hexdigest()[:16]
         payload["stdout_summary"] = redact_text(stdout[-500:], exact_values=set(grants.values())).text
         payload["stderr_summary"] = redact_text(stderr[-500:], exact_values=set(grants.values())).text
+        payload["stdout_tail"] = redact_text(
+            stdout[-4000:], exact_values=set(grants.values())
+        ).text
+        payload["stderr_tail"] = redact_text(
+            stderr[-4000:], exact_values=set(grants.values())
+        ).text
         payload["credential_grant_names_present"] = sorted(grants.keys())
         if not payload["ok"] and not is_opencode:
             payload["error_human"] = humanize_grok_failure(

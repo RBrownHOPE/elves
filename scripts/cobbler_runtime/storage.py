@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import hashlib
+import errno
 import json
 import os
 import stat
@@ -128,35 +129,57 @@ def snapshot_path(store_root: Path, record_id: str, *, kind: str = "snapshot") -
 
 @contextmanager
 def directory_lock(store_root: Path, *, name: str = "store.lock", timeout: float = 10.0) -> Iterator[Path]:
-    """Exclusive lock for lease/session mutation under one store directory."""
+    """Exclusive Unix ``flock`` with bounded contention and fail-closed errors."""
+    if fcntl is None:
+        raise StorageError(
+            "lock_unsupported",
+            "Directory locking requires Unix fcntl.flock support",
+        )
     ensure_private_dir(store_root)
     lock_path = store_root / name
     handle = lock_path.open("a+", encoding="utf-8")
-    start = time.time()
+    deadline = time.monotonic() + max(0.0, float(timeout))
     locked = False
     try:
         while True:
             try:
-                if fcntl is not None:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 locked = True
                 break
-            except BlockingIOError:
-                if time.time() - start > timeout:
-                    raise StorageError("lock_timeout", f"Timed out locking {lock_path}")
-                time.sleep(0.02)
-            except OSError:
-                # Best-effort on platforms without flock semantics.
-                locked = True
-                break
+            except OSError as exc:
+                if exc.errno == errno.EINTR:
+                    continue
+                if isinstance(exc, BlockingIOError) or exc.errno in {
+                    errno.EACCES,
+                    errno.EAGAIN,
+                }:
+                    if time.monotonic() >= deadline:
+                        raise StorageError(
+                            "lock_timeout", f"Timed out locking {lock_path}"
+                        ) from exc
+                    time.sleep(min(0.02, max(0.0, deadline - time.monotonic())))
+                    continue
+                raise StorageError(
+                    "lock_failed",
+                    f"Failed locking {lock_path}: [errno {exc.errno}] {exc}",
+                ) from exc
         yield lock_path
     finally:
-        if locked and fcntl is not None:
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            except OSError:
-                pass
-        handle.close()
+        try:
+            if locked:
+                while True:
+                    try:
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                        break
+                    except OSError as exc:
+                        if exc.errno == errno.EINTR:
+                            continue
+                        raise StorageError(
+                            "lock_release_failed",
+                            f"Failed unlocking {lock_path}: [errno {exc.errno}] {exc}",
+                        ) from exc
+        finally:
+            handle.close()
 
 
 def bump_revision(data: dict[str, Any]) -> int:

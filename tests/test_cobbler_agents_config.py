@@ -25,6 +25,7 @@ _ensure_import_path()
 
 from cobbler_runtime import config as config_mod  # noqa: E402
 from cobbler_runtime import schema as schema_mod  # noqa: E402
+from cobbler_runtime import toml_compat  # noqa: E402
 from cobbler_runtime.adapters import default_profiles, registry_snapshot  # noqa: E402
 from cobbler_runtime.capabilities import default_capabilities_for  # noqa: E402
 from cobbler_runtime.schema import (  # noqa: E402
@@ -269,18 +270,16 @@ class ConfigResolutionTests(unittest.TestCase):
         self.assertEqual(resolved.profiles["coder"].adapter, "grok-build")
         self.assertEqual(resolved.roles["implement"].source, ConfigSource.SURVIVAL_GUIDE)
 
-    def test_load_toml_requires_python_311_when_file_present(self) -> None:
+    def test_load_toml_uses_python_310_compat_parser_when_present(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "models.toml"
             path.write_text('[roles]\nimplement = "host-native"\n', encoding="utf-8")
-            with mock.patch.object(config_mod, "tomllib", None):
-                with self.assertRaises(schema_mod.ValidationIssue) as ctx:
-                    config_mod.load_toml_file(path)
-            self.assertEqual(ctx.exception.code, "toml_requires_python_311")
-            self.assertIn("Python 3.11", ctx.exception.hint or "")
+            with mock.patch.object(toml_compat, "_tomllib", None):
+                loaded = config_mod.load_toml_file(path)
+            self.assertEqual(loaded["roles"]["implement"], "host-native")
 
     def test_missing_toml_on_older_python_still_allows_native_json(self) -> None:
-        with mock.patch.object(config_mod, "tomllib", None):
+        with mock.patch.object(toml_compat, "_tomllib", None):
             resolved = config_mod.resolve_config(
                 user_config={
                     "model_routing": {

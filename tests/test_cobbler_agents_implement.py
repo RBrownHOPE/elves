@@ -488,10 +488,62 @@ class LaunchExecOptionalTests(unittest.TestCase):
             self.assertTrue(payload["ok"])
             popen_mock.assert_called_once()
             self.assertIn("stdout_digest", payload)
-            self.assertNotIn("stdout_tail", payload)
+            self.assertEqual(payload["stdout_tail"], "")
+            self.assertEqual(payload["stderr_tail"], "")
             # Minimal env: no wholesale host secret inheritance in call kwargs.
             env = popen_mock.call_args.kwargs.get("env") or {}
             self.assertNotIn("OPENAI_API_KEY", env)
+
+    def test_resume_batch_exec_preserves_bounded_redacted_legacy_tails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root, session_id="resume-tail", executable="tool")
+            packet = root / "p.md"
+            packet.write_text("p\n", encoding="utf-8")
+            proc = mock.Mock(returncode=0, pid=12345)
+            proc.communicate.return_value = ("x" * 5000, "y" * 5000)
+            with mock.patch(
+                "cobbler_runtime.implement.subprocess.Popen", return_value=proc
+            ):
+                payload = resume_batch_payload(
+                    root,
+                    batch=2,
+                    packet=packet,
+                    exec_process=True,
+                    executable="tool",
+                )
+            self.assertEqual(payload["action"], "resume-batch")
+            self.assertEqual(len(payload["stdout_tail"]), 4000)
+            self.assertEqual(len(payload["stderr_tail"]), 4000)
+
+    def test_timeout_escalates_term_to_kill_for_process_group_and_reaps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root, session_id="timeout-sess", executable="tool")
+            packet = root / "p.md"
+            packet.write_text("p\n", encoding="utf-8")
+            proc = mock.Mock()
+            proc.pid = 24680
+            proc.communicate.side_effect = [
+                subprocess.TimeoutExpired(["tool"], 3600),
+                subprocess.TimeoutExpired(["tool"], 5),
+                ("", ""),
+            ]
+            with (
+                mock.patch("cobbler_runtime.implement.subprocess.Popen", return_value=proc),
+                mock.patch("cobbler_runtime.implement.os.getpgid", return_value=24680),
+                mock.patch("cobbler_runtime.implement.os.killpg") as killpg,
+            ):
+                payload = launch_payload(
+                    root,
+                    packet=packet,
+                    exec_process=True,
+                    executable="tool",
+                )
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["exit_code"], 124)
+            self.assertEqual(killpg.call_args_list, [mock.call(24680, 15), mock.call(24680, 9)])
+            self.assertEqual(proc.communicate.call_count, 3)
 
 
 if __name__ == "__main__":

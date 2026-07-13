@@ -113,6 +113,9 @@ class SessionRecord:
     resume_method: str | None = None
     source_head: str | None = None
     context_digest: str | None = None
+    # Persist the canonical disk inputs used to compute ``context_digest`` so a
+    # later write-qualified resume can recompute it from disk, not trust memory.
+    context_components: dict[str, str] = field(default_factory=dict)
     # Pending values are recorded on expected canonical drift but must not replace
     # active identity fields until an exact resume proves the new packet/digest.
     pending_context_digest: str | None = None
@@ -177,6 +180,7 @@ class SessionRecord:
             resume_method=data.get("resume_method"),
             source_head=data.get("source_head"),
             context_digest=data.get("context_digest"),
+            context_components=dict(data.get("context_components") or {}),
             pending_context_digest=data.get("pending_context_digest"),
             pending_source_head=data.get("pending_source_head"),
             rehydration_reason=data.get("rehydration_reason"),
@@ -302,6 +306,46 @@ def compute_context_digest(
     material = "\n".join(f"{k}={components[k]}" for k in sorted(components))
     digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
     return ContextDigest(digest=digest, components=components)
+
+
+def recompute_context_digest(
+    record: SessionRecord,
+    *,
+    actual_model: str | None = None,
+    parent_id: str | None = None,
+    cwd: str | None = None,
+    worktree: str | None = None,
+    source_head: str | None = None,
+) -> ContextDigest:
+    """Recompute a session digest from its persisted canonical disk paths."""
+    components = dict(record.context_components or {})
+
+    def _path(label: str) -> Path | None:
+        value = components.get(f"{label}_path")
+        return Path(value) if value else None
+
+    extras = {
+        key.removeprefix("extra."): value
+        for key, value in components.items()
+        if key.startswith("extra.")
+    }
+    return compute_context_digest(
+        session_id=record.session_id,
+        harness=record.harness,
+        profile=record.profile,
+        role=record.role,
+        requested_model=record.requested_model,
+        actual_model=actual_model if actual_model is not None else record.actual_model,
+        parent_id=parent_id if parent_id is not None else record.parent_id,
+        cwd=cwd if cwd is not None else record.cwd,
+        worktree=worktree if worktree is not None else record.worktree,
+        source_head=source_head if source_head is not None else record.source_head,
+        plan_path=_path("plan"),
+        survival_guide_path=_path("survival_guide"),
+        execution_log_path=_path("execution_log"),
+        session_json_path=_path("session_json"),
+        extra_stable=extras,
+    )
 
 
 def transition_lifecycle(
@@ -648,19 +692,23 @@ class SessionRegistry:
                         path=str(path),
                         hint="Reload the record and retry",
                     )
-                # Default CAS: writer must not silently clobber a newer revision.
-                if expected_revision is None and int(record.revision or 0) not in {
-                    0,
-                    current_rev,
-                }:
-                    if int(record.revision or 0) < current_rev:
-                        raise ValidationIssue(
-                            "session_revision_conflict",
-                            f"Stale session write: in-memory revision {record.revision} "
-                            f"< disk {current_rev}",
-                            path=str(path),
-                        )
-            record.revision = int(record.revision or 0) + 1
+                if int(record.revision or 0) != current_rev:
+                    raise ValidationIssue(
+                        "session_revision_conflict",
+                        f"Stale session write: in-memory revision {record.revision} "
+                        f"!= disk {current_rev}",
+                        path=str(path),
+                    )
+                next_revision = current_rev + 1
+            else:
+                if expected_revision is not None or int(record.revision or 0) != 0:
+                    raise ValidationIssue(
+                        "session_revision_conflict",
+                        "New session records must begin at unpublished revision zero",
+                        path=str(path),
+                    )
+                next_revision = 1
+            record.revision = next_revision
             record.updated_at = _utc_now()
             if not record.created_at:
                 record.created_at = record.updated_at
@@ -754,6 +802,7 @@ class SessionRegistry:
             creation_method=creation_method,
             source_head=source_head,
             context_digest=digest.digest,
+            context_components=dict(digest.components),
             lifecycle=SessionLifecycle.NEW,
             notes=notes,
         )
@@ -869,6 +918,7 @@ class SessionRegistry:
             ):
                 # Proof: resumed turn still targets the pending packet/digest.
                 record.context_digest = record.pending_context_digest
+                record.context_components = dict(digest.components)
                 if record.pending_source_head:
                     record.source_head = record.pending_source_head
                 record.pending_context_digest = None
@@ -909,6 +959,7 @@ class SessionRegistry:
                 and digest.digest == record.pending_context_digest
             ):
                 record.context_digest = record.pending_context_digest
+                record.context_components = dict(digest.components)
                 if record.pending_source_head:
                     record.source_head = record.pending_source_head
                 record.pending_context_digest = None
@@ -944,6 +995,7 @@ class SessionRegistry:
         record.lifecycle = transition_lifecycle(record.lifecycle, SessionLifecycle.ACTIVE)
         record.resume_method = "exact_id"
         record.context_digest = digest.digest
+        record.context_components = dict(digest.components)
         record.pending_context_digest = None
         record.pending_source_head = None
         record.rehydration_reason = None
@@ -1028,22 +1080,49 @@ def verify_grok_child_summary(
             "grok_parent_mismatch",
             f"Child parent_id `{summary.parent_id}` != expected `{expected_parent_id}`",
         )
-    if expected_model and summary.model and summary.model != expected_model:
-        raise ValidationIssue(
-            "grok_model_mismatch",
-            f"Child model `{summary.model}` != expected `{expected_model}`",
-        )
-    if expected_cwd and summary.cwd:
+    if expected_model:
+        if not summary.model:
+            raise ValidationIssue(
+                "grok_model_missing",
+                "Child summary must include the observed model",
+            )
+        if summary.model != expected_model:
+            raise ValidationIssue(
+                "grok_model_mismatch",
+                f"Child model `{summary.model}` != expected `{expected_model}`",
+            )
+    if expected_cwd:
+        if not summary.cwd:
+            raise ValidationIssue(
+                "grok_cwd_missing",
+                "Child summary must include the observed CWD",
+            )
         if Path(summary.cwd).resolve() != Path(expected_cwd).resolve():
             raise ValidationIssue(
                 "grok_cwd_mismatch",
                 f"Child cwd `{summary.cwd}` != expected `{expected_cwd}`",
             )
-    if expected_head and summary.head and summary.head != expected_head:
-        raise ValidationIssue(
-            "grok_head_mismatch",
-            f"Child head `{summary.head}` != expected `{expected_head}`",
-        )
+        if not summary.worktree:
+            raise ValidationIssue(
+                "grok_worktree_missing",
+                "Child summary must include the observed worktree",
+            )
+        if Path(summary.worktree).resolve() != Path(expected_cwd).resolve():
+            raise ValidationIssue(
+                "grok_worktree_mismatch",
+                f"Child worktree `{summary.worktree}` != expected `{expected_cwd}`",
+            )
+    if expected_head:
+        if not summary.head:
+            raise ValidationIssue(
+                "grok_head_missing",
+                "Child summary must include the observed source HEAD",
+            )
+        if summary.head != expected_head:
+            raise ValidationIssue(
+                "grok_head_mismatch",
+                f"Child head `{summary.head}` != expected `{expected_head}`",
+            )
 
 
 def grok_headless_worktree_resume_supported(version: str | None) -> bool:

@@ -38,6 +38,7 @@ from cobbler_runtime.leases import (  # noqa: E402
     host_qualification_evidence,
     LeaseState,
     LeaseStore,
+    WriterLease,
     build_write_task_packet,
     is_path_allowed,
     preflight_worker_checkout,
@@ -79,7 +80,15 @@ def _detached_worktree(main: Path, worktree: Path, head: str) -> None:
 
 
 
-def _register_session(host: Path, session_id: str, *, worker: Path, head: str, adapter: str = "grok-build") -> None:
+def _register_session(
+    host: Path,
+    session_id: str,
+    *,
+    worker: Path,
+    head: str,
+    adapter: str = "grok-build",
+    profile: str | None = None,
+) -> None:
     """Register an exact session so lease qualification can require it."""
     from cobbler_runtime.sessions import SessionRecord, SessionRegistry
 
@@ -87,7 +96,7 @@ def _register_session(host: Path, session_id: str, *, worker: Path, head: str, a
     rec = SessionRecord(
         session_id=session_id,
         harness=adapter,
-        profile=adapter,
+        profile=profile or ("grok-build-write" if adapter == "grok-build" else adapter),
         role="implementer",
         actual_model="grok-4.5",
         requested_model="grok-4.5",
@@ -98,10 +107,13 @@ def _register_session(host: Path, session_id: str, *, worker: Path, head: str, a
     )
     try:
         reg.save(rec)
+        reg.activate(session_id)
     except Exception:
         # Idempotent for tests that register twice.
         try:
-            reg.get(session_id)
+            existing = reg.get(session_id)
+            if existing.lifecycle.value == "new":
+                reg.activate(session_id)
         except Exception:
             raise
 
@@ -119,7 +131,7 @@ def _qual(
     evidence = host_qualification_evidence(
         adapter=adapter,
         model="grok-4.5",
-        profile=profile or adapter,
+        profile=profile or ("grok-build-write" if adapter == "grok-build" else adapter),
         version=version,
         sandbox=sandbox,
         worktree=str(Path(worker).resolve()),
@@ -185,6 +197,24 @@ class PathScopeTests(unittest.TestCase):
 
 
 class LeaseExclusivityTests(unittest.TestCase):
+    def test_host_and_worker_checkout_must_be_distinct(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            host = Path(tmp) / "host"
+            head = _init_repo(host)
+            with self.assertRaises(ValidationIssue) as ctx:
+                LeaseStore(host).prepare(
+                    lease_id="same-checkout",
+                    host_checkout=host,
+                    worker_checkout=host,
+                    session_id="session",
+                    base_head=head,
+                    adapter="grok-build",
+                    profile="grok-build-write",
+                    allowed_paths=["src/"],
+                    qualification_evidence={},
+                )
+            self.assertEqual(ctx.exception.code, "worker_checkout_not_isolated")
+
     def test_second_live_lease_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -318,6 +348,121 @@ class QualificationIdentityTests(unittest.TestCase):
 
 
 class AuditAndPatchTests(unittest.TestCase):
+    def test_untrusted_audit_rejects_in_repo_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host = root / "host"
+            worker = root / "worker"
+            head = _init_repo(host)
+            _detached_worktree(host, worker, head)
+            store = LeaseStore(host)
+            _register_session(host, "sess", worker=worker, head=head)
+            lease = store.prepare(
+                lease_id="lease-symlink",
+                host_checkout=host,
+                worker_checkout=worker,
+                session_id="sess",
+                base_head=head,
+                adapter="grok-build",
+                profile="grok-build-write",
+                allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head),
+            )
+            store.activate(lease.lease_id)
+            (worker / "src" / "link.py").symlink_to("app.py")
+            _run(worker, ["git", "add", "--", "src/link.py"])
+            _run(worker, ["git", "commit", "-m", "add in-repo symlink", "--", "src/link.py"])
+            audit = audit_lease_turn(store.get(lease.lease_id))
+            self.assertFalse(audit.ok)
+            self.assertEqual(audit.symlink_escapes, ["src/link.py"])
+            self.assertTrue(any("symlink paths are forbidden" in reason for reason in audit.reasons))
+
+    def test_lease_revision_zero_cannot_overwrite_existing_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host = root / "host"
+            worker = root / "worker"
+            head = _init_repo(host)
+            _detached_worktree(host, worker, head)
+            store = LeaseStore(host)
+            _register_session(host, "sess", worker=worker, head=head)
+            lease = store.prepare(
+                lease_id="lease-cas-zero",
+                host_checkout=host,
+                worker_checkout=worker,
+                session_id="sess",
+                base_head=head,
+                adapter="grok-build",
+                profile="grok-build-write",
+                allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head),
+            )
+            stale = WriterLease.from_dict(lease.to_dict())
+            stale.revision = 0
+            with self.assertRaises(ValidationIssue) as ctx:
+                store.save(stale)
+            self.assertEqual(ctx.exception.code, "lease_revision_conflict")
+
+            stale = WriterLease.from_dict(lease.to_dict())
+            stale.revision = 0
+            with self.assertRaises(ValidationIssue) as ctx:
+                store.save(stale, expected_revision=lease.revision)
+            self.assertEqual(ctx.exception.code, "lease_revision_conflict")
+
+    def test_terminal_lease_id_is_immutable_and_cannot_be_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host = root / "host"
+            worker = root / "worker"
+            head = _init_repo(host)
+            _detached_worktree(host, worker, head)
+            store = LeaseStore(host)
+            _register_session(host, "sess", worker=worker, head=head)
+            kwargs = dict(
+                lease_id="lease-terminal-id",
+                host_checkout=host,
+                worker_checkout=worker,
+                session_id="sess",
+                base_head=head,
+                adapter="grok-build",
+                profile="grok-build-write",
+                allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head),
+            )
+            store.prepare(**kwargs)
+            store.close("lease-terminal-id")
+            with self.assertRaises(ValidationIssue) as ctx:
+                store.prepare(**kwargs)
+            self.assertEqual(ctx.exception.code, "lease_id_immutable")
+
+    def test_lease_prepare_rejects_active_session_with_pending_rehydration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host = root / "host"
+            worker = root / "worker"
+            head = _init_repo(host)
+            _detached_worktree(host, worker, head)
+            _register_session(host, "sess", worker=worker, head=head)
+            from cobbler_runtime.sessions import SessionRegistry
+
+            registry = SessionRegistry(host)
+            session = registry.get("sess")
+            session.pending_context_digest = "pending"
+            registry.save(session)
+            with self.assertRaises(ValidationIssue) as ctx:
+                LeaseStore(host).prepare(
+                    lease_id="lease-pending",
+                    host_checkout=host,
+                    worker_checkout=worker,
+                    session_id="sess",
+                    base_head=head,
+                    adapter="grok-build",
+                    profile="grok-build-write",
+                    allowed_paths=["src/"],
+                    qualification_evidence=_qual(worker, head),
+                )
+            self.assertEqual(ctx.exception.code, "write_qualification_session_blocked")
+
     def test_allowed_detached_chain_export_and_apply_check(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -417,7 +562,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 session_id="sess",
                 base_head=head,
                 adapter="grok-build",
-                profile="p",
+                profile="grok-build-write",
                 allowed_paths=["src/"],
                 qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
@@ -447,7 +592,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 session_id="sess",
                 base_head=head,
                 adapter="grok-build",
-                profile="p",
+                profile="grok-build-write",
                 allowed_paths=["src/"],
                 qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
@@ -488,7 +633,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 session_id="sess",
                 base_head=head,
                 adapter="grok-build",
-                profile="p",
+                profile="grok-build-write",
                 allowed_paths=["src/"],
                 qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
@@ -520,7 +665,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 session_id="sess",
                 base_head=head,
                 adapter="grok-build",
-                profile="p",
+                profile="grok-build-write",
                 allowed_paths=["src/"],
                 qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
@@ -550,7 +695,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 session_id="sess",
                 base_head=head,
                 adapter="grok-build",
-                profile="p",
+                profile="grok-build-write",
                 allowed_paths=["src/"],
                 qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
@@ -568,7 +713,7 @@ class AuditAndPatchTests(unittest.TestCase):
             head = _init_repo(host)
             _detached_worktree(host, worker, head)
             store = LeaseStore(host)
-            _register_session(host, "sess", worker=worker, head=head)
+            _register_session(host, "sess", worker=worker, head=head, profile="workspace")
             # Unsupported sandbox_profile cannot qualify or enable detached commits.
             with self.assertRaises(ValidationIssue) as ctx:
                 store.prepare(
@@ -587,6 +732,7 @@ class AuditAndPatchTests(unittest.TestCase):
                         session_id="sess",
                         adapter="grok-build",
                         sandbox="workspace",
+                        profile="workspace",
                     ),
                 )
             self.assertIn("sandbox", ctx.exception.message.lower())
@@ -603,7 +749,12 @@ class AuditAndPatchTests(unittest.TestCase):
                     sandbox_profile="workspace",
                     allowed_paths=["src/"],
                     qualification_evidence=_qual(
-                        worker, head, session_id="sess", adapter="grok-build", sandbox="devbox"
+                        worker,
+                        head,
+                        session_id="sess",
+                        adapter="grok-build",
+                        sandbox="devbox",
+                        profile="workspace",
                     ),
                 )
             # Explicit detached_commits_permitted=False with supported sandbox.
@@ -619,7 +770,12 @@ class AuditAndPatchTests(unittest.TestCase):
                 allowed_paths=["src/"],
                 detached_commits_permitted=False,
                 qualification_evidence=_qual(
-                    worker, head, session_id="sess", adapter="grok-build", sandbox="devbox"
+                    worker,
+                    head,
+                    session_id="sess",
+                    adapter="grok-build",
+                    sandbox="devbox",
+                    profile="workspace",
                 ),
             )
             self.assertFalse(lease.detached_commits_permitted)
@@ -647,33 +803,85 @@ class AuditAndPatchTests(unittest.TestCase):
                 session_id="sess",
                 base_head=head,
                 adapter="grok-build",
-                profile="p",
+                profile="grok-build-write",
                 allowed_paths=["src/"],
                 qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
             store.activate(lease.lease_id)
-            # Simulate host advanced tip
+            # Worker produces the audited tree; host independently imports the
+            # same tree before integration can be claimed.
+            (worker / "src" / "app.py").write_text("host v2\n", encoding="utf-8")
+            _run(worker, ["git", "add", "--", "src/app.py"])
+            _run(worker, ["git", "commit", "-m", "worker change", "--", "src/app.py"])
+            worker_tip = _git(worker, "rev-parse", "HEAD")
             (host / "src" / "app.py").write_text("host v2\n", encoding="utf-8")
             _run(host, ["git", "add", "--", "src/app.py"])
             _run(host, ["git", "commit", "-m", "host integrate", "--", "src/app.py"])
             new_tip = _git(host, "rev-parse", "HEAD")
-            # Worker still at old tip, clean
             store.mark_auditing(lease.lease_id)
-            store.mark_audited_pass(lease.lease_id, evidence={"ok": True, "lease_id": lease.lease_id, "worker_tip": lease.worker_tip or head, "base_head": head, "commit_chain": [], "evidence_digest": "test-digest"})
+            store.mark_audited_pass(lease.lease_id, evidence={"ok": True, "lease_id": lease.lease_id, "worker_tip": worker_tip, "base_head": head, "commit_chain": [], "evidence_digest": "test-digest"})
             store.mark_exported(lease.lease_id, str(root / "patches"))
             with self.assertRaises(ValidationIssue) as ctx:
-                store.mark_integrated(lease.lease_id)
+                store.mark_integrated(lease.lease_id, new_tip=new_tip)
             self.assertEqual(ctx.exception.code, "integrate_requires_apply_checked")
             store.mark_apply_checked(lease.lease_id)
             (worker / "src" / "app.py").write_text("dirty\n", encoding="utf-8")
             with self.assertRaises(ValidationIssue):
-                store.refresh_worker_to_tip(lease.lease_id, new_tip=new_tip)
+                store.mark_integrated(lease.lease_id, new_tip=new_tip)
             self.assertEqual(store.get(lease.lease_id).state, LeaseState.APPLY_CHECKED)
             _run(worker, ["git", "checkout", "--", "src/app.py"])
+            store.mark_integrated(lease.lease_id, new_tip=new_tip)
             result = store.refresh_worker_to_tip(lease.lease_id, new_tip=new_tip)
-            store.mark_integrated(lease.lease_id)
             self.assertEqual(result["worker_tip"], new_tip)
             self.assertEqual(_git(worker, "rev-parse", "HEAD"), new_tip)
+
+    def test_mark_integrated_rejects_host_tree_that_differs_from_audited_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host = root / "host"
+            worker = root / "worker"
+            head = _init_repo(host)
+            _detached_worktree(host, worker, head)
+            store = LeaseStore(host)
+            _register_session(host, "sess", worker=worker, head=head)
+            lease = store.prepare(
+                lease_id="lease-tree-mismatch",
+                host_checkout=host,
+                worker_checkout=worker,
+                session_id="sess",
+                base_head=head,
+                adapter="grok-build",
+                profile="grok-build-write",
+                allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head),
+            )
+            store.activate(lease.lease_id)
+            (worker / "src" / "app.py").write_text("worker tree\n", encoding="utf-8")
+            _run(worker, ["git", "add", "--", "src/app.py"])
+            _run(worker, ["git", "commit", "-m", "worker tree", "--", "src/app.py"])
+            worker_tip = _git(worker, "rev-parse", "HEAD")
+            store.mark_auditing(lease.lease_id)
+            store.mark_audited_pass(
+                lease.lease_id,
+                evidence={
+                    "ok": True,
+                    "lease_id": lease.lease_id,
+                    "worker_tip": worker_tip,
+                    "base_head": head,
+                    "commit_chain": [],
+                    "evidence_digest": "test-digest",
+                },
+            )
+            store.mark_exported(lease.lease_id, str(root / "patches"))
+            store.mark_apply_checked(lease.lease_id)
+            (host / "src" / "app.py").write_text("different host tree\n", encoding="utf-8")
+            _run(host, ["git", "add", "--", "src/app.py"])
+            _run(host, ["git", "commit", "-m", "wrong import", "--", "src/app.py"])
+            host_tip = _git(host, "rev-parse", "HEAD")
+            with self.assertRaises(ValidationIssue) as ctx:
+                store.mark_integrated(lease.lease_id, new_tip=host_tip)
+            self.assertEqual(ctx.exception.code, "integration_tree_mismatch")
+            self.assertEqual(store.get(lease.lease_id).state, LeaseState.APPLY_CHECKED)
 
 
 class GrokWriteProfileTests(unittest.TestCase):

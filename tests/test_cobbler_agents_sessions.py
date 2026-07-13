@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO_ROOT / "scripts"
+CLI = SCRIPTS / "cobbler_agents.py"
 
 
 def _ensure_import_path() -> None:
@@ -173,6 +175,40 @@ class DigestAndContinuityTests(unittest.TestCase):
 
 
 class RegistryLifecycleTests(unittest.TestCase):
+    def test_explicit_cas_rejects_caller_revision_mismatch_and_increments_disk(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            reg = SessionRegistry(Path(tmp))
+            current = reg.create(
+                session_id="cas-explicit",
+                harness="grok-build",
+                profile="grok-build-write",
+                role="implement",
+            )
+            stale = type(current).from_dict(current.to_dict())
+            stale.revision = 0
+            with self.assertRaises(ValidationIssue) as ctx:
+                reg.save(stale, expected_revision=current.revision)
+            self.assertEqual(ctx.exception.code, "session_revision_conflict")
+            fresh = reg.get("cas-explicit")
+            prior = fresh.revision
+            saved = reg.save(fresh, expected_revision=prior)
+            self.assertEqual(saved.revision, prior + 1)
+
+    def test_revision_zero_cannot_overwrite_existing_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            reg = SessionRegistry(Path(tmp))
+            current = reg.create(
+                session_id="cas-zero",
+                harness="grok-build",
+                profile="grok-build-write",
+                role="implement",
+            )
+            stale = type(current).from_dict(current.to_dict())
+            stale.revision = 0
+            with self.assertRaises(ValidationIssue) as ctx:
+                reg.save(stale)
+            self.assertEqual(ctx.exception.code, "session_revision_conflict")
+
     def test_exact_create_resume_and_closed_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             reg = SessionRegistry(Path(tmp))
@@ -441,6 +477,137 @@ class GrokLineageTests(unittest.TestCase):
                 {"child_id": "same", "parent_id": "same", "model": "m", "cwd": "/x", "head": "h"}
             )
         self.assertEqual(ctx.exception.code, "grok_lineage_same_uuid")
+
+    def test_child_registration_requires_observed_model_cwd_worktree_and_head(self) -> None:
+        base = {
+            "child_id": "child-uuid",
+            "parent_id": "parent-uuid",
+            "model": "grok-model",
+            "cwd": "/verified/worktree",
+            "worktree": "/verified/worktree",
+            "head": "a" * 40,
+        }
+        for missing in ("model", "cwd", "worktree", "head"):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as tmp:
+                payload = dict(base)
+                payload.pop(missing)
+                summary = parse_grok_child_summary(payload)
+                with self.assertRaises(ValidationIssue):
+                    register_grok_child(
+                        SessionRegistry(Path(tmp)),
+                        summary=summary,
+                        profile="grok-build-write",
+                        role="implement",
+                        expected_parent_id="parent-uuid",
+                        expected_model="grok-model",
+                        expected_cwd="/verified/worktree",
+                        expected_head="a" * 40,
+                    )
+
+
+class WriteResumeCliTests(unittest.TestCase):
+    def _invoke(self, root: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(CLI),
+                "session",
+                "resume",
+                "--repo-root",
+                str(root),
+                "--json",
+                "--session-id",
+                "write-session",
+                "--adapter",
+                "grok-build",
+                "--model",
+                "grok-model",
+                "--cwd",
+                str(root),
+                "--worktree",
+                str(root),
+                "--parent-id",
+                "parent-1",
+                "--source-head",
+                "a" * 40,
+                "--require-write",
+                *extra,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_write_resume_requires_observed_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry = SessionRegistry(root)
+            registry.create(
+                session_id="write-session",
+                harness="grok-build",
+                profile="grok-build-write",
+                role="implement",
+                actual_model="grok-model",
+                parent_id="parent-1",
+                cwd=str(root),
+                worktree=str(root),
+                source_head="a" * 40,
+            )
+            registry.activate("write-session")
+            result = self._invoke(root)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            payload = json.loads(result.stdout)
+            self.assertIn("profile", payload["issues"][0]["message"])
+
+    def test_write_resume_blocks_expected_head_change(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry = SessionRegistry(root)
+            registry.create(
+                session_id="write-session",
+                harness="grok-build",
+                profile="grok-build-write",
+                role="implement",
+                actual_model="grok-model",
+                parent_id="parent-1",
+                cwd=str(root),
+                worktree=str(root),
+                source_head="b" * 40,
+            )
+            registry.activate("write-session")
+            result = self._invoke(root, "--profile", "grok-build-write")
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            payload = json.loads(result.stdout)
+            self.assertEqual(
+                payload["issues"][0]["code"], "session_write_reuse_unqualified"
+            )
+
+    def test_write_resume_recomputes_canonical_disk_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "plan.md"
+            plan.write_text("stable\n", encoding="utf-8")
+            registry = SessionRegistry(root)
+            registry.create(
+                session_id="write-session",
+                harness="grok-build",
+                profile="grok-build-write",
+                role="implement",
+                actual_model="grok-model",
+                parent_id="parent-1",
+                cwd=str(root),
+                worktree=str(root),
+                source_head="a" * 40,
+                plan_path=plan,
+            )
+            registry.activate("write-session")
+            exact = self._invoke(root, "--profile", "grok-build-write")
+            self.assertEqual(exact.returncode, 0, exact.stdout)
+            plan.write_text("changed on disk\n", encoding="utf-8")
+            drifted = self._invoke(root, "--profile", "grok-build-write")
+            self.assertNotEqual(drifted.returncode, 0, drifted.stdout)
+            payload = json.loads(drifted.stdout)
+            self.assertIn("canonical on-disk context digest changed", payload["issues"][0]["message"])
 
     def test_headless_worktree_resume_broken_on_0_2_93(self) -> None:
         self.assertFalse(grok_headless_worktree_resume_supported("0.2.93"))

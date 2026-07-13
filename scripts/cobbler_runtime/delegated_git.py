@@ -181,34 +181,88 @@ def create_rollback_ref(
     head: str | None = None,
     push_remote: str | None = None,
 ) -> dict[str, Any]:
-    tip = head
-    if tip is None:
-        result = run_git(cwd, ["rev-parse", "HEAD"])
-        if result.returncode != 0:
-            raise ValidationIssue("delegated_git_rev_parse_failed", result.stderr.strip())
-        tip = result.stdout.strip()
-    ref = rollback_ref_name(run_id=run_id, session_id=session_id, batch=batch)
-    result = run_git(cwd, ["update-ref", ref, tip])
-    if result.returncode != 0:
+    tip_expr = head or "HEAD"
+    resolved = run_git(cwd, ["rev-parse", "--verify", f"{tip_expr}^{{commit}}"])
+    if resolved.returncode != 0:
         raise ValidationIssue(
-            "delegated_git_rollback_ref_failed",
-            (result.stderr or result.stdout or "update-ref failed").strip(),
+            "delegated_git_rev_parse_failed",
+            (resolved.stderr or resolved.stdout or f"invalid commit: {tip_expr}").strip(),
         )
-    pushed = False
-    if push_remote:
-        pushed_result = run_git(cwd, ["push", push_remote, f"{ref}:{ref}"])
-        if pushed_result.returncode != 0:
+    tip = resolved.stdout.strip()
+    ref = rollback_ref_name(run_id=run_id, session_id=session_id, batch=batch)
+    existing = run_git(cwd, ["rev-parse", "-q", "--verify", ref])
+    local_ref_created = False
+    idempotent = False
+    if existing.returncode == 0 and existing.stdout.strip():
+        existing_tip = existing.stdout.strip()
+        if existing_tip != tip:
             raise ValidationIssue(
-                "delegated_git_rollback_push_failed",
-                (pushed_result.stderr or pushed_result.stdout or "rollback push failed").strip(),
+                "delegated_git_rollback_ref_collision",
+                f"Rollback ref `{ref}` already points to `{existing_tip}`; refusing to move it",
             )
-        pushed = True
+        idempotent = True
+    else:
+        object_format = run_git(cwd, ["rev-parse", "--show-object-format"])
+        fmt = object_format.stdout.strip() if object_format.returncode == 0 else "sha1"
+        zero_oid = "0" * (64 if fmt == "sha256" else 40)
+        result = run_git(cwd, ["update-ref", ref, tip, zero_oid])
+        if result.returncode != 0:
+            raise ValidationIssue(
+                "delegated_git_rollback_ref_failed",
+                (result.stderr or result.stdout or "update-ref failed").strip(),
+            )
+        local_ref_created = True
+    pushed = False
+    remote_ref_created = False
+    remote_idempotent = False
+    if push_remote:
+        remote_result = run_git(cwd, ["ls-remote", "--refs", push_remote, ref])
+        if remote_result.returncode != 0:
+            raise ValidationIssue(
+                "delegated_git_rollback_remote_inspect_failed",
+                (remote_result.stderr or remote_result.stdout or "ls-remote failed").strip(),
+            )
+        remote_rows = [row.split(None, 1) for row in remote_result.stdout.splitlines()]
+        remote_tip = next(
+            (parts[0] for parts in remote_rows if len(parts) == 2 and parts[1] == ref),
+            None,
+        )
+        if remote_tip and remote_tip != tip:
+            raise ValidationIssue(
+                "delegated_git_rollback_remote_collision",
+                f"Remote rollback ref `{ref}` already points to `{remote_tip}`; refusing to move it",
+            )
+        if remote_tip == tip:
+            remote_idempotent = True
+        else:
+            # Empty force-with-lease expectation means the remote ref must still
+            # be absent at push time, closing the inspect/push race.
+            pushed_result = run_git(
+                cwd,
+                [
+                    "push",
+                    f"--force-with-lease={ref}:",
+                    push_remote,
+                    f"{tip}:{ref}",
+                ],
+            )
+            if pushed_result.returncode != 0:
+                raise ValidationIssue(
+                    "delegated_git_rollback_push_failed",
+                    (pushed_result.stderr or pushed_result.stdout or "rollback push failed").strip(),
+                )
+            pushed = True
+            remote_ref_created = True
     return {
         "ok": True,
         "ref": ref,
         "head": tip,
         "batch": batch,
+        "local_ref_created": local_ref_created,
+        "idempotent": idempotent,
         "pushed": pushed,
+        "remote_ref_created": remote_ref_created,
+        "remote_idempotent": remote_idempotent,
         "remote": push_remote,
     }
 

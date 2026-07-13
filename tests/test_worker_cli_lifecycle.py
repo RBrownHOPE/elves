@@ -56,11 +56,12 @@ class WorkerCliLifecycleTests(unittest.TestCase):
         _git(host, "worktree", "add", "--detach", str(worker), head)
 
         session_id = "cli-lifecycle-session"
-        SessionRegistry(host).save(
+        registry = SessionRegistry(host)
+        registry.save(
             SessionRecord(
                 session_id=session_id,
                 harness="grok-build",
-                profile="grok-build",
+                profile="grok-build-write",
                 role="implementer",
                 requested_model="grok-4.5",
                 actual_model="grok-4.5",
@@ -70,10 +71,11 @@ class WorkerCliLifecycleTests(unittest.TestCase):
                 source_head=head,
             )
         )
+        registry.activate(session_id)
         qualification = host_qualification_evidence(
             adapter="grok-build",
             model="grok-4.5",
-            profile="grok-build",
+            profile="grok-build-write",
             version="0.2.93",
             sandbox="devbox",
             worktree=str(worker.resolve()),

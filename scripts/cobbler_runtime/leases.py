@@ -262,6 +262,7 @@ class WriterLease:
     notes: str = ""
     rejection_reason: str | None = None
     worker_tip: str | None = None
+    integrated_tip: str | None = None
     exported_patch_dir: str | None = None
     # Negative fixture: workspace sandbox cannot be assumed commit-capable.
     workspace_sandbox_commit_capable: bool = False
@@ -305,6 +306,7 @@ class WriterLease:
             notes=str(data.get("notes") or ""),
             rejection_reason=data.get("rejection_reason"),
             worker_tip=data.get("worker_tip"),
+            integrated_tip=data.get("integrated_tip"),
             exported_patch_dir=data.get("exported_patch_dir"),
             workspace_sandbox_commit_capable=bool(
                 data.get("workspace_sandbox_commit_capable", False)
@@ -463,6 +465,14 @@ def _worktree_list_porcelain(cwd: Path) -> str:
     return run_git(cwd, ["worktree", "list", "--porcelain"]).stdout
 
 
+def _git_common_dir(cwd: Path) -> Path:
+    raw = run_git(cwd, ["rev-parse", "--git-common-dir"]).stdout.strip()
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path(cwd) / path
+    return path.resolve()
+
+
 def worktree_is_registered(worker_checkout: Path, *, git_cwd: Path | None = None) -> bool:
     """True when worker path appears in git worktree list --porcelain."""
     root = git_cwd or worker_checkout
@@ -493,6 +503,7 @@ def preflight_worker_checkout(
     require_detached: bool = True,
     require_clean: bool = True,
     require_registered: bool = True,
+    registration_cwd: Path | None = None,
 ) -> dict[str, Any]:
     """Fail closed unless worker checkout matches lease preconditions."""
     worker = Path(worker_checkout)
@@ -505,7 +516,7 @@ def preflight_worker_checkout(
     status = _git_status_porcelain(worker)
     symbolic = _git_symbolic_head(worker)
     detached = symbolic is None
-    registered = worktree_is_registered(worker)
+    registered = worktree_is_registered(worker, git_cwd=registration_cwd)
 
     if require_registered and not registered:
         raise ValidationIssue(
@@ -656,15 +667,23 @@ class LeaseStore:
                         f"disk has {current_rev}",
                         path=str(path),
                     )
-                if expected_revision is None and int(lease.revision or 0) not in {0, current_rev}:
-                    if int(lease.revision or 0) < current_rev:
-                        raise ValidationIssue(
-                            "lease_revision_conflict",
-                            f"Stale lease write: in-memory revision {lease.revision} "
-                            f"< disk {current_rev}",
-                            path=str(path),
-                        )
-            lease.revision = int(lease.revision or 0) + 1
+                if int(lease.revision or 0) != current_rev:
+                    raise ValidationIssue(
+                        "lease_revision_conflict",
+                        f"Stale lease write: in-memory revision {lease.revision} "
+                        f"!= disk {current_rev}",
+                        path=str(path),
+                    )
+                next_revision = current_rev + 1
+            else:
+                if expected_revision is not None or int(lease.revision or 0) != 0:
+                    raise ValidationIssue(
+                        "lease_revision_conflict",
+                        "New lease records must begin at unpublished revision zero",
+                        path=str(path),
+                    )
+                next_revision = 1
+            lease.revision = next_revision
             lease.updated_at = _utc_now()
             if not lease.created_at:
                 lease.created_at = lease.updated_at
@@ -695,6 +714,20 @@ class LeaseStore:
         qualification_evidence: Mapping[str, Any] | None = None,
     ) -> WriterLease:
         """Create the sole live lease after worker preflight and profile checks."""
+        host_path = Path(host_checkout).resolve()
+        worker_path = Path(worker_checkout).resolve()
+        if host_path == worker_path:
+            raise ValidationIssue(
+                "worker_checkout_not_isolated",
+                "Host and worker checkout must be distinct registered worktrees",
+                path=str(worker_path),
+            )
+        if _git_common_dir(host_path) != _git_common_dir(worker_path):
+            raise ValidationIssue(
+                "worker_checkout_wrong_repository",
+                "Worker checkout is not a linked worktree of the host repository",
+                path=str(worker_path),
+            )
         if not write_profile_qualified:
             raise ValidationIssue(
                 "write_profile_unqualified",
@@ -726,6 +759,12 @@ class LeaseStore:
             raise ValidationIssue(
                 "write_qualification_session_mismatch",
                 f"Qualification session `{evidence_session}` != lease session `{session_id}`",
+            )
+        if str(qualification_evidence.get("profile") or "") != str(profile):
+            raise ValidationIssue(
+                "write_qualification_profile_mismatch",
+                f"Lease profile `{profile}` != qualification profile "
+                f"`{qualification_evidence.get('profile')}`",
             )
         field_pairs = (
             ("adapter", adapter),
@@ -789,7 +828,7 @@ class LeaseStore:
         # Require the exact registered session and compare every identity field;
         # mere existence never grants write authority.
         try:
-            from .sessions import SessionRegistry  # noqa: PLC0415
+            from .sessions import SessionLifecycle, SessionRegistry  # noqa: PLC0415
 
             registry = SessionRegistry(Path(host_checkout))
             try:
@@ -799,6 +838,23 @@ class LeaseStore:
                     "write_qualification_session_unregistered",
                     f"Lease requires registered exact session `{session_id}`: {issue.message}",
                 ) from issue
+
+            if registered.lifecycle != SessionLifecycle.ACTIVE:
+                raise ValidationIssue(
+                    "write_qualification_session_inactive",
+                    "Writer lease requires an exact ACTIVE registered session "
+                    f"(have {registered.lifecycle.value})",
+                )
+            if (
+                registered.write_reuse_blocked
+                or registered.pending_context_digest
+                or registered.pending_source_head
+                or registered.rehydration_reason
+            ):
+                raise ValidationIssue(
+                    "write_qualification_session_blocked",
+                    "Writer lease refused: session has write-reuse or pending rehydration state",
+                )
 
             registered_model = registered.actual_model or registered.requested_model
             identity_pairs = (
@@ -848,6 +904,14 @@ class LeaseStore:
             )
 
         with directory_lock(self.root):
+            # Lease IDs are authority identities. Once published, including in a
+            # terminal state, they are immutable and never reusable.
+            if self._path(lease_id).exists() or self._legacy_path(lease_id).exists():
+                raise ValidationIssue(
+                    "lease_id_immutable",
+                    f"Lease id `{lease_id}` was already published and cannot be reused",
+                    path=str(self._path(lease_id)),
+                )
             # Malformed records block exclusivity checks rather than disappearing.
             live = [
                 lease
@@ -877,6 +941,7 @@ class LeaseStore:
                 require_detached=require_detached,
                 require_clean=True,
                 require_registered=True,
+                registration_cwd=Path(host_checkout),
             )
             digest = refs_digest(Path(worker_checkout))
             workspace_capable = sandbox_profile != "workspace"
@@ -908,6 +973,9 @@ class LeaseStore:
                 lease.detached_commits_permitted = False
             lease.updated_at = _utc_now()
             lease.created_at = lease.updated_at
+            # Revision zero is reserved for unpublished/create-race objects and
+            # is never a valid implicit-CAS update token.
+            lease.revision = 1
             qualification_dir = self.snapshot_dir(lease.lease_id)
             qualification_dir.mkdir(parents=True, exist_ok=True)
             atomic_write_json(
@@ -995,7 +1063,8 @@ class LeaseStore:
         lease.state = transition_lease_state(lease.state, LeaseState.APPLY_CHECKED)
         return self.save(lease)
 
-    def mark_integrated(self, lease_id: str) -> WriterLease:
+    def mark_integrated(self, lease_id: str, *, new_tip: str) -> WriterLease:
+        """Verify host integration before recording the terminal integration state."""
         lease = self.get(lease_id)
         if lease.state not in {LeaseState.APPLY_CHECKED, LeaseState.INTEGRATED}:
             raise ValidationIssue(
@@ -1003,7 +1072,60 @@ class LeaseStore:
                 f"Integration refused from `{lease.state.value}`; require apply_checked",
                 path=f"leases.{lease_id}.state",
             )
+        host = Path(lease.host_checkout)
+        worker = Path(lease.worker_checkout)
+        host_status = _git_status_porcelain(host)
+        worker_status = _git_status_porcelain(worker)
+        if host_status.strip():
+            raise ValidationIssue(
+                "host_dirty_on_integrate",
+                "Host checkout must be clean before integration can be recorded",
+                hint=host_status.strip()[:400],
+            )
+        if worker_status.strip():
+            raise ValidationIssue(
+                "worker_dirty_on_integrate",
+                "Worker checkout must be clean before integration can be recorded",
+                hint=worker_status.strip()[:400],
+            )
+        host_head = _git_head(host)
+        if host_head != new_tip:
+            raise ValidationIssue(
+                "integration_host_tip_mismatch",
+                f"Host HEAD `{host_head}` != requested integrated tip `{new_tip}`",
+            )
+        ancestry = run_git(
+            host,
+            ["merge-base", "--is-ancestor", lease.base_head, new_tip],
+            check=False,
+        )
+        if ancestry.returncode != 0:
+            raise ValidationIssue(
+                "integration_not_descendant",
+                f"Integrated tip `{new_tip}` is not a descendant of base `{lease.base_head}`",
+            )
+        audited_tip = str(lease.worker_tip or "")
+        if not audited_tip:
+            raise ValidationIssue(
+                "integration_audited_tip_missing",
+                "Lease has no audited worker tip to compare with host integration",
+            )
+        if _git_head(worker) != audited_tip:
+            raise ValidationIssue(
+                "integration_worker_tip_mismatch",
+                "Worker HEAD no longer matches the audited worker tip",
+            )
+        host_tree = run_git(host, ["rev-parse", f"{new_tip}^{{tree}}"], check=True).stdout.strip()
+        worker_tree = run_git(
+            worker, ["rev-parse", f"{audited_tip}^{{tree}}"], check=True
+        ).stdout.strip()
+        if host_tree != worker_tree:
+            raise ValidationIssue(
+                "integration_tree_mismatch",
+                "Host integrated tree does not match the audited worker tree",
+            )
         lease.state = transition_lease_state(lease.state, LeaseState.INTEGRATED)
+        lease.integrated_tip = new_tip
         return self.save(lease)
 
     def reject(self, lease_id: str, reason: str) -> WriterLease:

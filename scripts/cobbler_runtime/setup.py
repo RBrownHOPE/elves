@@ -22,6 +22,7 @@ from .capabilities import doctor_inventory
 from .config import models_toml_is_local_only, resolve_config
 from .executables import resolve_executable
 from .schema import NATIVE_PROFILE_NAME, RoleName, ValidationIssue
+from .toml_compat import loads as load_toml_text
 
 
 # Role slots users can prefer during setup (operations, not model identities).
@@ -464,6 +465,7 @@ def render_models_toml(
     preferences: SetupPreferences,
     *,
     existing_profiles: Mapping[str, Mapping[str, Any]] | None = None,
+    existing_top_level: Mapping[str, Any] | None = None,
 ) -> str:
     """Render a local models.toml from preferences (no credentials)."""
     lines: list[str] = [
@@ -480,6 +482,20 @@ def render_models_toml(
     ]
     if preferences.usage_budget_warning is not None:
         lines.append(f"usage_budget_warning_tokens = {int(preferences.usage_budget_warning)}")
+        lines.append("")
+
+    standard_top_level = {
+        "roles",
+        "profiles",
+        "session_mode_default",
+        "sharing_policy",
+        "document_owner",
+        "usage_budget_warning_tokens",
+    }
+    for key, value in (existing_top_level or {}).items():
+        if key not in standard_top_level and value is not None:
+            lines.append(f"{_toml_key(str(key))} = {_toml_value(value)}")
+    if existing_top_level:
         lines.append("")
 
     # Profiles referenced by roles
@@ -589,6 +605,7 @@ def write_models_toml(
     *,
     force: bool = False,
     preserve_existing_if_unknown_sections: bool = True,
+    unknown_sections_preserved: bool = False,
 ) -> tuple[Path, bool]:
     """Write ignored local models.toml. Refuses lossy overwrite when unknown sections exist."""
     assert_toml_has_no_secrets(text)
@@ -597,8 +614,12 @@ def write_models_toml(
     if path.is_file() and not force:
         existing = path.read_text(encoding="utf-8")
         # Heuristic: unknown top-level sections beyond profiles/roles/comments
-        if preserve_existing_if_unknown_sections and re.search(
-            r"^\[(?!profiles\.|roles\.)[^\]]+\]", existing, re.M
+        if (
+            preserve_existing_if_unknown_sections
+            and not unknown_sections_preserved
+            and re.search(
+                r"^\[(?!profiles\.|roles\.)[^\]]+\]", existing, re.M
+            )
         ):
             raise ValidationIssue(
                 "models_toml_unknown_sections",
@@ -710,6 +731,7 @@ def run_setup(
     fake_versions: Mapping[str, str | None] | None = None,
     fake_auth: Mapping[str, str] | None = None,
     existing_profiles: Mapping[str, Mapping[str, Any]] | None = None,
+    existing_top_level: Mapping[str, Any] | None = None,
 ) -> SetupResult:
     """Run setup inventory + optional local models.toml generation.
 
@@ -835,24 +857,23 @@ def run_setup(
             text = render_models_toml(
                 prefs,
                 existing_profiles=existing_profiles,
+                existing_top_level=existing_top_level,
             )
-            path, written = write_models_toml(root, text, force=force_toml)
+            path, written = write_models_toml(
+                root,
+                text,
+                force=force_toml,
+                unknown_sections_preserved=existing_top_level is not None,
+            )
             result.models_toml_written = written
             result.models_toml_path = str(path)
-            # Prove generated TOML resolves (when tomllib available).
-            try:
-                import tomllib as _tomllib  # noqa: PLC0415
-
-                parsed = _tomllib.loads(text)
-                resolved = resolve_config(models_toml=parsed)
-                if not resolved.ok:
-                    result.warnings.append(
-                        "Generated models.toml has validation issues: "
-                        + "; ".join(i.message for i in resolved.issues)
-                    )
-            except ModuleNotFoundError:
+            # Prove generated TOML parses and resolves on every supported Python.
+            parsed = load_toml_text(text)
+            resolved = resolve_config(models_toml=parsed)
+            if not resolved.ok:
                 result.warnings.append(
-                    "tomllib unavailable; generated file written but not parse-validated on this Python"
+                    "Generated models.toml has validation issues: "
+                    + "; ".join(i.message for i in resolved.issues)
                 )
         except ValidationIssue as issue:
             result.ok = False

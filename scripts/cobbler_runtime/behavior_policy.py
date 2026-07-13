@@ -306,7 +306,14 @@ def resolve_from_signals(
     text = (intent or "").lower()
 
     def has(*keys: str) -> bool:
-        return any(flags.get(k) or k.replace("_", " ") in text for k in keys)
+        for key in keys:
+            phrase = key.replace("_", " ")
+            if flags.get(key) or phrase in text:
+                return True
+            # This is the natural operator wording used in the full-run contract.
+            if phrase == "turn over to grok" and "turn it over to grok" in text:
+                return True
+        return False
 
     # Base scenario for notes/scenario_id only.
     # full_run/overnight alone is host-native single-kickoff, not trusted Grok.
