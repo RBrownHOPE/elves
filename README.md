@@ -26,20 +26,23 @@ Helpers: `python3 scripts/cobbler_agents.py`. Changelog: [`CHANGELOG.md`](CHANGE
 ### Install (Claude Code)
 
 ```bash
-mkdir -p ~/.claude/skills
-git clone https://github.com/aigorahub/elves.git ~/.claude/skills/elves
-# Seven Claude aliases (cobbler, cobbler-mode, council, ec, elves-council, setup-cobbler, setup-council):
-for alias in cobbler cobbler-mode council ec elves-council setup-cobbler setup-council; do
-  mkdir -p ~/.claude/skills/$alias
-  cp ~/.claude/skills/elves/aliases/claude/$alias/SKILL.md ~/.claude/skills/$alias/SKILL.md
-done
+ELVES_TMP="$(mktemp -d)"
+git clone https://github.com/aigorahub/elves.git "$ELVES_TMP/elves"
+python3 "$ELVES_TMP/elves/scripts/sync_installed_skills.py" --apply --target claude
+rm -rf "$ELVES_TMP"
 ```
+
+The sync helper creates missing aliases and updates only aliases carrying the Elves-managed marker.
+If it finds a user-owned alias, it reports the conflict before changing the install and never
+overwrites that alias.
 
 ### Install (Codex)
 
 ```bash
-mkdir -p ~/.codex/skills
-git clone https://github.com/aigorahub/elves.git ~/.codex/skills/elves
+ELVES_TMP="$(mktemp -d)"
+git clone https://github.com/aigorahub/elves.git "$ELVES_TMP/elves"
+python3 "$ELVES_TMP/elves/scripts/sync_installed_skills.py" --apply --target codex
+rm -rf "$ELVES_TMP"
 # Codex uses $elves … skill forms (or natural language). Do not invent top-level /cobbler.
 ```
 
@@ -49,7 +52,21 @@ Validate:
 python3 ~/.claude/skills/elves/scripts/install_doctor.py --startup
 # or from a checkout:
 python3 scripts/verify_repo.py --version 2.1.0
+# before operational-artifact cleanup, from a clean worktree:
+python3 scripts/verify_repo.py --version 2.1.0 --final-readiness \
+  --session .elves-session.json
+# after the narrow operational-artifact cleanup commit, on its clean current tip:
+python3 scripts/verify_repo.py --ci --version 2.1.0 --base-ref origin/main
+test -z "$(git status --porcelain)"
 ```
+
+The pre-cleanup Final Readiness gate carries the authoritative session/plan acceptance walk. The
+cleanup commit is a narrow post-readiness exception: it may remove only the recorded operational
+session files. The strict `--ci` command plus an empty status is the final current-tip attestation
+after that commit. If cleanup contains any other change or the attestation fails, restore the run
+documents from the pre-cleanup commit, fix the issue, and repeat full Final Readiness. The session
+must record its tracked in-repo `plan_path`; optional `--plan <path>` is only an exact-equality
+assertion and must name that same path.
 
 ### First run (single kickoff)
 
@@ -94,9 +111,10 @@ Global installation means the skill is always available, no matter which project
 **Claude Code:**
 ```bash
 # Clone and let the sync helper install the main skill plus managed aliases.
-git clone https://github.com/aigorahub/elves.git /tmp/elves
-python3 /tmp/elves/scripts/sync_installed_skills.py --apply --target claude
-rm -rf /tmp/elves
+ELVES_TMP="$(mktemp -d)"
+git clone https://github.com/aigorahub/elves.git "$ELVES_TMP/elves"
+python3 "$ELVES_TMP/elves/scripts/sync_installed_skills.py" --apply --target claude
+rm -rf "$ELVES_TMP"
 ```
 
 This installs `~/.claude/skills/elves/` and seven small Claude Code alias skills:
@@ -108,9 +126,10 @@ in the main `elves` skill.
 
 **Codex:**
 ```bash
-git clone https://github.com/aigorahub/elves.git /tmp/elves
-python3 /tmp/elves/scripts/sync_installed_skills.py --apply --target codex
-rm -rf /tmp/elves
+ELVES_TMP="$(mktemp -d)"
+git clone https://github.com/aigorahub/elves.git "$ELVES_TMP/elves"
+python3 "$ELVES_TMP/elves/scripts/sync_installed_skills.py" --apply --target codex
+rm -rf "$ELVES_TMP"
 ```
 
 Codex installs the main skill bundle only. It does not install the Claude Code slash aliases; use
@@ -129,7 +148,7 @@ rm -rf .claude/skills/elves/.git  # remove the nested git repo
 
 # Optional project-local aliases. Skip any alias directory you already own.
 for alias in cobbler cobbler-mode council ec elves-council setup-cobbler setup-council; do
-  if [ -e ".claude/skills/${alias}" ]; then
+  if [ -e ".claude/skills/${alias}" ] || [ -L ".claude/skills/${alias}" ]; then
     echo "Skipping existing .claude/skills/${alias}"
   else
     cp -R ".claude/skills/elves/aliases/claude/${alias}" ".claude/skills/${alias}"
@@ -203,7 +222,7 @@ The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AG
 `scripts/cobbler_agents.py`, `scripts/openrouter_lens.py`, `scripts/workspace_guard.py`, and
 `scripts/cobbler_runtime/*`. Repo-only maintenance helpers such as
 `scripts/check_repo_consistency.py`, `scripts/release_checklist.py`,
-`scripts/pr_portfolio_report.py`, and `scripts/workspace_guard.py` stay in the checkout.
+and `scripts/pr_portfolio_report.py` stay in the checkout.
 
 For local PR-stack sweeps, use the repo-only helper:
 
@@ -283,38 +302,56 @@ python3 scripts/cobbler_agents.py onboard plan|show|apply|probe --json
 
 - Trusted fast full-run may own **feature-branch commits/pushes**.
 - Untrusted lease remains **detached / no protected refs**.
-- Host always owns **run memory, protected refs, PR, final review, and merge**.
+- Host always owns **run memory, protected refs, PR actions, final review, and any authorized merge**;
+  the user owns whether Elves may merge.
 - Parked mode overrides per-push driver re-entry until a wake condition.
 - `full_run` or `overnight` alone is **not** a Grok signal.
 
 ### Exact full-run recipe (primary)
 
 ```bash
-# 1) Prepare supervisor artifacts for one exact session
+# 1) Create the single host-owned launch rollback ref before handoff
+python3 scripts/cobbler_agents.py implement rollback-ref --json \
+  --run-id <run-id> --session-id <exact-uuid> --batch 0 \
+  --head <start-head> --push
+
+# 2) Prepare supervisor artifacts for one exact session
 python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --session-id <exact-uuid> --branch <feature-branch> --start-head <sha> \
   --worktree <path> --packet <packet.json>
 
-# 2) Background-launch Grok (or explicit fixture for tests)
+# 3) Background-launch Grok (or explicit fixture for tests)
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
   --session-id <exact-uuid>
 
-# 3) Parked monitor (no per-push re-entry)
+# 4) Parked monitor (no per-push re-entry)
 python3 scripts/cobbler_agents.py implement full-run-monitor --json \
   --session-id <exact-uuid>
 
-# 4) Bounded logs / stop
+# 5) Bounded logs when diagnosis is needed
 python3 scripts/cobbler_agents.py implement full-run-logs --json --session-id <exact-uuid>
+
+# Cancellation/recovery only — never a normal successful close step
 python3 scripts/cobbler_agents.py implement full-run-stop --json --session-id <exact-uuid>
 ```
 
+`full-run-stop` is an explicit cancellation/recovery command for a live or wedged worker. Do not
+run it after normal completion and do not use it to manufacture a clean exit.
+
+The host creates no per-batch refs while parked. Worker commit SHAs are the internal rollback
+points, and the worker never creates, moves, or pushes refs other than the assigned feature branch.
+
 Packet contract (non-secret env the host exports to real adapters):
-`ELVES_FULL_RUN_EVENTS`, `ELVES_FULL_RUN_REPORT`, `ELVES_FULL_RUN_SESSION`,
+`ELVES_FULL_RUN_EVENTS`, `ELVES_FULL_RUN_REPORT`, `ELVES_FULL_RUN_RUN_ID`,
+`ELVES_FULL_RUN_ATTEMPT`, `ELVES_FULL_RUN_SESSION`,
 `ELVES_FULL_RUN_BRANCH`, `ELVES_FULL_RUN_START_HEAD`, `ELVES_FULL_RUN_WORKTREE`.
 
-A lone `run_complete` event never establishes completion. Validated report + feature-branch progress
-(or clean exit with descendant progress) wakes final readiness. Trusted Lane A is **policy trust**,
-not an OS Git sandbox — protected ref movement still blocks readiness.
+A lone `run_complete` event never establishes completion. Only a validated report with
+`status: complete`, non-empty stable-id acceptance evidence, matching final feature-branch head,
+verified descendant progress, a clean authenticated worker exit, and unchanged protected refs may
+wake final readiness as complete. Clean exit or descendant progress without that validated complete
+report is incomplete/failed evidence, never a completion fallback. Trusted Lane A is **policy
+trust**, not an OS Git sandbox.
 
 **Batch resume** (`implement resume-batch`) is the legacy/alternative path; full-run is primary for
 trusted overnight Grok work. Details:
@@ -324,7 +361,7 @@ trusted overnight Grok work. Details:
 
 
 
-by default the **host agent** implements. Optional `implementation_lane: fast` routes batch labor
+By default the **host agent** implements. Optional `implementation_lane: fast` routes labor
 through `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`
 (legacy batch path) or the primary full-run commands. The host-import writer lease is advanced
 isolation and **not the default overnight path**.
@@ -332,23 +369,21 @@ isolation and **not the default overnight path**.
 ## How it works (loop)
 
 ```
-Orient → Cobbler-coordinate → Verify Green → Tag → Contract → Implement → Validate → Review →
+Orient → Cobbler-coordinate → Verify Green → Rollback ref → Contract → Implement → Validate → Review →
 Judge → Document → Update → Push → Re-read → PR Loop → Entropy Check → Continue
 ```
 
-## How it works
-
-```
-Orient → Cobbler-coordinate → Verify Green → Tag → Contract → Implement → Validate → Review →
-Judge → Document → Update → Push → Re-read → PR Loop → Entropy Check → Continue
-```
+That loop is host-native (and remains the legacy bounded-driver cadence). In a trusted Grok
+full-run, the host stages once and parks; the worker runs the internal batch loop and pushes visible
+progress, then the host wakes for one cumulative independent readiness/landing loop.
 
 Elves runs a tight loop. Cobbler coordinates non-trivial decisions inside that loop: whether to
 answer directly, route work to implementation agents, ask independent lenses for risk/review, use
 repo tools or skills, or preserve a dissenting view before synthesis. For each batch of planned
-work, the agent implements the changes, runs validation gates, reads PR review comments, fixes any
-blocking findings, updates the documentation, and pushes a checkpoint, then immediately starts the
-next batch. No waiting, no prompting, no drift.
+work, either the host-native/legacy driver or the trusted full-run worker implements, validates,
+reviews, documents, and pushes a meaningful checkpoint before starting the next batch. A parked
+host does not duplicate that internal worker loop; it wakes once for cumulative review/recovery at
+a terminal or safety condition.
 
 The architecture is intentionally simple:
 
@@ -368,7 +403,7 @@ Native-only runs need none of this. When present, Cobbler may route:
 | Kind | Examples | Role in Elves |
 | --- | --- | --- |
 | **Main driver** | Claude Code, Codex | Only supported skill hosts / overnight orchestrators |
-| **Work drivers** | Grok Build (`implement …`), OpenCode labor | Batch implement under host packets + gates |
+| **Work drivers** | Grok Build (`implement …`), OpenCode labor | Trusted full-run or legacy bounded labor under host packets + gates |
 | **Plan/review lenses** | OpenRouter lens, Gemini CLI, Antigravity (`agy`), Muse Spark | Independent read-only evidence |
 | **Math domain tools** | OpenRouter math roles, Google **AlphaEvolve** (`evolutionary_search`) | Discovery / examples / counterexample *signals* — not proofs |
 | **Writer boundary** | Host-import `worker …` lease | Advanced isolation; not the default overnight path |
@@ -543,8 +578,10 @@ current-thread conversation state, not durable run state, a daemon, provider req
 slash command. Exit with "Cobbler Mode: off" or "leave Cobbler Mode."
 
 Cobbler-first coordination is the default for Elves runs. The main coordinator still owns durable
-memory, git, PRs, and final synthesis; worker agents may edit the repo when the active batch or
-user request assigns them implementation work.
+memory, protected refs, PR actions, any authorized merge, and final synthesis. The exact registered
+trusted `branch_progress` worker may commit/push only its assigned feature branch; untrusted workers
+remain detached and host-imported. In this model, worker agents may edit the repo only when an
+active route or batch contract assigns implementation work.
 
 After an Elves invocation starts a staged or active run, Cobbler stays the default posture for that
 Elves session. The survival guide records this under `## Cobbler Session State`, and
@@ -634,11 +671,11 @@ subscription quota is `unknown` unless a harness explicitly exposes it.
 External implementers and multi-model planning/review are optional when those tools are installed
 and configured — same native-first rule as the rest of Cobbler and the math module.
 
-**Optional external batch implementer** (e.g. Grok Build, only if you have it): record
+**Optional external work driver** (e.g. Grok Build, only if you have it): record
 `implementation_lane: fast` and use
-`python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop`
-for the primary trusted full-run path. `prepare|launch|gate|resume-batch|status` is the explicit
-legacy/bounded-batch path.
+`python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`
+for the primary trusted full-run path; `full-run-stop` is cancellation/recovery only.
+`prepare|launch|gate|resume-batch|status` is the explicit legacy/bounded-batch path.
 See [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
 
 **Optional stricter host-import writer** (advanced lease path — not the default overnight path):
@@ -698,8 +735,10 @@ Use `--dry-run` first to print the exact `git worktree add -b ...` command witho
 anything. The helper prints the branch, worktree path, base ref, and collision tripwire; it does not reuse, delete, or repair existing worktrees. A solo run in a repo no other agent will touch can
 use the main checkout. Either way, preflight inspects `git worktree list --porcelain` and fails if
 the current branch appears in more than one worktree. The agent also records the branch tip at
-staging as a collision tripwire: if HEAD moves to a commit it didn't create, another writer is in
-the checkout, so it stops instead of committing on top.
+staging as a collision tripwire. An advance is expected only when the exact registered trusted
+full-run session advances its assigned feature branch to a descendant of the last observed tip and
+the supervisor verifies the process fingerprint and protected refs unchanged. Any other tip move
+is a collision, so the host stops instead of committing on top.
 
 For source checkouts, `scripts/workspace_guard.py` is an optional prototype helper that can check a
 candidate write command against `.elves-session.json` workspace-guard state. It is advisory by
@@ -709,8 +748,11 @@ permanently valid, and does not install hooks or repair git state.
 ### Codex Goals
 
 Codex Goals can be a useful continuation backend for Elves. Goals keeps Codex working across turns;
-Elves tells it what "working well" means: staged docs, batch contracts, validation gates, PR review
-loops, memory hygiene, and a final Readiness Gate.
+Elves tells it what "working well" means. On host-native and legacy bounded routes, the Goal runs
+the full per-batch loop. On a trusted Grok full-run, the Goal creates the `b0` launch ref, launches
+one exact worker session, then stays parked on bounded monitor/log reads with light updates—no
+per-batch review, memory, or push chatter—until a terminal or safety wake triggers one cumulative
+final review.
 
 Goals are for full Elves runs, not Quick Cobbler. For a one-off Cobbler answer in Codex, use `$elves cobbler: <task>` or ask naturally: "Ask the Cobbler to..."
 
@@ -727,8 +769,10 @@ If the goal budget is exhausted before readiness is clean, write a reactivation 
 do not claim the run is complete.
 ```
 
-Do not replace the Elves loop with Goals. Goals handles continuation; Elves handles planning,
-review, documentation, strategic forgetting, and merge-readiness. See
+Do not replace the Elves execution contract with Goals. Goals handles continuation; Elves handles
+planning, route selection, documentation, strategic forgetting, and merge-readiness. Re-drive a
+trusted worker only after a bounded return or terminal/safety wake, never after a healthy internal
+batch. See
 [`references/codex-goals.md`](references/codex-goals.md) for the full pattern.
 
 ### Common launch failures to head off
@@ -748,7 +792,11 @@ review, documentation, strategic forgetting, and merge-readiness. See
 The shape of productive work is changing. The human operates on both ends: specifying problems and reviewing output, while the agent runs loops in the middle.
 
 - **Front end (human):** Decide what's worth working on. Write the plan. Specify the problem fully. 30 minutes to an hour.
-- **Middle (agent):** Open a branch, commit the plans, open a PR, then run the loop: implement, validate, review, fix, iterate. For each batch, the agent builds the code, runs the tests, reads the PR review comments (from bots or humans), fixes what the reviews found, pushes, and iterates until the batch is tight. Then it moves to the next batch. This runs for hours or days while you sleep.
+- **Middle (agent):** Open a branch, commit the plans, open a PR, then run the selected route. In
+  host-native/legacy mode, the host implements, validates, reviews PR feedback, fixes, and pushes
+  each batch. In trusted full-run mode, one worker runs and pushes its internal batches while the
+  host parks on bounded telemetry, then the host performs one cumulative independent review at
+  wake/exit. Either route can run for hours or days while you sleep.
 - **Back end (human):** Review the output. By the time you look at the PR, every batch has already been through multiple rounds of implement-test-review-fix. Your review is a final pass on work that's already tight, not a first look at raw output. 30 minutes to an hour.
 
 By default the agent never merges; that gate stays with you. You can opt in to having it land a regular merge commit once the final readiness review is green (never a squash). For agentic work, prefer merge commits because they preserve the run as a single inspectable unit that can be reverted or dissected later.
@@ -812,8 +860,10 @@ Bad: "Looks good so far." (no tag, no instruction to continue)
 - **Documentation freshness in the loop**: review can raise `PENDING-DOCS`, learnings promote reusable lessons, and stable truths can move into `.ai-docs/*`
 - **Auto-discovered validation gates** for Node.js, Python, Go, Rust, and Makefile projects. No configuration required.
 - **Pluggable review**: GitHub PR comments by default (zero config), custom review API opt-in, additional custom checks
-- **Subagent delegation** for long runs (Claude Code): coordinator manages the loop, subagents do the deep work
-- **Rollback safety**: run/session-scoped rollback refs before every batch, so any batch can be cleanly unwound
+- **Subagent delegation** for long runs: host-native/legacy coordinators manage the per-batch loop;
+  trusted full-run workers own their internal loop while the coordinator parks
+- **Rollback safety**: host-native/legacy runs use host-owned `bN` refs; trusted parked full-runs
+  use one host-owned `b0` launch ref plus worker commit SHAs as internal rollback points
 - **Scout mode**: after all planned work is done, the agent looks for adjacent improvements, test gaps, and documentation holes. Prioritizes risk-reducing fixes first, then quality, then leaves ambiguous items. Commits tagged `[branch · Scout]`, with validation gates required and clear stop rules.
 - **Proof scope**: touched-surface proof per batch (only test what you changed), broad regression at entropy checks and before readiness. Re-earn proof after each push; don't inherit from prior commits.
 - **High-risk regression pass**: batches with medium/high blast radius can trigger a second,
@@ -833,7 +883,11 @@ Bad: "Looks good so far." (no tag, no instruction to continue)
 - **Lightweight process retro**: entropy checks can tune the loop itself when the same friction
   repeats, for example by tightening the survival guide, templates, or tool config after repeated
   review findings
-- **Run isolation**: one run owns one branch and one checkout; when agents may share a repo, each run gets its own `git worktree` through `./scripts/preflight.sh --create-worktree <branch> --base origin/main`, preflight fails duplicate current-branch worktrees, and a collision tripwire stops the agent if another writer moves its branch
+- **Run isolation**: one run owns one branch and one checkout; when agents may share a repo, each
+  run gets its own `git worktree` through `./scripts/preflight.sh --create-worktree <branch>
+  --base origin/main`. The exact registered trusted full-run session may advance only its assigned
+  feature branch to a descendant while fingerprint and protected-ref checks remain clean; every
+  other tripwire move is a collision
 - **Merge conflict handling**: when `git push` fails due to a diverged remote, the agent fetches and merges (never rebases), resolves conflicts or triggers a Hard Stop
 - **Two run modes**: finite (deadline-based, default) or open-ended (continue until explicitly stopped). Open-ended mode also covers "checkpointed continuation" runs like "have something by 8am, then keep going." A morning checkpoint, return time, or delivery target is not a stop condition unless the survival guide explicitly marks it as a hard stop.
 - **Live operator brief**: the survival guide is rewritten in place as the run evolves. `Run Control`, `Current Phase`, `Active Compute`, `Stop Gate`, and `Next Exact Batch` stay current; the execution log carries history.
@@ -842,9 +896,17 @@ Bad: "Looks good so far." (no tag, no instruction to continue)
 - **Time-aware pacing**: tracks how long each batch takes and uses that to decide whether to start another batch or wrap up cleanly (finite mode)
 - **Slack notifications** (or any custom command): know when your run finishes without watching the terminal
 - **Constitution and legality check**: human-authored deal-breaker behaviors (`docs/constitution.md`) verified by a read-only judge after each batch. Three quality layers: correctness (tests), plan compliance (review), legality (judge). Success criteria the agent didn't author.
-- **PR Loop**: poll PR comments, inline reviews, and check status after every push, not just at batch boundaries
+- **PR Loop**: poll PR comments, inline reviews, and checks after every host push; trusted parked
+  full-run worker pushes are reviewed cumulatively at wake/exit rather than reactivating the driver
 - **Readiness Gate**: branch-level checklist before declaring review-ready (plan Acceptance with proof, `elves_landing_check.py` clean, local proof on current tip, preview proof on exact runtime tip, final cumulative review, PR comments polled, legality check clean, strategic forgetting complete, git status clean, execution log current). Green CI + `status: complete` alone is not landable.
-- **Acceptance evidence (v1.19+/v2.0+)**: each complete batch records `acceptance: [{criterion, met, evidence}]` in `.elves-session.json`; god-file splits cannot close on structure/regex locks alone; prefer one batch per close commit. v1.20 added optional external-agent orchestration under Cobbler; v1.20.1 hardened that runtime so green tests cannot stand in for real model/session/write evidence; **v2.0.0** is Cobbler-managed multi-model orchestration (native-first hosts + optional work drivers, lenses, and math tools such as AlphaEvolve).
+- **Acceptance evidence (v1.19+/v2.0+)**: each complete batch records criterion-to-proof rows in
+  `.elves-session.json`; v2.1 new plans use stable batch `B#`, batch-acceptance `B#-A#`, and
+  branch-level `M-A#` ids, while legacy rows receive deterministic document-order aliases. God-file
+  splits cannot close on structure/regex locks alone; prefer one batch per close commit. v1.20
+  added optional external-agent orchestration under Cobbler; v1.20.1 hardened that runtime so
+  green tests cannot stand in for real model/session/write evidence; **v2.0.0** is Cobbler-managed
+  multi-model orchestration (native-first hosts + optional work drivers, lenses, and math tools
+  such as AlphaEvolve).
 - **Structured session data** in `.elves-session.json` for tooling, dashboards, and analytics
 - **Install doctor and update advisory**: startup can flag newer published releases and explain
   when a project-local install differs from the global one that you thought you were using
@@ -1087,6 +1149,8 @@ elves/
 ├── scripts/
 │   ├── check_repo_consistency.py         # Repo-only cross-file drift checker
 │   ├── release_checklist.py              # Release-readiness helper for version/changelog/doc sweeps
+│   ├── verify_repo.py                    # Canonical aggregate repository verification entrypoint
+│   ├── installed_bundle_smoke.py         # Claude Code + Codex installed-bundle/link smoke test
 │   ├── install_doctor.py                 # Update + installation-precedence advisory
 │   ├── preflight.sh                      # Pre-run checklist
 │   ├── preflight_worktree.py             # Explicit dedicated-worktree helper
@@ -1095,8 +1159,8 @@ elves/
 │   ├── sync_installed_skills.py          # Local Claude/Codex install sync helper
 │   ├── validate_survival_guide.py        # Advisory survival-guide completeness check
 │   ├── elves_landing_check.py            # Pre-land plan Acceptance + acceptance evidence check
-│   ├── cobbler_agents.py                 # External-agent config validate/doctor CLI
-│   ├── cobbler_runtime/                  # Typed contracts and config resolution package
+│   ├── cobbler_agents.py                 # Cobbler onboarding, routing, worker, and full-run CLI
+│   ├── cobbler_runtime/                  # Typed routing, delegated-git, isolation, and full-run runtime
 │   └── workspace_guard.py                # Optional workspace owned-tip guard prototype
 └── .github/
     └── ISSUE_TEMPLATE/                   # Bug report, feature request, overnight run report
@@ -1122,13 +1186,19 @@ elves/
 - **The human sandwich.** The human operates on both ends: specifying problems and reviewing output. The agent runs the loop in the middle. Your working hours become morning for reviewing last night's output, afternoon for setting up the next run.
 - **The Ralph Loop.** Try, check, feed back, repeat. AI returns drafts, not answers. A dumb, stubborn loop beats over-engineered sophistication because AI is non-deterministic. Any single attempt might fail. But if you keep trying, checking, and feeding back, the process converges.
 - **The 14-hour resource.** Every knowledge worker has 12-14 hours per day when they're not working. Elves converts those hours into shipped code. A two-hour planning session on Friday can produce a week's worth of output before you touch your keyboard on Monday.
-- **Three documents are the agent's memory.** Without them, long runs drift and repeat work. With them, a restarted agent picks up exactly where it left off. These aren't overhead: they're the minimum viable infrastructure for the loop to run unsupervised.
+- **Layered run memory survives compaction.** The survival guide, `.elves-session.json`, learnings,
+  plan, execution log, and optional `.ai-docs/*` have distinct jobs. Together they let a restarted
+  agent recover without turning one giant scratchpad into permanent memory.
 - **Strategic forgetting keeps memory useful.** Permanent memory should be curated, not accumulated. Preserve decisions and reusable knowledge in handoff docs, learnings, and `.ai-docs`; archive raw history; start fresh threads when huge chats become the bottleneck.
 - **Tests are the watch.** An agent working overnight has no one watching. The tests are the watch. Without them, you wake up to code that compiles, passes lint, and does the wrong thing.
-- **Never merge by default.** The PR is for review, not merging; that gate stays with the human. The exceptions are explicit: either merge-on-green in Run Control, or the reviewed-PR landing command. In both cases the agent lands a regular merge commit after the final readiness review passes, never a squash. Merge commits are preferred for agentic work because they preserve a clean boundary around the whole run, which makes later rollback, audit, or surgery much easier.
+- **The user owns whether Elves may merge.** Default is user-merges. Merge-on-green in Run Control
+  or the reviewed-PR landing command is the only opt-in; after final readiness Elves may then land a
+  regular merge commit, never a squash.
 - **Document every decision.** Anything the agent decides without user input goes in the execution log under *Decisions made*. The human reviews these choices when they return.
 - **Fail safely, not silently.** If the agent is genuinely blocked, it stops and says so. If a test gate fails, it fixes the issue before continuing. It doesn't skip gates or paper over failures.
-- **Rollback before every batch.** run/session-scoped rollback refs mean any batch can be cleanly unwound without global tag collisions.
+- **Rollback authority stays with the host.** Host-native and legacy bounded routes create a
+  run/session-scoped ref before each batch. Trusted parked full-runs create one `b0` launch ref;
+  worker commit SHAs provide internal rollback points without giving the worker ref authority.
 - **Agent infrastructure is real engineering.** Developers who treat agent infrastructure as a real engineering concern (tight code review systems, organized work trees, failure handling) end up with something that functions like a tireless junior team working every hour they're away from their desk.
 - **Quality is not an afterthought.** Agents naturally spend 80% of batch time implementing and rush through validation and review. Elves treats implement, validate, and review as roughly equal phases. Implementation produces a draft. Validation and review produce something shippable.
 - **The philosophy applies everywhere, not just review.** The nine code quality principles (root cause over band-aids, centralize over duplicate, extend over create, etc.) aren't just a reviewer's checklist. They inform how batches are planned (architecture-aware ordering), how contracts are written (what to build on), how implementation begins (pre-implementation survey), and how review verifies (did you actually use what you found?). A principle enforced only at review time creates rework. Applied from planning onward, it prevents the rework from happening.
@@ -1158,13 +1228,13 @@ Overnight agent runs fail in predictable ways. Knowing the failure modes makes t
 | **Machine sleeps** | Session stops silently. You wake up to 45 minutes of work instead of 8 hours. | `caffeinate` (macOS), `systemd-inhibit` (Linux), or run in cloud. Elves preflight warns you. |
 | **Agent runs destructive git commands** | `git reset --hard` wipes hours of uncommitted work. This has happened to real users. | Elves explicitly forbids `git reset --hard`, `git checkout .`, `git push --force`, and `git clean -fd`. The survival guide template includes these as non-negotiables. |
 | **Agent disables or weakens tests** | Agent comments out failing tests, weakens assertions, or shortens timeouts only to make the gate pass. You wake up to code that “passes” but is broken. | Elves forbids green-seeking test changes. Behavior-driven test updates are allowed when coverage is preserved or improved and the reason is recorded. |
-| **Context compaction loses instructions** | Long sessions hit memory limits. The agent's conversation gets summarized, and safety instructions disappear. | Elves stores its run memory on disk (survival guide, `.elves-session.json`, learnings, plan, execution log, and optionally `.ai-docs/*`), not in conversation memory. The agent re-reads the survival guide after every commit/push, and the Stop Gate plus `continuation_guard` make "keep going or stop?" explicit. Compaction can't erase files. |
+| **Context compaction loses instructions** | Long sessions hit memory limits. The agent's conversation gets summarized, and safety instructions disappear. | Elves stores layered run memory on disk. Host-native/legacy routes re-read after host commits/pushes; a trusted full-run host stays parked and re-reads/reconciles once at terminal/safety wake. The Stop Gate plus `continuation_guard` keep continuation explicit. |
 | **Interactive prompt stalls the session** | A tool asks for confirmation, a survey pops up, or `npm install` wants input. Nobody is there to click yes. | Elves surfaces the recommended non-interactive env vars during preflight, and the skill requires `--yes` flags plus tool-level survey suppression before unattended runs. |
 | **Flaky tests block progress** | A test passes locally but fails intermittently. The agent loops trying to fix a non-bug. | The agent logs flaky tests in the execution log and moves on after 3 failed attempts on the same non-deterministic failure. |
 | **Terminal closes (SSH disconnect)** | The SSH connection drops and the session dies. | Use `tmux` or `screen`. Elves mentions this in the pre-run checklist. |
-| **Agent drifts from the plan** | After many batches, the agent starts making changes that weren't in the plan. | The agent re-reads the survival guide after every commit/push, checks the plan hash to detect modifications, and keeps durable lessons in `learnings.md` so the same confusion doesn't have to be rediscovered. The layered memory system anchors every decision. The survival guide should be rewritten in place as a live control surface, not treated as an append-only history log. |
+| **Agent drifts from the plan** | After many batches, the agent starts making changes that weren't in the plan. | Host-native/legacy routes re-read after host pushes; trusted full-run carries one complete packet and the parked host reconciles at terminal/safety wake. Plan hashes, durable lessons, and a live (not append-only) survival guide anchor decisions. |
 | **Merge conflicts on push** | `git push` fails because the remote has diverged. The agent may rebase and lose work, or stall. | Elves instructs the agent to fetch and merge (never rebase on shared branches). If conflicts can't be resolved cleanly, the agent triggers a Hard Stop rather than risking data loss. |
-| **Two agents share a branch/checkout** | Claude and Codex (or two runs) write to the same branch in the same directory and clobber each other's files or move the branch mid-run. | One run owns one branch and one checkout. Use `./scripts/preflight.sh --create-worktree <branch> --base origin/main` when agents share a repo, or add `--dry-run` first to inspect the generated command. Preflight flags duplicate current-branch worktrees; the agent records a collision tripwire and stops if its branch tip moves to a commit it didn't create. |
+| **Two agents share a branch/checkout** | Claude and Codex (or two runs) write to the same branch in the same directory and clobber each other's files or move the branch mid-run. | One run owns one branch and one checkout. Use `./scripts/preflight.sh --create-worktree <branch> --base origin/main` when agents share a repo. Only the exact registered trusted full-run session may advance its assigned feature branch to a verified descendant; every other tripwire move stops as a collision. |
 
 Most of these are prevented by the preflight checks. Run preflight, fix the warnings, and most overnight failures never happen.
 
@@ -1275,7 +1345,8 @@ and on any model after context compaction or late-run thrash:
 
 So v1.19+ hardens both skill surfaces (Claude `SKILL.md` and Codex `AGENTS.md`) the same way:
 
-1. **Per-batch acceptance rows** — `acceptance: [{criterion, met, evidence}]` before complete  
+1. **Per-batch acceptance rows** — `acceptance: [{id: "B#-A#", criterion, met, evidence}]` before
+   complete; reconcile branch-level `M-A#` rows too, and give legacy rows deterministic aliases
 2. **God-file rule** — locks lock; they do not complete a split unless the plan allows characterization-only  
 3. **One batch per close commit** (or labeled **Validate:** sections per batch id)  
 4. **`scripts/elves_landing_check.py`** — machine check before Final Readiness / merge-on-green  
@@ -1379,7 +1450,7 @@ This software is provided "as is", without warranty of any kind, express or impl
 
 Elves expects you to grant your AI agent the permissions it needs to run autonomously. That might mean file system access, git push, GitHub CLI auth, shell command execution, or other tool approvals depending on your platform. If the agent has to pause and wait for permission during an unattended run, it'll stall. So the skill works best when you pre-approve what the agent will need. You're granting those permissions at your own risk. Know what you're allowing before you walk away.
 
-There's nothing uniquely dangerous about Elves. It uses standard tools (git, GitHub, your existing test suite) and it has safety measures (forbidden commands, test integrity rules, rollback tags). But no software is foolproof, and an agent running for hours with broad permissions can make mistakes. Always review the PR before merging.
+There's nothing uniquely dangerous about Elves. It uses standard tools (git, GitHub, your existing test suite) and it has safety measures (forbidden commands, test integrity rules, scoped rollback refs). But no software is foolproof, and an agent running for hours with broad permissions can make mistakes. Always review the PR before merging.
 
 ---
 

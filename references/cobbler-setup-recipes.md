@@ -194,7 +194,7 @@ headless)—Claude Code–like, with **OpenRouter** and 75+ providers (Qwen, GLM
 
 | Term | Who | OpenCode? |
 | --- | --- | --- |
-| **Main driver** (orchestrator) | Claude Code or Codex — owns Elves, git/PR, gates, Cobbler | **No** (not the skill host) |
+| **Main driver** (orchestrator) | Claude Code or Codex — owns canonical memory, protected refs, PR actions, final gates/review, any authorized merge, and Cobbler; host-native/legacy routes also own feature-branch commit/push | **No** (not the skill host) |
 | **Work driver** (laborer) | Does the batch coding under that session | **Yes** — e.g. GLM 5.x via OpenRouter + OpenCode |
 
 **Supported shape:** from Claude Code/Codex, set implement to OpenCode and pin an OpenRouter model:
@@ -205,6 +205,10 @@ Main driver: Claude Code or Codex
   → Work driver: opencode run --auto --model openrouter/…/glm-…
   → Main driver: validate, review, push, PR
 ```
+
+The exact registered trusted `branch_progress` full-run worker is the only feature-branch
+commit/push exception. OpenCode labor in this bounded recipe does not receive that authority;
+untrusted lease writers stay detached and host-imported.
 
 **Exotic main driver:** running Elves *inside* OpenCode as the overnight orchestrator is
 **unsupported / untested** — it may or may not work. Prefer PRs if you make that path real.
@@ -250,7 +254,7 @@ file. Implement labor already uses `--dir`, places the message before
 | Profile | Use |
 | --- | --- |
 | `opencode-cli` | Plan/review (headless `opencode run --agent plan`) |
-| `opencode-labor` | **Main implement driver** (`opencode run --auto` + tools) |
+| `opencode-labor` | **Implement work driver** (`opencode run --auto` + tools) |
 
 ```bash
 # Host is still Claude Code or Codex; OpenCode does implement labor
@@ -265,7 +269,40 @@ python3 scripts/cobbler_agents.py onboard apply --json \
 #   requested_model = "openrouter/qwen/qwen3-max"  # re-check OpenRouter catalog
 ```
 
-### Implement lifecycle (host-driven; Grok or OpenCode)
+### Trusted Grok full-run lifecycle (primary)
+
+One host-created launch rollback ref, one exact worker session, then a parked host:
+
+```bash
+python3 scripts/cobbler_agents.py implement rollback-ref --json \
+  --run-id <run-id> --session-id <exact-uuid> --batch 0 \
+  --head <start-head> --push
+
+python3 scripts/cobbler_agents.py implement full-run-prepare --json \
+  --session-id <exact-uuid> --branch <feature-branch> --start-head <start-head> \
+  --worktree <path> --packet <packet.json> --adapter grok-build
+
+python3 scripts/cobbler_agents.py implement full-run-launch --json \
+  --session-id <exact-uuid>
+
+python3 scripts/cobbler_agents.py implement full-run-monitor --json \
+  --session-id <exact-uuid>
+
+python3 scripts/cobbler_agents.py implement full-run-logs --json \
+  --session-id <exact-uuid>
+
+# Cancellation/recovery only; omit on normal successful completion.
+python3 scripts/cobbler_agents.py implement full-run-stop --json \
+  --session-id <exact-uuid>
+```
+
+After a healthy launch, the host reads bounded telemetry only and does not shadow worker batches.
+The host creates no per-batch refs while parked; worker commit SHAs are internal rollback points.
+Wake for terminal/safety conditions or actual exit, then perform one cumulative review.
+`full-run-stop` is only for explicit cancellation or recovery of a live/wedged worker; it is not a
+normal completion or close command.
+
+### Legacy bounded lifecycle (Grok or OpenCode)
 
 ```bash
 # Grok Build Lane A (default adapter) — model aliases fast|deep; optional --check

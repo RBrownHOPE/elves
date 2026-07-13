@@ -9,7 +9,10 @@ Native-only remains fully valid. Onboarding is optional.
 ## Supported hosts (main drivers)
 
 **Elves is designed and tested with Claude Code or Codex as the main driver** — the process that
-runs the skill, owns the overnight loop, git/PR, gates, and run memory.
+runs the skill and owns staging, canonical run memory, protected refs, PR actions, final gates,
+cumulative review, and merge. Host-native/legacy routes keep the per-batch loop in that driver. In
+trusted full-run, the exact registered `branch_progress` worker may commit/push only its assigned
+feature branch while the main driver parks. Untrusted workers remain detached and host-imported.
 
 | Host | How to start onboarding |
 | --- | --- |
@@ -23,16 +26,19 @@ same host-mediated protocol below. Do not invent different product rules per hos
 
 | Term | Meaning | Default |
 | --- | --- | --- |
-| **Main driver** (orchestrator) | Runs Elves: skill, stage/start, Cobbler, git/PR, gates, survival guide, unattended loop | **Claude Code or Codex** only |
-| **Work driver** (laborer) | Does batch coding (and optionally plan/review lenses) under the main driver | host-native, or Grok / OpenCode / Antigravity / … |
+| **Main driver** (orchestrator) | Runs Elves: skill, stage/start, Cobbler, canonical memory, protected refs, PR actions, final gates/review, merge, and either the host loop or parked supervisor | **Claude Code or Codex** only |
+| **Work driver** (laborer) | Host-native/legacy batch labor, trusted full-run assigned-feature-branch labor, or untrusted detached labor under the main driver | host-native, or Grok / OpenCode / Antigravity / … |
 
 **Yes — from inside the main driver you can assign the actual work to another tool.** Example: Claude
 Code is the main driver; OpenCode is the work driver using GLM via OpenRouter
-(`implement = opencode-labor`, `requested_model = openrouter/…/glm-…`). The main driver prepares the
-packet, launches/resumes the exact session, validates, reviews, and lands the PR.
+(`implement = opencode-labor`, `requested_model = openrouter/…/glm-…`). On the legacy bounded route,
+the main driver prepares each packet, launches/resumes, validates, and reviews each return. On a
+trusted full-run, it prepares one packet/session and parks until terminal/safety wake, then performs
+one cumulative validation/review and lands only when the user's merge policy authorizes it.
 
-Other tools are **not** supported main drivers. Prefer Claude Code or Codex as `host-native` for
-validate, synthesize, git/PR, and the unattended loop.
+Other tools are **not** supported main drivers. Prefer Claude Code or Codex for validation,
+synthesis, canonical memory, protected refs, PR actions, final review, and merge. Trusted
+assigned-feature-branch commit/push is the narrow full-run exception.
 
 ### Exotic main drivers (may or may not work)
 

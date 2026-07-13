@@ -4,7 +4,7 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
-## [2.1.0] - 2026-07-12
+## [2.1.0] - 2026-07-13
 
 ### Trusted full-run delegation (major stabilization)
 
@@ -18,16 +18,21 @@ Grok Build stays optional and explicit.
 - Recursive shipment of `scripts/cobbler_runtime/` plus `openrouter_lens.py` into installed bundles
 - Fresh Claude Code and Codex installed-bundle smokes from outside the source tree
 - Built-in adapter registry preserves Gemini/Antigravity/OpenCode identities and contracts
+- Python 3.10 local-model TOML support through the bundled strict compatibility parser
 - Canonical `scripts/verify_repo.py` gate; CI triggers on `scripts/**`
 - Exactly seven managed Claude aliases; Codex installs no Claude alias tree
 
 ### Parity, isolation, and security
 
 - Structured behavior policy and full-run supervisor (prepare/launch/monitor/logs/stop)
+- Versioned full-run event/report v1 contract, exact-session/branch validation, and cumulative
+  terminal review while the Claude Code or Codex driver remains parked during healthy worker work
 - Digest-keyed private session/lease storage, locks, write qualification fail-closed
 - Disposable tracked-source isolation, minimal implement env grants, process-group cleanup
 - Export only from `AUDITED_PASS` with hashed manifests and cumulative apply-check
-- Delegated feature-branch Git contract; run/session-scoped rollback refs
+- Delegated feature-branch Git contract with a narrow verified descendant-progress collision
+  exception; host-owned `bN` refs for bounded routes and one `b0` launch ref plus worker commit SHAs
+  for trusted parked full-run rollback
 - One-to-one plan acceptance IDs with Master Acceptance evidence
 
 ### Evidence-aware validation and architecture
@@ -771,7 +776,7 @@ Acceptance (LOC cuts, facades, real splits) is still open.
 - Subagent delegation for long runs (Claude Code): implementer, validator, reviewer, scout
 - Scout mode for bonus improvements after planned batches are done
 - Time-aware pacing with session budgets
-- Rollback safety with `refs/elves/rollback/<run>/<session>/bN-<digest>` git tags
+- Rollback safety with scoped Git refs at `refs/elves/rollback/<run>/<session>/bN-<digest>`
 - Structured session data in `.elves-session.json`
 - Persistent preferences via `config.json`
 - Skill memory: execution logs improve over time

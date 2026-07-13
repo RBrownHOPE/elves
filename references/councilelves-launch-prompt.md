@@ -14,7 +14,7 @@ or external implement CLI required. Missing optional tools never block the run.
 | Option | When | Default overnight? |
 |--------|------|--------------------|
 | Host-native implement | Always available on Claude Code / Codex | **Yes** |
-| External batch implementer (`implement …`) | User has Grok Build (or similar) and wants it | Opt-in |
+| External work driver (`implement …`) | User has Grok Build (or similar) and wants it | Opt-in |
 | Stricter host-import writer (`worker …`) | Prove a hard writer boundary; repair that runtime | Explicit opt-in |
 
 When using an external implementer or the host-import writer, record:
@@ -23,10 +23,18 @@ When using an external implementer or the host-import writer, record:
 implementation_lane: fast | untrusted
 ```
 
-- **External implementer (`fast`):** host stages plan/PR/worktree and one batch packet; e.g. a
-  persistent Grok Build session implements the batch; host gates between batches. See
+- **External implementer (`fast`):** for the primary trusted full-run path, the host stages the
+  plan/PR/worktree, creates one run/session-scoped `b0` rollback ref at the launch head, writes one
+  complete run packet, launches one persistent Grok Build session, then
+  parks on bounded telemetry while the worker implements, validates, commits, and pushes across
+  batches. The host wakes for safety/blocked/terminal events and owns cumulative final readiness.
+  The legacy bounded path still supports one packet and host gate per batch. See
   [`grok-implementer-launch-prompt.md`](grok-implementer-launch-prompt.md).
-  Operator CLI: `python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop (primary). Legacy batch: `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
+  Operator CLI (primary): `python3 scripts/cobbler_agents.py implement rollback-ref` with `--batch
+  0 --head <start-head> --push`, then
+  `full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`; `full-run-stop` is explicit
+  cancellation/recovery only, not normal completion.
+  Legacy bounded batch: `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
 - **Host-import writer (`untrusted`):** exclusive writer lease, detached commits, host audit/import
   only (launch text below). CLI: `python3 scripts/cobbler_agents.py worker …`.
 
@@ -47,13 +55,15 @@ Use after staging is launch-ready (plan, Survival Guide, PR, preflight, Stop Gat
 ```text
 Start the staged Elves run now. Read the Survival Guide first, then .elves-session.json, learnings,
 the plan, execution log, and .ai-docs manifest/linked docs. Set the Stop Gate and continuation guard
-to no. Stay Cobbler-first. The host owns contracts, risk, acceptance, synthesis, git/PR, and
-canonical run documents. Give the qualified external implementation worker one whole substantial
-batch at a time (target 2–5 meaningful detached commits). Audit the complete chain and shared git
-state, import only approved binary patches, validate, and create/push sanitized host commits
-recording worker SHAs. Run independent review concurrently excluding the implementer (quorum per
-project Survival Guide). Remediate through the same worker. Repeat through all planned batches.
-Never merge unless the user explicitly opts in after Final Readiness.
+to no. Stay Cobbler-first. This advanced untrusted-lease route keeps contracts, risk, acceptance,
+synthesis, canonical run documents, protected refs, PR actions, feature-branch commit/push, final
+review, and any authorized merge in the host. Give the qualified external implementation worker
+one whole substantial batch at a time (target 2–5 meaningful detached commits). Audit the complete
+chain and shared git state, import only approved binary patches, validate, and create/push
+sanitized host commits recording worker SHAs. Run independent review concurrently excluding the
+implementer (quorum per project Survival Guide). Remediate through the same worker. Repeat through
+all planned batches. The user owns whether Elves may merge; without an explicit opt-in, stop at a
+landable PR.
 ```
 
 ## Loop shape (host-import writer)

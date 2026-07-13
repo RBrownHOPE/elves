@@ -18,11 +18,14 @@ autonomously, batch by batch, with testing, review, and documentation, until the
 you hit a genuine blocker. Cobbler coordinates when independent lenses or optional tools help;
 host-native Claude Code or Codex remains enough to run.
 
-**You never merge by default — the user merges when they return. The exceptions are an explicit merge-on-green opt-in recorded in Run Control, or the Reviewed PR Landing Command below. Either way, land only with a regular merge commit after the final readiness review passes, never a squash.**
+**The user owns whether Elves may merge. You never merge by default — the user merges when they
+return. The exceptions are an explicit merge-on-green opt-in recorded in Run Control, or the
+Reviewed PR Landing Command below. Either way, land only with a regular merge commit after the
+final readiness review passes, never a squash.**
 
 **This skill is scaffolding.** It gives you a framework: the loop, the documents, the gates. But every project is different. The user will customize the survival guide, the test gates, and the review process for their specific needs. Follow the framework, but adapt to what the project actually requires.
 
-**Default user path (v2.1+): one kickoff. Trusted Grok full-run uses one packet, one exact session, feature-branch branch_progress, and a parked-monitor driver.** Prefer **chat-to-work** or **chat-to-land**
+**Default user path (v2.1+): one kickoff. Trusted Grok full-run uses one packet, one exact session, feature-branch `branch_progress`, and a `parked_monitor` driver.** Prefer **chat-to-work** or **chat-to-land**
 ([`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md)): the user chats to conceptual
 agreement (optionally with multi-planner lenses), then one prompt covers plan + stage + full batch
 loop. Merge only if they chose chat-to-land / merge opt-in; otherwise leave a landable PR.
@@ -189,9 +192,11 @@ Cobbler Mode."
 
 Cobbler-first coordination is the default for Elves runs. For non-trivial planning, contract,
 risk, debugging, review, and synthesis decisions, use bounded independent lenses and then fit the
-result back into the normal Elves loop. The main coordinator still owns durable memory, git, PRs,
-and final synthesis; worker agents may edit the repo when the active batch or user request assigns
-them implementation work.
+result back into the normal Elves loop. The main coordinator still owns durable memory, protected
+refs, PR actions, merge, and final synthesis. The exact registered trusted `branch_progress`
+full-run worker may commit/push only its assigned feature branch; untrusted workers remain detached
+and host-imported. In this model, worker agents may edit the repo only when the active route, batch, or user request
+assigns them implementation work.
 
 When an Elves invocation starts a staged or active run, Cobbler becomes the default posture for that
 current Elves session. Record material session state under `## Cobbler Session State` in the
@@ -256,11 +261,14 @@ native overnight run:
 - **Work drivers (batch labor)** — only when the user has the CLI and wants it. Record
   `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
   `.elves-session.json`). Grok Build via
-  `python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop`
+  `python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`
+  (`full-run-stop` is explicit cancellation/recovery only)
   for trusted full-run, or `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`
   for legacy bounded batches (Lane A;
   optional `--model fast|deep`, `--check`) and OpenCode via `--adapter opencode-cli` / labor
-  profiles. Host owns packets, gates, and merge. Launch recipe:
+  profiles. The host owns packets, protected refs, final gates, PR, and merge. In trusted full-run,
+  the worker owns internal batch execution and feature-branch progress while the host stays parked;
+  in the legacy bounded path, the host gates between worker turns. Launch recipe:
   `references/grok-implementer-launch-prompt.md`.
 - **Math domain tools** — OpenRouter math role presets; Google **AlphaEvolve** as optional
   `evolutionary_search` when a project runner + deterministic local evaluator exist
@@ -393,16 +401,21 @@ subject schema:
 
 Rules:
 
-- Push after each independently reviewable host-owned slice; re-read the Survival Guide after every push.
+- Push after each independently reviewable host-owned slice; re-read the Survival Guide after every
+  host push. Trusted parked full-run worker pushes are observed through bounded telemetry and wake
+  the host only on configured safety/terminal conditions.
 - Forbid vague subjects such as `Updates`, `progress`, `WIP`, or bare `fixes`.
-- Qualified external workers may create only audited detached handoff commits inside a lease.
+- A trusted `branch_progress` full-run worker may commit and push only the assigned feature branch;
+  it never owns protected refs, PR actions, run memory, final review, or merge.
+- An `untrusted` lease worker may create only audited detached handoff commits.
 - Exactly one external writer lease is live at a time; dirty/unregistered/branch-attached (when
   detached is required)/HEAD-mismatched/unqualified write profiles fail closed. Host imports via
   binary patch export and `git apply --check --index` — never bare cherry-pick.
-- External workers never own refs, remotes, push, PRs, or canonical run memory.
+- Untrusted lease workers never own refs, remotes, push, PRs, or canonical run memory.
 - Reserve the `Close` phase for acceptance-backed batch completion with non-empty
-  `acceptance: [{criterion, met, evidence}]` rows.
-- Git and PR operations never dispatch model inference; they are host operator surfaces only.
+  `acceptance: [{id, criterion, met, evidence}]` rows.
+- Protected refs, PR operations, and merge never dispatch model inference; they are host operator
+  surfaces. Trusted feature-branch commit/push is the explicit full-run exception.
 
 The legacy form `[<branch> · Batch N/Total] <verb> <what changed>` remains acceptable for host-only
 runs that do not use phase labels, but new external-agent and multi-slice batches should prefer the
@@ -445,7 +458,12 @@ A successful checkpoint is not completion. A clean commit is not completion. A p
 
 - Final Completion is disabled. Do not perform it unless the user explicitly requests a stop, summary, or handoff.
 - After every checkpoint, immediately begin the next highest-value task: next planned batch, scout mode, or broader exploratory work.
-- After every completed batch, close it properly: update the execution log, update the survival guide (including the Stop Gate), commit, push, re-read the survival guide, and continue immediately.
+- On host-native and legacy bounded routes, after every completed batch close it properly: update
+  the execution log and survival guide (including the Stop Gate), commit, push, re-read the guide,
+  and continue immediately. During a healthy trusted `branch_progress` full-run, the worker closes
+  its internal batches in commits/events/report while the host remains parked: no per-batch host
+  memory edit, commit, push, or re-read. At terminal/safety wake, the host reconciles canonical run
+  memory once and continues or enters cumulative readiness.
 - A checkpoint, return time, or delivery target is not a stop condition unless the survival guide explicitly says it is a hard stop boundary.
 - Do not wait for user acknowledgment after checkpoints, summaries, or clean commits. If work remains and stop conditions are not met, continue.
 - Do not be lazy as the run progresses. Keep the same effort on the last batch as on the first, and prefer deeper verified progress over the minimum acceptable change.
@@ -572,7 +590,9 @@ Behavior once executing:
 - Work in small batches and commit frequently.
 - Make commit subjects read like progress reports.
 - Run every relevant validation gate, including E2E or browser checks where they make sense.
-- After every push, re-read the survival guide, run the post-push operator checklist, then read PR comments and checks, fix blockers, and re-check for regressions against earlier verified work.
+- After every host push, re-read the survival guide, run the post-push operator checklist, then read
+  PR comments and checks, fix blockers, and re-check regressions. In trusted parked full-run, do not
+  repeat this on worker pushes; use bounded telemetry and defer cumulative PR work until wake/exit.
 - Re-drive incomplete work-driver labor (see `references/e2e-chat-to-land.md`).
 
 On launch, use the Orient read order: survival guide, `.elves-session.json` if present, learnings if
@@ -614,10 +634,11 @@ Before the user walks away, verify everything will work. This is part of staging
     branch, worktree path, base ref, and collision tripwire; it does not reuse, delete, or repair existing worktrees.
     The bundled `scripts/preflight.sh` inspects `git worktree list --porcelain`
     and fails if the current branch is checked out in more than one worktree. Then record the
-    branch tip as your collision tripwire: `git rev-parse HEAD`. If HEAD or the remote branch tip
-    later moves to a commit you did not create, another writer is in your checkout — stop, treat it
-    as a collision (see **Merge Conflicts**), and surface it to the user instead of committing on
-    top.
+    branch tip as your collision tripwire: `git rev-parse HEAD`. A later move is expected only when
+    the exact registered trusted full-run session advances its assigned feature branch to a
+    descendant of the last observed tip and the supervisor verifies the process fingerprint and
+    protected refs are unchanged. Any other local or remote tip move is a collision (see **Merge
+    Conflicts**): stop and surface it to the user instead of committing on top.
 
 If the survival guide already exists during staging, set `ELVES_SURVIVAL_GUIDE_PATH` to that file
 before running `./scripts/preflight.sh`. Preflight will run
@@ -647,7 +668,10 @@ Record the time budget in the execution log.
    ```
    Add `--dry-run` if you want to inspect the generated path and command first. A solo run in a
    repo no other agent will touch can use the main checkout. Record the branch tip (`git rev-parse
-   HEAD`) as a collision tripwire; an unexpected move means another writer is in your checkout.
+   HEAD`) as a collision tripwire. An advance is expected only when the exact registered trusted
+   full-run session advances its assigned feature branch to a descendant of the last observed tip
+   and the supervisor verifies the process fingerprint and protected refs are unchanged. Any other
+   move means another writer is in the checkout.
 
 2. **Write up the plans.** Generate the survival guide, learnings file, and execution log from templates (if they don't already exist). Read the plan and decompose it into batches. Record the batch breakdown with estimates in the execution log. Commit all planning documents:
    ```bash
@@ -672,11 +696,19 @@ If a PR already exists on the current branch, detect it and skip this setup.
 
 **Don't wait to open the PR.** Open it after the first pushed commit — even if it's just session setup documents. Do not delay until the branch is "nearly done" or until the first implementation batch is complete. The PR is your collaboration surface, your review loop, and your visibility tool. Every hour without a PR is an hour where bots can't review, the user can't check in, and comments can't accumulate. Keep using the same PR throughout the run; do not create new PRs for subsequent batches.
 
-**Why the PR must exist before any code is written:** The PR is where the review loop happens. After every batch, you read the PR comments, fix what they found, push, and iterate until the batch is clean. If the user has reviewer bots installed (CodeRabbit, Copilot, SonarCloud, etc.), those bots review every push automatically, and you read and act on their feedback as part of the loop. The review isn't something that accumulates for the human to read in the morning. The review is part of your loop. You iterate on it until the batch is tight, then move on.
+**Why the PR must exist before any code is written:** The PR is the review and visibility surface.
+For host-native and legacy bounded execution, read PR feedback after every host push and iterate
+until each batch is clean. For a healthy trusted full-run worker, do not reactivate the host after
+each worker push: let the worker run its internal batch loop, keep the host on bounded telemetry,
+and perform one cumulative PR/review pass at terminal or safety wake. Reviewer bots can still
+inspect every push without turning the driver into a second implementation loop.
 
 **The PR isn't the deliverable. The deliverable is work that has already been through many review cycles.** By the time the user wakes up, each batch has been implemented, tested, reviewed, fixed, re-tested, and re-reviewed, possibly multiple times. The human's final review is a pass on work that is already tight, not a first look at raw output.
 
-**You never merge by default — the user merges when they return. The exceptions are an explicit merge-on-green opt-in recorded in Run Control, or the Reviewed PR Landing Command. Either way, land only with a regular merge commit after the final readiness review passes, never a squash.**
+**The user owns whether Elves may merge. You never merge by default — the user merges when they
+return. The exceptions are an explicit merge-on-green opt-in recorded in Run Control, or the
+Reviewed PR Landing Command. Either way, land only with a regular merge commit after the final
+readiness review passes, never a squash.**
 
 When staging is complete: in **E2E single-kickoff**, continue into Phase 3 immediately; in **legacy
 two-call**, stop and hand the user a short launch prompt for the next call.
@@ -707,15 +739,22 @@ Rules:
 - Each batch must pass validation, review, AND preview deployment (if configured) before the next batch starts.
 - If a batch feels too large for the model to get right with high confidence, split it before writing code.
 - Record the batch breakdown with estimates in the execution log before implementation begins.
-- Create a rollback tag before each batch: run/session-scoped rollback refs (`refs/elves/rollback/<run>/<session>/bN-<digest>`)
+- Rollback authority depends on route. Host-native and legacy bounded runs create a host-owned
+  run/session-scoped `bN` rollback ref before each batch. A trusted parked full-run creates one
+  host-owned `b0` launch ref before handoff; worker commit SHAs are the internal rollback points.
+  The worker never creates, moves, or pushes refs other than its assigned feature branch.
 
 ## Subagent Strategy
 
-For long runs, delegate heavy work to subagents to preserve context. The coordinator (you) manages the loop; subagents do the deep work.
+For long runs, delegate heavy work to subagents to preserve context. In host-native or legacy
+bounded execution, the coordinator manages the per-batch loop and subagents do deep work. In a
+trusted full-run, the worker owns the entire internal batch loop while the coordinator parks.
 
 **Use subagents for:** implementation (coding a batch), validation (running test suites), review (reading PR comments), and scout mode (exploring improvements).
 
-**Keep in the coordinator:** updating the survival guide and execution log (your memory), git operations (push, tag, branch), and quick targeted fixes.
+**Keep in the coordinator:** canonical run memory, protected refs, PR actions, merge, launch gates,
+and cumulative final review. Trusted full-run commit/push access is the narrow exception: the exact
+registered worker may advance only its assigned feature branch under the verified session contract.
 
 If your environment doesn't support subagents, do all work directly. The core loop is the same regardless.
 
@@ -725,9 +764,21 @@ If your environment doesn't support subagents, do all work directly. The core lo
 
 ## Core Loop
 
-For every batch, execute this full cycle:
+Choose the execution route **before** entering this loop:
 
-#### Time Allocation
+- **Host-native or legacy bounded route:** the host executes this full cycle for every batch.
+- **Healthy trusted full-run route:** first create the host-owned `b0` launch rollback ref, then
+  hand one self-contained packet to the worker. The worker executes its internal batch loop and
+  commits/pushes meaningful progress on the assigned feature branch. The host performs bounded
+  supervisor telemetry only—no per-batch orient/contract/validate/review/document/push chatter—until
+  a terminal event, safety wake, explicit user intervention, or actual worker exit. Then the host
+  re-reads run memory and performs one cumulative review, recovery, and landing-readiness loop.
+
+Do not run both routes at once. The steps below are the host-owned per-batch loop for the
+host-native and legacy bounded routes; they are also quality requirements the full-run worker must
+honor internally, not instructions for the parked host to shadow every batch.
+
+### Time Allocation
 
 Left to their own instincts, agents spend 80% of batch time implementing and rush through validation and review. This is backwards. Implementation produces a draft. Validation and review produce something shippable. If you finish implementing and feel like the batch is "almost done," you're wrong — you've produced a first draft that hasn't been tested or reviewed yet.
 
@@ -770,9 +821,12 @@ If this is the first batch and no code exists yet, run a minimal smoke test inst
 
 **Capture the test baseline.** After Verify Green passes, record the test count (total, passing, skipped) in `.elves-session.json` under `test_baseline: { passed: N, total: M, skipped: K }`. This is your reference point for the entire run. At the end of each batch, compare current counts against this baseline. Record the baseline for comparison. Legitimate behavior-driven test changes and count reductions are allowed when behavioral coverage is preserved or improved and the change is explained. Only green-seeking weaken/delete/skip is forbidden.
 
-### 3. Tag
+### 3. Rollback Ref
 
-Create a rollback safety point: run/session-scoped rollback refs (`refs/elves/rollback/<run>/<session>/bN-<digest>`)
+For host-native or legacy bounded execution, create a host-owned rollback safety point before the
+batch: `refs/elves/rollback/<run>/<session>/bN-<digest>`. For trusted full-run execution, this step
+was completed once before handoff with batch `0`; do not create per-batch host refs while parked.
+Worker commit SHAs provide the internal rollback points, and the worker never creates refs.
 
 ### 4. Contract
 
@@ -937,7 +991,7 @@ If no constitution exists, skip this step.
 
 ### 9. Document
 
-Update the execution log with a timestamped entry covering: batch name, timing breakdown, what changed, commands run, test results, review findings, decisions made, docs impacted, docs updated, docs promoted, docs deferred, regression attestation, commit SHA, rollback tag, and next steps.
+Update the execution log with a timestamped entry covering: batch name, timing breakdown, what changed, commands run, test results, review findings, decisions made, docs impacted, docs updated, docs promoted, docs deferred, regression attestation, commit SHA, rollback ref, and next steps.
 
 **Close the loop on the contract.** Mark each acceptance criterion from step 4 as met or note exceptions. If a criterion wasn't met, explain why and whether it's deferred or dropped. The contract is write-only if you don't check it off.
 
@@ -949,7 +1003,7 @@ Update the execution log with a timestamped entry covering: batch name, timing b
 4. **Test baseline comparison:** compare the current test count against the baseline captured during Verify Green (step 2). Report the delta. Compare coverage quality, not only counts. Legitimate behavior-driven reductions need explanation; green-seeking weaken/delete/skip is forbidden.
 5. **Confidence and reasoning:** state HIGH, MEDIUM, or LOW and explain *why*. "All tests pass" is necessary but not sufficient. Explain what you checked beyond tests and why you believe existing functionality is preserved. If you modified shared surfaces, explain why consumers aren't affected. If MEDIUM or LOW, describe the specific risk and what additional verification would raise confidence.
 
-Also update `.elves-session.json` — set the current batch status to `"complete"` **only after** recording a non-empty `acceptance` array (each item: `criterion`, `met: true`, `evidence`), record the commit SHA and completion timestamp, and capture any resolved, deferred, or dismissed review-comment dispositions. This keeps the JSON in sync with the execution log so either can be used for recovery. Do not mark `complete` because gates are green if plan Acceptance is still open.
+Also update `.elves-session.json` — set the current batch status to `"complete"` **only after** recording a non-empty `acceptance` array (each item: stable `id`, `criterion`, `met: true`, `evidence`), record the commit SHA and completion timestamp, and capture any resolved, deferred, or dismissed review-comment dispositions. This keeps the JSON in sync with the execution log so either can be used for recovery. Do not mark `complete` because gates are green if plan Acceptance is still open.
 
 Promote durable lessons deliberately:
 - keep transient notes and one-off debugging trails in the execution log
@@ -1010,8 +1064,9 @@ Variant prefixes for non-batch commits:
 **This format applies to every commit during the run.** Implementation commits, review fix commits, doc updates, session setup commits. No exceptions. The human may check `git log` at 3am to see if you're still making progress. If they see commits without the progress prefix, they have no idea where you are.
 
 Push meaningful slices during the batch; do not hide hours of validated progress until `Close`.
-`Close` requires acceptance evidence. Qualified external workers may create only audited detached
-handoff commits and never own refs, remotes, push, or PRs.
+`Close` requires acceptance evidence. Trusted `branch_progress` full-run workers may commit/push
+only the assigned feature branch. Untrusted lease workers create audited detached handoff commits
+and never own refs, remotes, push, PRs, or run memory.
 
 #### Anti-patterns (never do these)
 
@@ -1086,7 +1141,14 @@ This creates an audit trail. The reviewer can verify your claim instead of redis
 
 ### 12. Re-read the Survival Guide
 
-**After every commit and push, re-read the survival guide before doing anything else.** Also verify the plan file hasn't changed since session start.
+**After every host-owned commit and push, re-read the survival guide before doing anything else.** Also verify the plan file hasn't changed since session start.
+
+**Trusted full-run parked rule:** after a healthy `full-run-launch`, the host does not run any
+per-batch Core Loop step on worker commits or pushes. It reads bounded monitor/events only and does
+not re-enter implementation, validation, memory, PR, or entropy loops until a safety wake,
+blocked/stale/failed state, explicit user input, or actual worker exit. At that wake, re-read run
+memory and perform the deferred cumulative review/recovery work once. This rule keeps delegation
+from becoming a second chatty driver loop.
 
 Immediately run this post-push operator checklist:
 
@@ -1099,7 +1161,11 @@ Immediately run this post-push operator checklist:
 
 ### 13. PR Loop — Poll After Every Push
 
-**After every push — including mid-implementation pushes, not just end-of-batch pushes — poll PR comments, inline review comments, and check status before starting any new work.** Don't assume silence means no comments. Bots and CI run asynchronously — new feedback may have arrived since your last check, even if you just pushed seconds ago.
+**Outside a trusted parked full-run, after every host push — including mid-implementation pushes,
+not just end-of-batch pushes — poll PR comments, inline review comments, and check status before
+starting any new work.** During a trusted parked full-run, worker pushes are intentionally excluded;
+poll all PR surfaces after terminal/safety wake before final readiness. Don't assume silence means no
+comments. Bots and CI run asynchronously.
 
 This is a lightweight check, not a full review cycle. The full review in step 7 is comprehensive (contract verification, code quality audit, documentation check). Step 13 is a quick scan for new signals:
 
@@ -1158,7 +1224,11 @@ The following commands are **never allowed** under any circumstances. They destr
 - `git push --force` or `git push -f`: rewrites remote history. Never.
 - `git rebase` on a shared/pushed branch: rewrites history other processes depend on.
 - `rm -rf` on any directory outside your immediate working scope.
-- Operating in a working tree or on a branch that another active agent owns. One run owns one branch and one checkout; if another writer is in your checkout, stop — do not commit on top of their work.
+- Operating in a working tree or on a branch that another active agent owns. The only exception is
+  the exact registered trusted full-run worker advancing its assigned feature branch to a
+  descendant of the last observed tip while the supervisor verifies the process fingerprint and
+  protected refs unchanged. Any other writer or tip move is a collision; stop instead of committing
+  on top.
 
 If you think you need one of these commands, you're wrong. Find another way. If there truly is no other way, stop and log the situation. The user will handle it when they return.
 
@@ -1168,7 +1238,12 @@ This rule survives compaction. If you've lost context and aren't sure what is sa
 
 If `git push` fails because the remote branch has diverged (another process merged main, the user pushed a hotfix, CI auto-merged), handle it as follows:
 
-**First, rule out a collision.** Compare the new tip against your collision tripwire (the `git rev-parse HEAD` you recorded at staging). If your branch moved because *another agent committed to the same branch or worked in the same checkout* — not because main advanced or the user pushed a hotfix — this is a collision, not a normal diverge. Stop, log a **Hard Stop**, and surface it to the user. Do not merge your work on top of another agent's in-flight run; two unattended runs sharing one branch cannot be safely reconciled. (Prevent this at staging by owning a dedicated branch and worktree.)
+**First, rule out a collision.** Compare the new tip against the last observed tripwire. An advance
+is expected only when the exact registered trusted full-run session advances its assigned feature
+branch to a descendant of that tip and the supervisor verifies the process fingerprint and
+protected refs unchanged. Any other move by another agent or checkout is a collision, not a normal
+diverge: stop, log a **Hard Stop**, and surface it to the user. Do not merge on top of another
+in-flight run. (Prevent this at staging by owning a dedicated branch and worktree.)
 
 1. **Fetch and merge** the remote branch: `git fetch origin && git merge origin/<your-branch>`. Do not rebase — rebase on a shared/pushed branch is forbidden.
 2. **If the merge is clean** (no conflicts), push and continue.
@@ -1194,7 +1269,7 @@ Rules:
 - Never shorten a timeout to avoid a flaky failure. Log the flake and continue.
 - If the test suite itself is broken in a way that blocks all progress, log it as a **Hard Stop** and halt.
 
-The tests are the user's insurance policy. You don't get to modify the insurance policy.
+The tests are the user's insurance policy. You don't get to weaken the insurance policy.
 
 ## Compaction Recovery
 
@@ -1234,7 +1309,7 @@ satisfy the letter of the old gates while missing the plan spirit.
 
 These hardening steps convert self-certification into auditable proof:
 
-- **Per-batch `acceptance` rows** force a criterion → evidence link the next context (or a script)
+- **Per-batch `acceptance` rows with stable `B#-A#` ids** force a criterion → evidence link the next context (or a script)
   can check without trusting narrative alone.
 - **The god-file rule** separates *locks* (structure already exists) from *completion* (LOC/facade
   bar met). Locks prevent regression; they do not ship the split.
@@ -1253,7 +1328,7 @@ A batch isn't done unless:
 6. Review performed. The review loop ran until no blockers remained. All review threads resolved or replied to.
 7. Legality check passed (if a constitution exists). No unresolved FAIL verdicts.
 8. No accumulated debt: no skipped gates, no "will fix later" items, no known regressions.
-9. **Regression attestation written.** The execution log entry for this batch includes: cumulative diff review (`git diff <default-branch>...HEAD --stat`), shared surfaces identified with consumers verified, public API surface delta when configured, test baseline comparison (total tests never decreased), and a confidence level with reasoning. See step 9.
+9. **Regression attestation written.** The execution log entry for this batch includes: cumulative diff review (`git diff <default-branch>...HEAD --stat`), shared surfaces identified with consumers verified, public API surface delta when configured, every test-count delta explained with evidence that coverage was preserved or improved, and a confidence level with reasoning. See step 9.
 10. **Documentation is up to date.** Any user-facing behavior changed by this batch must be reflected in the relevant docs: README, API docs, inline doc comments, config references, migration guides, changelogs, `learnings.md`, `.ai-docs/*`, or whatever the project uses. Stale docs are debt. A user who reads the docs and gets wrong information is worse off than a user with no docs at all.
 11. `.elves-session.json` updated with batch status, commit SHA, completion timestamp, current batch state, `continuation_guard`, non-empty per-batch `acceptance` evidence, and `review_comments` dispositions.
 12. Memory and resource hygiene checked for long runs or large batches: live docs are concise, old log entries are archived in place when needed, idle resources are reconciled, and a fresh-thread handoff exists if memory pressure is visible.
@@ -1270,6 +1345,7 @@ Before flipping any batch to `complete` in `.elves-session.json`, record an `acc
 ```json
 "acceptance": [
   {
+    "id": "B1-A1",
     "criterion": "facade or LOC cut as stated in plan Acceptance",
     "met": true,
     "evidence": "path, command transcript, metric, or commit SHA"
@@ -1279,7 +1355,12 @@ Before flipping any batch to `complete` in `.elves-session.json`, record an `acc
 
 Rules:
 - Every planned batch that is `status: complete` must have a non-empty `acceptance` list.
-- Every item must have `met: true` and non-empty `evidence`.
+- Every new-plan item must have its stable `B#-A#` id, `met: true`, and non-empty `evidence`.
+- Every branch-level Master Acceptance row uses a stable `M-A#` id and must be reconciled before
+  readiness. Never renumber stable ids after staging.
+- Legacy numeric batches and unlabelled acceptance rows remain readable: assign deterministic
+  aliases by plan order (`Batch 1` → `B1`, nth batch criterion → `B1-An`, nth master criterion →
+  `M-An`) and persist the mapping before claiming completion.
 - Evidence must speak to the plan Acceptance criterion (LOC, facade, behavior), not only "tests green."
 - Gate transcripts (typecheck/lint/test/build) should be captured under the run's evidence/SCRATCH dir when configured: `{evidence-root}/batch-N/{typecheck|lint|test|build}` (or `.log` / `.txt` suffixes).
 - Run `python3 scripts/elves_landing_check.py` before Final Readiness / landing when the script is available. Treat failures as blockers.
@@ -1463,7 +1544,7 @@ When all batches are done or time is up:
 2. Update `.elves-session.json`.
 3. Do a final TODO.md pass.
 4. Update the survival guide and perform strategic forgetting: condense live state, archive old execution-log entries in place if the log is large, promote durable lessons, prune superseded lessons, and leave a concise reactivation handoff for any remaining work or future follow-up.
-5. **Run the Final Readiness Review before operational-artifact cleanup. This is the mandatory last step of every finite run — never skip it.** First run `python3 scripts/elves_landing_check.py` when available and fix any acceptance-evidence failures. Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if the platform supports it; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json` (including per-batch `acceptance` proof), and **every** PR review comment (resolved and unresolved, from humans, bots, and CI), and must run every test that makes sense — the full suite plus any E2E or browser checks that apply — so you can be confident the branch is green to merge. Fix blocking findings, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun the final review.
+5. **Run the acceptance-bearing Final Readiness Review before operational-artifact cleanup; never skip it.** With the run documents committed and the worktree clean, run `python3 scripts/verify_repo.py --version <release-version> --final-readiness --session <session-path>`. The session must record its tracked in-repo plan path; an explicit `--plan <plan-path>` is only an equality assertion and must match that recorded path exactly. This canonical gate includes `elves_landing_check.py`, full tests, installed smokes, cumulative API/link/secret proof, and clean-Git enforcement. Fix any acceptance-evidence failures. Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if the platform supports it; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json` (including per-batch `acceptance` proof), and **every** PR review comment (resolved and unresolved, from humans, bots, and CI), and must run every test that makes sense — the full suite plus any E2E or browser checks that apply — so you can be confident the branch is green to merge. Fix blocking findings, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun this acceptance-bearing review.
 6. **Generate the Elves Report** for substantial runs. Use the current survival guide, execution log, `.elves-session.json`, learnings file, plan, and live PR/CI state. Include problems found, lessons learned, batch timeline, verification proof, residual risks, and human next steps. Save it under `/tmp` by default and do not commit it unless explicitly configured. This is the last normal point where all operational source documents are guaranteed present; fully regenerate the report here before cleanup if its content changed. The report is the user's morning briefing: surface its path in the final notification and explicitly tell them to read it before reviewing or merging the PR.
 7. **Clean up operational artifacts.** Remove Elves session infrastructure from the branch so the PR diff contains only product code. Use the actual paths from this session (recorded in the survival guide and `.elves-session.json`), not hard-coded defaults:
    ```bash
@@ -1474,12 +1555,12 @@ When all batches are done or time is up:
    
    **Important:** the execution log and survival guide still exist in the branch history if you need to reference them. This commit just removes them from the final diff.
 8. Push.
-9. Poll PR comments and checks one last time after the cleanup commit. If cleanup triggered new feedback or failing checks, address it before notifying. If only live status/check facts changed, update the existing Elves Report from PR/CI. If validation, review findings, residual risks, or batch content changed and the cleaned-up session files are needed, recover them from branch history or regenerate the report before re-running cleanup; do not silently skip the refresh because the files were removed.
+9. **Run a post-cleanup current-tip attestation.** First inspect `git diff --name-status HEAD^..HEAD` and confirm the cleanup commit removed only the exact operational paths recorded in the session (plus the plan only when `cleanup.keep_plan: false`). From a clean worktree, run `python3 scripts/verify_repo.py --ci --version <release-version> --base-ref <default-branch>` and require `git status --porcelain` to be empty, then poll PR comments and checks one last time. This strict non-landing gate re-earns compile, tests, installed-smoke, API, link, secret, and cumulative-diff proof on the actual cleanup tip; the pre-cleanup Final Readiness gate remains the authoritative acceptance/landing proof. If cleanup contains any other change, the attestation fails, or new feedback requires a fix, restore the run documents from the pre-cleanup commit, make and document the fix, rerun the acceptance-bearing Final Readiness review, regenerate the report, and clean up again. Do not silently carry pre-cleanup proof across a product or documentation change.
 10. Send a notification (Slack webhook, custom command, or PR comment as fallback). Include the
     Elves Report path and tell the user to review it, or write `Elves Report: not generated` if the
     run did not meet report criteria.
 
-**Merge decision — the user's preference governs.** By default you do not merge: the PR is green and ready for the user to review and merge when they return. Merge yourself only if the user has set a merge-on-green preference in Run Control or explicitly invoked the Reviewed PR Landing Command — and then only after the Final Readiness Review is clean, using a regular merge commit (never a squash). Either way, the Final Readiness Review and the delivered Elves Report are what make the branch trustworthy to merge; that is always the final step.
+**Merge decision — the user's preference governs.** By default you do not merge: the PR is green and ready for the user to review and merge when they return. Merge yourself only if the user has set a merge-on-green preference in Run Control or explicitly invoked the Reviewed PR Landing Command — and then only after the acceptance-bearing Final Readiness Review and any required post-cleanup current-tip attestation are clean, using a regular merge commit (never a squash). Together, that two-stage proof and the delivered Elves Report make the final branch tip trustworthy to merge.
 
 ## Staying Unattended
 
@@ -1544,7 +1625,10 @@ Stop only when:
 1. Genuinely blocked with no viable path. Not a decision, but a dependency you can't resolve.
 2. A merge is requested and the user has neither set a merge-on-green preference nor invoked the Reviewed PR Landing Command. By default you do not merge; hand off and let the user merge. (Only in those explicit opt-in cases, and only after a clean Final Readiness Review, do you land a regular merge commit yourself (never a squash) instead of stopping.)
 3. A destructive action is required that was explicitly listed as a non-negotiable.
-4. The branch tip moved to a commit you didn't create — another agent is in your checkout. Stop and surface the collision (see **Merge Conflicts**).
+4. The branch tip moved outside the trusted full-run exception: the exact registered session did
+   not advance its assigned feature branch to a descendant of the last observed tip, or the
+   supervisor could not verify its process fingerprint and unchanged protected refs. Stop and
+   surface the collision (see **Merge Conflicts**).
 
 Everything else: ambiguous requirements, minor design decisions, unexpected tool behavior. Resolve with your best judgment and document in the execution log.
 
@@ -1552,14 +1636,19 @@ Everything else: ambiguous requirements, minor design decisions, unexpected tool
 
 ## Structured Session Data
 
-Maintain a `.elves-session.json` file with machine-readable session data (session ID, timing, batch status, commits, rollback tags, review findings, and continuation guard state). This enables future tooling and analytics.
+Maintain a `.elves-session.json` file with machine-readable session data (session ID, timing, batch status, commits, rollback refs, review findings, and continuation guard state). The compatibility field is still named `rollback_tag`, but its value is a scoped `refs/elves/rollback/...` ref, not a Git tag. Host-native/legacy batch entries use their `bN` ref; trusted full-run batch entries may share the host-created `b0` launch ref while each `commit` SHA identifies the internal rollback point. This enables future tooling and analytics.
 
 **Batch status tracking belongs in JSON, not just Markdown.** Models are less likely to corrupt structured JSON during updates. The `.elves-session.json` file should include a `batches` array that tracks the status of each batch plus a `continuation_guard` object that makes "keep going or stop?" explicit:
+
+New plans use stable batch ids `B#`, per-batch acceptance ids `B#-A#`, and branch-level
+`master_acceptance` ids `M-A#`. Never renumber them after staging. For legacy plans, derive aliases
+deterministically by plan order and persist the mapping before completion so old numeric batches and
+unlabelled criteria remain compatible.
 
 ```json
 {
   "session_id": "elves-2026-03-24-auth-system",
-  "version": "1.9.0",
+  "version": "2.1.0",
   "status": "in_progress",
   "branch": "feat/auth-system",
   "plan_path": "docs/plans/auth-system.md",
@@ -1592,13 +1681,13 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
     "reason": null
   },
   "current_batch": {
-    "id": 2,
+    "id": "B2",
     "name": "Auth endpoints",
     "status": "in_progress"
   },
   "model_routes": [
     {
-      "batch": 2,
+      "batch": "B2",
       "phase": "review",
       "requested_route": "independent-lens",
       "actual_route": "native-subagent",
@@ -1607,7 +1696,7 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
   ],
   "batches": [
     {
-      "id": 1,
+      "id": "B1",
       "name": "Database schema and models",
       "status": "complete",
       "commit": "abc1234",
@@ -1616,6 +1705,7 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
       "completed_at": "2026-03-24T23:15:00Z",
       "acceptance": [
         {
+          "id": "B1-A1",
           "criterion": "migrations apply cleanly on empty DB",
           "met": true,
           "evidence": "scratch/batch-1/test.log + commit abc1234"
@@ -1623,7 +1713,7 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
       ]
     },
     {
-      "id": 2,
+      "id": "B2",
       "name": "Auth endpoints",
       "status": "in_progress",
       "commit": null,
@@ -1633,12 +1723,20 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
       "acceptance": []
     }
   ],
+  "master_acceptance": [
+    {
+      "id": "M-A1",
+      "criterion": "the complete authentication flow is ready for operator review",
+      "met": false,
+      "evidence": "pending final cumulative validation"
+    }
+  ],
   "review_comments": [
     {
       "id": 1234567890,
       "type": "review_comment",
       "source": "coderabbit",
-      "batch": 1,
+      "batch": "B1",
       "cycle": 1,
       "summary": "Missing input validation on email field",
       "disposition": "fixed",
@@ -1648,7 +1746,7 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
       "id": 1234567891,
       "type": "issue_comment",
       "source": "sonarcloud",
-      "batch": 1,
+      "batch": "B1",
       "cycle": 2,
       "summary": "Cognitive complexity of handleAuth() is 18 (threshold 15)",
       "disposition": "dismissed",
@@ -1658,7 +1756,7 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
       "id": 1234567892,
       "type": "review_thread",
       "source": "copilot",
-      "batch": 2,
+      "batch": "B2",
       "cycle": 1,
       "summary": "Consider extracting retry logic into shared utility",
       "disposition": "deferred",

@@ -28,21 +28,38 @@ managed inside the Elves run, not a separate Council or Cobbler memory system.
 
 `scripts/cobbler_runtime/` is the standard-library external-agent foundation:
 
-- `schema.py` / `config.py` / `capabilities.py`: provider-neutral contracts and route resolution
+- `schema.py` / `config.py` / `capabilities.py` / `behavior_policy.py`: provider-neutral
+  contracts, route resolution, and explicit behavior-policy classification
 - `context.py`: redacted context packets and minimal child environments
 - `adapters.py`: read-only argv command builders, structured role-report parsing, exact session
   create/resume builders (no bare `--resume` / `--continue` / `--last`)
-- `dispatch.py`: parallel read-only council fan-out, quorum policy, lightweight-review utility
+- `dispatch.py` plus `dispatch_models.py`, `dispatch_results.py`, `dispatch_attempt.py`,
+  `dispatch_lane_attempt.py`, `dispatch_external.py`, and `dispatch_host_native.py`: decomposed
+  parallel council dispatch, model/result contracts, attempt lifecycle, external lanes, native
+  fallback, quorum policy, and lightweight-review utility
 - `sessions.py`: exact session registry, lifecycle transitions, context digests, usage ledger,
   Grok parent→child lineage helpers
+- `implement.py` / `full_run.py`: legacy bounded implement lifecycle plus the persistent trusted
+  full-run supervisor, bounded events/report validation, process fingerprinting, and parked-monitor
+  wake classification
+- `delegated_git.py` / `isolation.py`: trusted feature-branch reconciliation and shared
+  environment/process/path isolation rules
 - `leases.py`: exclusive one-writer lease, worker preflight, write packets, refresh-after-import
 - `audit.py`: pre/post refs/path/process audit, binary format-patch export, host `git apply --check`
+- `evidence_review.py` / `public_api_snapshot.py`: independent evidence assessment and versioned
+  public-contract regression snapshots
+- `onboard.py` / `setup.py` / `executables.py`: model onboarding, effective setup, and executable
+  capability probing
+- `preflight_cache.py` / `storage.py`: live-proof cache policy and private atomic runtime storage
 
 The thin CLI is `scripts/cobbler_agents.py` (`validate-config`, `doctor`, `council`,
-`lightweight-review`, `session …`, trusted `implement full-run-*`, and untrusted
+`lightweight-review`, `session …`, trusted
+`implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop`, and untrusted
 `worker prepare|audit|export|refresh`). Private runtime state belongs under ignored
-`.elves/runtime/` (`council/`, `sessions/`, `leases/`). A trusted Grok full-run may create and push
-feature-branch progress while the host retains protected refs, PR, run-memory, review, and merge.
+`.elves/runtime/` (`council/`, `sessions/`, `leases/`, `implement/full-run/`). A trusted Grok
+full-run may create and push feature-branch progress while the host retains protected refs, PR,
+run-memory, cumulative review, and merge. Its host creates one `b0` rollback ref before handoff,
+then parks until a terminal/safety wake; worker commit SHAs are internal rollback points.
 Detached worker commits belong to the separate untrusted lease path: the host creates branch
 commits and pushes only after binary patch audit/import.
 

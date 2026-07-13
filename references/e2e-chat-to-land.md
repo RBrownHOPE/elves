@@ -43,10 +43,16 @@ Stage: branch, PR, preflight, Cobbler session state, Stop Gate, merge policy
     │
     ├─ optional: /goal (Codex) or host continuation harness (Claude Code)
     ▼
-Batch loop: contract → implement (host or work driver) → validate → review → document → push
+Execution route
     │
-    ├─ after every work-driver return: labor completeness check (see below)
-    │     incomplete → re-packet gaps + re-drive (budget N) or host fills gap / hard-stop
+    ├─ host-native / legacy bounded driver:
+    │    batch loop → validate → review → document → host push
+    │    after each bounded return: labor completeness check
+    │
+    └─ trusted Grok full-run:
+         one complete packet → one persistent launch → parked bounded telemetry
+         worker loops batches, validates, commits, and pushes without host re-prompts
+         host wakes only on safety/blocked/terminal events, then audits cumulatively
     ▼
 Readiness Gate (landable PR)
     │
@@ -64,6 +70,10 @@ Record in the survival guide `## Run Control` (and mirror in `.elves-session.jso
 - e2e mode: chat-to-work | chat-to-land | off
 - merge policy: never-merge | merge-commit-on-green | reviewed-pr-landing-command
 - work driver: host-native | grok-build | opencode-cli | …
+- delegation scope: none | batch | full_run
+- driver monitor mode: interactive | parked_monitor | n_a
+- driver update policy: bounded events + heartbeats | interactive
+- driver review policy: final independent review only | per-batch
 - labor re-drive budget: 3
 - multi-planner: optional | required-for-plan
 - continuation harness: none | codex-goal | host-native
@@ -92,19 +102,22 @@ Use platform continuation as a **seatbelt**, not as the source of truth:
 Grok Build and similar work drivers often **do some but not all** of a batch. That is a **host
 defect** if accepted as “done.”
 
-After every work-driver return (and before marking a batch complete):
+After every bounded work-driver return, or once at trusted full-run terminal/safety wake (before the
+host accepts any reported batch as complete):
 
 1. **Contract** — every acceptance criterion has concrete evidence (not narrative).
 2. **Surfaces** — owned files in the packet were touched as required; forbidden paths untouched.
-3. **Done report** — if the packet requires `.elves/runtime/implement/done/batch-N.json`, it exists
-   and is coherent with the tip.
+3. **Worker report** — trusted full-run v1 report/events validate at terminal wake; if a legacy
+   bounded packet requires `.elves/runtime/implement/done/batch-N.json`, it exists and is coherent
+   with the tip.
 4. **Gates** — focused + agreed broad tests pass.
 5. **Diff honesty** — no “status complete” with empty or off-contract diff.
 
 If incomplete:
 
 1. Write a **gap packet** (remaining criteria, files, commands, exact session id).
-2. **Re-drive** the same work driver (prefer exact session resume) up to `labor re-drive budget`.
+2. **Re-drive** the same work driver (prefer exact session resume after interruption) up to
+   `labor re-drive budget`. Do not turn a healthy trusted full-run into per-batch prompting.
 3. If still incomplete: host finishes the gap **or** hard-stop with remaining contract listed.
 4. Log every re-drive under **Decisions made** / execution log.
 
@@ -113,9 +126,13 @@ Never silently absorb a partial work-driver turn into batch `status: complete`.
 ## Multi-planner involvement
 
 - **Before stage freezes the plan:** good time for independent plan/risk lenses.
-- **After launch:** prefer host + work driver + independent **review** lenses; avoid re-opening
-  the whole plan every batch unless blocked.
-- Planners are evidence, not authority; the host synthesizes one plan and owns git/PR/memory.
+- **After a bounded-driver return:** host and independent review lenses may review before the next
+  bounded turn.
+- **During a trusted parked full-run:** do not launch per-batch host review or planning chatter.
+  Run independent cumulative review after terminal/safety wake.
+- Planners are evidence, not authority; the host synthesizes one plan and owns canonical memory,
+  protected refs, PR actions, final review, and merge. The exact registered trusted full-run worker
+  may commit/push only its assigned feature branch.
 
 ## Relationship to existing modes
 
@@ -139,14 +156,15 @@ Never silently absorb a partial work-driver turn into batch `status: complete`.
 Copy-paste prompts: [`kickoff-prompt-template.md`](kickoff-prompt-template.md) sections
 **Chat-to-work (E2E, no merge)** and **Chat-to-land (E2E through merge)**.
 
-## Implementation backlog (later)
+## Implemented v2.1 contract
 
-1. Survival-guide template fields for `e2e mode` + labor re-drive budget
-2. `implement gate` / host checklist that fails closed on missing acceptance evidence after labor
-3. Optional scripted gap-packet helper after work-driver status
-4. Dogfood: force partial Grok batch, prove re-drive, then chat-to-work and chat-to-land once each
+- Survival-guide Run Control records E2E mode, delegation/Git/monitor policy, and re-drive budget.
+- Legacy `implement gate` and the trusted full-run supervisor validate acceptance/report evidence.
+- Trusted full-run uses one packet/session, `branch_progress`, bounded events/report, a parked host,
+  and cumulative terminal review; legacy bounded re-drive remains available after an actual return.
+- Chat-to-work and chat-to-land share staging/readiness and differ only in explicit merge authority.
 
 ---
 
-*Designed for Elves 2.0 multi-model workflows under Cobbler; keep classic stage-then-start
-available when the plan is still unstable.*
+*Elves v2.1 contract under Cobbler; classic stage-then-start remains available when the plan is
+still unstable.*

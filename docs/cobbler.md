@@ -7,8 +7,9 @@ Elves decides what to do before it acts.
 
 For simple requests, Cobbler answers directly. For uncertain work, it asks a few independent
 reviewers or workers for bounded input, weighs the evidence, keeps the strongest objection visible,
-and gives the user one recommendation. During full Elves runs, this happens inside the normal batch
-loop.
+and gives the user one recommendation. Host-native and legacy bounded runs use the normal batch
+loop. In a trusted full-run handoff, Cobbler stages once, the host parks on bounded telemetry, and
+the worker owns its internal batch loop until a wake condition or exit.
 
 ## The short version
 
@@ -54,8 +55,11 @@ Cobbler has three handling paths and one sticky setting.
 3. Cobbler inside an Elves run
 
    This is the default coordination pattern for staged and active Elves runs. The coordinator owns
-   git, PRs, durable memory, and final synthesis. Worker agents may edit the repo when the active
-   batch or user request gives them scoped implementation work.
+   protected refs, PRs, durable memory, final synthesis, and merge authority. Worker agents may edit
+   the repo when the active batch or user request gives them scoped implementation work. The exact
+   trusted `branch_progress` full-run worker may also commit and push only its assigned feature
+   branch while the coordinator remains in `parked_monitor`; untrusted workers remain detached and
+   host-imported.
    After Elves is invoked for a real run, record `## Cobbler Session State` in the survival guide
    and `cobbler.default_for_session` in `.elves-session.json` so compaction preserves the
    Cobbler-first posture.
@@ -229,10 +233,12 @@ guardrails.
 ## CouncilElves launch
 
 See [`references/councilelves-launch-prompt.md`](../references/councilelves-launch-prompt.md) for the
-plan→implement→review loop overview. **Default is host-native** (Claude Code or Codex implements
-itself). Optional external implementers and the host-import writer lease are capability upgrades
-when those tools exist — same pattern as math optional providers. When using an external
+plan→implement→review overview. **Default is host-native** (Claude Code or Codex implements
+itself). For trusted Grok full-run, the current normative path is one packet, one exact session, one
+launch, feature-branch progress, and a `parked_monitor` host. Optional external implementers and the
+host-import writer lease are capability upgrades when those tools exist. When using an external
 implementer, see
 [`references/grok-implementer-launch-prompt.md`](../references/grok-implementer-launch-prompt.md) and
-`python3 scripts/cobbler_agents.py implement …`. Design:
+`python3 scripts/cobbler_agents.py implement …`. The earlier bounded-handoff design is retained only
+as historical context in
 [`docs/plans/smart-plan-grok-implement.md`](plans/smart-plan-grok-implement.md).

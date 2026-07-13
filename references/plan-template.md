@@ -4,9 +4,11 @@
 > worth working on and specifies the problem fully. This is the hardest part of any project and
 > it is entirely yours. No AI can tell you what matters. That's your job.
 >
-> The agent treats this plan as the source of truth for what should be built. It is read at the
-> start of every batch and after every compaction. Write it precisely. A half hour spent on a
-> good plan can unlock days of autonomous execution and months of equivalent output.
+> The agent treats this plan as the source of truth for what should be built. Host-native/legacy
+> routes read it at the start of every batch and after compaction. A trusted full-run worker carries
+> it in the complete packet and its internal loop; the parked host re-reads it only at terminal or
+> safety wake. Write it precisely. A half hour spent on a good plan can unlock days of autonomous
+> execution and months of equivalent output.
 >
 > This template shows you how to write a good plan. Replace all `[brackets]` with your content.
 > Remove sections that don't apply. The example at the bottom shows a real-ish plan you can use
@@ -60,8 +62,14 @@ Example:
 > Default batch size: what a team of 4 developers would accomplish in a 2-week sprint.
 > If a batch feels too large, split it. The agent will also split batches that are too large.
 > If a batch is likely to update README, config docs, learnings, or durable agent docs, say so.
+>
+> **Stable identity (v2.1+):** give each batch a stable `B#` id, each batch criterion a stable
+> `B#-A#` id, and each branch-level Master Acceptance criterion a stable `M-A#` id. Never renumber
+> an existing id after staging; add a new id instead. Legacy plans remain readable: map `Batch 1`
+> deterministically to `B1`, its nth criterion to `B1-An`, and the nth unlabelled master criterion
+> to `M-An`, recording those aliases during reconciliation before claiming completion.
 
-### Batch 1: [Name]
+### Batch 1 [B1]: [Name]
 
 **Coordinator-to-implementer handoff (required when an external or less-capable worker implements):**
 - **Intent / why:** [why this batch exists]
@@ -79,17 +87,19 @@ Example:
 - [ ] [Specific implementable task]
 
 **Acceptance criteria:**
-- [ ] [Verifiable criterion. Should be checkable by running a command or reading a file.]
-- [ ] [Verifiable criterion]
-- [ ] [Verifiable criterion]
-- [ ] [If this batch changes existing behavior, include one criterion that proves old behavior still works]
-- [ ] [If this batch splits a large/god file: include a measurable bar (LOC, facade boundary, module count) — structure/regex lock tests alone do not complete the batch unless you explicitly allow characterization-only here]
+- [ ] [B1-A1] [Verifiable criterion. Should be checkable by running a command or reading a file.]
+- [ ] [B1-A2] [Verifiable criterion]
+- [ ] [B1-A3] [Verifiable criterion]
+- [ ] [B1-A4] [If this batch changes existing behavior, include one criterion that proves old behavior still works]
+- [ ] [B1-A5] [If this batch splits a large/god file: include a measurable bar (LOC, facade boundary, module count) — structure/regex lock tests alone do not complete the batch unless you explicitly allow characterization-only here]
 
-**Progress commits (Git history as operator UI):** host pushes meaningful slices using
-`[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>`.
-Forbid vague subjects (`Updates`, `progress`, `WIP`, bare `fixes`). External workers may create
-only audited detached handoff commits and never own refs/remotes/push/PR/run-memory. `Close` requires
-acceptance evidence.
+**Progress commits (Git history as operator UI):** on host-native/legacy routes, the host pushes
+meaningful slices using `[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close]
+<concrete outcome>`. On trusted full-run, the exact registered `branch_progress` worker uses the
+same schema only on its assigned feature branch while the host parks. Untrusted workers create only
+audited detached handoff commits and never own refs/remotes/push/PR/run-memory. Protected refs, PR
+actions, canonical memory, final review, and merge stay host-owned. Forbid vague subjects
+(`Updates`, `progress`, `WIP`, bare `fixes`); `Close` requires acceptance evidence.
 
 **Docs likely touched:**
 - [README / config docs / learnings / `.ai-docs/*` / "none expected"]
@@ -97,22 +107,24 @@ acceptance evidence.
 **Risk:** [One sentence. What is most likely to go wrong, or what has the highest uncertainty?]
 
 > Elves records each completed criterion in `.elves-session.json` as
-> `acceptance: [{criterion, met, evidence}]`. Green tests without these proof rows do not make the
-> batch landable.
+> `acceptance: [{id: "B1-A1", criterion, met, evidence}]`. Green tests without these stable-id proof
+> rows do not make the batch landable. The legacy schema shorthand
+> `acceptance: [{criterion, met, evidence}]` remains readable through deterministic stable-id alias
+> mapping; new plans must write the ids explicitly.
 
 ---
 
-### Batch 2: [Name]
+### Batch 2 [B2]: [Name]
 
 **Tasks:**
 - [ ] [Specific implementable task]
 - [ ] [Specific implementable task]
 
 **Acceptance criteria:**
-- [ ] [Verifiable criterion]
-- [ ] [Verifiable criterion]
-- [ ] [If this batch changes existing behavior, include one regression-preservation check]
-- [ ] [If this is a split/god-file batch: measurable size/facade criterion, not only structure locks]
+- [ ] [B2-A1] [Verifiable criterion]
+- [ ] [B2-A2] [Verifiable criterion]
+- [ ] [B2-A3] [If this batch changes existing behavior, include one regression-preservation check]
+- [ ] [B2-A4] [If this is a split/god-file batch: measurable size/facade criterion, not only structure locks]
 
 **Docs likely touched:**
 - [README / config docs / learnings / `.ai-docs/*` / "none expected"]
@@ -121,16 +133,16 @@ acceptance evidence.
 
 ---
 
-### Batch 3: [Name]
+### Batch 3 [B3]: [Name]
 
 **Tasks:**
 - [ ] [Specific implementable task]
 - [ ] [Specific implementable task]
 
 **Acceptance criteria:**
-- [ ] [Verifiable criterion]
-- [ ] [Verifiable criterion]
-- [ ] [If this batch changes existing behavior, include one regression-preservation check]
+- [ ] [B3-A1] [Verifiable criterion]
+- [ ] [B3-A2] [Verifiable criterion]
+- [ ] [B3-A3] [If this batch changes existing behavior, include one regression-preservation check]
 
 **Docs likely touched:**
 - [README / config docs / learnings / `.ai-docs/*` / "none expected"]
@@ -144,6 +156,18 @@ acceptance evidence.
 
 ---
 
+## Master Acceptance
+
+> Branch-level outcomes use stable `M-A#` ids. These are not duplicates of batch gates: they prove
+> the whole run is landable. Legacy unlabelled Master Acceptance rows map deterministically by
+> document order (`M-A1`, `M-A2`, …) and retain that alias once recorded.
+
+- [ ] [M-A1] [Observable end-to-end outcome for the whole plan]
+- [ ] [M-A2] [Cumulative regression/readiness outcome]
+- [ ] [M-A3] [Documentation, migration, or operator outcome]
+
+---
+
 ## Non-Negotiables
 
 > The agent treats these as hard constraints. Violations are never acceptable regardless of
@@ -154,7 +178,9 @@ acceptance evidence.
 - [Hard constraint, e.g., "Never modify the public REST API response shapes"]
 - [Hard constraint, e.g., "All commits must pass lint and typecheck"]
 - [Hard constraint, e.g., "Do not install new dependencies without noting them in Decisions made"]
-- The agent never merges by default. The PR is for the user to review and merge on return — unless the user sets a merge-on-green preference or explicitly invokes the reviewed-PR landing command with phrasing like `\land-pr` or `/land-pr`. In either opt-in path, the agent lands a regular merge commit (never a squash) only after the final readiness review passes.
+- The user owns whether Elves may merge. Default is user-merges; merge-on-green or an explicit
+  reviewed-PR landing command (`\land-pr` or `/land-pr`) is the only opt-in. In either opt-in path,
+  Elves lands a regular merge commit (never a squash) only after final readiness.
 
 ---
 
@@ -231,7 +257,7 @@ Only the internal token mechanics change.
 
 ## Batches
 
-### Batch 1: JWT Core
+### Batch 1 [B1]: JWT Core
 
 **Tasks:**
 - [ ] Add `jsonwebtoken` and `ioredis` dependencies
@@ -240,17 +266,17 @@ Only the internal token mechanics change.
 - [ ] Unit tests for all new functions (target: 95% coverage of new files)
 
 **Acceptance criteria:**
-- [ ] `npm test -- --testPathPattern=auth/jwt` passes
-- [ ] `npm test -- --testPathPattern=auth/refresh` passes
-- [ ] `npm run typecheck` passes
-- [ ] No new lint errors
+- [ ] [B1-A1] `npm test -- --testPathPattern=auth/jwt` passes
+- [ ] [B1-A2] `npm test -- --testPathPattern=auth/refresh` passes
+- [ ] [B1-A3] `npm run typecheck` passes
+- [ ] [B1-A4] No new lint errors
 
 **Risk:** Redis availability in CI. If Redis isn't available, integration tests will fail.
 Check `.github/workflows/` for a Redis service container before starting.
 
 ---
 
-### Batch 2: Middleware Swap
+### Batch 2 [B2]: Middleware Swap
 
 **Tasks:**
 - [ ] Update `src/middleware/authenticate.ts` to accept `Authorization: Bearer <token>` header
@@ -259,16 +285,16 @@ Check `.github/workflows/` for a Redis service container before starting.
 - [ ] Update `src/routes/auth.ts`: `/refresh` endpoint returns new access token
 
 **Acceptance criteria:**
-- [ ] All 142 existing auth tests pass: `npm test -- --testPathPattern=auth`
-- [ ] Manual smoke: `curl -H "Authorization: Bearer <token>" http://localhost:3000/api/me` returns 200
-- [ ] `AUTH_LEGACY=true npm test` also passes (backward compat verified)
+- [ ] [B2-A1] All 142 existing auth tests pass: `npm test -- --testPathPattern=auth`
+- [ ] [B2-A2] Manual smoke: `curl -H "Authorization: Bearer <token>" http://localhost:3000/api/me` returns 200
+- [ ] [B2-A3] `AUTH_LEGACY=true npm test` also passes (backward compat verified)
 
 **Risk:** The fallback flag adds conditional complexity. Ensure it doesn't bleed into production
 paths. Review carefully.
 
 ---
 
-### Batch 3: Cleanup and Docs
+### Batch 3 [B3]: Cleanup and Docs
 
 **Tasks:**
 - [ ] Remove old session-store code from `src/lib/session.ts` (keep file, just remove session logic)
@@ -277,11 +303,19 @@ paths. Review carefully.
 - [ ] Mark old session-related env vars as deprecated in `.env.example`
 
 **Acceptance criteria:**
-- [ ] Full test suite passes: `npm test`
-- [ ] `docs/auth.md` accurately describes the new token flow
-- [ ] No references to removed session functions remain in non-legacy code paths
+- [ ] [B3-A1] Full test suite passes: `npm test`
+- [ ] [B3-A2] `docs/auth.md` accurately describes the new token flow
+- [ ] [B3-A3] No references to removed session functions remain in non-legacy code paths
 
 **Risk:** Low. Documentation and cleanup only.
+
+---
+
+## Master Acceptance
+
+- [ ] [M-A1] JWT login, refresh, and authenticated API access work end-to-end.
+- [ ] [M-A2] Existing auth behavior remains available under `AUTH_LEGACY=true` with all 142 tests.
+- [ ] [M-A3] Public `/api/*` shapes are unchanged and operator documentation is current.
 
 ---
 
@@ -291,7 +325,8 @@ paths. Review carefully.
 - All commits must pass `npm run lint` and `npm run typecheck`
 - Do not install new dependencies without noting them in **Decisions made** in the execution log
 - Do not touch the password reset flow or OAuth routes. Those are in a separate project.
-- The agent never merges by default; PR is for user review. Opt-in paths are merge-commit-on-green or the reviewed-PR landing command (`\land-pr` or `/land-pr`), both after the final readiness review.
+- The user owns whether Elves may merge. Default is user-merges; opt-ins are merge-on-green or the
+  reviewed-PR landing command (`\land-pr` or `/land-pr`), both after final readiness.
 
 ---
 

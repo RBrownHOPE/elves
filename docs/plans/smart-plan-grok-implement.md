@@ -1,8 +1,15 @@
-# Plan: Smart Plan → Grok Build Implement (Fast Path)
+# Historical Plan (Superseded): Smart Plan → Grok Build Implement
 
 ## Status
 
-Design for the product workflow the author actually wants:
+**Superseded by Elves v2.1.0 trusted full-run. Do not execute the per-batch handoff loop below.**
+The current normative contract is
+[`references/grok-implementer-launch-prompt.md`](../../references/grok-implementer-launch-prompt.md):
+one self-contained packet, one exact worker session, one launch, feature-branch progress, and a
+`parked_monitor` host until a terminal/safety wake. This document is retained as design history for
+the failure mode that motivated that contract.
+
+Historical design goal:
 
 > Plan with smart agents. Turn the work over to Grok Build. Stay safe. Do not take forever.
 

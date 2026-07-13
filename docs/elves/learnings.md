@@ -20,18 +20,23 @@ silently deleting it.
 
 ## Repo Conventions
 
-- [2026-07-12] The host coordinator owns canonical run documents, git, PRs, validation,
-  acceptance evidence, and final synthesis. Write every batch contract/context packet for a
-  potentially less-capable, context-poor implementer: include intent, rationale, existing Build On
-  targets, owned/forbidden surfaces, acceptance evidence, failure modes, and pitfalls without
-  prescribing brittle line-by-line code.
-- [2026-07-12] Git history is an operator-facing progress surface. The host should promptly commit
-  and push meaningful, reviewable slices within each batch using branch/batch/phase/outcome subjects;
-  avoid vague giant dumps and noisy micro-commits, reserve `Close` for acceptance-backed completion,
-  and never delegate branch/ref/push ownership to an external implementation worker. A qualified
-  worker may use detached commits as audited internal handoff boundaries.
-- [2026-07-08] Batch `status: complete` must carry plan Acceptance proof in session JSON
-  (`acceptance: [{criterion, met, evidence}]`). Green CI alone is not landable. Structure/regex
+- [2026-07-13] Execution authority is route-specific. The host always owns canonical run memory,
+  protected refs, PR actions, final gates, cumulative independent review, and merge. Host-native and
+  legacy bounded routes keep commits/pushes and the per-batch loop in the host. The primary trusted
+  full-run route lets the exact registered `branch_progress` worker commit/push only its assigned
+  feature branch while the host parks. Untrusted writer leases remain detached and host-imported.
+  Every worker packet still carries intent, rationale, Build On targets, owned/forbidden surfaces,
+  acceptance evidence, failure modes, and exact route/session/output identity.
+- [2026-07-13] Git history is an operator-facing progress surface on both writable routes. The host
+  pushes meaningful phase slices for host-native/legacy work; a trusted `branch_progress` full-run
+  worker does so on its assigned feature branch. Avoid vague dumps and noisy micro-commits, and
+  reserve `Close` for acceptance-backed completion. Protected refs and PR/merge operations stay
+  host-only; untrusted workers produce audited detached handoffs only.
+- [2026-07-08; updated 2026-07-13] Batch `status: complete` must carry plan Acceptance proof in
+  session JSON (`acceptance: [{id: "B#-A#", criterion, met, evidence}]`). New plans use stable
+  batch `B#`, batch-acceptance `B#-A#`, and branch-level `M-A#` ids; legacy plans receive
+  deterministic aliases by document order and those aliases never change. Green CI alone is not
+  landable. Structure/regex
   characterization tests may lock god-file splits but must not alone complete them unless the plan
   explicitly allows characterization-only. Prefer one batch per close commit; use
   `scripts/elves_landing_check.py` before Final Readiness.
@@ -81,8 +86,9 @@ silently deleting it.
 - [2026-04-11] `./scripts/preflight.sh` is the repo's best built-in environment check. It is useful
   for git/auth/setup validation even though this repo has no package-managed build/test pipeline.
 - [2026-04-14] If a run uses paid compute, remote jobs, or long-lived local servers, track them in
-  the survival guide's `Active Compute` section and reconcile them after every push or topology
-  change.
+  the survival guide's `Active Compute` section. Host-native/legacy runs reconcile after host pushes
+  or topology changes; a parked trusted full-run consumes bounded telemetry and reconciles canonical
+  memory once at terminal/safety wake rather than after every worker push.
 
 ## Review Heuristics
 
@@ -97,11 +103,11 @@ silently deleting it.
 - [2026-07-12] Native-only Cobbler remains the zero-config default. External Claude/Grok/Sakana,
   OpenRouter, API-only models, and future custom tools are optional role routes; only an explicit
   project Survival Guide may make one required.
-- [2026-07-12] External implementation is an untrusted detached-commit/patch workflow: one writer
-  lease, optional direct-descendant commits only when the exact session+sandbox capability is
-  qualified, no worker ref/push/PR/run-memory ownership, full chain+ref+remote+config+hook+path audit,
-  and host-only binary-patch import, validation, branch commit, and push. The implementer is excluded
-  from independent review quorum.
+- [2026-07-13] External implementation has two distinct authority models. Primary trusted full-run
+  uses one exact registered `branch_progress` session on the assigned feature branch while the host
+  parks; it never owns protected refs, PR actions, run memory, final review, or merge. The advanced
+  untrusted writer path uses one detached lease, full chain/ref/remote/config/hook/path audit, and
+  host-only binary-patch import. Either implementer is excluded from independent review quorum.
 - [2026-07-12] **Default implementer is the host** (Claude Code or Codex). Grok Build, multi-provider
   plan/review, and the host-import writer lease are optional upgrades when those tools exist — same
   pattern as the math module. Do not imply overnight Elves requires Grok or “Lane A.”
@@ -125,18 +131,17 @@ silently deleting it.
   (Antigravity, Gemini CLI, Muse, OpenRouter, Grok, AlphaEvolve) may work as tools the host calls;
   that is not our focus. Exotic interfaces are not heavily tested (e.g. no Antigravity subscription
   for maintainer dogfood). Prefer contributor PRs (or issues) when optional paths fail.
-- [2026-07-12] When the user *does* have Grok Build and wants it, prefer
-  `implementation_lane: fast` with one whole-batch launch
-  (`--prompt-file <packet> --yolo --effort medium`, session create/resume, sensible `--max-turns`)
-  over nested host driving. Operator surface:
-  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`. Use
-  `untrusted` (host-import lease) only when proving the writer boundary or repairing that runtime.
-  Docs: `docs/plans/smart-plan-grok-implement.md`, `references/grok-implementer-launch-prompt.md`.
+- [2026-07-13] When the user has Grok Build and explicitly requests trusted full-run delegation,
+  prefer one complete packet, one exact persistent session, `branch_progress`, and a parked host via
+  `full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`. `full-run-stop` is cancellation
+  or recovery only. Keep `prepare|launch|gate|resume-batch|status` as the legacy bounded route and
+  use `untrusted` host-import leases only when the hard writer boundary is required.
 - [2026-04-11] Elves is intentionally lightweight. Borrow architectural ideas from richer systems,
   but avoid pulling in hydration, skeleton generation, or opaque automation unless the repo
   genuinely needs them.
-- [2026-04-11] The user always merges. PRs are collaboration and review surfaces, not autonomous
-  delivery endpoints.
+- [2026-07-13] The user owns whether Elves may merge. Default is user-merges; only explicit
+  merge-on-green Run Control or the reviewed-PR landing command authorizes Elves to land, and then
+  only by regular merge commit after final readiness.
 
 ## Known Traps
 
@@ -183,4 +188,11 @@ silently deleting it.
 
 ## Retired Learnings
 
-- None yet.
+- [Retired 2026-07-13] “The host owns all git/push and external implementation is always detached.”
+  Superseded by the route split: exact registered trusted `branch_progress` full-run workers may
+  advance only their assigned feature branch; untrusted leases remain detached.
+- [Retired 2026-07-13] “Preferred Grok work is one bounded batch through
+  `prepare|launch|gate|resume-batch|status`.” Superseded by the primary one-session full-run route;
+  bounded lifecycle remains legacy/alternative.
+- [Retired 2026-07-13] “The user always merges.” Superseded by explicit user-owned merge policy:
+  default user-merges, with merge-on-green and reviewed-PR landing as narrow opt-ins.

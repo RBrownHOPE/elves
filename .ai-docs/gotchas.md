@@ -14,24 +14,35 @@
 - Two agents (e.g. Claude and Codex) in the same working tree on the same branch will overwrite each
   other's files and move the branch out from under each other mid-run. One run owns one branch and
   one checkout; use a dedicated `git worktree` per run when agents share a repo, record the branch
-  tip at staging as a collision tripwire, and stop if it moves to a commit you didn't create.
+  tip at staging as a collision tripwire, and stop on every move except the narrow trusted case:
+  the exact registered full-run session advanced its assigned feature branch to a descendant of the
+  last observed tip and the supervisor verified its process fingerprint and protected refs
+  unchanged.
 - The survival guide can silently rot into an append-only history log if updates get stacked at the
   bottom. Rewrite the live sections in place and keep chronology in the execution log.
 - Paid pods, remote jobs, and long-lived local services become invisible quickly unless `Active
-  Compute` is updated after every push and resource change.
+  Compute` is updated after every host push and resource change. During trusted parked full-run,
+  consume bounded worker events and update host memory at wake/exit instead of on every worker push.
+- A parked host that runs the normal per-batch review/memory/PR loop is not parked; it recreates the
+  token and latency tax delegation is meant to avoid. Route before the loop, create one host-owned
+  `b0` launch ref, then use bounded telemetry until terminal/safety wake. Worker commit SHAs are
+  internal rollback points; workers never create refs.
 - `.elves-session.json` is ignored by default in the repo baseline, but live Elves runs may need to
   force-add it so the branch carries structured session state during the run.
 - Local project installs can quietly shadow global installs. When behavior differs from what the
   user expects, check `scripts/install_doctor.py --doctor` before assuming the upgrade failed.
 - PR review automation only becomes useful once the branch is pushed and the PR exists. Opening the
   PR late starves the review loop.
-- This repo has no package-managed lint/typecheck/build/test pipeline, so proof comes from
-  preflight sanity, reference consistency, and PR review cleanliness.
+- This repo has no package-managed lint/typecheck/build pipeline. Use
+  `python3 scripts/verify_repo.py --version 2.1.0` as the canonical aggregate proof command, plus
+  `--final-readiness --session <session-path>` for live landing readiness.
 - Provider wording drifts easily. Normal Cobbler and ordinary Elves must not require OpenRouter.
   Math may show `openrouter:<model-id>` as an optional role route, but default config should keep
   `math-required-env: []` unless a project survival guide explicitly opts in.
 - `status: complete` in `.elves-session.json` is self-certified unless paired with per-batch
-  `acceptance: [{criterion, met, evidence}]`. Green CI plus complete flags is not landable; plan
+  `acceptance: [{id: "B#-A#", criterion, met, evidence}]`. New plans use stable `B#`, `B#-A#`,
+  and branch-level `M-A#` ids; legacy rows receive deterministic document-order aliases. Green CI
+  plus complete flags is not landable; plan
   Acceptance with proof is. Less-disciplined models especially tend to close god-file / split
   batches on structure or regex lock tests alone.
 - Multi-batch "close remaining" commits can make unfinished work look shippable. Prefer one batch
@@ -44,8 +55,9 @@
 - `.elves/models.toml` is local and ignored. Staging it or treating personal model IDs as public
   defaults reintroduces provider lock-in. Use `references/models.toml.example` as the reviewable
   schema and snapshot effective routes in the Survival Guide.
-- Python 3.11+ supplies stdlib `tomllib` for local models TOML. On older Python, absence of the file
-  is fine; presence without `tomllib` must fail validation rather than being silently ignored.
+- Python 3.11+ supplies stdlib `tomllib`; Elves' bundled `cobbler_runtime.toml_compat` parser keeps
+  the supported local-models subset working on Python 3.10. Unsupported TOML syntax still fails
+  closed instead of being silently ignored.
 - `python3 scripts/cobbler_agents.py validate-config --json` and `doctor --json` never launch paid
   model turns and must not mutate the repo.
 - Council lanes must launch in parallel. Sequential fan-out is not independence and fails the

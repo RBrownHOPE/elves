@@ -1,8 +1,9 @@
 # Execution Log
 
-> This is the running record of everything Elves has done during this session. It is written once
-> and never edited. New entries are always added at the **top** (reverse chronological order,
-> newest first). Don't delete or modify past entries.
+> This is the running record of everything Elves has done during this session. Timestamped
+> chronological entries are immutable once recorded; corrections are new entries that cite the old
+> one. The `Run Digest` and final `Session Summary` are intentionally mutable summaries. New
+> chronological entries are added at the **top** (reverse chronological order, newest first).
 >
 > After a context compaction, this file tells you what is already done so you don't repeat work.
 > The survival guide tells you what to do next. The learnings file and `.ai-docs/*` hold the
@@ -17,28 +18,33 @@
 > truths should eventually be curated into `.ai-docs/architecture.md`, `.ai-docs/conventions.md`,
 > or `.ai-docs/gotchas.md`.
 >
-> If this file exceeds ~50 entries, move older completed entries under a `## Completed Archive`
-> heading at the bottom.
+> If this file exceeds ~50 entries, move older completed entries intact under a `## Completed
+> Archive` heading at the bottom. Archiving changes location, not the entry text; update the mutable
+> Run Digest after the move.
 
 ---
 
 ## Run Digest
 
-> Refresh this small summary after every batch so a fresh session can get bearings quickly without
-> rereading the full log.
+> Refresh this small summary after every host-native/legacy batch. During a healthy trusted
+> `branch_progress` full-run, the parked host does not edit it after worker batches or pushes;
+> reconcile it once at terminal/safety wake so a fresh session can get bearings quickly.
 
 - **Last updated:** [YYYY-MM-DD HH:MM timezone]
 - **Current phase:** [Staging / In progress / Scout mode / Blocked / Complete]
-- **Active batch:** [Batch N: Name]
-- **Last completed batch:** [Batch N: Name / "none yet"]
-- **Next exact batch:** [Batch N: Name]
+- **Active batch:** [B#: Batch N: Name]
+- **Last completed batch:** [B#: Batch N: Name / "none yet"]
+- **Next exact batch:** [B#: Batch N: Name]
 - **Active PR:** [#N / "not created yet"]
 - **Docs promoted this run:** [list / "none yet"]
 - **Latest Elves Report:** [/tmp/elves-report-...html / "not generated yet"]
-- **Progress commits:** host uses
-  `[branch · Batch N/total · Contract|Implement|Validate|Review|Close] concrete outcome`;
-  forbid vague subjects (`Updates`, `progress`, `WIP`, bare `fixes`); external workers only create
-  audited detached handoff commits and never own refs/remotes/push/PR/run-memory
+- **Progress commits:** host-native/legacy uses
+  `[branch · Batch N/total · Contract|Implement|Validate|Review|Close] concrete outcome`; the exact
+  registered trusted `branch_progress` worker uses the same schema only on its assigned feature
+  branch while the host parks; untrusted workers create audited detached handoff commits only and
+  never own refs/remotes/push/PR/run-memory; protected refs, PR actions, canonical memory, final
+  review, and merge remain host-owned; forbid vague subjects (`Updates`, `progress`, `WIP`, bare
+  `fixes`), and require acceptance evidence for `Close`
 - **Handoff standard:** worker packets include intent/why, non-obvious rationale, Build On targets,
   owned surfaces, forbidden surfaces, acceptance evidence, failure modes/pitfalls, and
   HEAD/run-doc paths/route-session identity/output format
@@ -64,6 +70,7 @@
 
 **Status:** [All planned work complete / Stopped at batch N (ran out of time) / Blocked on X]
 **Elves Report:** [/tmp/elves-report-...html / "not generated"]
+**Master Acceptance:** [M-A1 → evidence; M-A2 → evidence; unresolved ids explicitly listed]
 
 **Problems found:**
 - [Major bug, UX gap, review blocker, repeated failure pattern, or "none beyond planned scope"]
@@ -102,9 +109,13 @@
 **Continuation guard:** stop_allowed=[yes / no] | remaining_batches=[N] | checkpoint_is_stop=[yes / no] | next_required_action=[one sentence]
 
 **Batch breakdown:**
-1. [Batch 1 name] — [one-line scope]
-2. [Batch 2 name] — [one-line scope]
-3. [Batch 3 name] — [one-line scope]
+1. [B1: Batch 1 name] — [one-line scope]
+2. [B2: Batch 2 name] — [one-line scope]
+3. [B3: Batch 3 name] — [one-line scope]
+
+**Stable acceptance identity:** [B1-A1, B1-A2, …; M-A1, M-A2, …]. For a legacy plan without
+explicit ids, record deterministic aliases by document order before completion and never renumber
+them afterward.
 
 **Preflight:**
 - Git remote / push / `gh` auth: [PASS / WARN / FAIL]
@@ -124,7 +135,7 @@
      It records what "done" means before code or docs change.
      ================================================================ -->
 
-## Batch [N] Contract: [YYYY-MM-DD HH:MM timezone]
+## Batch [N] [B#] Contract: [YYYY-MM-DD HH:MM timezone]
 
 **Behaviors:**
 - [Specific behavior 1]
@@ -135,8 +146,8 @@
 - [Existing convention to follow]
 
 **Acceptance criteria:**
-- [ ] [Criterion 1]
-- [ ] [Criterion 2]
+- [ ] [B#-A1] [Criterion 1]
+- [ ] [B#-A2] [Criterion 2]
 
 **Blast radius:**
 - `[shared/file/or/doc]` ([N] consumers), [additive / modified / breaking]
@@ -160,7 +171,7 @@
 
 ## [YYYY-MM-DD HH:MM timezone]
 
-**Batch:** [N: Batch Name]
+**Batch:** [B#: N: Batch Name]
 **Contract status:** [all criteria met / exceptions: ...]
 **Close commit scope:** [single batch N only / multi-batch with per-batch Validate sections below]
 
@@ -178,13 +189,14 @@
 - `[command]` → [result / exit code / summary]
 - `[command]` → [result / exit code / summary]
 
-**Validate:** _(required for this batch id before `status: complete`; if closing multiple batches, repeat a labeled section per id, e.g. `**Validate for batch 3:**`)_
+**Validate:** _(required for stable batch id `B#` before `status: complete`; if closing multiple
+batches, repeat a labeled section per id, e.g. `**Validate for B3:**`)_
 - Evidence dir: `[scratch/batch-N/ or N/A]`
 - Lint: [PASS / FAIL (N errors)] → transcript `[path or inline summary]`
 - Typecheck: [PASS / FAIL (N errors)] → transcript `[path or inline summary]`
 - Build: [PASS / FAIL] → transcript `[path or inline summary]`
 - Tests: [PASS (N passed, N skipped) / FAIL (N failed: test name)] → transcript `[path or inline summary]`
-- Plan Acceptance proof: [list criterion → evidence; not only "tests green"]
+- Plan Acceptance proof: [list stable id `B#-A#` → criterion → evidence; not only "tests green"]
 - God-file / split metric (if applicable): [LOC/facade result or "N/A" or hard-stop note]
 
 **Test results:**
@@ -194,7 +206,7 @@
 - Tests: [PASS (N passed, N skipped) / FAIL (N failed: test name)]
 - E2E: [PASS / FAIL / N/A]
 - Smoke: [PASS (HTTP 200) / FAIL (HTTP NNN) / N/A]
-- Session acceptance rows written: [yes — criterion/met/evidence / no — not complete yet]
+- Session acceptance rows written: [yes — id/criterion/met/evidence / no — not complete yet]
 
 **Review findings:**
 - [[Severity]] [Finding title]: [Resolved: description of fix / Dismissed: reason]
@@ -238,7 +250,8 @@
 - Confidence: [HIGH / MEDIUM / LOW], [1-2 sentence explanation. Not "all tests pass." Explain what you checked and why existing functionality is preserved. E.g., "HIGH, all changes are additive (new functions, new tests). No existing function signatures, types, or interfaces were modified. 12 consumers of validation.ts verified unchanged."]
 
 **Commit:** `[abc1234]`
-**Rollback tag:** `refs/elves/rollback/<run>/<session>/bN-<digest>`
+**Rollback authority:** [host-native/legacy: `refs/elves/rollback/<run>/<session>/bN-<digest>` |
+trusted full-run: host-created `b0` launch ref plus worker commit SHA(s)]
 
 **Next:**
 1. [Immediate next task. Be specific enough that a fresh session can start without re-reading the plan.]
