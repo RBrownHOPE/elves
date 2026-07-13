@@ -38,6 +38,13 @@ Grok Build stays optional and explicit.
   owner-private OAuth file through native `GROK_AUTH_PATH`, preserving rotating refresh tokens;
   the exact native Mach-O/ELF Grok artifact and its safe ancestor chain are probed credential-free
   and bound through spawn, while full-ancestor owner/mode/link/ACL validation fails closed
+- Explicit GitHub HTTPS branch-push authentication through either `--grant-github-push` or one
+  named `GH_TOKEN`/`GITHUB_TOKEN` grant; the isolated worker receives one reset, launch-scoped Git
+  credential helper while raw credentials, host Git config, HOME/XDG state, and SSH agents remain
+  outside persisted/public state
+- Packet-bound `high_risk_checkpoint` events and exact host acknowledgements gate both active runs
+  and completed-provider final readiness, so omitted or emit-and-complete checkpoint races fail
+  closed
 - Export only from `AUDITED_PASS`, with bound Git config/ref/index/object authority, sealed
   per-commit patch transport digests, and post-audit refs/remotes/config/hooks revalidation;
   public `worker import` descriptor-reads the retained bundle, proves its final tree in a disposable

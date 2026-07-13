@@ -352,15 +352,19 @@ python3 scripts/cobbler_agents.py implement full-run-prepare --json \
 # 3) Background-launch Grok with exactly one explicit auth strategy.
 # Existing Grok subscription/OAuth login (trusted Lane A only): share only canonical auth.json.
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
-  --session-id <exact-uuid> --grant-grok-auth
+  --session-id <exact-uuid> --grant-grok-auth --grant-github-push
 
 # API-key alternative (do not combine with --grant-grok-auth):
 # python3 scripts/cobbler_agents.py implement full-run-launch --json \
-#   --session-id <exact-uuid> --grant-env XAI_API_KEY
+#   --session-id <exact-uuid> --grant-env XAI_API_KEY --grant-github-push
 
 # 4) Parked monitor (no per-push re-entry)
 python3 scripts/cobbler_agents.py implement full-run-monitor --json \
   --session-id <exact-uuid>
+
+# After reviewing an exact staged high-risk checkpoint wake:
+# python3 scripts/cobbler_agents.py implement full-run-monitor --json \
+#   --session-id <exact-uuid> --ack-high-risk-checkpoint <checkpoint-id>
 
 # 5) Bounded logs when diagnosis is needed
 python3 scripts/cobbler_agents.py implement full-run-logs --json --session-id <exact-uuid>
@@ -382,6 +386,19 @@ output, and raw transcript tails are disabled for shared OAuth because historica
 rotate. Shared OAuth requires Grok Build 0.2.93+ with the native capability marker; unsupported
 builds fail before spawn and must upgrade or use the named API-key route. Prefer that API-key route
 for CI or any lane that is not trusted.
+
+GitHub feature-branch pushes have a separate explicit auth boundary. For a non-credentialed
+`https://github.com/...` origin, use `--grant-github-push` to obtain the current authenticated
+host `gh` credential privately, or grant exactly one of `GH_TOKEN` / `GITHUB_TOKEN` by name. Elves
+keeps the worker's HOME/XDG/Git config isolated, resets other credential helpers, installs one
+launch-scoped helper that reads the token only from the child environment, and persists only keyed
+digest/length metadata. SSH and other network push transports fail before spawn; local/file remotes
+remain credential-free for deterministic runs and tests.
+
+Packets declare an exact wake gate with `- High-risk checkpoint: <stable-id>`. The worker must emit
+the matching `high_risk_checkpoint` event, and the host acknowledges that exact pending ID only
+after review. Omitted or unacknowledged planned checkpoints block final readiness even if the worker
+already wrote a complete report and exited cleanly.
 
 Before shared-OAuth launch, Elves requires and probes an exact native Mach-O/ELF Grok executable in
 an isolated, credential-free environment and binds its full safe ancestor chain through the child

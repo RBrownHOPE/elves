@@ -259,7 +259,11 @@ native overnight run:
   canonical owner-private OAuth `auth.json` through Grok's native `GROK_AUTH_PATH`. Shared OAuth
   probes and binds one exact native Mach-O/ELF Grok executable plus its full ancestor chain in a
   credential-free environment and rejects unsafe
-  auth ancestors or supported-platform ACLs before spawn. Hard external
+  auth ancestors or supported-platform ACLs before spawn. GitHub feature-branch pushes use an
+  independent explicit route: `--grant-github-push` projects the authenticated host `gh` token, or
+  the operator grants exactly one of `GH_TOKEN` / `GITHUB_TOKEN` by name. The worker never inherits
+  host HOME/XDG/Git config or SSH-agent state; unsupported network push transports fail before
+  spawn. Hard external
   routes require a recursive boundary acquired atomically with the child. The current Python
   runtime cannot prove that boundary on Linux or macOS, so optional routes fall back host-native
   and required routes block before snapshot creation or spawn. Legacy
@@ -863,6 +867,11 @@ runs on worker commits or pushes. Read bounded monitor/events only; do not re-en
 validation, memory, PR, or entropy loops until a safety wake, blocked/stale/failed state, explicit
 user input, or actual worker exit. At that wake, re-read run memory and perform the deferred
 cumulative review/recovery work once.
+
+A packet-declared high-risk wake uses the exact line `- High-risk checkpoint: <stable-id>`. The
+worker emits one matching `high_risk_checkpoint` event. After host review, acknowledge only the
+exact pending ID with `full-run-monitor --ack-high-risk-checkpoint <stable-id>`; missing or
+unacknowledged planned checkpoints block final readiness even after a clean provider exit.
 
 ### 13. PR Loop — Poll After Every Push
 

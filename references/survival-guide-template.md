@@ -84,6 +84,7 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
 - **Stable plan IDs:** [batches `B#`; batch acceptance `B#-A#`; Master Acceptance `M-A#`; legacy
   aliases mapped deterministically by document order and never renumbered]
 - **High-risk checkpoints:** [list or none]
+- **GitHub push auth route:** [host `gh` projection | named GH_TOKEN | named GITHUB_TOKEN | local/file remote | n/a]
 - **Re-drive budget:** [N external worker re-drives | n/a]
 - **Continuation harness:** [none | /goal | host-native]
 - **Continuation rule:** If work remains and `Actual stop conditions` are not met, continue without waiting for user acknowledgment.

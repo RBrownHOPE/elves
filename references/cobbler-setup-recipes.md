@@ -290,7 +290,7 @@ python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --worktree <path> --packet <packet.json> --adapter grok-build
 
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
-  --session-id <exact-uuid> --grant-grok-auth
+  --session-id <exact-uuid> --grant-grok-auth --grant-github-push
 
 python3 scripts/cobbler_agents.py implement full-run-monitor --json \
   --session-id <exact-uuid>
@@ -317,6 +317,12 @@ it with `--grant-env XAI_API_KEY`; prefer that route for CI or untrusted lanes. 
 requires Grok Build 0.2.93+ with the native capability marker; older or unsupported binaries fail
 before spawn and must upgrade or use the API-key route. The strategies are mutually exclusive, and
 no supported auth means launch fails before any provider process starts.
+
+The feature-branch push route is separate from Grok login. With a canonical GitHub HTTPS origin,
+`--grant-github-push` privately projects the authenticated host `gh` token into one isolated
+launch-scoped Git credential helper. Alternatively grant exactly one of `GH_TOKEN` or
+`GITHUB_TOKEN` by name. Elves never inherits the host HOME/Git config/SSH agent, stores no raw
+token, and rejects unsupported network push transports before provider spawn.
 
 The capability probe requires an exact native Mach-O/ELF Grok executable, runs it in an isolated
 credential-free environment, binds its full safe ancestor chain through child pre-spawn, and

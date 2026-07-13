@@ -56,10 +56,14 @@ python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --effort medium --max-turns 80
 
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
-  --session-id <exact-uuid> --grant-grok-auth
+  --session-id <exact-uuid> --grant-grok-auth --grant-github-push
 
 python3 scripts/cobbler_agents.py implement full-run-monitor --json \
   --session-id <exact-uuid>
+
+# After host review of the exact pending checkpoint:
+# python3 scripts/cobbler_agents.py implement full-run-monitor --json \
+#   --session-id <exact-uuid> --ack-high-risk-checkpoint <checkpoint-id>
 
 python3 scripts/cobbler_agents.py implement full-run-logs --json \
   --session-id <exact-uuid>
@@ -91,6 +95,12 @@ ancestor chain in an isolated credential-free environment, then validates the au
 full owner/mode/link/ACL
 ancestor chain. Replacement or permissive ACLs fail closed.
 
+GitHub push authentication is independent of Grok provider authentication. For a canonical
+`https://github.com/...` origin, add `--grant-github-push` to project the authenticated host `gh`
+token through one launch-scoped credential helper, or grant exactly one of `GH_TOKEN` and
+`GITHUB_TOKEN` by name. No host HOME, XDG directory, Git config, or SSH agent is inherited; only
+keyed token metadata is persisted, and unsupported network transports fail before spawn.
+
 The stop capability hardens the runtime artifact channel against malformed/forged leaves inside a
 trusted branch-progress route. It is not a same-user security boundary against a malicious worker;
 the worker remains constrained by the trusted-lane contract and final host audit.
@@ -102,7 +112,11 @@ that: emit no chat, do not read raw output, and do not re-enter reasoning. The r
 `user_heartbeat_seconds` (default 900); the host owns coalescing nonterminal progress into at most one
 1–3 sentence update in that window. Wake immediately only for blocked/stale/failed state, a safety
 tripwire, an explicitly planned high-risk checkpoint, explicit user input, or actual worker exit.
-Raw transcripts remain private unless explicitly requested.
+Stage each checkpoint in the packet as `- High-risk checkpoint: <stable-id>`. The worker emits one
+matching `high_risk_checkpoint` event; after review the host passes that exact ID to
+`--ack-high-risk-checkpoint`. Missing or unacknowledged planned checkpoints block reconciliation,
+including when the provider completed before the next poll. Raw transcripts remain private unless
+explicitly requested.
 
 Legacy bounded-batch path (use only when the user selected a bounded task or legacy batch resume):
 
@@ -250,14 +264,19 @@ may be ignored by the supervisor):
 | `branch` | string | exact assigned feature branch |
 | `head` | string | observed feature-branch commit SHA |
 | `batch` | integer | current internal batch; use `0` for run-level setup |
-| `type` | string enum | `run_started`, `heartbeat`, `batch_started`, `commit_pushed`, `gate_result`, `batch_complete`, `blocked`, or `run_complete` |
+| `type` | string enum | `run_started`, `heartbeat`, `batch_started`, `commit_pushed`, `gate_result`, `batch_complete`, `high_risk_checkpoint`, `blocked`, or `run_complete` |
 | `summary` | string | at most 500 characters; no secret-like text such as API keys, bearer tokens, authorization headers, or private-key material |
+| `checkpoint_id` | string, conditional | required only when `type` is `high_risk_checkpoint`; exact packet-staged ID of 1–64 characters, beginning alphanumeric and continuing with alphanumerics, dot, underscore, or hyphen; forbidden on every other event type |
 
 The exact `session_id` and `branch` must match supervisor state. Emit at most one terminal event:
 either `blocked` or `run_complete`. A terminal event is a wake signal, not completion authority.
 
 ```json
 {"timestamp":"2026-07-13T05:14:00Z","session_id":"20e34572-1a71-44aa-8b90-0123456789ab","branch":"feat/delegated-worker","head":"0123456789abcdef0123456789abcdef01234567","batch":2,"type":"commit_pushed","summary":"Batch 2 implementation and focused tests pushed"}
+```
+
+```json
+{"timestamp":"2026-07-13T05:15:00Z","session_id":"20e34572-1a71-44aa-8b90-0123456789ab","branch":"feat/delegated-worker","head":"0123456789abcdef0123456789abcdef01234567","batch":2,"type":"high_risk_checkpoint","checkpoint_id":"security-boundary","summary":"Host review requested before the security boundary"}
 ```
 
 ### Full-run report v1
@@ -367,7 +386,7 @@ described above. Host still owns protected refs, merge, and final readiness.
 | Staging | plan, PR, worktree, host-created `b0` rollback ref, prepare metadata, write packet |
 | During run | park; wait or poll at `poll_after_seconds`; stay silent on unchanged health; host-coalesce nonterminal updates using `user_heartbeat_seconds` |
 | Safety wake | handle blocked/stale/failed state or a safety tripwire |
-| Planned high-risk checkpoint | wake only when the staged behavior policy explicitly names the checkpoint; evaluate it once, then re-park if healthy |
+| Planned high-risk checkpoint | wake only for an exact staged ID; acknowledge that event after review, then re-park if healthy or continue final readiness if the worker already exited |
 | Worker exit | verify report, feature-branch ancestry, actual exit, and protected refs |
 | Final | independent cumulative readiness; merge only if authorized |
 

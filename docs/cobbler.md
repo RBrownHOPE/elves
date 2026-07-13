@@ -242,3 +242,8 @@ implementer, see
 `python3 scripts/cobbler_agents.py implement …`. The earlier bounded-handoff design is retained only
 as historical context in
 [`docs/plans/smart-plan-grok-implement.md`](plans/smart-plan-grok-implement.md).
+
+Trusted GitHub branch progress uses a canonical HTTPS origin plus an explicit launch-scoped push
+route (`--grant-github-push`, `GH_TOKEN`, or `GITHUB_TOKEN`); it never inherits the host Git config
+or SSH agent. Packet-declared high-risk checkpoint IDs are exact host wake gates and must be
+acknowledged before reconciliation.
