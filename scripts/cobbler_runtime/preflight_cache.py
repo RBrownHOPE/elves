@@ -14,7 +14,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .storage import atomic_write_json, ensure_private_dir
+from .storage import (
+    StorageError,
+    atomic_write_json,
+    ensure_private_dir,
+    guard_repo_path,
+    read_json,
+)
 
 
 CACHE_REL = Path(".elves") / "runtime" / "preflight-cache"
@@ -90,24 +96,29 @@ class PreflightEvidence:
 
 
 def cache_path(repo_root: Path) -> Path:
-    return Path(repo_root).resolve() / CACHE_REL / "latest.json"
+    repo = Path(repo_root).expanduser().resolve()
+    return guard_repo_path(repo, repo / CACHE_REL / "latest.json")
 
 
 def store_preflight(repo_root: Path, evidence: PreflightEvidence) -> Path:
-    root = ensure_private_dir(Path(repo_root).resolve() / CACHE_REL)
+    repo = Path(repo_root).expanduser().resolve()
+    root = ensure_private_dir(repo / CACHE_REL, repo_root=repo)
     path = root / "latest.json"
-    atomic_write_json(path, evidence.to_dict())
+    atomic_write_json(path, evidence.to_dict(), repo_root=repo)
     return path
 
 
 def load_preflight(repo_root: Path) -> PreflightEvidence | None:
-    path = cache_path(repo_root)
-    if not path.is_file():
-        return None
+    repo = Path(repo_root).expanduser().resolve()
+    path = cache_path(repo)
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = read_json(path, repo_root=repo)
         return PreflightEvidence.from_dict(data)
-    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+    except StorageError as exc:
+        if exc.code in {"not_found", "malformed_json"}:
+            return None
+        raise
+    except (OSError, KeyError, TypeError, ValueError):
         return None
 
 

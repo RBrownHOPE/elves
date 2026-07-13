@@ -14,19 +14,25 @@ import hashlib
 import errno
 import json
 import os
+import secrets
 import stat
 import tempfile
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterator, Mapping, TextIO
 
 
 try:
     import fcntl
 except ImportError:  # pragma: no cover - non-Unix
     fcntl = None  # type: ignore[assignment]
+
+
+DEFAULT_JSON_MAX_BYTES = 4 * 1024 * 1024
+DEFAULT_TAIL_MAX_BYTES = 256 * 1024
+DEFAULT_TAIL_MAX_LINES = 100
 
 
 class StorageError(Exception):
@@ -62,7 +68,214 @@ def assert_embedded_id(data: Mapping[str, Any], expected_id: str, *, id_field: s
         )
 
 
-def ensure_private_dir(path: Path, *, mode: int = 0o700) -> Path:
+def guard_repo_path(repo_root: Path, path: Path) -> Path:
+    """Return a lexical repo-contained path after rejecting existing symlink components.
+
+    ``Path.resolve()`` is deliberately not applied to ``path``: resolving an attacker-
+    controlled ``.elves`` symlink would turn an escape into an apparently valid target.
+    The canonical repository root is the authority boundary; every existing component
+    below it must be a non-symlink before callers may read or mutate the store.
+    """
+    raw_root = Path(repo_root).expanduser()
+    lexical_root = Path(os.path.abspath(os.path.normpath(os.fspath(raw_root))))
+    try:
+        root = raw_root.resolve(strict=True)
+    except OSError as exc:
+        raise StorageError(
+            "repo_root_unavailable",
+            f"Repository root is unavailable: {repo_root}: {exc}",
+        ) from exc
+    if not root.is_dir():
+        raise StorageError("repo_root_not_directory", f"Repository root is not a directory: {root}")
+
+    raw = Path(path).expanduser()
+    if not raw.is_absolute():
+        raw = root / raw
+    candidate = Path(os.path.abspath(os.path.normpath(os.fspath(raw))))
+    # macOS commonly exposes /var as a symlink to /private/var, and operators may
+    # intentionally enter a checkout through a symlink. Map only a lexically
+    # contained candidate onto the canonical anchor; never resolve candidate
+    # components below the repository.
+    try:
+        lexical_relative = candidate.relative_to(lexical_root)
+    except ValueError:
+        pass
+    else:
+        candidate = root / lexical_relative
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError as exc:
+        raise StorageError(
+            "path_escape",
+            f"Store path escapes repository root: {candidate} (root: {root})",
+        ) from exc
+
+    cursor = root
+    parts = relative.parts
+    for index, part in enumerate(parts):
+        cursor = cursor / part
+        try:
+            info = os.lstat(cursor)
+        except FileNotFoundError:
+            # Descendants cannot exist lexically once an ancestor is absent.
+            break
+        except OSError as exc:
+            raise StorageError(
+                "path_inspection_failed",
+                f"Cannot inspect store path component {cursor}: {exc}",
+            ) from exc
+        if stat.S_ISLNK(info.st_mode):
+            raise StorageError(
+                "symlink_component",
+                f"Store path contains a symlink component: {cursor}",
+            )
+        if index < len(parts) - 1 and not stat.S_ISDIR(info.st_mode):
+            raise StorageError(
+                "non_directory_component",
+                f"Store path ancestor is not a directory: {cursor}",
+            )
+    return candidate
+
+
+def _repo_open_flags(*, directory: bool = False) -> int:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    if directory:
+        flags |= getattr(os, "O_DIRECTORY", 0)
+    return flags
+
+
+def _assert_directory_fd_identity(
+    repo_root: Path,
+    path: Path,
+    directory_fd: int,
+) -> None:
+    """Require an opened directory to remain published at its guarded path."""
+    candidate = guard_repo_path(repo_root, path)
+    try:
+        opened = os.fstat(directory_fd)
+        published = os.stat(candidate, follow_symlinks=False)
+    except FileNotFoundError as exc:
+        raise StorageError(
+            "directory_identity_changed",
+            f"Store directory disappeared while open: {candidate}",
+        ) from exc
+    except OSError as exc:
+        raise StorageError(
+            "path_inspection_failed",
+            f"Cannot verify open store directory {candidate}: {exc}",
+        ) from exc
+    if not stat.S_ISDIR(opened.st_mode) or not stat.S_ISDIR(published.st_mode):
+        raise StorageError(
+            "directory_identity_changed",
+            f"Store directory is no longer a regular directory: {candidate}",
+        )
+    if (opened.st_dev, opened.st_ino) != (published.st_dev, published.st_ino):
+        raise StorageError(
+            "directory_identity_changed",
+            f"Store directory identity changed while open: {candidate}",
+        )
+
+
+def _open_repo_directory(
+    repo_root: Path,
+    path: Path,
+    *,
+    create: bool,
+    mode: int = 0o700,
+) -> tuple[Path, int]:
+    """Open a guarded directory chain with ``openat``-style no-follow traversal."""
+    candidate = guard_repo_path(repo_root, path)
+    root = Path(repo_root).expanduser().resolve(strict=True)
+    relative = candidate.relative_to(root)
+    current_fd = os.open(root, _repo_open_flags(directory=True))
+    try:
+        for index, part in enumerate(relative.parts):
+            if create:
+                try:
+                    os.mkdir(part, mode=mode, dir_fd=current_fd)
+                except FileExistsError:
+                    pass
+                except OSError as exc:
+                    raise StorageError(
+                        "directory_create_failed",
+                        f"Cannot create private store directory {candidate}: {exc}",
+                    ) from exc
+            try:
+                next_fd = os.open(part, _repo_open_flags(directory=True), dir_fd=current_fd)
+            except FileNotFoundError as exc:
+                raise StorageError("not_found", f"Missing store directory: {candidate}") from exc
+            except OSError as exc:
+                code = (
+                    "symlink_component"
+                    if exc.errno == errno.ELOOP
+                    else "unsafe_path_component"
+                )
+                raise StorageError(
+                    code,
+                    f"Cannot open store directory component without following links: {candidate}: {exc}",
+                ) from exc
+            component = root.joinpath(*relative.parts[: index + 1])
+            try:
+                _assert_directory_fd_identity(repo_root, component, next_fd)
+            except Exception:
+                os.close(next_fd)
+                raise
+            os.close(current_fd)
+            current_fd = next_fd
+        if create and relative.parts:
+            try:
+                os.fchmod(current_fd, mode)
+            except OSError as exc:
+                raise StorageError(
+                    "private_dir_mode_failed",
+                    f"Cannot enforce private mode on store directory {candidate}: {exc}",
+                ) from exc
+        return candidate, current_fd
+    except Exception:
+        os.close(current_fd)
+        raise
+
+
+def _assert_safe_regular_leaf(parent_fd: int, name: str, *, display_path: Path) -> os.stat_result | None:
+    try:
+        info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise StorageError(
+            "path_inspection_failed",
+            f"Cannot inspect store leaf {display_path}: {exc}",
+        ) from exc
+    if stat.S_ISLNK(info.st_mode):
+        raise StorageError("symlink_leaf", f"Store leaf must not be a symlink: {display_path}")
+    if not stat.S_ISREG(info.st_mode):
+        raise StorageError(
+            "unsafe_file_type",
+            f"Store leaf must be a regular file: {display_path}",
+        )
+    if info.st_nlink != 1:
+        raise StorageError(
+            "unsafe_link_count",
+            f"Store leaf must have exactly one hard link: {display_path}",
+        )
+    return info
+
+
+def ensure_private_dir(
+    path: Path,
+    *,
+    mode: int = 0o700,
+    repo_root: Path | None = None,
+) -> Path:
+    if repo_root is not None:
+        candidate, directory_fd = _open_repo_directory(
+            repo_root,
+            path,
+            create=True,
+            mode=mode,
+        )
+        os.close(directory_fd)
+        return candidate
     path.mkdir(parents=True, exist_ok=True)
     try:
         path.chmod(mode)
@@ -76,10 +289,62 @@ def atomic_write_json(
     data: Mapping[str, Any],
     *,
     mode: int = 0o600,
+    repo_root: Path | None = None,
 ) -> None:
     """Write JSON via temp file + os.replace with private permissions."""
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(dict(data), indent=2, sort_keys=True) + "\n"
+    if repo_root is not None:
+        candidate = guard_repo_path(repo_root, path)
+        if candidate == Path(repo_root).expanduser().resolve(strict=True):
+            raise StorageError("invalid_store_leaf", "Repository root cannot be a JSON store leaf")
+        parent, parent_fd = _open_repo_directory(
+            repo_root,
+            candidate.parent,
+            create=True,
+        )
+        del parent
+        leaf = candidate.name
+        _assert_safe_regular_leaf(parent_fd, leaf, display_path=candidate)
+        temporary_name = f".{leaf}.{secrets.token_hex(12)}.tmp"
+        temporary_fd: int | None = None
+        try:
+            temporary_fd = os.open(
+                temporary_name,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                mode,
+                dir_fd=parent_fd,
+            )
+            os.fchmod(temporary_fd, mode)
+            with os.fdopen(temporary_fd, "w", encoding="utf-8") as handle:
+                temporary_fd = None
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            # Recheck immediately before replacement. Replacing a raced symlink is
+            # outside-safe, but a symlink observed here is still a fail-closed error.
+            _assert_safe_regular_leaf(parent_fd, leaf, display_path=candidate)
+            os.replace(
+                temporary_name,
+                leaf,
+                src_dir_fd=parent_fd,
+                dst_dir_fd=parent_fd,
+            )
+        finally:
+            if temporary_fd is not None:
+                os.close(temporary_fd)
+            try:
+                os.unlink(temporary_name, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+            finally:
+                os.close(parent_fd)
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
         prefix=f".{path.name}.",
         suffix=".tmp",
@@ -104,22 +369,673 @@ def atomic_write_json(
         raise
 
 
-def read_json(path: Path) -> dict[str, Any]:
+def _validate_size_limit(max_bytes: int) -> int:
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 0:
+        raise StorageError(
+            "invalid_size_limit",
+            f"max_bytes must be a non-negative integer, got {max_bytes!r}",
+        )
+    return max_bytes
+
+
+def _read_unanchored_bounded_bytes(path: Path, *, max_bytes: int) -> bytes:
+    """Compatibility path for callers without a repository authority anchor."""
+    limit = _validate_size_limit(max_bytes)
     try:
-        raw = path.read_text(encoding="utf-8")
-        data = json.loads(raw)
+        with path.open("rb") as handle:
+            info = os.fstat(handle.fileno())
+            if info.st_size > limit:
+                raise StorageError(
+                    "record_too_large",
+                    f"Store record exceeds {limit} bytes: {path}",
+                )
+            payload = handle.read(limit + 1)
+    except StorageError:
+        raise
     except FileNotFoundError as exc:
         raise StorageError("not_found", f"Missing record: {path}") from exc
+    except OSError as exc:
+        raise StorageError(
+            "read_failed",
+            f"Cannot read store record {path}: {type(exc).__name__}: {exc}",
+        ) from exc
+    if len(payload) > limit:
+        raise StorageError(
+            "record_too_large",
+            f"Store record exceeds {limit} bytes: {path}",
+        )
+    return payload
+
+
+def read_json(
+    path: Path,
+    *,
+    repo_root: Path | None = None,
+    max_bytes: int = DEFAULT_JSON_MAX_BYTES,
+) -> dict[str, Any]:
+    """Read one bounded UTF-8 JSON object with stable storage errors."""
+    candidate = Path(path)
+    try:
+        if repo_root is not None:
+            raw = read_repo_regular_bytes(
+                repo_root,
+                candidate,
+                max_bytes=max_bytes,
+            )
+            display_path = guard_repo_path(repo_root, candidate)
+        else:
+            raw = _read_unanchored_bounded_bytes(candidate, max_bytes=max_bytes)
+            display_path = candidate
+    except StorageError:
+        raise
+    except OSError as exc:
+        raise StorageError(
+            "read_failed",
+            f"Cannot read store record {candidate}: {type(exc).__name__}: {exc}",
+        ) from exc
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise StorageError(
+            "invalid_utf8",
+            f"Store record is not valid UTF-8: {display_path}",
+        ) from exc
+    try:
+        data = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise StorageError("malformed_json", f"Malformed JSON at {path}: {exc}") from exc
+        raise StorageError(
+            "malformed_json",
+            f"Malformed JSON at {display_path}: {exc}",
+        ) from exc
     if not isinstance(data, dict):
-        raise StorageError("malformed_json", f"JSON object required at {path}")
+        raise StorageError("malformed_json", f"JSON object required at {display_path}")
     return data
 
 
-def snapshot_path(store_root: Path, record_id: str, *, kind: str = "snapshot") -> Path:
+def read_repo_regular_bytes(
+    repo_root: Path,
+    path: Path,
+    *,
+    max_bytes: int,
+) -> bytes:
+    """Read a bounded repo-owned regular file through no-follow descriptors.
+
+    Stable boundary errors are ``invalid_size_limit``, ``not_found``,
+    ``unsafe_store_leaf``, ``unsafe_file_type``, ``unsafe_link_count``, and
+    ``record_too_large``.
+    Existing symlink components are rejected earlier as ``symlink_component``.
+    """
+    limit = _validate_size_limit(max_bytes)
+    candidate = guard_repo_path(repo_root, path)
+    root = Path(repo_root).expanduser().resolve(strict=True)
+    if candidate == root:
+        raise StorageError("unsafe_file_type", f"Store leaf must be a regular file: {candidate}")
+    try:
+        _parent, parent_fd = _open_repo_directory(
+            repo_root,
+            candidate.parent,
+            create=False,
+        )
+    except StorageError as exc:
+        if exc.code == "not_found":
+            raise StorageError("not_found", f"Missing record: {candidate}") from exc
+        raise
+    file_fd = -1
+    try:
+        _assert_directory_fd_identity(repo_root, candidate.parent, parent_fd)
+        before = _assert_safe_regular_leaf(
+            parent_fd,
+            candidate.name,
+            display_path=candidate,
+        )
+        if before is None:
+            raise StorageError("not_found", f"Missing record: {candidate}")
+        try:
+            file_fd = os.open(candidate.name, _repo_open_flags(), dir_fd=parent_fd)
+        except FileNotFoundError as exc:
+            raise StorageError("not_found", f"Missing record: {candidate}") from exc
+        except OSError as exc:
+            raise StorageError(
+                "unsafe_store_leaf",
+                f"Cannot open store record without following links: {candidate}: {exc}",
+            ) from exc
+        opened = os.fstat(file_fd)
+        if not stat.S_ISREG(opened.st_mode):
+            raise StorageError(
+                "unsafe_file_type",
+                f"Store record must be a regular file: {candidate}",
+            )
+        if opened.st_nlink != 1:
+            raise StorageError(
+                "unsafe_link_count",
+                f"Store record must have exactly one hard link: {candidate}",
+            )
+        published = _assert_safe_regular_leaf(
+            parent_fd,
+            candidate.name,
+            display_path=candidate,
+        )
+        if published is None or (opened.st_dev, opened.st_ino) != (
+            published.st_dev,
+            published.st_ino,
+        ) or (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+            raise StorageError(
+                "file_identity_changed",
+                f"Store record identity changed while opening: {candidate}",
+            )
+        if opened.st_size > limit:
+            raise StorageError(
+                "record_too_large",
+                f"Store record exceeds {limit} bytes: {candidate}",
+            )
+        chunks: list[bytes] = []
+        remaining = limit + 1
+        while remaining > 0:
+            try:
+                chunk = os.read(file_fd, min(64 * 1024, remaining))
+            except OSError as exc:
+                raise StorageError(
+                    "read_failed",
+                    f"Cannot read store record {candidate}: {type(exc).__name__}: {exc}",
+                ) from exc
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) > limit:
+            raise StorageError(
+                "record_too_large",
+                f"Store record exceeds {limit} bytes: {candidate}",
+            )
+        after = os.fstat(file_fd)
+        published_after = _assert_safe_regular_leaf(
+            parent_fd,
+            candidate.name,
+            display_path=candidate,
+        )
+        if (
+            not stat.S_ISREG(after.st_mode)
+            or after.st_nlink != 1
+            or published_after is None
+            or (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino)
+            or (published_after.st_dev, published_after.st_ino)
+            != (opened.st_dev, opened.st_ino)
+        ):
+            raise StorageError(
+                "file_identity_changed",
+                f"Store record identity changed while reading: {candidate}",
+            )
+        _assert_directory_fd_identity(repo_root, candidate.parent, parent_fd)
+        return payload
+    except StorageError:
+        raise
+    except OSError as exc:
+        raise StorageError(
+            "read_failed",
+            f"Cannot read store record {candidate}: {type(exc).__name__}: {exc}",
+        ) from exc
+    finally:
+        if file_fd >= 0:
+            os.close(file_fd)
+        os.close(parent_fd)
+
+
+def read_repo_text_tail(
+    repo_root: Path,
+    path: Path,
+    *,
+    max_bytes: int = DEFAULT_TAIL_MAX_BYTES,
+    max_lines: int = DEFAULT_TAIL_MAX_LINES,
+) -> list[str]:
+    """Read a bounded UTF-8 suffix through repo-anchored no-follow descriptors.
+
+    A nonzero suffix offset may begin mid-line; that fragment is discarded.
+    Tail output is diagnostic text, so invalid or boundary-split UTF-8 is
+    replacement-decoded rather than treated as a record-format error.
+    """
+    byte_limit = _validate_size_limit(max_bytes)
+    if isinstance(max_lines, bool) or not isinstance(max_lines, int) or max_lines < 0:
+        raise StorageError(
+            "invalid_line_limit",
+            f"max_lines must be a non-negative integer, got {max_lines!r}",
+        )
+    candidate = guard_repo_path(repo_root, path)
+    root = Path(repo_root).expanduser().resolve(strict=True)
+    if candidate == root:
+        raise StorageError("unsafe_file_type", f"Store leaf must be a regular file: {candidate}")
+    try:
+        _parent, parent_fd = _open_repo_directory(
+            repo_root,
+            candidate.parent,
+            create=False,
+        )
+    except StorageError as exc:
+        if exc.code == "not_found":
+            raise StorageError("not_found", f"Missing record: {candidate}") from exc
+        raise
+    file_fd = -1
+    try:
+        _assert_directory_fd_identity(repo_root, candidate.parent, parent_fd)
+        before = _assert_safe_regular_leaf(
+            parent_fd,
+            candidate.name,
+            display_path=candidate,
+        )
+        if before is None:
+            raise StorageError("not_found", f"Missing record: {candidate}")
+        try:
+            file_fd = os.open(candidate.name, _repo_open_flags(), dir_fd=parent_fd)
+        except FileNotFoundError as exc:
+            raise StorageError("not_found", f"Missing record: {candidate}") from exc
+        except OSError as exc:
+            raise StorageError(
+                "unsafe_store_leaf",
+                f"Cannot open store tail without following links: {candidate}: {exc}",
+            ) from exc
+        opened = os.fstat(file_fd)
+        published = _assert_safe_regular_leaf(
+            parent_fd,
+            candidate.name,
+            display_path=candidate,
+        )
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or published is None
+            or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+            or (published.st_dev, published.st_ino)
+            != (opened.st_dev, opened.st_ino)
+        ):
+            raise StorageError(
+                "file_identity_changed",
+                f"Store tail identity changed while opening: {candidate}",
+            )
+        start = max(0, opened.st_size - byte_limit)
+        os.lseek(file_fd, start, os.SEEK_SET)
+        chunks: list[bytes] = []
+        remaining = byte_limit
+        while remaining > 0:
+            chunk = os.read(file_fd, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        after = os.fstat(file_fd)
+        published_after = _assert_safe_regular_leaf(
+            parent_fd,
+            candidate.name,
+            display_path=candidate,
+        )
+        if (
+            not stat.S_ISREG(after.st_mode)
+            or after.st_nlink != 1
+            or published_after is None
+            or (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino)
+            or (published_after.st_dev, published_after.st_ino)
+            != (opened.st_dev, opened.st_ino)
+        ):
+            raise StorageError(
+                "file_identity_changed",
+                f"Store tail identity changed while reading: {candidate}",
+            )
+        _assert_directory_fd_identity(repo_root, candidate.parent, parent_fd)
+    except StorageError:
+        raise
+    except OSError as exc:
+        raise StorageError(
+            "tail_read_failed",
+            f"Cannot read store tail {candidate}: {type(exc).__name__}: {exc}",
+        ) from exc
+    finally:
+        if file_fd >= 0:
+            os.close(file_fd)
+        os.close(parent_fd)
+
+    if max_lines == 0 or byte_limit == 0:
+        return []
+    lines = raw.splitlines()
+    if start and lines:
+        lines = lines[1:]
+    return [line.decode("utf-8", errors="replace") for line in lines[-max_lines:]]
+
+
+def move_repo_regular_file(
+    repo_root: Path,
+    source: Path,
+    destination: Path,
+    *,
+    replace: bool = False,
+) -> Path:
+    """Atomically move one regular single-link leaf within the same repository."""
+    root = Path(repo_root).expanduser().resolve(strict=True)
+    source_path = guard_repo_path(root, source)
+    destination_path = guard_repo_path(root, destination)
+    if source_path == destination_path:
+        raise StorageError("same_path", f"Source and destination are identical: {source_path}")
+    if source_path == root or destination_path == root:
+        raise StorageError("unsafe_file_type", "Repository root cannot be moved as a store leaf")
+
+    try:
+        _source_parent, source_parent_fd = _open_repo_directory(
+            root,
+            source_path.parent,
+            create=False,
+        )
+    except StorageError as exc:
+        if exc.code == "not_found":
+            raise StorageError("not_found", f"Missing move source: {source_path}") from exc
+        raise
+    destination_parent_fd = -1
+    source_fd = -1
+    try:
+        try:
+            _destination_parent, destination_parent_fd = _open_repo_directory(
+                root,
+                destination_path.parent,
+                create=False,
+            )
+        except StorageError as exc:
+            if exc.code == "not_found":
+                raise StorageError(
+                    "not_found",
+                    f"Missing move destination directory: {destination_path.parent}",
+                ) from exc
+            raise
+
+        _assert_directory_fd_identity(root, source_path.parent, source_parent_fd)
+        _assert_directory_fd_identity(root, destination_path.parent, destination_parent_fd)
+        source_before = _assert_safe_regular_leaf(
+            source_parent_fd,
+            source_path.name,
+            display_path=source_path,
+        )
+        if source_before is None:
+            raise StorageError("not_found", f"Missing move source: {source_path}")
+        destination_before = _assert_safe_regular_leaf(
+            destination_parent_fd,
+            destination_path.name,
+            display_path=destination_path,
+        )
+        if destination_before is not None and not replace:
+            raise StorageError(
+                "destination_exists",
+                f"Move destination already exists: {destination_path}",
+            )
+        try:
+            source_fd = os.open(
+                source_path.name,
+                _repo_open_flags(),
+                dir_fd=source_parent_fd,
+            )
+        except FileNotFoundError as exc:
+            raise StorageError("not_found", f"Missing move source: {source_path}") from exc
+        except OSError as exc:
+            raise StorageError(
+                "unsafe_store_leaf",
+                f"Cannot open move source without following links: {source_path}: {exc}",
+            ) from exc
+        source_opened = os.fstat(source_fd)
+        source_published = _assert_safe_regular_leaf(
+            source_parent_fd,
+            source_path.name,
+            display_path=source_path,
+        )
+        if (
+            not stat.S_ISREG(source_opened.st_mode)
+            or source_opened.st_nlink != 1
+            or source_published is None
+            or (source_opened.st_dev, source_opened.st_ino)
+            != (source_before.st_dev, source_before.st_ino)
+            or (source_published.st_dev, source_published.st_ino)
+            != (source_opened.st_dev, source_opened.st_ino)
+        ):
+            raise StorageError(
+                "file_identity_changed",
+                f"Move source identity changed while opening: {source_path}",
+            )
+
+        destination_now = _assert_safe_regular_leaf(
+            destination_parent_fd,
+            destination_path.name,
+            display_path=destination_path,
+        )
+        if destination_before is None and destination_now is not None:
+            raise StorageError(
+                "destination_identity_changed",
+                f"Move destination appeared during validation: {destination_path}",
+            )
+        if destination_before is not None and (
+            destination_now is None
+            or (destination_now.st_dev, destination_now.st_ino)
+            != (destination_before.st_dev, destination_before.st_ino)
+        ):
+            raise StorageError(
+                "destination_identity_changed",
+                f"Move destination identity changed during validation: {destination_path}",
+            )
+        _assert_directory_fd_identity(root, source_path.parent, source_parent_fd)
+        _assert_directory_fd_identity(root, destination_path.parent, destination_parent_fd)
+        operation = os.replace if replace else os.rename
+        operation(
+            source_path.name,
+            destination_path.name,
+            src_dir_fd=source_parent_fd,
+            dst_dir_fd=destination_parent_fd,
+        )
+
+        _assert_directory_fd_identity(root, source_path.parent, source_parent_fd)
+        _assert_directory_fd_identity(root, destination_path.parent, destination_parent_fd)
+        destination_after = _assert_safe_regular_leaf(
+            destination_parent_fd,
+            destination_path.name,
+            display_path=destination_path,
+        )
+        source_after = _assert_safe_regular_leaf(
+            source_parent_fd,
+            source_path.name,
+            display_path=source_path,
+        )
+        source_opened_after = os.fstat(source_fd)
+        if (
+            destination_after is None
+            or source_after is not None
+            or source_opened_after.st_nlink != 1
+            or (destination_after.st_dev, destination_after.st_ino)
+            != (source_opened.st_dev, source_opened.st_ino)
+        ):
+            raise StorageError(
+                "move_verification_failed",
+                f"Moved store leaf could not be verified: {source_path} -> {destination_path}",
+            )
+        return destination_path
+    except StorageError:
+        raise
+    except OSError as exc:
+        raise StorageError(
+            "move_failed",
+            f"Cannot move store leaf {source_path} -> {destination_path}: "
+            f"{type(exc).__name__}: {exc}",
+        ) from exc
+    finally:
+        if source_fd >= 0:
+            os.close(source_fd)
+        if destination_parent_fd >= 0:
+            os.close(destination_parent_fd)
+        os.close(source_parent_fd)
+
+
+@contextmanager
+def open_repo_text(
+    repo_root: Path,
+    path: Path,
+    *,
+    mode: str = "r",
+    permissions: int = 0o600,
+) -> Iterator[TextIO]:
+    """Open a repo-owned regular UTF-8 text leaf for safe read/append/truncate.
+
+    The accepted modes are exactly ``r``, ``a``, and ``w``. Writable opens
+    create missing private parents/leaves, validate the published inode, and
+    truncate only *after* identity validation.
+    """
+    if mode not in {"r", "a", "w"}:
+        raise StorageError(
+            "invalid_open_mode",
+            f"Repo text mode must be one of 'r', 'a', or 'w', got {mode!r}",
+        )
+    if (
+        isinstance(permissions, bool)
+        or not isinstance(permissions, int)
+        or permissions < 0
+        or permissions > 0o777
+    ):
+        raise StorageError(
+            "invalid_permissions",
+            f"permissions must be an integer mode, got {permissions!r}",
+        )
+    candidate = guard_repo_path(repo_root, path)
+    root = Path(repo_root).expanduser().resolve(strict=True)
+    if candidate == root:
+        raise StorageError("unsafe_file_type", f"Store leaf must be a regular file: {candidate}")
+    create = mode in {"a", "w"}
+    try:
+        _parent, parent_fd = _open_repo_directory(
+            repo_root,
+            candidate.parent,
+            create=create,
+        )
+    except StorageError as exc:
+        if exc.code == "not_found":
+            raise StorageError("not_found", f"Missing record: {candidate}") from exc
+        raise
+
+    file_fd = -1
+    handle: TextIO | None = None
+    try:
+        before = _assert_safe_regular_leaf(parent_fd, candidate.name, display_path=candidate)
+        flags = getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        if mode == "r":
+            flags |= os.O_RDONLY
+        else:
+            flags |= os.O_WRONLY | os.O_CREAT
+            if mode == "a":
+                flags |= os.O_APPEND
+        try:
+            file_fd = os.open(candidate.name, flags, permissions, dir_fd=parent_fd)
+        except FileNotFoundError as exc:
+            raise StorageError("not_found", f"Missing record: {candidate}") from exc
+        except OSError as exc:
+            raise StorageError(
+                "unsafe_store_leaf",
+                f"Cannot open store text without following links: {candidate}: {exc}",
+            ) from exc
+        opened = os.fstat(file_fd)
+        if not stat.S_ISREG(opened.st_mode):
+            raise StorageError(
+                "unsafe_file_type",
+                f"Store text leaf must be a regular file: {candidate}",
+            )
+        published = _assert_safe_regular_leaf(parent_fd, candidate.name, display_path=candidate)
+        if published is None or (opened.st_dev, opened.st_ino) != (
+            published.st_dev,
+            published.st_ino,
+        ):
+            raise StorageError(
+                "file_identity_changed",
+                f"Store text identity changed while opening: {candidate}",
+            )
+        if before is not None and (before.st_dev, before.st_ino) != (
+            opened.st_dev,
+            opened.st_ino,
+        ):
+            raise StorageError(
+                "file_identity_changed",
+                f"Store text identity changed while opening: {candidate}",
+            )
+        if mode != "r":
+            os.fchmod(file_fd, permissions)
+        if mode == "w":
+            os.ftruncate(file_fd, 0)
+            os.lseek(file_fd, 0, os.SEEK_SET)
+        handle = os.fdopen(file_fd, mode, encoding="utf-8")
+        file_fd = -1
+        yield handle
+        if mode != "r":
+            handle.flush()
+            os.fsync(handle.fileno())
+    finally:
+        if handle is not None:
+            handle.close()
+        elif file_fd >= 0:
+            os.close(file_fd)
+        os.close(parent_fd)
+
+
+def repo_regular_file_exists(repo_root: Path, path: Path) -> bool:
+    """Check a repo-owned leaf without following ancestors or the leaf itself."""
+    candidate = guard_repo_path(repo_root, path)
+    try:
+        _parent, parent_fd = _open_repo_directory(
+            repo_root,
+            candidate.parent,
+            create=False,
+        )
+    except StorageError as exc:
+        if exc.code == "not_found":
+            return False
+        raise
+    try:
+        return _assert_safe_regular_leaf(parent_fd, candidate.name, display_path=candidate) is not None
+    finally:
+        os.close(parent_fd)
+
+
+def list_repo_store_files(
+    repo_root: Path,
+    directory: Path,
+    *,
+    suffix: str = "",
+) -> list[Path]:
+    """List regular store leaves from a no-follow directory descriptor."""
+    candidate = guard_repo_path(repo_root, directory)
+    try:
+        _opened, directory_fd = _open_repo_directory(
+            repo_root,
+            candidate,
+            create=False,
+        )
+    except StorageError as exc:
+        if exc.code == "not_found":
+            return []
+        raise
+    try:
+        result: list[Path] = []
+        for name in sorted(os.listdir(directory_fd)):
+            if suffix and not name.endswith(suffix):
+                continue
+            display_path = candidate / name
+            info = _assert_safe_regular_leaf(directory_fd, name, display_path=display_path)
+            if info is not None:
+                result.append(display_path)
+        return result
+    finally:
+        os.close(directory_fd)
+
+
+def snapshot_path(
+    store_root: Path,
+    record_id: str,
+    *,
+    kind: str = "snapshot",
+    repo_root: Path | None = None,
+) -> Path:
     """Store-owned snapshot directory; never interpolate raw ids into parent paths."""
     key = digest_key(record_id, prefix=kind)
+    if repo_root is not None:
+        root = guard_repo_path(repo_root, store_root)
+        return guard_repo_path(repo_root, root / "snapshots" / key)
     path = (store_root / "snapshots" / key).resolve()
     root = store_root.resolve()
     if root not in path.parents and path != root:
@@ -128,16 +1044,78 @@ def snapshot_path(store_root: Path, record_id: str, *, kind: str = "snapshot") -
 
 
 @contextmanager
-def directory_lock(store_root: Path, *, name: str = "store.lock", timeout: float = 10.0) -> Iterator[Path]:
+def directory_lock(
+    store_root: Path,
+    *,
+    name: str = "store.lock",
+    timeout: float = 10.0,
+    repo_root: Path | None = None,
+) -> Iterator[Path]:
     """Exclusive Unix ``flock`` with bounded contention and fail-closed errors."""
     if fcntl is None:
         raise StorageError(
             "lock_unsupported",
             "Directory locking requires Unix fcntl.flock support",
         )
-    ensure_private_dir(store_root)
-    lock_path = store_root / name
-    handle = lock_path.open("a+", encoding="utf-8")
+    if not name or Path(name).name != name or name in {".", ".."}:
+        raise StorageError("invalid_lock_name", f"Lock name must be one path component: {name!r}")
+    directory_fd: int | None = None
+    if repo_root is not None:
+        guarded_root, directory_fd = _open_repo_directory(
+            repo_root,
+            store_root,
+            create=True,
+        )
+        lock_path = guard_repo_path(repo_root, guarded_root / name)
+        _assert_safe_regular_leaf(directory_fd, name, display_path=lock_path)
+        try:
+            base_flags = (
+                os.O_RDWR
+                | os.O_APPEND
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0)
+            )
+            for _attempt in range(16):
+                try:
+                    lock_fd = os.open(name, base_flags, dir_fd=directory_fd)
+                    break
+                except FileNotFoundError:
+                    try:
+                        lock_fd = os.open(
+                            name,
+                            base_flags | os.O_CREAT | os.O_EXCL,
+                            0o600,
+                            dir_fd=directory_fd,
+                        )
+                        break
+                    except FileExistsError:
+                        # Another host thread/process won the safe publication race.
+                        continue
+            else:
+                raise StorageError(
+                    "lock_identity_changed",
+                    f"Lock leaf changed repeatedly while opening: {lock_path}",
+                )
+        except StorageError:
+            os.close(directory_fd)
+            raise
+        except OSError as exc:
+            os.close(directory_fd)
+            raise StorageError(
+                "unsafe_lock_leaf",
+                f"Cannot open lock without following links: {lock_path}: {exc}",
+            ) from exc
+        opened = os.fstat(lock_fd)
+        published = _assert_safe_regular_leaf(directory_fd, name, display_path=lock_path)
+        if published is None or (opened.st_dev, opened.st_ino) != (published.st_dev, published.st_ino):
+            os.close(lock_fd)
+            os.close(directory_fd)
+            raise StorageError("lock_identity_changed", f"Lock identity changed while opening: {lock_path}")
+        handle = os.fdopen(lock_fd, "a+", encoding="utf-8")
+    else:
+        ensure_private_dir(store_root)
+        lock_path = store_root / name
+        handle = lock_path.open("a+", encoding="utf-8")
     deadline = time.monotonic() + max(0.0, float(timeout))
     locked = False
     try:
@@ -180,6 +1158,8 @@ def directory_lock(store_root: Path, *, name: str = "store.lock", timeout: float
                         ) from exc
         finally:
             handle.close()
+            if directory_fd is not None:
+                os.close(directory_fd)
 
 
 def bump_revision(data: dict[str, Any]) -> int:

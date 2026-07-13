@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import stat
 import subprocess
 import sys
@@ -11,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -19,6 +21,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+from cobbler_runtime import full_run as full_run_module  # noqa: E402
 from cobbler_runtime.behavior_policy import (  # noqa: E402
     FORBIDDEN_FULL_RUN_WAKE_TRIGGERS,
     PARKED_MONITOR_WAKE_CONDITIONS,
@@ -43,7 +46,7 @@ from cobbler_runtime.full_run import (  # noqa: E402
     write_report,
 )
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
-from cobbler_runtime.storage import digest_key  # noqa: E402
+from cobbler_runtime.storage import StorageError, digest_key  # noqa: E402
 
 
 FAKE_WORKER = r'''#!/usr/bin/env python3
@@ -211,6 +214,13 @@ def _attach_origin(repo: Path, remote: Path, branch: str) -> None:
     )
 
 
+def _write_production_packet(path: Path, *acceptance_ids: str) -> None:
+    ids = acceptance_ids or ("B1-A1",)
+    rows = ["# Production packet", "", "## Acceptance"]
+    rows.extend(f"- {item} — criterion for {item}" for item in ids)
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
 class BehaviorPolicyCompositionTests(unittest.TestCase):
     def test_compose_trusted_grok_chat_to_land(self) -> None:
         decision = resolve_from_signals(
@@ -264,6 +274,7 @@ class FullRunReportValidationTests(unittest.TestCase):
     def _complete(self) -> dict:
         return {
             "run_id": "run-1",
+            "attempt": 1,
             "session_id": "session-1",
             "branch": "feat/x",
             "start_head": "a" * 40,
@@ -358,15 +369,257 @@ class FullRunReportValidationTests(unittest.TestCase):
                     )
                 )
 
+    def test_report_v1_requires_positive_non_boolean_attempt(self) -> None:
+        for value in (None, 0, -1, True, "1"):
+            with self.subTest(value=value):
+                report = self._complete()
+                if value is None:
+                    report.pop("attempt")
+                else:
+                    report["attempt"] = value
+                errors = validate_run_report(
+                    report,
+                    require_complete_acceptance=True,
+                    expected_run_id="run-1",
+                    expected_attempt=1,
+                )
+                self.assertTrue(any("attempt" in error for error in errors), errors)
+
+    def test_nested_secret_fields_are_rejected_without_identifier_false_positives(self) -> None:
+        report = self._complete()
+        report["tests"] = {
+            "nested": {"refresh_token": "opaque-refresh-value-123456789"}
+        }
+        errors = validate_run_report(
+            report,
+            require_complete_acceptance=True,
+            expected_run_id="run-1",
+        )
+        self.assertTrue(any("secret" in error for error in errors), errors)
+
+        clean = self._complete()
+        clean["tests"] = {"test_api_key_redaction": "passed"}
+        self.assertEqual(
+            validate_run_report(
+                clean,
+                require_complete_acceptance=True,
+                expected_run_id="run-1",
+            ),
+            [],
+        )
+
+    def test_complete_report_rejects_blockers_and_remaining_risks(self) -> None:
+        for key in ("blockers", "remaining_risks"):
+            with self.subTest(key=key):
+                report = self._complete()
+                report[key] = ["not actually ready"]
+                errors = validate_run_report(
+                    report,
+                    require_complete_acceptance=True,
+                    expected_run_id="run-1",
+                )
+                self.assertTrue(any(key in error for error in errors), errors)
+
+    def test_event_rejects_future_timestamp_post_terminal_and_secret_key(self) -> None:
+        valid = {
+            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "session_id": "session-1",
+            "branch": "feat/x",
+            "head": "a" * 40,
+            "batch": 1,
+            "type": "heartbeat",
+            "summary": "healthy",
+        }
+        future = {
+            **valid,
+            "timestamp": (
+                datetime.now(timezone.utc)
+                + timedelta(seconds=full_run_module.MAX_EVENT_FUTURE_SKEW_SECONDS + 30)
+            ).replace(microsecond=0).isoformat(),
+        }
+        self.assertTrue(
+            any("future" in error for error in validate_event(future)),
+            validate_event(future),
+        )
+        self.assertTrue(
+            any("after terminal" in error for error in validate_event(valid, seen_terminal=True))
+        )
+        opaque = "opaque-granted-value-used-as-a-key-473829"
+        secret_key_event = {**valid, opaque: "innocent-looking value"}
+        self.assertTrue(
+            any(
+                "secret" in error
+                for error in validate_event(
+                    secret_key_event,
+                    exact_secret_values={opaque},
+                )
+            )
+        )
+
 
 class FullRunGrokArgvTests(unittest.TestCase):
+    def test_full_run_runtime_rejects_symlinked_store_root_without_outside_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            sentinel = outside / "sentinel.txt"
+            sentinel.write_text("unchanged\n", encoding="utf-8")
+            (repo / ".elves").symlink_to(outside, target_is_directory=True)
+            packet = root / "packet.md"
+            packet.write_text("fixture packet\n", encoding="utf-8")
+            worker = root / "worker.py"
+            worker.write_text("print('ok')\n", encoding="utf-8")
+            head = _init_feature_repo(repo)
+            with self.assertRaises(StorageError):
+                prepare_full_run(
+                    repo,
+                    session_id="symlinked-runtime-root",
+                    branch="feat/x",
+                    start_head=head,
+                    worktree=repo,
+                    packet_path=packet,
+                    adapter="fixture",
+                    fixture_script=worker,
+                )
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged\n")
+            self.assertEqual(sorted(path.name for path in outside.iterdir()), ["sentinel.txt"])
+
+    def test_prepare_output_keeps_supervision_token_private(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            packet = repo / "packet.md"
+            packet.write_text("fixture packet\n", encoding="utf-8")
+            worker = repo / "worker.py"
+            worker.write_text("print('ok')\n", encoding="utf-8")
+            head = _init_feature_repo(repo)
+            prepared = prepare_full_run(
+                repo,
+                session_id="private-supervision-token",
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                adapter="fixture",
+                fixture_script=worker,
+            )
+            private_state = load_state(repo, "private-supervision-token")
+            self.assertTrue(private_state.supervision_token)
+            self.assertNotIn("supervision_token", prepared["state"])
+            self.assertNotIn(
+                str(private_state.supervision_token),
+                json.dumps(prepared, sort_keys=True),
+            )
+
+    def test_github_pull_ref_exemption_requires_exact_github_host(self) -> None:
+        managed = full_run_module._github_provider_managed_ref
+        self.assertTrue(managed("https://github.com/org/repo.git", "refs/pull/1/head"))
+        self.assertTrue(managed("git@github.com:org/repo.git", "refs/pull/1/head"))
+        self.assertFalse(managed("https://example.com/github.com/repo", "refs/pull/1/head"))
+        self.assertFalse(managed("/tmp/github.com/repo.git", "refs/pull/1/head"))
+        self.assertFalse(managed("file:///tmp/github.com/repo.git", "refs/pull/1/head"))
+        self.assertFalse(managed("https://github.com/org/repo.git", "refs/heads/main"))
+
+    def test_acceptance_parser_supports_canonical_markdown_and_json_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            markdown = root / "packet.md"
+            markdown.write_text(
+                "B1-A9 is only an inline reference.\n"
+                "- [ ] B1-A1 — first observable criterion\n"
+                "* M-A2: second observable criterion\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                full_run_module._staged_acceptance_ids(markdown),
+                ["B1-A1", "M-A2"],
+            )
+            json_packet = root / "packet.json"
+            json_packet.write_text(
+                json.dumps(
+                    {
+                        "acceptance": [
+                            {"id": "B2-A1", "criterion": "JSON criterion"},
+                            {"id": "B2-A2", "criterion": "another criterion"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                full_run_module._staged_acceptance_ids(json_packet),
+                ["B2-A1", "B2-A2"],
+            )
+            inline_only = root / "inline.md"
+            inline_only.write_text("Report B3-A1 when complete.\n", encoding="utf-8")
+            self.assertEqual(full_run_module._staged_acceptance_ids(inline_only), [])
+
+    def test_acceptance_packet_reader_rejects_unsafe_or_oversized_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            oversized = root / "large.md"
+            oversized.write_bytes(b"x" * (full_run_module.MAX_PACKET_BYTES + 1))
+            with self.assertRaises(ValidationIssue):
+                full_run_module._staged_acceptance_ids(oversized)
+
+            target = root / "target.md"
+            target.write_text("- B1-A1 — criterion\n", encoding="utf-8")
+            link = root / "link.md"
+            link.symlink_to(target)
+            with self.assertRaises(ValidationIssue):
+                full_run_module._staged_acceptance_ids(link)
+
+            if hasattr(os, "mkfifo"):
+                fifo = root / "packet.fifo"
+                os.mkfifo(fifo)
+                with self.assertRaises(ValidationIssue):
+                    full_run_module._staged_acceptance_ids(fifo)
+
+    def test_production_rejects_missing_and_duplicate_acceptance_definitions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            head = _init_feature_repo(repo)
+            _attach_origin(repo, root / "origin.git", "feat/x")
+            cases = (
+                (
+                    "missing",
+                    "B1-A1 appears only inline and is not a definition.\n",
+                    "full_run_acceptance_ids_required",
+                ),
+                (
+                    "duplicate",
+                    "- B1-A1 — first\n- B1-A1 — repeated\n",
+                    "full_run_acceptance_ids_duplicate",
+                ),
+            )
+            for name, content, expected_code in cases:
+                with self.subTest(name=name):
+                    packet = root / f"{name}.md"
+                    packet.write_text(content, encoding="utf-8")
+                    with self.assertRaises(ValidationIssue) as ctx:
+                        prepare_full_run(
+                            repo,
+                            session_id=f"acceptance-{name}",
+                            branch="feat/x",
+                            start_head=head,
+                            worktree=repo,
+                            packet_path=packet,
+                            adapter="grok-build",
+                            executable="grok",
+                        )
+                    self.assertEqual(ctx.exception.code, expected_code)
+
     def test_production_requires_origin_and_clean_bound_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
             repo.mkdir()
             packet = root / "packet.md"
-            packet.write_text("packet\n", encoding="utf-8")
+            _write_production_packet(packet)
             head = _init_feature_repo(repo)
             with self.assertRaises(ValidationIssue) as ctx:
                 prepare_full_run(
@@ -386,7 +639,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
             repo = root / "repo"
             repo.mkdir()
             packet = root / "packet.md"
-            packet.write_text("packet\n", encoding="utf-8")
+            _write_production_packet(packet)
             head = _init_feature_repo(repo)
             _attach_origin(repo, root / "origin.git", "feat/x")
             (repo / "untracked.txt").write_text("dirty\n", encoding="utf-8")
@@ -410,7 +663,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 repo = root / "repo"
                 repo.mkdir()
                 packet = root / "packet.md"
-                packet.write_text("packet\n", encoding="utf-8")
+                _write_production_packet(packet)
                 head = _init_feature_repo(repo)
                 _attach_origin(repo, root / "origin.git", "feat/x")
                 prepare_full_run(
@@ -441,7 +694,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
             repo = Path(tmp) / "repo"
             repo.mkdir()
             packet = repo / "packet.md"
-            packet.write_text("# packet\n")
+            _write_production_packet(packet)
             start_head = _init_feature_repo(repo)
             remote = Path(tmp) / "origin.git"
             subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
@@ -666,12 +919,167 @@ class FullRunLifecycleTests(unittest.TestCase):
         self.assertLessEqual(len(bounded["transcript_tail"]), 100)
         self.assertTrue(all(len(line) <= 1000 for line in bounded["transcript_tail"]))
 
+    def test_launch_grant_override_is_persisted_and_exact_value_is_redacted(self) -> None:
+        worker = Path(self.tmp.name) / "secret_worker.py"
+        worker.write_text(
+            "import os, time\n"
+            "from pathlib import Path\n"
+            "Path(os.environ['ELVES_FULL_RUN_TRANSCRIPT']).write_text("
+            "os.environ['CUSTOM_OPAQUE_TOKEN'] + '\\n', encoding='utf-8')\n"
+            "time.sleep(30)\n",
+            encoding="utf-8",
+        )
+        secret = "opaque-value-without-a-known-provider-prefix-93742"
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=worker,
+            credential_grant_names=[],
+        )
+        with mock.patch.dict(os.environ, {"CUSTOM_OPAQUE_TOKEN": secret}, clear=False):
+            launch_full_run(
+                self.repo,
+                session_id=self.session,
+                credential_grant_names=["CUSTOM_OPAQUE_TOKEN"],
+            )
+            deadline = time.time() + 3
+            transcript = full_run_root(self.repo, self.session) / "transcript.log"
+            while transcript.stat().st_size == 0 and time.time() < deadline:
+                time.sleep(0.02)
+            state = load_state(self.repo, self.session)
+            self.assertEqual(state.credential_grant_names, ["CUSTOM_OPAQUE_TOKEN"])
+            logs = logs_full_run(
+                self.repo, session_id=self.session, raw_tail=True, tail_lines=10
+            )
+            serialized = json.dumps(logs, sort_keys=True)
+            self.assertNotIn(secret, serialized)
+            self.assertIn("REDACTED", serialized)
+        unavailable = logs_full_run(
+            self.repo, session_id=self.session, raw_tail=True, tail_lines=10
+        )
+        unavailable_serialized = json.dumps(unavailable, sort_keys=True)
+        self.assertFalse(unavailable["transcript_included"])
+        self.assertIn("cannot be verified", unavailable["transcript_error"])
+        self.assertNotIn(secret, unavailable_serialized)
+
+    def test_raw_transcript_redacts_json_credentials_and_multiline_pem(self) -> None:
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=self.worker,
+        )
+        transcript = full_run_root(self.repo, self.session) / "transcript.log"
+        transcript.write_text(
+            '{"refresh_token":"opaque-refresh-value-123456789"}\n'
+            "test_api_key_redaction is a legitimate test identifier\n",
+            encoding="utf-8",
+        )
+        logs = logs_full_run(
+            self.repo, session_id=self.session, raw_tail=True, tail_lines=10
+        )
+        serialized = json.dumps(logs, sort_keys=True)
+        self.assertNotIn("opaque-refresh-value-123456789", serialized)
+        self.assertIn("test_api_key_redaction", serialized)
+
+        transcript.write_text(
+            "before\n-----BEGIN PRIVATE KEY-----\nline-one\nline-two\n"
+            "-----END PRIVATE KEY-----\nafter\n",
+            encoding="utf-8",
+        )
+        pem_logs = logs_full_run(
+            self.repo, session_id=self.session, raw_tail=True, tail_lines=10
+        )
+        self.assertEqual(pem_logs["transcript_tail"], ["[REDACTED:pem_block]"])
+
+    def test_event_reader_bounds_and_partial_final_policy(self) -> None:
+        event = {
+            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "session_id": self.session,
+            "branch": self.branch,
+            "head": self.start_head,
+            "batch": 0,
+            "type": "heartbeat",
+            "summary": "bounded event",
+        }
+        encoded = json.dumps(event, separators=(",", ":")).encode("utf-8")
+        root = Path(self.tmp.name)
+        partial = root / "partial.jsonl"
+        partial.write_bytes(encoded)
+        rows, errors = full_run_module._read_events(
+            partial,
+            expected_session_id=self.session,
+            expected_branch=self.branch,
+            allow_partial_final=True,
+        )
+        self.assertEqual(rows, [])
+        self.assertEqual(errors, [])
+        rows, errors = full_run_module._read_events(
+            partial,
+            expected_session_id=self.session,
+            expected_branch=self.branch,
+            allow_partial_final=False,
+        )
+        self.assertEqual(rows, [])
+        self.assertTrue(any("incomplete" in error for error in errors), errors)
+
+        too_many = root / "too-many.jsonl"
+        too_many.write_bytes((encoded + b"\n") * (full_run_module.MAX_EVENT_LINES + 1))
+        _rows, errors = full_run_module._read_events(
+            too_many,
+            expected_session_id=self.session,
+            expected_branch=self.branch,
+        )
+        self.assertTrue(any("line limit" in error for error in errors), errors)
+
+        too_large = root / "too-large.jsonl"
+        too_large.write_bytes(b"x" * (full_run_module.MAX_EVENT_FILE_BYTES + 1))
+        _rows, errors = full_run_module._read_events(
+            too_large,
+            expected_session_id=self.session,
+            expected_branch=self.branch,
+        )
+        self.assertTrue(any("exceeds" in error for error in errors), errors)
+
+    def test_invalid_or_oversized_report_fails_closed_without_crashing(self) -> None:
+        for payload in (
+            b"\xff\xfe",
+            b"{" + b"x" * full_run_module.MAX_REPORT_BYTES,
+        ):
+            with self.subTest(size=len(payload)):
+                session = f"{self.session}-{len(payload)}"
+                prepare_full_run(
+                    self.repo,
+                    session_id=session,
+                    branch=self.branch,
+                    start_head=self.start_head,
+                    worktree=self.repo,
+                    packet_path=self.packet,
+                    adapter="fixture",
+                    fixture_script=self.worker,
+                )
+                report = full_run_root(self.repo, session) / "report.json"
+                report.write_bytes(payload)
+                status = monitor_full_run(self.repo, session_id=session)
+                self.assertEqual(status["state"], "failed", status)
+                self.assertEqual(status["next_action"], "driver_wake_error")
+
     def test_real_resume_archives_attempt_after_committed_pushed_checkpoint(self) -> None:
         remote = Path(self.tmp.name) / "resume-origin.git"
         _attach_origin(self.repo, remote, self.branch)
         grok = Path(self.tmp.name) / "fake_grok.py"
         grok.write_text(GROK_COMMIT_AND_WAIT, encoding="utf-8")
         grok.chmod(grok.stat().st_mode | stat.S_IXUSR)
+        _write_production_packet(self.packet)
         prepare_full_run(
             self.repo,
             session_id=self.session,
@@ -1024,6 +1432,7 @@ class FullRunLifecycleTests(unittest.TestCase):
             ["git", "-C", str(self.repo), "push", "-q", "-u", "origin", self.branch],
             check=True,
         )
+        _write_production_packet(self.packet)
         prepare_full_run(
             self.repo,
             session_id=self.session,
@@ -1079,7 +1488,7 @@ class FullRunLifecycleTests(unittest.TestCase):
     def test_reconcile_binds_commit_chain_events_and_staged_acceptance_ids(self) -> None:
         remote = Path(self.tmp.name) / "evidence-origin.git"
         _attach_origin(self.repo, remote, self.branch)
-        self.packet.write_text("Acceptance: B1-A1 and B1-A2\n", encoding="utf-8")
+        _write_production_packet(self.packet, "B1-A1", "B1-A2")
         prepare_full_run(
             self.repo,
             session_id=self.session,
@@ -1178,7 +1587,7 @@ class FullRunLifecycleTests(unittest.TestCase):
         status = monitor_full_run(self.repo, session_id=self.session)
         self.assertEqual(status["state"], "stopped", status)
 
-    def test_long_running_not_stale_while_process_alive(self) -> None:
+    def test_live_but_silent_worker_becomes_stale(self) -> None:
         sleeper = Path(self.tmp.name) / "sleeper.py"
         sleeper.write_text(LONG_SLEEPER, encoding="utf-8")
         prepare_full_run(
@@ -1193,16 +1602,112 @@ class FullRunLifecycleTests(unittest.TestCase):
         )
         launch_full_run(self.repo, session_id=self.session)
         time.sleep(0.2)
-        # Stale threshold 0.05s would be wrong if only worker events count; process heartbeat should keep healthy.
         status = monitor_full_run(self.repo, session_id=self.session, stale_after_seconds=0)
-        self.assertIn(status["state"], {"healthy", "pending", "stale"})
-        # With fingerprint ok, even stale_after=0 should not force stale if alive and heartbeat refreshed.
-        if status.get("fingerprint_ok"):
-            self.assertEqual(status["state"], "healthy")
+        self.assertTrue(status.get("fingerprint_ok"), status)
+        self.assertEqual(status["state"], "stale", status)
+        self.assertEqual(status["next_action"], "driver_wake_stale_heartbeat")
         stop = stop_full_run(self.repo, session_id=self.session, grace_seconds=0.2)
         self.assertTrue(stop.get("fingerprint_verified"))
         self.assertTrue(stop["ok"], stop)
         self.assertFalse(stop["still_alive"], stop)
+
+    def test_host_stop_signals_only_verified_supervisor_not_cached_group(self) -> None:
+        sleeper = Path(self.tmp.name) / "identity-sleeper.py"
+        sleeper.write_text(LONG_SLEEPER, encoding="utf-8")
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=sleeper,
+        )
+        launch_full_run(self.repo, session_id=self.session)
+        with mock.patch.object(
+            full_run_module.os,
+            "killpg",
+            side_effect=AssertionError("host must not signal a reusable PGID"),
+        ) as killpg:
+            stopped = stop_full_run(
+                self.repo,
+                session_id=self.session,
+                grace_seconds=0.1,
+            )
+        killpg.assert_not_called()
+        self.assertTrue(stopped["ok"], stopped)
+        self.assertTrue(stopped["fingerprint_verified"], stopped)
+
+    def test_signal_helper_rechecks_identity_immediately_before_darwin_kill(self) -> None:
+        fingerprint = {
+            "pid": 424242,
+            "pgid": 424242,
+            "start_time": "original-start",
+            "executable": sys.executable,
+            "session_id": self.session,
+        }
+        with (
+            mock.patch.object(full_run_module.sys, "platform", "darwin"),
+            mock.patch(
+                "cobbler_runtime.full_run.verify_fingerprint",
+                side_effect=[(True, "ok"), (False, "pid start_time mismatch (reused PID)")],
+            ),
+            mock.patch.object(full_run_module.os, "kill") as kill,
+        ):
+            with self.assertRaises(ValidationIssue) as ctx:
+                full_run_module._signal_verified_supervisor(
+                    fingerprint,
+                    expected_session_id=self.session,
+                    signum=signal.SIGTERM,
+                )
+        self.assertEqual(ctx.exception.code, "full_run_fingerprint_mismatch")
+        kill.assert_not_called()
+
+    def test_embedded_supervisor_tracks_start_identity_and_uses_pidfd_on_linux(self) -> None:
+        source = full_run_module._PROVIDER_SUPERVISOR_SCRIPT
+        self.assertIn("known_identities", source)
+        self.assertNotIn("known_pids", source)
+        self.assertIn("os.pidfd_open", source)
+        self.assertIn("signal.pidfd_send_signal", source)
+        self.assertIn("current[4] != expected_start", source)
+
+    def test_recent_meaningful_event_keeps_live_worker_healthy(self) -> None:
+        sleeper = Path(self.tmp.name) / "eventful-sleeper.py"
+        sleeper.write_text(LONG_SLEEPER, encoding="utf-8")
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=sleeper,
+        )
+        launch_full_run(self.repo, session_id=self.session)
+        state = load_state(self.repo, self.session)
+        state.launched_at = "2000-01-01T00:00:00+00:00"
+        state.heartbeat_at = None
+        full_run_module.save_state(self.repo, state)
+        event = {
+            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "session_id": self.session,
+            "branch": self.branch,
+            "head": self.start_head,
+            "batch": 1,
+            "type": "heartbeat",
+            "summary": "worker is still making meaningful progress",
+        }
+        with (full_run_root(self.repo, self.session) / "events.jsonl").open(
+            "a", encoding="utf-8"
+        ) as handle:
+            handle.write(json.dumps(event) + "\n")
+        status = monitor_full_run(
+            self.repo, session_id=self.session, stale_after_seconds=5
+        )
+        self.assertTrue(status.get("fingerprint_ok"), status)
+        self.assertEqual(status["state"], "healthy", status)
 
     def test_forged_event_rejected(self) -> None:
         prepare_full_run(

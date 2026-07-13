@@ -7,7 +7,6 @@ to launch (or resume-batch --exec). Network is never required for prepare/status
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
@@ -15,10 +14,19 @@ import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
+from .context import is_secret_env_name, redact_structure, redact_text
 from .executables import resolve_executable_for_launch
+from .isolation import _managed_implement_env
 from .schema import ValidationIssue
+from .storage import (
+    StorageError,
+    atomic_write_json,
+    ensure_private_dir as ensure_storage_dir,
+    list_repo_store_files,
+    read_json,
+)
 
 DEFAULT_MODEL = "grok-4.5"
 DEFAULT_PERMISSION_MODE = "auto"
@@ -43,6 +51,8 @@ STATE_NAME = "state.json"
 GATES_DIRNAME = "gates"
 DONE_DIRNAME = "done"
 PACKETS_REL = Path(".elves") / "runtime" / "packets"
+MAX_DONE_REPORT_BYTES = 256 * 1024
+MAX_STATE_BYTES = 256 * 1024
 
 _RAN_RE = re.compile(r"^Ran\s+(\d+)\s+tests?\b", re.MULTILINE)
 _FAIL_RE = re.compile(
@@ -101,55 +111,101 @@ def done_dir(repo_root: Path) -> Path:
     return implement_root(repo_root) / DONE_DIRNAME
 
 
-def _ensure_private_dir(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
+def _runtime_directory_paths(repo_root: Path) -> tuple[Path, ...]:
+    base = Path(repo_root).resolve()
+    return (
+        base / ".elves",
+        base / ".elves" / "runtime",
+        implement_root(base),
+        gates_dir(base),
+        done_dir(base),
+    )
+
+
+def _storage_issue(
+    exc: StorageError,
+    *,
+    path: Path,
+    operation: str,
+) -> ValidationIssue:
+    if exc.code in {"symlink_component", "symlink_leaf", "unsafe_store_leaf"}:
+        code = "implement_runtime_symlink"
+        message = "Implement runtime components must not be symbolic links"
+    elif exc.code == "unsafe_link_count":
+        code = "implement_runtime_hardlink"
+        message = "Implement runtime files must have exactly one hard link"
+    elif exc.code in {
+        "non_directory_component",
+        "unsafe_file_type",
+        "unsafe_path_component",
+    }:
+        code = "implement_runtime_component_invalid"
+        message = "Implement runtime component has an unexpected file type"
+    else:
+        code = "implement_runtime_storage_error"
+        message = f"Unable to {operation} implement runtime storage ({exc.code})"
+    return ValidationIssue(code, message, path=str(path))
+
+
+def _write_private_json(
+    repo_root: Path,
+    path: Path,
+    payload: Mapping[str, Any],
+) -> None:
+    """Atomically replace one JSON leaf through the repo-root descriptor boundary."""
     try:
-        os.chmod(path, 0o700)
-    except OSError:
-        # Best-effort on platforms that reject chmod (e.g. some Windows mounts).
-        pass
+        atomic_write_json(path, payload, repo_root=Path(repo_root))
+    except StorageError as exc:
+        raise _storage_issue(exc, path=path, operation="write") from exc
 
 
 def ensure_implement_dirs(repo_root: Path) -> Path:
     """Create implement runtime tree with mode 0700. No network."""
     root = implement_root(repo_root)
     # Ensure parent .elves/runtime chain exists and is private when we create it.
-    for part in (
-        Path(repo_root).resolve() / ".elves",
-        Path(repo_root).resolve() / ".elves" / "runtime",
-        root,
-        gates_dir(repo_root),
-        done_dir(repo_root),
-    ):
-        _ensure_private_dir(part)
+    for part in _runtime_directory_paths(repo_root):
+        try:
+            ensure_storage_dir(part, repo_root=Path(repo_root), mode=0o700)
+        except StorageError as exc:
+            raise _storage_issue(exc, path=part, operation="create") from exc
     return root
 
 
 def load_state(repo_root: Path) -> ImplementState | None:
     path = state_path(repo_root)
-    if not path.is_file():
-        return None
     try:
-        raw = path.read_text(encoding="utf-8")
-        data = json.loads(raw)
-    except OSError as exc:
-        raise ValidationIssue(
-            "implement_state_read_error",
-            f"Unable to read implement state {path}: {exc}",
-            path=str(path),
-        ) from exc
-    except json.JSONDecodeError as exc:
-        raise ValidationIssue(
-            "implement_state_invalid",
-            f"Implement state is not valid JSON: {path} ({exc})",
-            path=str(path),
-        ) from exc
-    if not isinstance(data, dict):
-        raise ValidationIssue(
-            "implement_state_invalid",
-            f"Implement state is not a JSON object: {path}",
-            path=str(path),
+        data = read_json(
+            path,
+            repo_root=Path(repo_root),
+            max_bytes=MAX_STATE_BYTES,
         )
+    except StorageError as exc:
+        if exc.code == "not_found":
+            return None
+        if exc.code == "record_too_large":
+            raise ValidationIssue(
+                "implement_state_invalid",
+                f"Implement state exceeds {MAX_STATE_BYTES} bytes",
+                path=str(path),
+            ) from exc
+        if exc.code == "invalid_utf8":
+            raise ValidationIssue(
+                "implement_state_invalid",
+                "Implement state is not valid UTF-8",
+                path=str(path),
+            ) from exc
+        if exc.code == "malformed_json":
+            message = (
+                f"Implement state is not a JSON object: {path}"
+                if "JSON object required" in exc.message
+                else f"Implement state is not valid JSON: {path}"
+            )
+            raise ValidationIssue(
+                "implement_state_invalid",
+                message,
+                path=str(path),
+            ) from exc
+        raise _storage_issue(exc, path=path, operation="read") from exc
     try:
         return ImplementState.from_dict(data)
     except (TypeError, ValueError, KeyError) as exc:
@@ -164,14 +220,7 @@ def save_state(repo_root: Path, state: ImplementState) -> Path:
     ensure_implement_dirs(repo_root)
     path = state_path(repo_root)
     state.updated_at = _utc_now()
-    path.write_text(
-        json.dumps(state.to_dict(), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+    _write_private_json(repo_root, path, state.to_dict())
     return path
 
 
@@ -642,9 +691,6 @@ def launch_payload(
     if exec_process:
         # Optional operator convenience; not the default host path.
         # Minimal adapter-specific environment + named credential grants only.
-        from .isolation import implement_min_env  # noqa: PLC0415
-        from .context import redact_text  # noqa: PLC0415
-
         grant_names = [
             "XAI_API_KEY",
             "GROK_API_KEY",
@@ -656,95 +702,106 @@ def launch_payload(
             for name in grant_names
             if name in os.environ and os.environ[name]
         }
-        child_env = implement_min_env(
+        exact_grants = set(grants.values())
+        with _managed_implement_env(
             adapter=adapter_name,
             worktree=Path(worktree),
             credential_grants=grants,
-        )
-        try:
-            proc = subprocess.Popen(
-                argv,
-                cwd=str(Path(worktree).expanduser().resolve()),
-                env=child_env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                start_new_session=True,
-            )
+        ) as child_env:
             try:
-                stdout, stderr = proc.communicate(timeout=3600)
-            except subprocess.TimeoutExpired:
-                pgid: int | None = None
+                proc = subprocess.Popen(
+                    argv,
+                    cwd=str(Path(worktree).expanduser().resolve()),
+                    env=child_env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    start_new_session=True,
+                )
                 try:
-                    pgid = os.getpgid(proc.pid)
-                    os.killpg(pgid, 15)
-                except (ProcessLookupError, PermissionError, OSError):
-                    proc.kill()
-                try:
-                    stdout, stderr = proc.communicate(timeout=5)
+                    stdout, stderr = proc.communicate(timeout=3600)
                 except subprocess.TimeoutExpired:
-                    # A provider or child may ignore SIGTERM. Kill the entire
-                    # launch session, then reap the direct process before return.
+                    pgid: int | None = None
                     try:
-                        if pgid is None:
-                            pgid = os.getpgid(proc.pid)
-                        os.killpg(pgid, 9)
+                        pgid = os.getpgid(proc.pid)
+                        os.killpg(pgid, 15)
                     except (ProcessLookupError, PermissionError, OSError):
                         proc.kill()
-                    stdout, stderr = proc.communicate(timeout=5)
-                payload["launched"] = True
-                payload["model_calls_made"] = True
-                payload["exit_code"] = 124
-                payload["ok"] = False
-                payload["error_human"] = "implement --exec timed out; process group terminated"
-                payload["stdout_digest"] = __import__("hashlib").sha256(
-                    (stdout or "").encode()
-                ).hexdigest()[:16]
-                payload["stderr_digest"] = __import__("hashlib").sha256(
-                    (stderr or "").encode()
-                ).hexdigest()[:16]
-                payload["stdout_tail"] = redact_text(
-                    (stdout or "")[-4000:], exact_values=set(grants.values())
+                    try:
+                        stdout, stderr = proc.communicate(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        # A provider or child may ignore SIGTERM. Kill the entire
+                        # launch session, then reap the direct process before return.
+                        try:
+                            if pgid is None:
+                                pgid = os.getpgid(proc.pid)
+                            os.killpg(pgid, 9)
+                        except (ProcessLookupError, PermissionError, OSError):
+                            proc.kill()
+                        stdout, stderr = proc.communicate(timeout=5)
+                    payload["launched"] = True
+                    payload["model_calls_made"] = True
+                    payload["exit_code"] = 124
+                    payload["ok"] = False
+                    payload["error_human"] = (
+                        "implement --exec timed out; process group terminated"
+                    )
+                    payload["stdout_digest"] = __import__("hashlib").sha256(
+                        (stdout or "").encode()
+                    ).hexdigest()[:16]
+                    payload["stderr_digest"] = __import__("hashlib").sha256(
+                        (stderr or "").encode()
+                    ).hexdigest()[:16]
+                    payload["stdout_tail"] = redact_text(
+                        (stdout or "")[-4000:], exact_values=exact_grants
+                    ).text
+                    payload["stderr_tail"] = redact_text(
+                        (stderr or "")[-4000:], exact_values=exact_grants
+                    ).text
+                    return payload
+            except OSError as exc:
+                message = redact_text(
+                    f"Unable to spawn implementer argv {argv!r}: {exc}",
+                    exact_values=exact_grants,
                 ).text
-                payload["stderr_tail"] = redact_text(
-                    (stderr or "")[-4000:], exact_values=set(grants.values())
-                ).text
-                return payload
-        except OSError as exc:
-            raise ValidationIssue(
-                "implement_launch_spawn_failed",
-                f"Unable to spawn implementer argv {argv!r}: {exc}",
-                path=str(worktree),
-            ) from exc
-        payload["launched"] = True
-        payload["model_calls_made"] = True
-        payload["exit_code"] = int(proc.returncode)
-        payload["ok"] = proc.returncode == 0
-        # Preserve the legacy keys, but keep them bounded and credential-redacted.
-        stdout = stdout or ""
-        stderr = stderr or ""
-        payload["stdout_digest"] = __import__("hashlib").sha256(
-            stdout.encode()
-        ).hexdigest()[:16]
-        payload["stderr_digest"] = __import__("hashlib").sha256(
-            stderr.encode()
-        ).hexdigest()[:16]
-        payload["stdout_summary"] = redact_text(stdout[-500:], exact_values=set(grants.values())).text
-        payload["stderr_summary"] = redact_text(stderr[-500:], exact_values=set(grants.values())).text
-        payload["stdout_tail"] = redact_text(
-            stdout[-4000:], exact_values=set(grants.values())
-        ).text
-        payload["stderr_tail"] = redact_text(
-            stderr[-4000:], exact_values=set(grants.values())
-        ).text
-        payload["credential_grant_names_present"] = sorted(grants.keys())
-        if not payload["ok"] and not is_opencode:
-            payload["error_human"] = humanize_grok_failure(
-                stderr=redact_text(stderr, exact_values=set(grants.values())).text,
-                stdout=redact_text(stdout, exact_values=set(grants.values())).text,
-                exit_code=int(proc.returncode),
-            )
-        return payload
+                raise ValidationIssue(
+                    "implement_launch_spawn_failed",
+                    message,
+                    path=str(worktree),
+                ) from exc
+            payload["launched"] = True
+            payload["model_calls_made"] = True
+            payload["exit_code"] = int(proc.returncode)
+            payload["ok"] = proc.returncode == 0
+            # Preserve the legacy keys, but keep them bounded and credential-redacted.
+            stdout = stdout or ""
+            stderr = stderr or ""
+            payload["stdout_digest"] = __import__("hashlib").sha256(
+                stdout.encode()
+            ).hexdigest()[:16]
+            payload["stderr_digest"] = __import__("hashlib").sha256(
+                stderr.encode()
+            ).hexdigest()[:16]
+            payload["stdout_summary"] = redact_text(
+                stdout[-500:], exact_values=exact_grants
+            ).text
+            payload["stderr_summary"] = redact_text(
+                stderr[-500:], exact_values=exact_grants
+            ).text
+            payload["stdout_tail"] = redact_text(
+                stdout[-4000:], exact_values=exact_grants
+            ).text
+            payload["stderr_tail"] = redact_text(
+                stderr[-4000:], exact_values=exact_grants
+            ).text
+            payload["credential_grant_names_present"] = sorted(grants.keys())
+            if not payload["ok"] and not is_opencode:
+                payload["error_human"] = humanize_grok_failure(
+                    stderr=redact_text(stderr, exact_values=exact_grants).text,
+                    stdout=redact_text(stdout, exact_values=exact_grants).text,
+                    exit_code=int(proc.returncode),
+                )
+            return payload
 
     return payload
 
@@ -783,11 +840,16 @@ def resume_batch_payload(
     return payload
 
 
-def _git_rev_parse(cwd: Path) -> str | None:
+def _git_rev_parse(
+    cwd: Path,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> str | None:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             cwd=str(cwd),
+            env=dict(env) if env is not None else None,
             check=False,
             capture_output=True,
             text=True,
@@ -835,6 +897,80 @@ def parse_unittest_output(text: str) -> dict[str, int]:
     }
 
 
+def _inherited_secret_values() -> frozenset[str]:
+    """Capture exact parent secrets for output redaction, never child inheritance."""
+    return frozenset(
+        value
+        for name, value in os.environ.items()
+        if value and is_secret_env_name(name)
+    )
+
+
+def _read_done_report(
+    repo_root: Path,
+    path: Path,
+) -> tuple[bool, dict[str, Any] | None, str | None]:
+    """Read one optional done report through a bounded, no-symlink boundary."""
+    try:
+        payload = read_json(
+            path,
+            repo_root=Path(repo_root),
+            max_bytes=MAX_DONE_REPORT_BYTES,
+        )
+    except StorageError as exc:
+        if exc.code == "not_found":
+            return False, None, None
+        if exc.code == "record_too_large":
+            return (
+                True,
+                None,
+                f"done report exceeds {MAX_DONE_REPORT_BYTES} byte limit",
+            )
+        if exc.code == "invalid_utf8":
+            return True, None, "done report is not valid UTF-8"
+        if exc.code == "malformed_json":
+            if "JSON object required" in exc.message:
+                return True, None, "done report must be a JSON object"
+            return True, None, "done report is not valid JSON"
+        raise _storage_issue(exc, path=path, operation="read") from exc
+    return True, payload, None
+
+
+def _redact_gate_record_in_place(
+    record: dict[str, Any],
+    *,
+    exact_secret_values: frozenset[str],
+) -> None:
+    redacted = redact_structure(record, exact_values=exact_secret_values)
+
+    def redact_keys(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                redact_text(
+                    str(key), exact_values=exact_secret_values
+                ).text: redact_keys(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [redact_keys(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(redact_keys(item) for item in value)
+        return value
+
+    # Shared structural redaction deliberately preserves mapping keys. Gate
+    # evidence is persisted, so scrub keys too before it crosses that boundary.
+    redacted = redact_keys(redacted)
+    if not isinstance(redacted, dict):  # pragma: no cover - mapping contract
+        raise ValidationIssue(
+            "implement_gate_record_invalid",
+            "Gate record redaction did not preserve object shape",
+        )
+    # Keep the public handler's literal output shape visible to the compatibility
+    # analyzer while sanitizing every nested value before persistence or return.
+    record.clear()
+    record.update(redacted)
+
+
 def run_gate(
     repo_root: Path,
     *,
@@ -846,6 +982,7 @@ def run_gate(
     """Run tests, record tip + counts under gates/batch-N.json. Non-zero on fail."""
     ensure_implement_dirs(repo_root)
     work_cwd = Path(cwd).expanduser().resolve() if cwd else Path(repo_root).resolve()
+    exact_secret_values = _inherited_secret_values()
 
     if test_command:
         cmd = list(test_command)
@@ -863,36 +1000,59 @@ def run_gate(
     else:
         cmd = [sys.executable, "-m", "unittest", "discover", "-s", "tests"]
 
-    try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(work_cwd),
-            capture_output=True,
-            text=True,
+    with _managed_implement_env(
+        adapter="gate",
+        worktree=work_cwd,
+    ) as gate_env:
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(work_cwd),
+                env=gate_env,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            message = redact_text(
+                f"Unable to run gate command {cmd!r} in {work_cwd}: {exc}",
+                exact_values=exact_secret_values,
+            ).text
+            raise ValidationIssue(
+                "implement_gate_spawn_failed",
+                message,
+                path=redact_text(
+                    str(work_cwd), exact_values=exact_secret_values
+                ).text,
+            ) from exc
+        combined = (proc.stdout or "") + (
+            "\n" + proc.stderr if proc.stderr else ""
         )
-    except OSError as exc:
-        raise ValidationIssue(
-            "implement_gate_spawn_failed",
-            f"Unable to run gate command {cmd!r} in {work_cwd}: {exc}",
-            path=str(work_cwd),
-        ) from exc
-    combined = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
-    counts = parse_unittest_output(combined)
-    tip = _git_rev_parse(work_cwd)
+        counts = parse_unittest_output(combined)
+        tip = _git_rev_parse(work_cwd, env=gate_env)
+
+    # Redact before truncation so a tail boundary cannot retain a partial exact
+    # secret that no longer matches the complete value.
+    stdout_redacted = redact_text(
+        proc.stdout or "", exact_values=exact_secret_values
+    ).text
+    stderr_redacted = redact_text(
+        proc.stderr or "", exact_values=exact_secret_values
+    ).text
 
     warnings: list[str] = []
     done_path = done_dir(repo_root) / f"batch-{int(batch)}.json"
-    done_report: dict[str, Any] | None = None
-    if done_path.is_file():
-        try:
-            done_report = json.loads(done_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            warnings.append(f"done report present but invalid JSON: {exc}")
-    else:
+    done_present, done_report, done_warning = _read_done_report(
+        repo_root,
+        done_path,
+    )
+    if done_warning:
+        warnings.append(done_warning)
+    if not done_present:
         warnings.append(
             f"done report missing (non-fatal for dogfood): {done_path}"
         )
 
+    gate_path = gates_dir(repo_root) / f"batch-{int(batch)}.json"
     record = {
         "ok": proc.returncode == 0 and counts["failed"] == 0,
         "action": "gate",
@@ -904,22 +1064,40 @@ def run_gate(
         "focused": focused,
         "cwd": str(work_cwd),
         "done_report_path": str(done_path),
-        "done_report_present": done_path.is_file(),
+        "done_report_present": done_present,
         "done_report": done_report,
         "warnings": warnings,
-        "stdout_tail": (proc.stdout or "")[-2000:],
-        "stderr_tail": (proc.stderr or "")[-2000:],
+        "stdout_tail": stdout_redacted[-2000:],
+        "stderr_tail": stderr_redacted[-2000:],
         "recorded_at": _utc_now(),
         "mutated_repo": False,
         "model_calls_made": False,
+        "gate_path": str(gate_path),
     }
-
-    gate_path = gates_dir(repo_root) / f"batch-{int(batch)}.json"
-    gate_path.write_text(
-        json.dumps(record, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    _redact_gate_record_in_place(
+        record,
+        exact_secret_values=exact_secret_values,
     )
-    record["gate_path"] = str(gate_path)
+    try:
+        _write_private_json(repo_root, gate_path, record)
+    except ValidationIssue as exc:
+        if exc.code in {
+            "implement_runtime_symlink",
+            "implement_runtime_hardlink",
+            "implement_runtime_component_invalid",
+        }:
+            raise
+        message = redact_text(
+            f"Unable to persist gate record: {exc.code}",
+            exact_values=exact_secret_values,
+        ).text
+        raise ValidationIssue(
+            "implement_gate_write_failed",
+            message,
+            path=redact_text(
+                str(gate_path), exact_values=exact_secret_values
+            ).text,
+        ) from exc
 
     state = load_state(repo_root)
     if state is not None:
@@ -933,8 +1111,27 @@ def status_payload(repo_root: Path) -> dict[str, Any]:
     """Show implement runtime state if present."""
     root = implement_root(repo_root)
     state = load_state(repo_root)
-    gate_files = sorted(gates_dir(repo_root).glob("batch-*.json")) if root.is_dir() else []
-    done_files = sorted(done_dir(repo_root).glob("batch-*.json")) if root.is_dir() else []
+    try:
+        gate_files = [
+            path
+            for path in list_repo_store_files(
+                Path(repo_root),
+                gates_dir(repo_root),
+                suffix=".json",
+            )
+            if path.name.startswith("batch-")
+        ]
+        done_files = [
+            path
+            for path in list_repo_store_files(
+                Path(repo_root),
+                done_dir(repo_root),
+                suffix=".json",
+            )
+            if path.name.startswith("batch-")
+        ]
+    except StorageError as exc:
+        raise _storage_issue(exc, path=root, operation="list") from exc
     return {
         "ok": True,
         "action": "status",

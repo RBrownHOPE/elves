@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,10 @@ from cobbler_runtime.dispatch import (  # noqa: E402
     run_council_sync,
     run_lightweight_review_sync,
 )
+from cobbler_runtime.context import (  # noqa: E402
+    is_secret_env_name,
+    redact_text,
+)
 from cobbler_runtime.leases import LeaseStore, build_write_task_packet  # noqa: E402
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.sessions import SessionRegistry  # noqa: E402
@@ -89,6 +94,87 @@ from cobbler_runtime.onboard import (  # noqa: E402
     probe_routes,
     show_onboarding,
 )
+from cobbler_runtime.storage import (  # noqa: E402
+    StorageError,
+    atomic_write_json,
+    read_repo_regular_bytes,
+)
+
+
+WORKER_SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024
+
+
+def _secret_env_values() -> frozenset[str]:
+    return frozenset(
+        value
+        for name, value in os.environ.items()
+        if is_secret_env_name(name) and isinstance(value, str) and len(value) >= 8
+    )
+
+
+def _redacted_storage_issue(error: StorageError) -> dict[str, Any]:
+    message = redact_text(
+        error.message,
+        exact_values=_secret_env_values(),
+    ).text
+    return {
+        "code": f"storage_{error.code}",
+        "message": message,
+        "category": "storage",
+    }
+
+
+def _emit_storage_error(
+    args: argparse.Namespace,
+    error: StorageError,
+    *,
+    command: str,
+) -> int:
+    issue = _redacted_storage_issue(error)
+    payload = {
+        "ok": False,
+        "issues": [issue],
+        "mutated_repo": False,
+        "model_calls_made": False,
+    }
+    if getattr(args, "json", False):
+        return _emit_json(payload, exit_code=1)
+    print(
+        f"{command}: FAILED [{issue['code']}] {issue['message']}",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _read_worker_snapshot(repo_root: Path, path: Path) -> dict[str, Any]:
+    """Read one bounded store snapshot without following links."""
+    raw = read_repo_regular_bytes(
+        repo_root,
+        path,
+        max_bytes=WORKER_SNAPSHOT_MAX_BYTES,
+    )
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise StorageError(
+            "malformed_json",
+            f"Malformed worker snapshot at {path}: {exc}",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise StorageError(
+            "malformed_json",
+            f"Worker snapshot must be a JSON object: {path}",
+        )
+    return payload
+
+
+def _write_worker_snapshot(
+    repo_root: Path,
+    path: Path,
+    payload: dict[str, Any],
+) -> None:
+    """Atomically publish one repo-anchored worker snapshot."""
+    atomic_write_json(path, payload, repo_root=repo_root)
 
 
 def _repo_root_from_args(args: argparse.Namespace) -> Path:
@@ -158,7 +244,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     repo_root = _repo_root_from_args(args)
     resolved = resolve_from_repo(repo_root)
     inventory = doctor_inventory(resolved.profiles)
-    registry = SessionRegistry.open_readonly(repo_root)
+    try:
+        registry = SessionRegistry.open_readonly(repo_root)
+    except StorageError as error:
+        return _emit_storage_error(args, error, command="doctor")
     sessions = [rec.to_dict() for rec in registry.list_sessions()]
     payload: dict[str, Any] = {
         "ok": resolved.ok,
@@ -212,9 +301,15 @@ def cmd_session(args: argparse.Namespace) -> int:
 
     if action in {"list", "probe"}:
         # Truly read-only: never create runtime directories.
-        registry = SessionRegistry.open_readonly(repo_root)
+        try:
+            registry = SessionRegistry.open_readonly(repo_root)
+        except StorageError as error:
+            return _emit_storage_error(args, error, command=f"session {action}")
     else:
-        registry = SessionRegistry(repo_root)
+        try:
+            registry = SessionRegistry(repo_root)
+        except StorageError as error:
+            return _emit_storage_error(args, error, command=f"session {action}")
 
     if action == "list":
         records = [rec.to_dict() for rec in registry.list_sessions()]
@@ -667,10 +762,10 @@ def cmd_onboard(args: argparse.Namespace) -> int:
 def cmd_worker(args: argparse.Namespace) -> int:
     """Writer lease prepare/audit/export/refresh — host-owned lifecycle."""
     repo_root = _repo_root_from_args(args)
-    store = LeaseStore(repo_root)
     action = args.worker_action
 
     try:
+        store = LeaseStore(repo_root)
         if action == "prepare":
             profile = grok_write_profile(args.grok_version)
             if args.sandbox_profile == "workspace":
@@ -685,13 +780,16 @@ def cmd_worker(args: argparse.Namespace) -> int:
             elif qual_id:
                 # Store-owned digest path under leases/qualifications/
                 qpath = store.snapshot_dir(qual_id) / "qualification.json"
-                if not qpath.is_file():
+                try:
+                    qualification = _read_worker_snapshot(repo_root, qpath)
+                except StorageError as exc:
+                    if exc.code != "not_found":
+                        raise
                     raise ValidationIssue(
                         "qualification_id_not_found",
                         f"No host qualification record for id `{qual_id}`",
                         path=str(qpath),
-                    )
-                qualification = json.loads(qpath.read_text(encoding="utf-8"))
+                    ) from exc
             lease = store.prepare(
                 lease_id=args.lease_id,
                 host_checkout=Path(args.host_checkout),
@@ -711,11 +809,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
             # Capture pre-turn snapshots under store-owned digest path (not raw lease id).
             snaps = pre_turn_snapshots(Path(lease.worker_checkout))
             snap_dir = store.snapshot_dir(lease.lease_id)
-            snap_dir.mkdir(parents=True, exist_ok=True)
             snap_path = snap_dir / "pre.json"
-            from cobbler_runtime.storage import atomic_write_json  # noqa: PLC0415
-
-            atomic_write_json(snap_path, snaps)
+            _write_worker_snapshot(repo_root, snap_path, snaps)
             inv = None
             if args.adapter == "grok-build":
                 inv = build_write_resume_invocation(
@@ -740,13 +835,16 @@ def cmd_worker(args: argparse.Namespace) -> int:
             lease = store.get(args.lease_id)
             pre_path = store.snapshot_dir(args.lease_id) / "pre.json"
             # Missing pre.json is a hard audit error (not a soft empty snapshot).
-            if not pre_path.is_file():
+            try:
+                pre = _read_worker_snapshot(repo_root, pre_path)
+            except StorageError as exc:
+                if exc.code != "not_found":
+                    raise
                 raise ValidationIssue(
                     "audit_missing_pre_snapshot",
                     "Missing pre.json snapshot; refuse audit without prepare-time evidence",
                     path=str(pre_path),
-                )
-            pre = json.loads(pre_path.read_text(encoding="utf-8"))
+                ) from exc
             store.mark_auditing(lease.lease_id)
             result = audit_lease_turn(
                 store.get(args.lease_id),
@@ -787,13 +885,16 @@ def cmd_worker(args: argparse.Namespace) -> int:
             out = Path(args.output_dir)
             # Load persisted audit evidence; never rerun a weaker audit without snapshots.
             evidence_path = store.snapshot_dir(args.lease_id) / "audit_evidence.json"
-            if not evidence_path.is_file():
+            try:
+                evidence = _read_worker_snapshot(repo_root, evidence_path)
+            except StorageError as exc:
+                if exc.code != "not_found":
+                    raise
                 raise ValidationIssue(
                     "export_missing_audit_evidence",
                     "Export requires persisted audit evidence from an AUDITED_PASS lease",
                     path=str(evidence_path),
-                )
-            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+                ) from exc
             required_evidence_fields = {
                 "ok",
                 "lease_id",
@@ -940,6 +1041,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
             print(json.dumps(packet, indent=2, sort_keys=True))
             return 0
 
+    except StorageError as error:
+        return _emit_storage_error(args, error, command=f"worker {action}")
     except ValidationIssue as issue:
         payload = {"ok": False, "issues": [issue.to_dict()]}
         if args.json:
@@ -1940,7 +2043,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except StorageError as error:
+        command = str(getattr(args, "command", "cobbler"))
+        return _emit_storage_error(args, error, command=command)
 
 
 if __name__ == "__main__":

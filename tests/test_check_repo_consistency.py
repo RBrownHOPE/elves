@@ -836,12 +836,21 @@ Cobbler
         ]
 
         self.assertIn('"config.json.example"', phrases)
+        self.assertIn('".env*"', phrases)
         self.assertIn('".github/ISSUE_TEMPLATE/**"', phrases)
         self.assertIn('"aliases/**"', phrases)
         self.assertIn('"docs/cobbler.md"', phrases)
+        self.assertIn('"openapi.json"', phrases)
+        self.assertIn('"openapi.yaml"', phrases)
+        self.assertIn('"swagger.json"', phrases)
+        self.assertIn('"docs/openapi.json"', phrases)
         self.assertIn('"scripts/**"', phrases)
-        self.assertIn("python3 scripts/verify_repo.py --skip-smokes", phrases)
-        self.assertIn("python3 scripts/installed_bundle_smoke.py --host all", phrases)
+        self.assertIn("fetch-depth: 0", phrases)
+        self.assertIn("--base-ref", phrases)
+        self.assertIn(
+            "python3 scripts/verify_repo.py --ci --version 2.1.0",
+            phrases,
+        )
 
     def test_repo_consistency_workflow_requires_node24_action_majors(self) -> None:
         label = ".github/workflows/repo-consistency.yml"

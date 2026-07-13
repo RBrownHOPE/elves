@@ -54,13 +54,13 @@ NONSTOP_GUARDRAIL_PHRASES = {
     "SKILL.md": [
         "Stop Gate",
         "continuation_guard",
-        "After every commit and push, re-read the survival guide before doing anything else.",
+        "After every host-owned commit and push, re-read the survival guide before doing anything else.",
         "Do not wait for user acknowledgment",
     ],
     "AGENTS.md": [
         "Stop Gate",
         "continuation_guard",
-        "After every commit and push, re-read the survival guide before doing anything else.",
+        "After every host-owned commit and push, re-read the survival guide before doing anything else.",
         "Do not wait for user acknowledgment",
     ],
     "references/survival-guide-template.md": [
@@ -216,13 +216,19 @@ EXACT_FULL_RUN_COMMAND_FORBIDDEN_PATTERNS = {
 REPO_CONSISTENCY_WORKFLOW_PHRASES = {
     ".github/workflows/repo-consistency.yml": [
         '"config.json.example"',
+        '".env*"',
+        '"openapi.json"',
+        '"openapi.yaml"',
+        '"swagger.json"',
         '".github/ISSUE_TEMPLATE/**"',
         '".github/workflows/repo-consistency.yml"',
         '"aliases/**"',
         '"docs/cobbler.md"',
+        '"docs/openapi.json"',
         '"scripts/**"',
-        "python3 scripts/verify_repo.py --skip-smokes",
-        "python3 scripts/installed_bundle_smoke.py --host all",
+        "fetch-depth: 0",
+        "python3 scripts/verify_repo.py --ci --version 2.1.0",
+        "--base-ref",
         "actions/checkout@v6",
         "actions/setup-python@v6",
     ],
@@ -876,8 +882,8 @@ PUBLIC_API_SURFACE_SNAPSHOT_PHRASES = {
         "snapshots are regression evidence, not authority",
     ],
     "TODO.md": [
-        "optional public API surface snapshots",
-        "The helper/scanner remains deferred",
+        "public API surfaces",
+        "implemented `cobbler_runtime.public_api_snapshot` compatibility gate",
     ],
 }
 
@@ -1951,7 +1957,7 @@ PROGRESS_COMMIT_PHRASES = {
         "audited detached handoff commits",
         "never own refs, remotes, push, PRs, or canonical run memory",
         "Reserve the `Close` phase for acceptance-backed batch completion",
-        "Git and PR operations never dispatch model inference",
+        "Protected refs, PR operations, and merge never dispatch model inference",
     ],
     "AGENTS.md": [
         "## Git History as Operator UI",
@@ -1960,7 +1966,7 @@ PROGRESS_COMMIT_PHRASES = {
         "audited detached handoff commits",
         "never own refs, remotes, push, PRs, or canonical run memory",
         "Close` phase for acceptance-backed batch completion",
-        "Git and PR operations never dispatch model inference",
+        "Protected refs, PR operations, and merge never dispatch model inference",
     ],
     "references/plan-template.md": [
         "Contract|Implement|Validate|Review|Close",

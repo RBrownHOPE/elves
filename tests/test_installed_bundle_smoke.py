@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -42,8 +43,20 @@ class InstalledBundleSmokeTests(unittest.TestCase):
                     msg=f"{host} failures={result.get('failures')}",
                 )
                 self.assertGreater(int(result["py_module_count"]), 5)
+                self.assertEqual(
+                    result["imported_runtime_module_count"],
+                    result["py_module_count"],
+                )
+                self.assertEqual(
+                    result["required_runtime_count"],
+                    len(self.smoke.REQUIRED_TOP_LEVEL_RUNTIME_PATHS),
+                )
+                self.assertEqual(result["alias_count"], 7 if host == "claude" else 0)
+                self.assertGreater(int(result["markdown_link_count"]), 0)
+                self.assertTrue(result["skill_present"])
+                self.assertTrue(result["agents_present"])
 
-    def test_openrouter_lens_is_shipped_with_bundle(self) -> None:
+    def test_required_top_level_dependencies_are_shipped_with_bundle(self) -> None:
         # Stage via smoke helper's copy path and assert presence without full smoke.
         import sync_installed_skills as sync  # noqa: PLC0415
 
@@ -62,6 +75,7 @@ class InstalledBundleSmokeTests(unittest.TestCase):
                 problems = sync.apply_target("codex")
                 self.assertEqual(problems, [])
                 self.assertTrue((dest / "scripts" / "openrouter_lens.py").is_file())
+                self.assertTrue((dest / "scripts" / "workspace_guard.py").is_file())
                 self.assertTrue((dest / "scripts" / "cobbler_runtime" / "implement.py").is_file())
                 self.assertTrue((dest / "scripts" / "cobbler_runtime" / "onboard.py").is_file())
                 self.assertTrue((dest / "scripts" / "cobbler_runtime" / "executables.py").is_file())
@@ -69,6 +83,100 @@ class InstalledBundleSmokeTests(unittest.TestCase):
             finally:
                 sync.REPO_ROOT = original_root
                 sync.TARGETS = original_targets
+
+    def test_smoke_contract_rejects_missing_required_runtime_dependency(self) -> None:
+        required = (*self.smoke.REQUIRED_TOP_LEVEL_RUNTIME_PATHS, "scripts/missing.py")
+        with mock.patch.object(
+            self.smoke,
+            "REQUIRED_TOP_LEVEL_RUNTIME_PATHS",
+            required,
+        ):
+            result = self.smoke.smoke_host("codex", repo_root=REPO_ROOT)
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "missing required runtime dependency scripts/missing.py",
+            result["failures"],
+        )
+
+    def test_installed_markdown_links_reject_unshipped_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            install_root = Path(tmpdir) / "skills"
+            bundle = install_root / "elves"
+            bundle.mkdir(parents=True)
+            (bundle / "SKILL.md").write_text(
+                "[source-only docs](README.md)\n",
+                encoding="utf-8",
+            )
+
+            failures, checked = self.smoke._validate_installed_markdown_links(
+                install_root
+            )
+
+        self.assertEqual(checked, 1)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("unshipped link target README.md", failures[0])
+
+    def test_installed_markdown_links_validate_references_but_ignore_examples(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            install_root = Path(tmpdir) / "skills"
+            bundle = install_root / "elves"
+            bundle.mkdir(parents=True)
+            skill = bundle / "SKILL.md"
+            skill.write_text(
+                "[source-only docs][readme]\n\n"
+                "[readme]: README.md\n\n"
+                "```md\n[example](MISSING-EXAMPLE.md)\n```\n"
+                "<!-- [commented](MISSING-COMMENT.md) -->\n",
+                encoding="utf-8",
+            )
+
+            failures, checked = self.smoke._validate_installed_markdown_links(
+                install_root
+            )
+
+        self.assertEqual(checked, 1)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("unshipped link target README.md", failures[0])
+
+    def test_claude_alias_inventory_rejects_an_eighth_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            install_root = Path(tmpdir) / "skills"
+            bundle = install_root / "elves"
+            bundle.mkdir(parents=True)
+            for name in self.smoke.EXPECTED_CLAUDE_ALIASES:
+                alias = install_root / name
+                alias.mkdir()
+                (alias / "SKILL.md").write_text(
+                    self.smoke.CLAUDE_ALIAS_MARKER,
+                    encoding="utf-8",
+                )
+            (install_root / "extra-alias").mkdir()
+
+            failures, count = self.smoke._validate_alias_installation(
+                "claude",
+                bundle_root=bundle,
+            )
+
+        self.assertEqual(count, 8)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("expected exactly seven managed aliases", failures[0])
+
+    def test_codex_alias_inventory_rejects_any_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            install_root = Path(tmpdir) / "skills"
+            bundle = install_root / "elves"
+            bundle.mkdir(parents=True)
+            (install_root / "cobbler").mkdir()
+
+            failures, count = self.smoke._validate_alias_installation(
+                "codex",
+                bundle_root=bundle,
+            )
+
+        self.assertEqual(count, 1)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("Codex install must contain no Claude aliases", failures[0])
 
 
 class BuiltinAdapterRegistryTests(unittest.TestCase):

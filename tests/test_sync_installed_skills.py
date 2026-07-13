@@ -97,6 +97,10 @@ class SyncInstalledSkillsTests(unittest.TestCase):
                 f"alias conflict: {alias_path.parent} exists without Elves managed alias marker",
                 problems,
             )
+            self.assertFalse(
+                (home / ".claude" / "skills" / "elves" / "SKILL.md").exists(),
+                "alias conflicts must be detected before mutating the main install",
+            )
 
     def test_apply_updates_marked_stale_alias(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -165,6 +169,64 @@ class SyncInstalledSkillsTests(unittest.TestCase):
             self.assertTrue(
                 (home / ".codex" / "skills" / "elves" / "config.json.example").exists()
             )
+            for host_root in (
+                home / ".claude" / "skills" / "elves",
+                home / ".codex" / "skills" / "elves",
+            ):
+                self.assertTrue((host_root / "SKILL.md").is_file())
+                self.assertTrue((host_root / "AGENTS.md").is_file())
+
+    def test_apply_unlinks_managed_file_symlinks_without_overwriting_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo, _home = self.configure_temp_repo(tmpdir)
+            for host in ("claude", "codex"):
+                with self.subTest(host=host):
+                    root = self.sync.TARGETS[host]["root"]
+                    root.mkdir(parents=True, exist_ok=True)
+                    outside = Path(tmpdir) / f"outside-{host}.md"
+                    outside.write_text("keep\n", encoding="utf-8")
+                    managed = root / "SKILL.md"
+                    managed.symlink_to(outside)
+
+                    problems = self.sync.apply_target(host)
+
+                    self.assertEqual(problems, [])
+                    self.assertEqual(outside.read_text(encoding="utf-8"), "keep\n")
+                    self.assertFalse(managed.is_symlink())
+                    self.assertEqual(managed.read_text(), (repo / "SKILL.md").read_text())
+
+    def test_apply_rejects_symlinked_install_ancestor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _repo, home = self.configure_temp_repo(tmpdir)
+            outside = Path(tmpdir) / "outside-skills"
+            outside.mkdir()
+            skills = home / ".codex" / "skills"
+            skills.parent.mkdir(parents=True)
+            skills.symlink_to(outside, target_is_directory=True)
+
+            problems = self.sync.apply_target("codex")
+
+            self.assertTrue(any("unsafe symlinked install path" in item for item in problems))
+            self.assertFalse((outside / "elves").exists())
+
+    def test_apply_preflight_does_not_follow_cleanup_parent_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _repo, _home = self.configure_temp_repo(tmpdir)
+            installed_root = self.sync.TARGETS["codex"]["root"]
+            installed_root.mkdir(parents=True)
+            outside = Path(tmpdir) / "outside-user-files"
+            outside.mkdir()
+            sentinel = outside / "release_checklist.py"
+            sentinel.write_text("user-owned sentinel\n", encoding="utf-8")
+            (installed_root / "scripts").symlink_to(outside, target_is_directory=True)
+
+            problems = self.sync.apply_target("codex")
+
+            self.assertTrue(any("unsafe symlinked install path" in item for item in problems))
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "user-owned sentinel\n")
+            # Preflight is all-or-nothing: no safe-looking managed file is copied
+            # before the unsafe cleanup destination is discovered.
+            self.assertFalse((installed_root / "SKILL.md").exists())
 
     def test_check_all_without_installed_targets_is_advisory_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -186,11 +248,22 @@ class SyncInstalledSkillsTests(unittest.TestCase):
             installed = home / ".claude" / "skills" / "elves"
             self.assertTrue((installed / "scripts" / "cobbler_runtime" / "nested" / "extra.py").is_file())
             self.assertTrue((installed / "scripts" / "openrouter_lens.py").is_file())
+            self.assertTrue((installed / "scripts" / "workspace_guard.py").is_file())
             # Adding a module under the package requires no allowlist edit.
             (repo / "scripts" / "cobbler_runtime" / "brand_new.py").write_text("X=1\n")
             problems = self.sync.apply_target("claude")
             self.assertEqual(problems, [])
             self.assertTrue((installed / "scripts" / "cobbler_runtime" / "brand_new.py").is_file())
+
+    def test_required_standalone_runtime_helpers_are_managed(self) -> None:
+        self.assertIn(
+            "scripts/openrouter_lens.py",
+            self.sync.TOP_LEVEL_RUNTIME_SCRIPT_PATHS,
+        )
+        self.assertIn(
+            "scripts/workspace_guard.py",
+            self.sync.TOP_LEVEL_RUNTIME_SCRIPT_PATHS,
+        )
 
     def test_exactly_seven_claude_aliases(self) -> None:
         self.assertEqual(len(self.sync.CLAUDE_ALIAS_NAMES), 7)

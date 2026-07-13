@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -213,6 +214,616 @@ class ElvesLandingCheckTests(unittest.TestCase):
             code = self.mod.main(["--session", str(session_path)])
             self.assertEqual(code, 1)
 
+    def test_plan_without_batch_headings_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {"criterion": "done", "met": True, "evidence": "sha"}
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "# Plan\n\n- [x] Everything is done\n",
+                encoding="utf-8",
+            )
+
+            code = self.mod.main(["--session", str(session_path)])
+
+            self.assertEqual(code, 1)
+
+    def test_missing_plan_is_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session_path = self._write_session(
+                tmp,
+                {
+                    "batches": [
+                        {
+                            "id": 1,
+                            "status": "complete",
+                            "acceptance": [
+                                {"criterion": "done", "met": True, "evidence": "sha"}
+                            ],
+                        }
+                    ]
+                },
+            )
+            code = self.mod.main(["--session", str(session_path)])
+            self.assertEqual(code, 1)
+
+    def test_batch_tasks_cannot_substitute_for_acceptance_section(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {"criterion": "Edited a file", "met": True, "evidence": "sha"}
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Work\n\n**Tasks:**\n- [x] Edited a file\n",
+                encoding="utf-8",
+            )
+            code = self.mod.main(["--session", str(session_path)])
+            self.assertEqual(code, 1)
+
+    def test_unrelated_legacy_evidence_cannot_satisfy_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "criterion": "tests green",
+                                "met": True,
+                                "evidence": "unrelated test output",
+                            }
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Work\n\n**Acceptance criteria:**\n"
+                "- [x] Product behavior works\n",
+                encoding="utf-8",
+            )
+            args = self.mod.parse_args(["--session", str(session_path)])
+            report = self.mod.run_checks(args)
+            self.assertTrue(
+                any(f.code == "acceptance_criterion_missing" for f in report.errors)
+            )
+            self.assertTrue(
+                any(f.code == "acceptance_evidence_unrelated" for f in report.errors)
+            )
+
+    def test_legacy_normalized_mapping_includes_master_acceptance(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "criterion": "feature works",
+                                "met": True,
+                                "evidence": "batch proof",
+                            },
+                            {
+                                "criterion": "end-to-end ready",
+                                "met": True,
+                                "evidence": "cumulative proof",
+                            },
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Work\n\n**Acceptance criteria:**\n"
+                "- [x] Feature   Works\n\n"
+                "## Master Acceptance\n\n"
+                "- [x] End-to-end ready\n",
+                encoding="utf-8",
+            )
+            code = self.mod.main(["--session", str(session_path)])
+            self.assertEqual(code, 0)
+
+    def test_unchecked_legacy_master_acceptance_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {"criterion": "done", "met": True, "evidence": "batch"},
+                            {
+                                "criterion": "end-to-end ready",
+                                "met": True,
+                                "evidence": "claimed master",
+                            },
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Work\n\n**Acceptance criteria:**\n- [x] done\n\n"
+                "## Master Acceptance\n\n- [ ] end-to-end ready\n",
+                encoding="utf-8",
+            )
+            code = self.mod.main(["--session", str(session_path)])
+            self.assertEqual(code, 1)
+
+    def test_unparseable_stable_acceptance_ids_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B1-A1",
+                                "criterion": "Batch contract",
+                                "met": True,
+                                "evidence": "sha",
+                            }
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Contract\n\n"
+                "**Acceptance criteria:**\n"
+                "- [x] B1-A1 Batch contract\n",
+                encoding="utf-8",
+            )
+
+            code = self.mod.main(["--session", str(session_path)])
+
+            self.assertEqual(code, 1)
+
+    def test_stable_ids_require_master_acceptance(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B1-A1",
+                                "criterion": "Batch contract",
+                                "met": True,
+                                "evidence": "sha",
+                            }
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Contract\n\n"
+                "**Acceptance criteria:**\n"
+                "- [x] B1-A1 — Batch contract\n",
+                encoding="utf-8",
+            )
+
+            code = self.mod.main(["--session", str(session_path)])
+
+            self.assertEqual(code, 1)
+
+    def test_stable_ids_with_master_and_exact_evidence_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B1-A1",
+                                "criterion": "Batch contract",
+                                "met": True,
+                                "evidence": "batch proof",
+                            },
+                            {
+                                "id": "M-A1",
+                                "criterion": "Master contract",
+                                "met": True,
+                                "evidence": "cumulative proof",
+                            },
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Contract\n\n"
+                "**Acceptance criteria:**\n"
+                "- [x] B1-A1 — Batch contract\n\n"
+                "## Master Acceptance\n\n"
+                "- [x] M-A1 — Master contract\n",
+                encoding="utf-8",
+            )
+
+            code = self.mod.main(["--session", str(session_path)])
+
+            self.assertEqual(code, 0)
+
+    def test_stable_mode_rejects_unidentified_batch_or_master_checkboxes(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B1-A1",
+                                "criterion": "First criterion",
+                                "met": True,
+                                "evidence": "batch proof",
+                            },
+                            {
+                                "id": "M-A1",
+                                "criterion": "Master criterion",
+                                "met": True,
+                                "evidence": "master proof",
+                            },
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Contract\n\n**Acceptance criteria:**\n"
+                "- [x] B1-A1 — First criterion\n"
+                "- [x] Unidentified critical criterion\n\n"
+                "## Master Acceptance\n\n"
+                "- [x] M-A1 — Master criterion\n"
+                "- [x] Unidentified master criterion\n",
+                encoding="utf-8",
+            )
+
+            report = self.mod.run_checks(
+                self.mod.parse_args(["--session", str(session_path)])
+            )
+            codes = {finding.code for finding in report.errors}
+            self.assertIn("plan_acceptance_id_missing", codes)
+            self.assertIn("master_acceptance_id_missing", codes)
+
+    def test_stable_asterisk_rows_and_wrapped_criteria_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B1-A1",
+                                "criterion": "Batch contract continues on the next line",
+                                "met": True,
+                                "evidence": "batch proof",
+                            },
+                            {
+                                "id": "M-A1",
+                                "criterion": "Master contract",
+                                "met": True,
+                                "evidence": "master proof",
+                            },
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Contract\n\n**Acceptance criteria:**\n"
+                "* [x] B1-A1 — Batch contract continues\n"
+                "  on the next line\n\n## Master Acceptance\n\n"
+                "* [x] M-A1 — Master contract\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.mod.main(["--session", str(session_path)]), 0)
+
+    def test_plan_id_must_match_actual_batch_heading_and_extra_session_batch_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {"id": "B2-A1", "criterion": "Wrong", "met": True, "evidence": "e"},
+                            {"id": "M-A1", "criterion": "Master", "met": True, "evidence": "e"},
+                        ],
+                    },
+                    {
+                        "id": 2,
+                        "status": "complete",
+                        "acceptance": [
+                            {"id": "B2-A2", "criterion": "Extra", "met": True, "evidence": "e"}
+                        ],
+                    },
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Only\n\n**Acceptance criteria:**\n"
+                "- [x] B2-A1 — Wrong\n\n## Master Acceptance\n\n"
+                "- [x] M-A1 — Master\n",
+                encoding="utf-8",
+            )
+
+            report = self.mod.run_checks(
+                self.mod.parse_args(["--session", str(session_path)])
+            )
+            codes = {finding.code for finding in report.errors}
+            self.assertIn("plan_acceptance_wrong_batch", codes)
+            self.assertIn("session_batch_missing_in_plan", codes)
+
+    def test_fenced_and_commented_acceptance_cannot_satisfy_landing(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {"id": "B1-A1", "criterion": "hidden", "met": True, "evidence": "e"},
+                            {"id": "M-A1", "criterion": "hidden master", "met": True, "evidence": "e"},
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: One\n\n**Acceptance criteria:**\n\n"
+                "```md\n- [x] B1-A1 — hidden\n```\n\n"
+                "## Master Acceptance\n\n"
+                "<!--\n- [x] M-A1 — hidden master\n-->\n",
+                encoding="utf-8",
+            )
+
+            report = self.mod.run_checks(
+                self.mod.parse_args(["--session", str(session_path)])
+            )
+            codes = {finding.code for finding in report.errors}
+            self.assertIn("plan_acceptance_unparseable", codes)
+            self.assertIn("master_acceptance_unparseable", codes)
+
+    def test_indented_code_acceptance_cannot_satisfy_landing(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {"id": "B1-A1", "criterion": "hidden", "met": True, "evidence": "e"},
+                            {"id": "M-A1", "criterion": "hidden master", "met": True, "evidence": "e"},
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: One\n\n"
+                "    **Acceptance criteria:**\n"
+                "    - [x] B1-A1 — hidden\n\n"
+                "## Master Acceptance\n\n"
+                "    - [x] M-A1 — hidden master\n",
+                encoding="utf-8",
+            )
+
+            report = self.mod.run_checks(
+                self.mod.parse_args(["--session", str(session_path)])
+            )
+            codes = {finding.code for finding in report.errors}
+            self.assertIn("plan_acceptance_section_missing", codes)
+            self.assertIn("master_acceptance_unparseable", codes)
+
+    def test_strict_provenance_rejects_external_untracked_and_mismatched_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "repo"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "feature"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "tests@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Elves Tests"], cwd=root, check=True)
+            plan = root / "plan.md"
+            plan.write_text(
+                "### Batch 1: One\n\n**Acceptance criteria:**\n- [x] done\n",
+                encoding="utf-8",
+            )
+            (root / "other.md").write_text(plan.read_text(encoding="utf-8"), encoding="utf-8")
+            subprocess.run(["git", "add", "plan.md", "other.md"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "plan"], cwd=root, check=True)
+            start = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=True
+            ).stdout.strip()
+            session = {
+                "run_id": "run-1",
+                "branch": "feature",
+                "start_head": start,
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [{"criterion": "done", "met": True, "evidence": "proof"}],
+                    }
+                ],
+            }
+            session_path = self._write_session(root, session)
+            subprocess.run(["git", "add", ".elves-session.json"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "session"], cwd=root, check=True)
+
+            strict = ["--repo-root", str(root), "--session", str(session_path)]
+            self.assertEqual(self.mod.main(strict), 0)
+            root_link = root.parent / "repo-link"
+            root_link.symlink_to(root, target_is_directory=True)
+            self.assertEqual(
+                self.mod.main(
+                    [
+                        "--repo-root",
+                        str(root),
+                        "--session",
+                        str(root_link / ".elves-session.json"),
+                    ]
+                ),
+                1,
+            )
+            self.assertEqual(self.mod.main([*strict, "--plan", "other.md"]), 1)
+
+            outside = root.parent / "outside.md"
+            outside.write_text(plan.read_text(encoding="utf-8"), encoding="utf-8")
+            session["plan_path"] = str(outside)
+            session_path.write_text(json.dumps(session), encoding="utf-8")
+            subprocess.run(["git", "add", ".elves-session.json"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "external plan"], cwd=root, check=True)
+            self.assertEqual(self.mod.main(strict), 1)
+
+    def test_stable_batch_ids_cannot_be_swapped(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B2-A1",
+                                "criterion": "Criterion two",
+                                "met": True,
+                                "evidence": "wrong batch",
+                            }
+                        ],
+                    },
+                    {
+                        "id": 2,
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B1-A1",
+                                "criterion": "Criterion one",
+                                "met": True,
+                                "evidence": "wrong batch",
+                            },
+                            {
+                                "id": "M-A1",
+                                "criterion": "Master",
+                                "met": True,
+                                "evidence": "master proof",
+                            },
+                        ],
+                    },
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: One\n\n**Acceptance criteria:**\n"
+                "- [x] B1-A1 — Criterion one\n\n"
+                "### Batch 2: Two\n\n**Acceptance criteria:**\n"
+                "- [x] B2-A1 — Criterion two\n\n"
+                "## Master Acceptance\n\n- [x] M-A1 — Master\n",
+                encoding="utf-8",
+            )
+            args = self.mod.parse_args(["--session", str(session_path)])
+            report = self.mod.run_checks(args)
+            wrong_batch = [
+                finding
+                for finding in report.errors
+                if finding.code == "acceptance_id_wrong_batch"
+            ]
+            self.assertEqual(len(wrong_batch), 2)
+
+    def test_unchecked_master_acceptance_cannot_be_bypassed_by_green_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B1-A1",
+                                "criterion": "Batch contract",
+                                "met": True,
+                                "evidence": "batch proof",
+                            },
+                            {
+                                "id": "M-A1",
+                                "criterion": "Master contract",
+                                "met": True,
+                                "evidence": "claimed cumulative proof",
+                            },
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Contract\n\n"
+                "**Acceptance criteria:**\n"
+                "- [x] B1-A1 — Batch contract\n\n"
+                "## Master Acceptance\n\n"
+                "- [ ] M-A1 — Master contract\n",
+                encoding="utf-8",
+            )
+
+            code = self.mod.main(["--session", str(session_path)])
+
+            self.assertEqual(code, 1)
+
     def test_multi_batch_close_without_validate_fails(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)
@@ -252,6 +863,34 @@ class ElvesLandingCheckTests(unittest.TestCase):
             )
             code = self.mod.main(["--session", str(session_path)])
             self.assertEqual(code, 1)
+
+    def test_batch_headings_do_not_replace_labeled_validate_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            log = Path(raw) / "execution.md"
+            log.write_text(
+                "Multi-batch close\n\n## Batch 1\nproof\n\n## Batch 2\nproof\n",
+                encoding="utf-8",
+            )
+            report = self.mod.Report()
+            self.mod.check_execution_log(
+                log,
+                report,
+                expected_batch_ids={1, 2},
+            )
+            self.assertTrue(any(f.code == "multi_batch_close" for f in report.errors))
+
+            log.write_text(
+                "Multi-batch close\n\n**Validate for batch 1:**\nproof\n\n"
+                "**Validate for batch 2:**\nproof\n",
+                encoding="utf-8",
+            )
+            report = self.mod.Report()
+            self.mod.check_execution_log(
+                log,
+                report,
+                expected_batch_ids={1, 2},
+            )
+            self.assertFalse(report.errors)
 
     def test_evidence_dirs_required(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -301,10 +940,34 @@ class ElvesLandingCheckTests(unittest.TestCase):
         code = self.mod.main(["--session", "/tmp/definitely-missing-elves-session.json"])
         self.assertEqual(code, 2)
 
+    def test_malformed_batch_and_acceptance_entries_exit_2(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            for payload in (
+                {"batches": [{"id": 1, "status": "complete"}, "not-an-object"]},
+                {
+                    "batches": [
+                        {
+                            "id": 1,
+                            "status": "complete",
+                            "acceptance": [
+                                {"criterion": "done", "met": True, "evidence": "sha"},
+                                "not-an-object",
+                            ],
+                        }
+                    ]
+                },
+            ):
+                with self.subTest(payload=payload):
+                    session_path = self._write_session(tmp, payload)
+                    code = self.mod.main(["--session", str(session_path)])
+                    self.assertEqual(code, 2)
+
     def test_json_output_shape(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)
             session = {
+                "plan_path": "plan.md",
                 "batches": [
                     {
                         "id": 1,
@@ -320,6 +983,10 @@ class ElvesLandingCheckTests(unittest.TestCase):
                 ]
             }
             session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: JSON\n\n**Acceptance criteria:**\n- [x] ok\n",
+                encoding="utf-8",
+            )
             # Capture via run_checks + print_json path
             args = self.mod.parse_args(["--session", str(session_path), "--json"])
             report = self.mod.run_checks(args)

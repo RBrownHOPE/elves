@@ -18,7 +18,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -1367,6 +1367,38 @@ def implement_min_env(
     for key, value in (credential_grants or {}).items():
         env[str(key)] = str(value)
     return env
+
+
+@contextmanager
+def _managed_implement_env(
+    *,
+    adapter: str,
+    worktree: Path,
+    credential_grants: Mapping[str, str] | None = None,
+    home: Path | None = None,
+    tmp: Path | None = None,
+) -> Iterator[dict[str, str]]:
+    """Yield a minimal env and remove only directories allocated by this scope.
+
+    ``implement_min_env`` remains the compatibility constructor.  This scoped
+    wrapper gives launch/gate callers explicit ownership semantics: omitted
+    HOME/TMP paths are temporary and cleaned on every exit, while caller-owned
+    paths are never registered with the cleanup stack.
+    """
+    with ExitStack() as stack:
+        home_path = Path(home) if home is not None else Path(
+            stack.enter_context(tempfile.TemporaryDirectory(prefix="elves-impl-home-"))
+        )
+        tmp_path = Path(tmp) if tmp is not None else Path(
+            stack.enter_context(tempfile.TemporaryDirectory(prefix="elves-impl-tmp-"))
+        )
+        yield implement_min_env(
+            adapter=adapter,
+            worktree=worktree,
+            credential_grants=credential_grants,
+            home=home_path,
+            tmp=tmp_path,
+        )
 
 
 def assert_no_host_secrets(env: Mapping[str, str], *, forbidden_keys: Sequence[str]) -> list[str]:

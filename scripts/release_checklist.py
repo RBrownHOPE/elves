@@ -53,6 +53,23 @@ HUMAN_FACING_PREFIXES = (
     "references/",
 )
 
+EXPECTED_CLAUDE_ALIASES = frozenset(
+    {
+        "cobbler",
+        "cobbler-mode",
+        "council",
+        "ec",
+        "elves-council",
+        "setup-cobbler",
+        "setup-council",
+    }
+)
+
+REQUIRED_RUNTIME_HELPERS = (
+    Path("scripts/openrouter_lens.py"),
+    Path("scripts/workspace_guard.py"),
+)
+
 
 @dataclass
 class NameStatusChange:
@@ -212,25 +229,16 @@ def build_release_checklist(
     # Alias inventory + installed import smoke when the full skill tree is present.
     alias_root = repo_root / "aliases" / "claude"
     runtime_pkg = repo_root / "scripts" / "cobbler_runtime"
-    openrouter = repo_root / "scripts" / "openrouter_lens.py"
-    expected_aliases = {
-        "cobbler",
-        "cobbler-mode",
-        "council",
-        "ec",
-        "elves-council",
-        "setup-cobbler",
-        "setup-council",
-    }
+    runtime_helpers = [repo_root / path for path in REQUIRED_RUNTIME_HELPERS]
     full_tree = alias_root.is_dir() and runtime_pkg.is_dir()
     if full_tree:
         found = {p.name for p in alias_root.iterdir() if p.is_dir()}
-        if found != expected_aliases:
+        if found != EXPECTED_CLAUDE_ALIASES:
             result.failures.append(
                 "aliases/claude: expected exactly seven managed aliases "
-                f"{sorted(expected_aliases)}; found {sorted(found)}"
+                f"{sorted(EXPECTED_CLAUDE_ALIASES)}; found {sorted(found)}"
             )
-        for name in sorted(expected_aliases):
+        for name in sorted(EXPECTED_CLAUDE_ALIASES):
             skill = alias_root / name / "SKILL.md"
             if not skill.is_file():
                 result.failures.append(f"aliases/claude/{name}: missing SKILL.md")
@@ -239,21 +247,30 @@ def build_release_checklist(
             result.failures.append(
                 f"scripts/cobbler_runtime: expected recursive modules, found {len(py_modules)}"
             )
-        if not openrouter.is_file():
-            result.failures.append("scripts/openrouter_lens.py: missing required runtime helper")
-        else:
+        missing_helpers = [
+            relative
+            for relative, helper in zip(REQUIRED_RUNTIME_HELPERS, runtime_helpers)
+            if not helper.is_file()
+        ]
+        for relative in missing_helpers:
+            result.failures.append(f"{relative}: missing required runtime helper")
+        if not missing_helpers:
             import py_compile
 
             try:
-                py_compile.compile(str(openrouter), doraise=True)
+                for helper in runtime_helpers:
+                    py_compile.compile(str(helper), doraise=True)
                 for path in py_modules:
                     py_compile.compile(str(path), doraise=True)
                 result.notes.append(
-                    "Alias inventory (7) + installed-import structural compile smoke: OK"
+                    "Alias inventory (7) + required runtime helpers "
+                    "(openrouter_lens.py, workspace_guard.py) + recursive compile smoke: OK"
                 )
             except py_compile.PyCompileError as exc:
                 result.failures.append(f"installed-import compile smoke failed: {exc}")
-    elif alias_root.is_dir() or runtime_pkg.is_dir() or openrouter.is_file():
+    elif alias_root.is_dir() or runtime_pkg.is_dir() or any(
+        helper.is_file() for helper in runtime_helpers
+    ):
         result.warnings.append(
             "Partial skill tree detected; skipped full alias/import inventory enforcement"
         )

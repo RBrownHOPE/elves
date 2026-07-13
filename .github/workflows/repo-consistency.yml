@@ -9,12 +9,17 @@ on:
       - "CHANGELOG.md"
       - "TODO.md"
       - "config.json.example"
+      - ".env*"
+      - "openapi.json"
+      - "openapi.yaml"
+      - "swagger.json"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/workflows/repo-consistency.yml"
       - "aliases/**"
       - "references/**"
       - ".ai-docs/**"
       - "docs/cobbler.md"
+      - "docs/openapi.json"
       - "docs/elves/**"
       - "docs/plans/**"
       - "scripts/**"
@@ -29,12 +34,17 @@ on:
       - "CHANGELOG.md"
       - "TODO.md"
       - "config.json.example"
+      - ".env*"
+      - "openapi.json"
+      - "openapi.yaml"
+      - "swagger.json"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/workflows/repo-consistency.yml"
       - "aliases/**"
       - "references/**"
       - ".ai-docs/**"
       - "docs/cobbler.md"
+      - "docs/openapi.json"
       - "docs/elves/**"
       - "docs/plans/**"
       - "scripts/**"
@@ -53,6 +63,8 @@ jobs:
             python-version: "3.10"
           - os: ubuntu-latest
             python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.14"
           - os: macos-latest
             python-version: "3.12"
     runs-on: ${{ matrix.os }}
@@ -60,14 +72,27 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Canonical repository verification
-        run: python3 scripts/verify_repo.py --skip-smokes
+      - name: Install Linux filesystem isolation backend
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          bwrap --version
 
-      - name: Installed-bundle smokes (Claude + Codex)
-        run: python3 scripts/installed_bundle_smoke.py --host all
+      - name: Canonical repository verification
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          BASE_REF="$EVENT_BASE_SHA"
+          if ! git rev-parse --verify --quiet "${BASE_REF}^{commit}"; then
+            BASE_REF="HEAD^"
+          fi
+          python3 scripts/verify_repo.py --ci --version 2.1.0 --base-ref "$BASE_REF"

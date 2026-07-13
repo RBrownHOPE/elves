@@ -12,11 +12,8 @@ committed as product state.
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 import re
 import stat
-import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -30,7 +27,12 @@ from .storage import (
     atomic_write_json,
     directory_lock,
     digest_key,
+    ensure_private_dir,
+    guard_repo_path,
+    list_repo_store_files,
+    read_json,
     record_filename,
+    repo_regular_file_exists,
     snapshot_path as storage_snapshot_path,
 )
 
@@ -231,17 +233,17 @@ def _utc_now() -> str:
 
 
 def sessions_root(repo_root: Path) -> Path:
-    return Path(repo_root) / ".elves" / "runtime" / "sessions"
+    repo = Path(repo_root).expanduser().resolve()
+    return guard_repo_path(repo, repo / ".elves" / "runtime" / "sessions")
 
 
 def ensure_sessions_dir(repo_root: Path) -> Path:
-    path = sessions_root(repo_root)
-    path.mkdir(parents=True, exist_ok=True)
-    try:
-        path.chmod(stat.S_IRWXU)
-    except OSError:
-        pass
-    return path
+    repo = Path(repo_root).expanduser().resolve()
+    return ensure_private_dir(
+        sessions_root(repo),
+        mode=stat.S_IRWXU,
+        repo_root=repo,
+    )
 
 
 def file_sha256(path: Path) -> str | None:
@@ -530,39 +532,11 @@ def evaluate_session_continuity(
     )
 
 
-def _atomic_write_text(path: Path, payload: str, *, mode: int = 0o600) -> None:
-    """Write ``payload`` via temp file + os.replace; set permission bits when possible."""
-    # Preserve text-write helper for non-JSON payloads; JSON goes through storage.atomic_write_json.
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=str(path.parent),
-    )
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_path, path)
-        try:
-            path.chmod(mode)
-        except OSError:
-            pass
-    except Exception:
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
-
-
 class SessionRegistry:
     """Disk-backed exact session registry under ignored runtime path."""
 
     def __init__(self, repo_root: Path, *, create: bool = True) -> None:
-        self.repo_root = Path(repo_root)
+        self.repo_root = Path(repo_root).expanduser().resolve()
         self._create = create
         if create:
             self.root = ensure_sessions_dir(self.repo_root)
@@ -583,8 +557,23 @@ class SessionRegistry:
                 "Session registry was opened read-only; refusing to create or mutate state",
                 path=str(self.root),
             )
-        if not self.root.is_dir():
-            self.root = ensure_sessions_dir(self.repo_root)
+        # Re-open the whole chain on every mutation so a post-construction
+        # replacement of `.elves` or a runtime ancestor fails closed.
+        self.root = ensure_sessions_dir(self.repo_root)
+
+    def _read_candidate(self, *paths: Path) -> tuple[Path, dict[str, Any]] | None:
+        for path in paths:
+            try:
+                return path, read_json(path, repo_root=self.repo_root)
+            except StorageError as exc:
+                if exc.code == "not_found":
+                    continue
+                raise ValidationIssue(
+                    "session_storage_unsafe",
+                    f"Unsafe session registry path: {exc.message}",
+                    path=str(path),
+                ) from exc
+        return None
 
     def _record_path(self, session_id: str) -> Path:
         """Digest-keyed path; never use raw session ids (collision/traversal safe)."""
@@ -598,19 +587,24 @@ class SessionRegistry:
     def list_sessions(self) -> list[SessionRecord]:
         records: list[SessionRecord] = []
         self.malformed_records = []
-        if not self.root.is_dir():
+        try:
+            paths = list_repo_store_files(self.repo_root, self.root, suffix=".json")
+        except StorageError as exc:
+            self.malformed_records.append(
+                {"path": str(self.root), "error": f"{type(exc).__name__}: {exc}"}
+            )
             return records
-        for path in sorted(self.root.glob("*.json")):
+        for path in paths:
             if path.name in {"index.json", "store.lock"}:
                 continue
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
+                data = read_json(path, repo_root=self.repo_root)
                 record = SessionRecord.from_dict(data)
                 # Embedded-ID must match any digest-keyed filename expectation when present.
                 if "session_id" in data:
                     assert_embedded_id(data, record.session_id, id_field="session_id")
                 records.append(record)
-            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError, StorageError) as exc:
+            except (OSError, KeyError, TypeError, ValueError, StorageError) as exc:
                 # Fail closed for callers that inspect malformed_records; do not silently drop.
                 self.malformed_records.append(
                     {
@@ -637,22 +631,15 @@ class SessionRegistry:
     def get(self, session_id: str) -> SessionRecord:
         path = self._record_path(session_id)
         legacy = self._legacy_record_path(session_id)
-        chosen = path if path.is_file() else legacy if legacy.is_file() else None
-        if chosen is None:
+        loaded = self._read_candidate(path, legacy)
+        if loaded is None:
             raise ValidationIssue(
                 "session_not_found",
                 f"No session record for exact id `{session_id}`",
                 path=str(path),
                 hint="Exact session IDs are required; never use last/continue selection",
             )
-        try:
-            data = json.loads(chosen.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ValidationIssue(
-                "session_read_error",
-                f"Unable to read session `{session_id}`: {exc}",
-                path=str(chosen),
-            ) from exc
+        chosen, data = loaded
         try:
             assert_embedded_id(data, session_id, id_field="session_id")
             return SessionRecord.from_dict(data)
@@ -672,13 +659,26 @@ class SessionRegistry:
     def save(self, record: SessionRecord, *, expected_revision: int | None = None) -> SessionRecord:
         """Persist a session record with optional compare-and-swap on revision."""
         self._ensure_writable()
-        with directory_lock(self.root):
+        # Validate every authority-bearing leaf before publishing the record.
+        repo_regular_file_exists(self.repo_root, self._index_path)
+        with directory_lock(self.root, repo_root=self.repo_root):
+            repo_regular_file_exists(self.repo_root, self._index_path)
             path = self._record_path(record.session_id)
-            if path.is_file():
+            try:
+                current = read_json(path, repo_root=self.repo_root)
+            except StorageError as exc:
+                if exc.code == "not_found":
+                    current = None
+                else:
+                    raise ValidationIssue(
+                        "session_storage_unsafe",
+                        f"Unsafe session record path: {exc.message}",
+                        path=str(path),
+                    ) from exc
+            if current is not None:
                 try:
-                    current = json.loads(path.read_text(encoding="utf-8"))
                     current_rev = int(current.get("revision") or 0)
-                except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                except (TypeError, ValueError) as exc:
                     raise ValidationIssue(
                         "session_record_malformed",
                         f"Cannot CAS-save over unreadable record: {exc}",
@@ -712,13 +712,23 @@ class SessionRegistry:
             record.updated_at = _utc_now()
             if not record.created_at:
                 record.created_at = record.updated_at
-            atomic_write_json(path, record.to_dict(), mode=stat.S_IRUSR | stat.S_IWUSR)
+            atomic_write_json(
+                path,
+                record.to_dict(),
+                mode=stat.S_IRUSR | stat.S_IWUSR,
+                repo_root=self.repo_root,
+            )
             self._rewrite_index()
             return record
 
     def snapshot_dir(self, session_id: str) -> Path:
         """Store-owned snapshot path for a session (safe against traversal ids)."""
-        return storage_snapshot_path(self.root, session_id, kind="sess")
+        return storage_snapshot_path(
+            self.root,
+            session_id,
+            kind="sess",
+            repo_root=self.repo_root,
+        )
 
     def _rewrite_index(self) -> None:
         index = [
@@ -738,6 +748,7 @@ class SessionRegistry:
             self._index_path,
             {"sessions": index},
             mode=stat.S_IRUSR | stat.S_IWUSR,
+            repo_root=self.repo_root,
         )
 
     def create(
@@ -767,7 +778,7 @@ class SessionRegistry:
             )
         # Reject overwrite of closed/existing without explicit path.
         path = self._record_path(session_id)
-        if path.is_file():
+        if repo_regular_file_exists(self.repo_root, path):
             raise ValidationIssue(
                 "session_exists",
                 f"Session `{session_id}` already exists; use resume/update paths",

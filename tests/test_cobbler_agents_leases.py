@@ -44,6 +44,7 @@ from cobbler_runtime.leases import (  # noqa: E402
     preflight_worker_checkout,
 )
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
+from cobbler_runtime.storage import StorageError, record_filename  # noqa: E402
 
 
 def _run(cwd: Path, args: list[str]) -> None:
@@ -882,6 +883,62 @@ class AuditAndPatchTests(unittest.TestCase):
                 store.mark_integrated(lease.lease_id, new_tip=host_tip)
             self.assertEqual(ctx.exception.code, "integration_tree_mismatch")
             self.assertEqual(store.get(lease.lease_id).state, LeaseState.APPLY_CHECKED)
+
+
+class LeaseStorageContainmentTests(unittest.TestCase):
+    @staticmethod
+    def _lease(lease_id: str) -> WriterLease:
+        return WriterLease(
+            lease_id=lease_id,
+            host_checkout="/host",
+            worker_checkout="/worker",
+            session_id="session",
+            base_head="a" * 40,
+            adapter="grok-build",
+            profile="grok-build-write",
+        )
+
+    def test_symlinked_elves_ancestor_fails_before_outside_directory_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo = base / "repo"
+            outside = base / "outside"
+            repo.mkdir()
+            outside.mkdir()
+            sentinel = outside / "sentinel.txt"
+            sentinel.write_text("unchanged\n", encoding="utf-8")
+            (repo / ".elves").symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaises(StorageError) as ctx:
+                LeaseStore(repo)
+            self.assertEqual(ctx.exception.code, "symlink_component")
+            self.assertFalse((outside / "runtime").exists())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged\n")
+
+    def test_record_and_lock_symlink_leaves_do_not_mutate_outside_targets(self) -> None:
+        for leaf_kind in ("record", "lock"):
+            with self.subTest(leaf_kind=leaf_kind), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                repo = base / "repo"
+                outside = base / "outside"
+                repo.mkdir()
+                outside.mkdir()
+                store = LeaseStore(repo)
+                lease_id = f"unsafe-{leaf_kind}"
+                record_path = store.root / record_filename(lease_id, prefix="lease")
+                leaf_path = (
+                    record_path if leaf_kind == "record" else store.root / "store.lock"
+                )
+                target = outside / f"{leaf_kind}.json"
+                original = '{"sentinel": "unchanged"}\n'
+                target.write_text(original, encoding="utf-8")
+                leaf_path.symlink_to(target)
+
+                with self.assertRaises((StorageError, ValidationIssue)):
+                    store.save(self._lease(lease_id))
+                self.assertEqual(target.read_text(encoding="utf-8"), original)
+                if leaf_kind == "lock":
+                    self.assertFalse(record_path.exists())
 
 
 class GrokWriteProfileTests(unittest.TestCase):

@@ -25,8 +25,13 @@ from .storage import (
     assert_embedded_id,
     atomic_write_json,
     directory_lock,
+    ensure_private_dir,
+    guard_repo_path,
+    list_repo_store_files,
     qualify_write_evidence,
+    read_json,
     record_filename,
+    repo_regular_file_exists,
     snapshot_path as storage_snapshot_path,
 )
 
@@ -188,17 +193,17 @@ def _utc_now() -> str:
 
 
 def leases_root(repo_root: Path) -> Path:
-    return Path(repo_root) / ".elves" / "runtime" / "leases"
+    repo = Path(repo_root).expanduser().resolve()
+    return guard_repo_path(repo, repo / ".elves" / "runtime" / "leases")
 
 
 def ensure_leases_dir(repo_root: Path) -> Path:
-    path = leases_root(repo_root)
-    path.mkdir(parents=True, exist_ok=True)
-    try:
-        path.chmod(stat.S_IRWXU)
-    except OSError:
-        pass
-    return path
+    repo = Path(repo_root).expanduser().resolve()
+    return ensure_private_dir(
+        leases_root(repo),
+        mode=stat.S_IRWXU,
+        repo_root=repo,
+    )
 
 
 def run_git(
@@ -566,7 +571,7 @@ class LeaseStore:
     """Disk-backed exclusive writer lease store."""
 
     def __init__(self, repo_root: Path, *, create: bool = True) -> None:
-        self.repo_root = Path(repo_root)
+        self.repo_root = Path(repo_root).expanduser().resolve()
         self._create = create
         if create:
             self.root = ensure_leases_dir(self.repo_root)
@@ -585,20 +590,39 @@ class LeaseStore:
         safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in lease_id)
         return self.root / f"{safe}.json"
 
+    def _read_candidate(self, *paths: Path) -> tuple[Path, dict[str, Any]] | None:
+        for path in paths:
+            try:
+                return path, read_json(path, repo_root=self.repo_root)
+            except StorageError as exc:
+                if exc.code == "not_found":
+                    continue
+                raise ValidationIssue(
+                    "lease_storage_unsafe",
+                    f"Unsafe lease store path: {exc.message}",
+                    path=str(path),
+                ) from exc
+        return None
+
     def list_leases(self) -> list[WriterLease]:
         leases: list[WriterLease] = []
         self.malformed_records = []
-        if not self.root.is_dir():
+        try:
+            paths = list_repo_store_files(self.repo_root, self.root, suffix=".json")
+        except StorageError as exc:
+            self.malformed_records.append(
+                {"path": str(self.root), "error": f"{type(exc).__name__}: {exc}"}
+            )
             return leases
-        for path in sorted(self.root.glob("*.json")):
+        for path in paths:
             if path.name in {"index.json", "store.lock"}:
                 continue
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
+                data = read_json(path, repo_root=self.repo_root)
                 lease = WriterLease.from_dict(data)
                 assert_embedded_id(data, lease.lease_id, id_field="lease_id")
                 leases.append(lease)
-            except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError, StorageError) as exc:
+            except (OSError, KeyError, ValueError, TypeError, StorageError) as exc:
                 self.malformed_records.append(
                     {"path": str(path), "error": f"{type(exc).__name__}: {exc}"}
                 )
@@ -623,14 +647,14 @@ class LeaseStore:
     def get(self, lease_id: str) -> WriterLease:
         path = self._path(lease_id)
         legacy = self._legacy_path(lease_id)
-        chosen = path if path.is_file() else legacy if legacy.is_file() else None
-        if chosen is None:
+        loaded = self._read_candidate(path, legacy)
+        if loaded is None:
             raise ValidationIssue(
                 "lease_not_found",
                 f"No lease record for `{lease_id}`",
                 path=str(path),
             )
-        data = json.loads(chosen.read_text(encoding="utf-8"))
+        chosen, data = loaded
         try:
             assert_embedded_id(data, lease_id, id_field="lease_id")
         except StorageError as exc:
@@ -648,13 +672,24 @@ class LeaseStore:
                 "Lease store was opened read-only; refusing mutation",
                 path=str(self.root),
             )
-        with directory_lock(self.root):
+        self.root = ensure_leases_dir(self.repo_root)
+        with directory_lock(self.root, repo_root=self.repo_root):
             path = self._path(lease.lease_id)
-            if path.is_file():
+            try:
+                current = read_json(path, repo_root=self.repo_root)
+            except StorageError as exc:
+                if exc.code == "not_found":
+                    current = None
+                else:
+                    raise ValidationIssue(
+                        "lease_storage_unsafe",
+                        f"Unsafe lease record path: {exc.message}",
+                        path=str(path),
+                    ) from exc
+            if current is not None:
                 try:
-                    current = json.loads(path.read_text(encoding="utf-8"))
                     current_rev = int(current.get("revision") or 0)
-                except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                except (TypeError, ValueError) as exc:
                     raise ValidationIssue(
                         "lease_record_malformed",
                         f"Cannot CAS-save over unreadable lease: {exc}",
@@ -687,11 +722,21 @@ class LeaseStore:
             lease.updated_at = _utc_now()
             if not lease.created_at:
                 lease.created_at = lease.updated_at
-            atomic_write_json(path, lease.to_dict(), mode=stat.S_IRUSR | stat.S_IWUSR)
+            atomic_write_json(
+                path,
+                lease.to_dict(),
+                mode=stat.S_IRUSR | stat.S_IWUSR,
+                repo_root=self.repo_root,
+            )
             return lease
 
     def snapshot_dir(self, lease_id: str) -> Path:
-        return storage_snapshot_path(self.root, lease_id, kind="lease")
+        return storage_snapshot_path(
+            self.root,
+            lease_id,
+            kind="lease",
+            repo_root=self.repo_root,
+        )
 
     def prepare(
         self,
@@ -903,10 +948,20 @@ class LeaseStore:
                 used_headless_worktree_resume=True,
             )
 
-        with directory_lock(self.root):
+        record_path = self._path(lease_id)
+        legacy_path = self._legacy_path(lease_id)
+        qualification_path = self.snapshot_dir(lease_id) / "qualification.json"
+        # Fail before lock creation or evidence publication when any authority
+        # leaf has already been replaced by a symlink/non-regular file.
+        repo_regular_file_exists(self.repo_root, record_path)
+        repo_regular_file_exists(self.repo_root, legacy_path)
+        repo_regular_file_exists(self.repo_root, qualification_path)
+        with directory_lock(self.root, repo_root=self.repo_root):
             # Lease IDs are authority identities. Once published, including in a
             # terminal state, they are immutable and never reusable.
-            if self._path(lease_id).exists() or self._legacy_path(lease_id).exists():
+            if repo_regular_file_exists(
+                self.repo_root, record_path
+            ) or repo_regular_file_exists(self.repo_root, legacy_path):
                 raise ValidationIssue(
                     "lease_id_immutable",
                     f"Lease id `{lease_id}` was already published and cannot be reused",
@@ -977,16 +1032,22 @@ class LeaseStore:
             # is never a valid implicit-CAS update token.
             lease.revision = 1
             qualification_dir = self.snapshot_dir(lease.lease_id)
-            qualification_dir.mkdir(parents=True, exist_ok=True)
+            ensure_private_dir(qualification_dir, repo_root=self.repo_root)
             atomic_write_json(
                 qualification_dir / "qualification.json",
                 dict(qualification_evidence),
                 mode=stat.S_IRUSR | stat.S_IWUSR,
+                repo_root=self.repo_root,
             )
             # Publish the authority-bearing lease record last. A crash may leave
             # inert qualification evidence, never a live lease without evidence.
             path = self._path(lease.lease_id)
-            atomic_write_json(path, lease.to_dict(), mode=stat.S_IRUSR | stat.S_IWUSR)
+            atomic_write_json(
+                path,
+                lease.to_dict(),
+                mode=stat.S_IRUSR | stat.S_IWUSR,
+                repo_root=self.repo_root,
+            )
             return lease
 
     def activate(self, lease_id: str) -> WriterLease:
@@ -1041,8 +1102,12 @@ class LeaseStore:
         lease.audit_evidence_digest = str(evidence.get("evidence_digest"))
         # Persist evidence under store-owned snapshot path.
         evidence_dir = self.snapshot_dir(lease_id)
-        evidence_dir.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(evidence_dir / "audit_evidence.json", dict(evidence))
+        ensure_private_dir(evidence_dir, repo_root=self.repo_root)
+        atomic_write_json(
+            evidence_dir / "audit_evidence.json",
+            dict(evidence),
+            repo_root=self.repo_root,
+        )
         return self.save(lease)
 
     def mark_exported(self, lease_id: str, patch_dir: str) -> WriterLease:

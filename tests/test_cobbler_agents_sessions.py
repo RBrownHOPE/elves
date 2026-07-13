@@ -41,6 +41,7 @@ from cobbler_runtime.sessions import (  # noqa: E402
     register_grok_child,
     transition_lifecycle,
 )
+from cobbler_runtime.storage import StorageError, record_filename  # noqa: E402
 
 
 class LifecycleTests(unittest.TestCase):
@@ -415,6 +416,61 @@ class RegistryLifecycleTests(unittest.TestCase):
             self.assertTrue(drift.write_reuse_blocked)
             self.assertEqual(rec.lifecycle, SessionLifecycle.DRIFTED)
             self.assertTrue(rec.write_reuse_blocked)
+
+
+class RegistryStorageContainmentTests(unittest.TestCase):
+    @staticmethod
+    def _create(registry: SessionRegistry, session_id: str) -> None:
+        registry.create(
+            session_id=session_id,
+            harness="grok-build",
+            profile="grok-build",
+            role="implementer",
+        )
+
+    def test_symlinked_elves_ancestor_fails_before_outside_directory_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo = base / "repo"
+            outside = base / "outside"
+            repo.mkdir()
+            outside.mkdir()
+            sentinel = outside / "sentinel.txt"
+            sentinel.write_text("unchanged\n", encoding="utf-8")
+            (repo / ".elves").symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaises(StorageError) as ctx:
+                SessionRegistry(repo)
+            self.assertEqual(ctx.exception.code, "symlink_component")
+            self.assertFalse((outside / "runtime").exists())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged\n")
+
+    def test_record_index_and_lock_symlink_leaves_fail_without_target_mutation(self) -> None:
+        for leaf_kind in ("record", "index", "lock"):
+            with self.subTest(leaf_kind=leaf_kind), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                repo = base / "repo"
+                outside = base / "outside"
+                repo.mkdir()
+                outside.mkdir()
+                registry = SessionRegistry(repo)
+                session_id = f"unsafe-{leaf_kind}"
+                record_path = registry.root / record_filename(session_id, prefix="sess")
+                leaf_path = {
+                    "record": record_path,
+                    "index": registry.root / "index.json",
+                    "lock": registry.root / "store.lock",
+                }[leaf_kind]
+                target = outside / f"{leaf_kind}.json"
+                original = '{"sentinel": "unchanged"}\n'
+                target.write_text(original, encoding="utf-8")
+                leaf_path.symlink_to(target)
+
+                with self.assertRaises(StorageError):
+                    self._create(registry, session_id)
+                self.assertEqual(target.read_text(encoding="utf-8"), original)
+                if leaf_kind != "record":
+                    self.assertFalse(record_path.exists())
 
 
 class UsageLedgerTests(unittest.TestCase):

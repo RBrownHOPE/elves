@@ -12,15 +12,50 @@ No live model calls. Network is not required.
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+EXPECTED_CLAUDE_ALIASES = (
+    "cobbler",
+    "cobbler-mode",
+    "council",
+    "ec",
+    "elves-council",
+    "setup-cobbler",
+    "setup-council",
+)
+CLAUDE_ALIAS_MARKER = "<!-- elves-managed-alias: claude-skill-alias v1 -->"
+
+# This is an independent installed-artifact contract, not a reflection of the
+# sync allowlist. If sync drops a required helper, this smoke must still fail.
+REQUIRED_TOP_LEVEL_RUNTIME_PATHS = (
+    "scripts/preflight.sh",
+    "scripts/preflight_worktree.py",
+    "scripts/notify.sh",
+    "scripts/install_doctor.py",
+    "scripts/validate_survival_guide.py",
+    "scripts/elves_landing_check.py",
+    "scripts/cobbler_agents.py",
+    "scripts/openrouter_lens.py",
+    "scripts/workspace_guard.py",
+)
+
+MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+MARKDOWN_REFERENCE_DEFINITION_RE = re.compile(
+    r"(?m)^\s{0,3}\[([^]]+)\]:\s*(<[^>]+>|\S+)(?:\s+.*)?$"
+)
+MARKDOWN_REFERENCE_LINK_RE = re.compile(r"!?\[([^]]+)\]\[([^]]*)\]")
+EXTERNAL_LINK_SCHEMES = frozenset({"http", "https", "mailto", "tel"})
 
 # Commands run against an installed cobbler_agents.py (cwd is outside the bundle).
 SMOKE_COMMANDS: list[tuple[str, list[str]]] = [
@@ -32,7 +67,21 @@ SMOKE_COMMANDS: list[tuple[str, list[str]]] = [
     ("implement-status", ["implement", "status", "--json"]),
 ]
 
-OPENROUTER_HELP = ["--help"]
+RUNTIME_HELP_COMMANDS = (
+    ("openrouter-help", "scripts/openrouter_lens.py", ["--help"]),
+    ("workspace-guard-help", "scripts/workspace_guard.py", ["--help"]),
+)
+
+RECURSIVE_IMPORT_PROGRAM = r"""
+import importlib
+import json
+import sys
+
+names = json.loads(sys.argv[1])
+for name in names:
+    importlib.import_module(name)
+print(json.dumps(names))
+"""
 
 
 def _copy_managed_bundle(repo_root: Path, dest_root: Path, *, host: str) -> None:
@@ -49,27 +98,170 @@ def _copy_managed_bundle(repo_root: Path, dest_root: Path, *, host: str) -> None
     try:
         sync.REPO_ROOT = repo_root
         sync.TARGETS = sync.build_targets(repo_root)
-        # Redirect install root into dest_root.
+        # Redirect install roots into the temporary installed-like tree.
         cfg = dict(sync.TARGETS[host])
         cfg["root"] = dest_root
-        # Do not install real-home aliases during smoke.
-        cfg.pop("alias_root", None)
-        cfg["managed_aliases"] = []
+        if host == "claude":
+            cfg["alias_root"] = dest_root.parent
+        else:
+            cfg.pop("alias_root", None)
+            cfg.pop("managed_aliases", None)
         sync.TARGETS = {host: cfg}
         problems = sync.apply_target(host)
         if problems:
             raise RuntimeError(f"failed to stage {host} bundle: {problems}")
-        # Codex must also receive AGENTS.md; Claude SKILL only is fine.
-        if host == "claude" and not (dest_root / "SKILL.md").is_file():
-            raise RuntimeError("Claude bundle missing SKILL.md")
+        for required in ("SKILL.md", "AGENTS.md"):
+            if not (dest_root / required).is_file():
+                raise RuntimeError(f"{host.title()} bundle missing {required}")
         if host == "codex":
-            if not (dest_root / "AGENTS.md").is_file():
-                raise RuntimeError("Codex bundle missing AGENTS.md")
             if (dest_root / "aliases").exists():
                 raise RuntimeError("Codex bundle must not contain Claude aliases")
     finally:
         sync.REPO_ROOT = original_root
         sync.TARGETS = original_targets
+
+
+def _validate_alias_installation(
+    host: str,
+    *,
+    bundle_root: Path,
+) -> tuple[list[str], int]:
+    """Validate the host-specific alias shape at the installed skills root."""
+    install_root = bundle_root.parent
+    found = {
+        path.name
+        for path in install_root.iterdir()
+        if path.is_dir() and path.resolve() != bundle_root.resolve()
+    }
+    failures: list[str] = []
+    if host == "claude":
+        expected = set(EXPECTED_CLAUDE_ALIASES)
+        if found != expected:
+            failures.append(
+                "Claude install expected exactly seven managed aliases "
+                f"{sorted(expected)}; found {sorted(found)}"
+            )
+        for name in EXPECTED_CLAUDE_ALIASES:
+            skill = install_root / name / "SKILL.md"
+            if not skill.is_file():
+                failures.append(f"Claude alias {name} missing SKILL.md")
+                continue
+            if CLAUDE_ALIAS_MARKER not in skill.read_text(encoding="utf-8"):
+                failures.append(f"Claude alias {name} missing managed marker")
+    elif found:
+        failures.append(
+            "Codex install must contain no Claude aliases; "
+            f"found sibling skill directories {sorted(found)}"
+        )
+    return failures, len(found)
+
+
+def _markdown_target(raw: str) -> str:
+    """Extract a link destination while tolerating Markdown titles/angle form."""
+    target = raw.strip()
+    if target.startswith("<") and ">" in target:
+        return target[1 : target.index(">")].strip()
+    return target.split(maxsplit=1)[0] if target else ""
+
+
+def _blank_markdown(value: str) -> str:
+    return "".join("\n" if char == "\n" else " " for char in value)
+
+
+def _active_markdown_text(value: str) -> str:
+    """Exclude comment and fenced examples from installed-link validation."""
+    value = re.sub(
+        r"<!--.*?(?:-->|\Z)",
+        lambda match: _blank_markdown(match.group(0)),
+        value,
+        flags=re.DOTALL,
+    )
+    rendered: list[str] = []
+    fence_char: str | None = None
+    fence_length = 0
+    for line in value.splitlines(keepends=True):
+        match = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
+        if fence_char is None:
+            if match is None:
+                rendered.append(line)
+                continue
+            marker = match.group(1)
+            fence_char = marker[0]
+            fence_length = len(marker)
+            rendered.append(_blank_markdown(line))
+            continue
+        rendered.append(_blank_markdown(line))
+        if match is not None:
+            marker = match.group(1)
+            if marker[0] == fence_char and len(marker) >= fence_length:
+                fence_char = None
+                fence_length = 0
+    return "".join(rendered)
+
+
+def _validate_installed_markdown_links(install_root: Path) -> tuple[list[str], int]:
+    """Resolve local Markdown links inside the shipped install tree only."""
+    root = install_root.resolve()
+    failures: list[str] = []
+    checked = 0
+    for markdown in sorted(root.rglob("*.md")):
+        text = _active_markdown_text(markdown.read_text(encoding="utf-8"))
+        definitions = {
+            re.sub(r"\s+", " ", match.group(1)).strip().casefold(): _markdown_target(
+                match.group(2)
+            )
+            for match in MARKDOWN_REFERENCE_DEFINITION_RE.finditer(text)
+        }
+        targets = [_markdown_target(match.group(1)) for match in MARKDOWN_LINK_RE.finditer(text)]
+        for match in MARKDOWN_REFERENCE_LINK_RE.finditer(text):
+            label = match.group(2) or match.group(1)
+            key = re.sub(r"\s+", " ", label).strip().casefold()
+            target = definitions.get(key)
+            if target is None:
+                failures.append(
+                    f"{markdown.relative_to(root)}: missing reference definition [{label}]"
+                )
+                continue
+            targets.append(target)
+        for target in targets:
+            if not target or target.startswith("#"):
+                continue
+            parsed = urlsplit(target)
+            if parsed.scheme.lower() in EXTERNAL_LINK_SCHEMES or parsed.netloc:
+                continue
+            if parsed.scheme:
+                failures.append(
+                    f"{markdown.relative_to(root)}: unsupported installed link {target}"
+                )
+                continue
+            relative = unquote(parsed.path)
+            if not relative:
+                continue
+            destination = (markdown.parent / relative).resolve()
+            checked += 1
+            try:
+                destination.relative_to(root)
+            except ValueError:
+                failures.append(
+                    f"{markdown.relative_to(root)}: link escapes installed tree: {target}"
+                )
+                continue
+            if not destination.exists():
+                failures.append(
+                    f"{markdown.relative_to(root)}: unshipped link target {target}"
+                )
+    return failures, checked
+
+
+def _runtime_module_names(package: Path) -> set[str]:
+    """Map every recursively shipped Python file to its import name."""
+    names: set[str] = set()
+    for path in package.rglob("*.py"):
+        relative = path.relative_to(package.parent).with_suffix("")
+        if relative.name == "__init__":
+            relative = relative.parent
+        names.add(".".join(relative.parts))
+    return names
 
 
 def _run(
@@ -108,13 +300,28 @@ def smoke_host(
         bundle_root.mkdir(parents=True)
         _copy_managed_bundle(root, bundle_root, host=host)
 
+        alias_failures, alias_count = _validate_alias_installation(
+            host,
+            bundle_root=bundle_root,
+        )
+        failures.extend(alias_failures)
+
+        link_failures, markdown_link_count = _validate_installed_markdown_links(
+            bundle_root.parent
+        )
+        failures.extend(link_failures)
+
         agents = bundle_root / "scripts" / "cobbler_agents.py"
         openrouter = bundle_root / "scripts" / "openrouter_lens.py"
+        workspace_guard = bundle_root / "scripts" / "workspace_guard.py"
         package = bundle_root / "scripts" / "cobbler_runtime"
-        if not agents.is_file():
-            failures.append("missing cobbler_agents.py in installed bundle")
-        if not openrouter.is_file():
-            failures.append("missing openrouter_lens.py in installed bundle")
+        missing_runtime_paths = [
+            relative
+            for relative in REQUIRED_TOP_LEVEL_RUNTIME_PATHS
+            if not (bundle_root / relative).is_file()
+        ]
+        for relative in missing_runtime_paths:
+            failures.append(f"missing required runtime dependency {relative}")
         if not package.is_dir():
             failures.append("missing cobbler_runtime package in installed bundle")
         # Removing any shipped runtime module must be detectable: assert at least
@@ -138,6 +345,41 @@ def smoke_host(
         (tmp_parent / "home").mkdir(exist_ok=True)
         (tmp_parent / "tmp").mkdir(exist_ok=True)
 
+        imported_runtime_modules: list[str] = []
+        if not failures:
+            expected_modules = sorted(_runtime_module_names(package))
+            proc = _run(
+                [
+                    sys.executable,
+                    "-c",
+                    RECURSIVE_IMPORT_PROGRAM,
+                    json.dumps(expected_modules),
+                ],
+                cwd=outside_cwd,
+                env=env,
+            )
+            if proc.returncode != 0:
+                failures.append(
+                    "recursive-runtime-imports "
+                    f"exit={proc.returncode} stderr={_clip(proc.stderr)}"
+                )
+            else:
+                try:
+                    imported_runtime_modules = json.loads(proc.stdout)
+                except (json.JSONDecodeError, TypeError) as exc:
+                    failures.append(f"recursive-runtime-imports invalid output: {exc}")
+                else:
+                    if imported_runtime_modules != expected_modules:
+                        failures.append(
+                            "recursive-runtime-imports mismatch "
+                            f"expected={expected_modules} "
+                            f"actual={imported_runtime_modules}"
+                        )
+                    else:
+                        notes.append(
+                            f"recursive-runtime-imports={len(imported_runtime_modules)}"
+                        )
+
         if not failures:
             for label, args in SMOKE_COMMANDS:
                 proc = _run(
@@ -153,19 +395,23 @@ def smoke_host(
                 else:
                     notes.append(f"{label}=ok")
 
-            # OpenRouter help must work without API keys or model calls.
-            proc = _run(
-                [sys.executable, str(openrouter), *OPENROUTER_HELP],
-                cwd=outside_cwd,
-                env=env,
-            )
-            if proc.returncode != 0:
-                failures.append(
-                    f"openrouter-help exit={proc.returncode} "
-                    f"stderr={_clip(proc.stderr)}"
+            # Required standalone helpers must start without credentials/model calls.
+            helper_paths = {
+                "scripts/openrouter_lens.py": openrouter,
+                "scripts/workspace_guard.py": workspace_guard,
+            }
+            for label, relative, args in RUNTIME_HELP_COMMANDS:
+                proc = _run(
+                    [sys.executable, str(helper_paths[relative]), *args],
+                    cwd=outside_cwd,
+                    env=env,
                 )
-            else:
-                notes.append("openrouter-help=ok")
+                if proc.returncode != 0:
+                    failures.append(
+                        f"{label} exit={proc.returncode} stderr={_clip(proc.stderr)}"
+                    )
+                else:
+                    notes.append(f"{label}=ok")
 
             # Negative proof: deleting a required runtime module makes smoke fail.
             victim = package / "schema.py"
@@ -193,6 +439,12 @@ def smoke_host(
             "failures": failures,
             "notes": notes,
             "py_module_count": len(py_files),
+            "imported_runtime_module_count": len(imported_runtime_modules),
+            "required_runtime_count": len(REQUIRED_TOP_LEVEL_RUNTIME_PATHS),
+            "alias_count": alias_count,
+            "markdown_link_count": markdown_link_count,
+            "skill_present": (bundle_root / "SKILL.md").is_file(),
+            "agents_present": (bundle_root / "AGENTS.md").is_file(),
         }
     finally:
         if not keep:
@@ -233,8 +485,6 @@ def main(argv: list[str] | None = None) -> int:
     results = [smoke_host(h, repo_root=args.repo_root, keep=args.keep) for h in hosts]
     ok = all(bool(r["ok"]) for r in results)
     if args.json:
-        import json
-
         print(json.dumps({"ok": ok, "results": results}, indent=2, sort_keys=True))
     else:
         for r in results:

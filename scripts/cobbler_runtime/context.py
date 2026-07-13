@@ -79,15 +79,25 @@ DEFAULT_ENV_ALLOWLIST: frozenset[str] = frozenset(
 
 # Patterns that look like secret values in free text. Matched spans are redacted;
 # only the pattern *name* is reported, never the captured value.
-_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+SECRET_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("bearer_token", re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-+=/]{8,}")),
-    ("sk_token", re.compile(r"\bsk-[A-Za-z0-9]{10,}")),
+    (
+        "sk_token",
+        re.compile(r"\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_\-]{10,}"),
+    ),
     ("xai_token", re.compile(r"\bxai-[A-Za-z0-9]{10,}")),
     ("github_pat", re.compile(r"\bghp_[A-Za-z0-9]{20,}")),
     ("github_oauth", re.compile(r"\bgho_[A-Za-z0-9]{20,}")),
+    ("github_token", re.compile(r"\bgh[usr]_[A-Za-z0-9]{20,}")),
+    ("github_fine_grained_pat", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}")),
     ("aws_access_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("pem_block", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S)),
 )
+
+# Backward-compatible private alias for callers from earlier releases.  New
+# security gates should use the public name so redaction and release scanning
+# cannot silently drift apart.
+_VALUE_PATTERNS = SECRET_VALUE_PATTERNS
 
 ROLE_REPORT_SCHEMA_FIELDS: tuple[str, ...] = (
     "role",
@@ -203,7 +213,7 @@ def redact_text(
         if value and value in redacted:
             fired.append("exact_grant")
             redacted = redacted.replace(value, "[REDACTED:exact_grant]")
-    for name, pattern in _VALUE_PATTERNS:
+    for name, pattern in SECRET_VALUE_PATTERNS:
         if pattern.search(redacted):
             fired.append(name)
             redacted = pattern.sub(f"[REDACTED:{name}]", redacted)

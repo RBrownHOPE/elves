@@ -44,6 +44,24 @@ class ReleaseChecklistTests(unittest.TestCase):
         )
         return repo
 
+    def configure_full_runtime_tree(self, repo: Path) -> None:
+        for alias_name in self.release_checklist.EXPECTED_CLAUDE_ALIASES:
+            alias = repo / "aliases" / "claude" / alias_name
+            alias.mkdir(parents=True)
+            (alias / "SKILL.md").write_text(
+                f"---\nname: {alias_name}\n---\n",
+                encoding="utf-8",
+            )
+
+        package = repo / "scripts" / "cobbler_runtime"
+        package.mkdir(parents=True)
+        for name in ("__init__.py", "config.py", "dispatch.py", "schema.py", "setup.py"):
+            (package / name).write_text(f'"""{name}."""\n', encoding="utf-8")
+        for helper in self.release_checklist.REQUIRED_RUNTIME_HELPERS:
+            path = repo / helper
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f'"""{helper.name}."""\n', encoding="utf-8")
+
     def test_release_checklist_passes_when_release_surfaces_are_aligned(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = self.configure_temp_repo(tmpdir)
@@ -164,6 +182,36 @@ class ReleaseChecklistTests(unittest.TestCase):
             result = self.release_checklist.build_release_checklist(repo, base_ref=None)
 
         self.assertTrue(result.ok)
+
+    def test_release_checklist_requires_workspace_guard_in_full_runtime_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self.configure_temp_repo(tmpdir)
+            self.configure_full_runtime_tree(repo)
+            (repo / "scripts" / "workspace_guard.py").unlink()
+
+            result = self.release_checklist.build_release_checklist(repo, base_ref=None)
+
+        self.assertFalse(result.ok)
+        self.assertIn(
+            "scripts/workspace_guard.py: missing required runtime helper",
+            result.failures,
+        )
+
+    def test_release_checklist_compiles_all_required_runtime_helpers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self.configure_temp_repo(tmpdir)
+            self.configure_full_runtime_tree(repo)
+
+            result = self.release_checklist.build_release_checklist(repo, base_ref=None)
+
+        self.assertTrue(result.ok, result.failures)
+        self.assertIn(
+            (
+                "Alias inventory (7) + required runtime helpers "
+                "(openrouter_lens.py, workspace_guard.py) + recursive compile smoke: OK"
+            ),
+            result.notes,
+        )
 
     def test_parse_name_status_uses_new_path_for_renames(self) -> None:
         changes = self.release_checklist.parse_name_status(

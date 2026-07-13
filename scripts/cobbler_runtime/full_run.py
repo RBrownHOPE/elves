@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -28,7 +29,9 @@ from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from urllib.parse import urlsplit
 
+from .context import redact_text
 from .implement import (
     DEFAULT_EFFORT,
     DEFAULT_EXECUTABLE,
@@ -44,7 +47,13 @@ from .storage import (
     directory_lock,
     digest_key,
     ensure_private_dir,
+    guard_repo_path,
+    move_repo_regular_file,
+    open_repo_text,
     read_json,
+    read_repo_regular_bytes,
+    read_repo_text_tail,
+    repo_regular_file_exists,
 )
 
 FULL_RUN_REL = Path(".elves") / "runtime" / "implement" / "full-run"
@@ -65,6 +74,30 @@ DEFAULT_STALE_SECONDS = 300
 EXIT_RECORD_SETTLE_SECONDS = 0.25
 _SHA1_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 _REPORT_STATUSES = frozenset({"running", "complete", "blocked", "failed", "stopped"})
+_ACCEPTANCE_DEFINITION_RE = re.compile(
+    r"(?m)^\s*[-*]\s+(?:\[[ xX]\]\s+)?"
+    r"(?P<id>B\d+-A\d+|M-A\d+)\s*(?:—|--?|:)\s*\S.*$"
+)
+_ACCEPTANCE_ID_RE = re.compile(r"^(?:B\d+-A\d+|M-A\d+)$")
+_FULL_RUN_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])"
+    r"(?:api[_-]?key|[A-Za-z0-9_-]*token|jwt|bearer|authorization|auth|"
+    r"password|passwd|secret|credential|cookie|private[_-]?key)"
+    r"[\"']?\s*[:=]\s*(?:bearer\s+)?[\"']?[^\s,;\"'}]{8,}[\"']?"
+)
+_FULL_RUN_SECRET_KEY_RE = re.compile(
+    r"(?i)(?:api[_-]?key|token|jwt|bearer|authorization|auth|password|passwd|"
+    r"secret|credentials?|cookie|private[_-]?key)(?:_value|_header)?$"
+)
+_PEM_BOUNDARY_RE = re.compile(r"-----\s*(?:BEGIN|END)\s+[A-Z0-9 ]*PRIVATE KEY\s*-----", re.I)
+MAX_PACKET_BYTES = 1024 * 1024
+MAX_EVENT_FILE_BYTES = 1024 * 1024
+MAX_EVENT_LINES = 2000
+MAX_EVENT_LINE_BYTES = 64 * 1024
+MAX_REPORT_BYTES = 512 * 1024
+MAX_TRANSCRIPT_TAIL_BYTES = 256 * 1024
+MAX_TRANSCRIPT_LINE_CHARS = 1000
+MAX_EVENT_FUTURE_SKEW_SECONDS = 300
 
 # Named non-secret essentials preserved for a usable logged-in Grok process.
 NON_SECRET_ESSENTIALS: frozenset[str] = frozenset(
@@ -135,6 +168,174 @@ STATUS_KEYS = frozenset(
 )
 
 
+def _redact_full_run_text(
+    value: str,
+    *,
+    exact_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+) -> str:
+    """Apply shared token redaction plus full-run credential assignments."""
+    shared = redact_text(value, exact_values=exact_values).text
+    return _FULL_RUN_SECRET_ASSIGNMENT_RE.sub(
+        "[REDACTED:credential_assignment]", shared
+    )
+
+
+def _redact_full_run_structure(
+    value: Any,
+    *,
+    exact_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+) -> Any:
+    """Recursively redact keys and values before any driver-visible serialization."""
+    if isinstance(value, str):
+        return _redact_full_run_text(value, exact_values=exact_values)
+    if isinstance(value, Mapping):
+        redacted_mapping: dict[str, Any] = {}
+        for index, (key, item) in enumerate(value.items()):
+            raw_key = str(key)
+            redacted_key = _redact_full_run_text(
+                raw_key,
+                exact_values=exact_values,
+            )
+            secret_field = bool(_FULL_RUN_SECRET_KEY_RE.search(raw_key))
+            if secret_field:
+                redacted_key = "[REDACTED:secret_field_name]"
+            if redacted_key in redacted_mapping:
+                # Never let multiple secret-shaped keys collapse and hide data.
+                redacted_key = f"{redacted_key}#{index}"
+            redacted_mapping[redacted_key] = (
+                "[REDACTED:secret_field]"
+                if secret_field
+                else _redact_full_run_structure(item, exact_values=exact_values)
+            )
+        return redacted_mapping
+    if isinstance(value, list):
+        return [
+            _redact_full_run_structure(item, exact_values=exact_values)
+            for item in value
+        ]
+    if isinstance(value, tuple):
+        return tuple(
+            _redact_full_run_structure(item, exact_values=exact_values)
+            for item in value
+        )
+    return value
+
+
+def _redact_full_run_mapping_in_place(
+    value: dict[str, Any],
+    *,
+    exact_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+) -> None:
+    """Sanitize values without obscuring a public function's static output shape."""
+    redacted = _redact_full_run_structure(value, exact_values=exact_values)
+    value.clear()
+    value.update(redacted)
+
+
+def _contains_full_run_secret(
+    value: Any,
+    *,
+    exact_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+) -> bool:
+    return _redact_full_run_structure(value, exact_values=exact_values) != value
+
+
+def _read_bounded_regular_bytes(
+    path: Path,
+    *,
+    max_bytes: int,
+    label: str,
+    repo_root: Path | None = None,
+) -> bytes:
+    """Read one regular non-symlink file with an exact byte ceiling."""
+    candidate = Path(path)
+    if repo_root is not None:
+        try:
+            return read_repo_regular_bytes(
+                Path(repo_root), candidate, max_bytes=max_bytes
+            )
+        except StorageError as exc:
+            raise StorageError(exc.code, f"{label}: {exc.message}") from exc
+    try:
+        before = candidate.lstat()
+    except FileNotFoundError as exc:
+        raise StorageError(f"{label}_missing", f"{label} is missing: {candidate}") from exc
+    except OSError as exc:
+        raise StorageError(
+            f"{label}_unavailable", f"{label} metadata is unavailable: {type(exc).__name__}"
+        ) from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise StorageError(
+            f"{label}_not_regular", f"{label} must be a regular non-symlink file"
+        )
+    if before.st_size > max_bytes:
+        raise StorageError(
+            f"{label}_too_large", f"{label} exceeds {max_bytes} byte limit"
+        )
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(candidate, flags)
+    except OSError as exc:
+        raise StorageError(
+            f"{label}_unavailable", f"{label} cannot be opened safely: {type(exc).__name__}"
+        ) from exc
+    try:
+        opened = os.fstat(fd)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_dev != before.st_dev
+            or opened.st_ino != before.st_ino
+        ):
+            raise StorageError(
+                f"{label}_identity_changed", f"{label} changed identity while opening"
+            )
+        if opened.st_size > max_bytes:
+            raise StorageError(
+                f"{label}_too_large", f"{label} exceeds {max_bytes} byte limit"
+            )
+        with os.fdopen(fd, "rb", closefd=False) as handle:
+            raw = handle.read(max_bytes + 1)
+        if len(raw) > max_bytes:
+            raise StorageError(
+                f"{label}_too_large", f"{label} exceeds {max_bytes} byte limit"
+            )
+        return raw
+    finally:
+        os.close(fd)
+
+
+def _read_bounded_json_object(
+    path: Path,
+    *,
+    max_bytes: int = MAX_REPORT_BYTES,
+    label: str = "JSON artifact",
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    raw = _read_bounded_regular_bytes(
+        path,
+        max_bytes=max_bytes,
+        label=label,
+        repo_root=repo_root,
+    )
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise StorageError(
+            f"{label}_encoding", f"{label} must be valid UTF-8"
+        ) from exc
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise StorageError(
+            f"{label}_malformed", f"{label} must contain one valid JSON object"
+        ) from exc
+    if not isinstance(value, dict):
+        raise StorageError(
+            f"{label}_malformed", f"{label} must contain one JSON object"
+        )
+    return value
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -142,7 +343,8 @@ def _utc_now() -> str:
 def full_run_root(repo_root: Path, session_id: str) -> Path:
     """Digest-keyed collision-free runtime directory (not raw session path)."""
     key = digest_key(session_id, prefix="fullrun")
-    return Path(repo_root).resolve() / FULL_RUN_REL / key
+    repo = Path(repo_root).expanduser().resolve(strict=True)
+    return guard_repo_path(repo, repo / FULL_RUN_REL / key)
 
 
 _FULL_RUN_LOCK_LOCAL = threading.local()
@@ -153,8 +355,9 @@ _FULL_RUN_THREAD_LOCKS_GUARD = threading.Lock()
 @contextmanager
 def _full_run_lock(repo_root: Path, session_id: str):
     """Cross-process per-session lock with same-thread reentrancy."""
-    root = full_run_root(repo_root, session_id)
-    lock_key = str((root / "run.lock").resolve())
+    repo = Path(repo_root).expanduser().resolve(strict=True)
+    root = full_run_root(repo, session_id)
+    lock_key = str(guard_repo_path(repo, root / "run.lock"))
     held = getattr(_FULL_RUN_LOCK_LOCAL, "held", None)
     if held is None:
         held = set()
@@ -165,7 +368,12 @@ def _full_run_lock(repo_root: Path, session_id: str):
     with _FULL_RUN_THREAD_LOCKS_GUARD:
         thread_lock = _FULL_RUN_THREAD_LOCKS.setdefault(lock_key, threading.RLock())
     with thread_lock:
-        with directory_lock(root, name="run.lock", timeout=30.0):
+        with directory_lock(
+            root,
+            name="run.lock",
+            timeout=30.0,
+            repo_root=repo,
+        ):
             held.add(lock_key)
             try:
                 yield
@@ -207,6 +415,22 @@ def _is_utc_iso8601(value: Any) -> bool:
     return offset is not None and offset.total_seconds() == 0
 
 
+def _latest_utc_iso8601(current: str | None, candidate: Any) -> str | None:
+    """Return the later valid UTC timestamp without letting old events rewind activity."""
+    if not _is_utc_iso8601(candidate):
+        return current
+    candidate_text = str(candidate)
+    candidate_dt = datetime.fromisoformat(candidate_text.replace("Z", "+00:00"))
+    if (
+        candidate_dt - datetime.now(timezone.utc)
+    ).total_seconds() > MAX_EVENT_FUTURE_SKEW_SECONDS:
+        return current
+    if not current or not _is_utc_iso8601(current):
+        return candidate_text
+    current_dt = datetime.fromisoformat(current.replace("Z", "+00:00"))
+    return candidate_text if candidate_dt > current_dt else current
+
+
 def validate_event(
     event: Mapping[str, Any],
     *,
@@ -214,14 +438,28 @@ def validate_event(
     expected_branch: str | None = None,
     expected_start_head: str | None = None,
     seen_terminal: bool = False,
+    exact_secret_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
 ) -> list[str]:
     errors: list[str] = []
+    secret_detected = _contains_full_run_secret(
+        event, exact_values=exact_secret_values
+    )
+    if secret_detected:
+        errors.append("event contains secret-shaped content")
     for key in ("timestamp", "session_id", "branch", "head", "batch", "type", "summary"):
         if key not in event:
             errors.append(f"missing event field: {key}")
     timestamp = event.get("timestamp")
     if not _is_utc_iso8601(timestamp):
         errors.append("timestamp must be a UTC ISO-8601 string")
+    else:
+        parsed_timestamp = datetime.fromisoformat(
+            str(timestamp).replace("Z", "+00:00")
+        )
+        if (
+            parsed_timestamp - datetime.now(timezone.utc)
+        ).total_seconds() > MAX_EVENT_FUTURE_SKEW_SECONDS:
+            errors.append("timestamp exceeds allowed future clock skew")
     for key in ("session_id", "branch", "type", "summary"):
         if key in event and not isinstance(event.get(key), str):
             errors.append(f"{key} must be a string")
@@ -235,21 +473,23 @@ def validate_event(
         errors.append("batch must be a non-boolean integer >= 0")
     etype = event.get("type")
     if etype not in EVENT_TYPES:
-        errors.append(f"invalid event type: {etype!r}")
+        errors.append("invalid event type")
     summary_value = event.get("summary")
     summary = summary_value if isinstance(summary_value, str) else ""
     if len(summary) > 500:
         errors.append("summary exceeds 500 chars")
     lowered = summary.lower()
-    for needle in ("api_key=", "bearer ", "authorization:", "-----begin"):
-        if needle in lowered:
-            errors.append("summary appears to contain secret-shaped content")
+    if not secret_detected and any(
+        needle in lowered
+        for needle in ("api_key=", "bearer ", "authorization:", "-----begin")
+    ):
+        errors.append("event contains secret-shaped content")
     if expected_session_id and event.get("session_id") != expected_session_id:
         errors.append("event session_id mismatch")
     if expected_branch and event.get("branch") != expected_branch:
         errors.append("event branch mismatch")
-    if seen_terminal and etype in TERMINAL_EVENT_TYPES:
-        errors.append("duplicate terminal event")
+    if seen_terminal:
+        errors.append("event appears after terminal event")
     return errors
 
 
@@ -262,10 +502,14 @@ def validate_run_report(
     require_complete_acceptance: bool = False,
     expected_run_id: str | None = None,
     expected_attempt: int | None = None,
+    exact_secret_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
 ) -> list[str]:
     errors: list[str] = []
+    if _contains_full_run_secret(report, exact_values=exact_secret_values):
+        errors.append("report contains secret-shaped content")
     required = (
         "run_id",
+        "attempt",
         "session_id",
         "branch",
         "start_head",
@@ -291,7 +535,7 @@ def validate_run_report(
         errors.append("final_head must be empty or an exact 40-character commit SHA")
     status = report.get("status")
     if status not in _REPORT_STATUSES:
-        errors.append(f"invalid report status: {status!r}")
+        errors.append("invalid report status")
     if expected_session_id and report.get("session_id") != expected_session_id:
         errors.append("report session_id mismatch")
     if expected_branch and report.get("branch") != expected_branch:
@@ -300,6 +544,9 @@ def validate_run_report(
         errors.append("report start_head mismatch")
     if expected_run_id and report.get("run_id") != expected_run_id:
         errors.append("report run_id mismatch")
+    attempt = report.get("attempt")
+    if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
+        errors.append("attempt must be a non-boolean integer >= 1")
     if expected_attempt is not None and report.get("attempt") != expected_attempt:
         errors.append("report attempt mismatch")
     # List-typed evidence surfaces must actually be lists.
@@ -316,6 +563,10 @@ def validate_run_report(
             value = report.get(key)
             if not isinstance(value, list) or not value:
                 errors.append(f"complete report requires non-empty {key}")
+        for key in ("blockers", "remaining_risks"):
+            value = report.get(key)
+            if value:
+                errors.append(f"complete report requires empty {key}")
     batches = report.get("batches")
     if isinstance(batches, list):
         for i, item in enumerate(batches):
@@ -394,7 +645,7 @@ def validate_run_report(
                 errors.append(f"acceptance[{i}] requires evidence for complete report")
             if aid:
                 if aid in seen_ids:
-                    errors.append(f"duplicate acceptance id: {aid}")
+                    errors.append("duplicate acceptance id")
                 seen_ids.add(aid)
             if item.get("met") is True and not item.get("evidence"):
                 errors.append(f"acceptance[{i}] met without evidence")
@@ -443,6 +694,8 @@ class FullRunState:
     credential_grant_names: list[str] = field(
         default_factory=lambda: sorted(DEFAULT_CREDENTIAL_GRANT_NAMES)
     )
+    credential_granted_names: list[str] = field(default_factory=list)
+    credential_grant_digests: dict[str, str] = field(default_factory=dict)
     status: str = "pending"
     batch: int | None = None
     head: str | None = None
@@ -493,6 +746,40 @@ class FullRunState:
         if state.launch_start_head is None:
             state.launch_start_head = state.start_head
         return state
+
+
+def _state_secret_values(state: FullRunState) -> frozenset[str]:
+    """Resolve current granted values in memory without serializing them."""
+    return frozenset(
+        value
+        for name in state.credential_grant_names
+        if (value := os.environ.get(name))
+    )
+
+
+def _credential_grant_digest(state: FullRunState, name: str, value: str) -> str:
+    """Bind a launch credential value to this private supervisor attempt."""
+    key = str(state.supervision_token or state.session_id).encode("utf-8")
+    material = f"{name}\0{value}".encode("utf-8")
+    return hmac.new(key, material, hashlib.sha256).hexdigest()
+
+
+def _launch_grants_verified(state: FullRunState) -> bool:
+    """True only when the current process can re-identify every launched grant."""
+    granted = list(state.credential_granted_names or [])
+    if not granted:
+        return True
+    if set(granted) != set(state.credential_grant_digests):
+        return False
+    for name in granted:
+        value = os.environ.get(name)
+        expected = state.credential_grant_digests.get(name)
+        if not value or not expected:
+            return False
+        observed = _credential_grant_digest(state, name, value)
+        if not hmac.compare_digest(observed, expected):
+            return False
+    return True
 
 
 def build_full_run_env(
@@ -657,14 +944,105 @@ def verify_fingerprint(
     return True, "ok"
 
 
-def read_exit_record(root: Path) -> dict[str, Any] | None:
+def _signal_verified_supervisor(
+    fingerprint: Mapping[str, Any],
+    *,
+    expected_session_id: str,
+    signum: int,
+) -> bool:
+    """Signal only the exact live supervisor identity, using pidfd on Linux."""
+    try:
+        pid = int(fingerprint.get("pid") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValidationIssue(
+            "full_run_fingerprint_mismatch",
+            "Refusing signal: supervisor fingerprint PID is invalid",
+        ) from exc
+    if pid <= 0:
+        raise ValidationIssue(
+            "full_run_fingerprint_mismatch",
+            "Refusing signal: supervisor fingerprint PID is invalid",
+        )
+
+    ok, reason = verify_fingerprint(
+        fingerprint,
+        expected_session_id=expected_session_id,
+    )
+    if not ok:
+        if reason == "pid not alive":
+            return False
+        raise ValidationIssue(
+            "full_run_fingerprint_mismatch",
+            f"Refusing signal: {reason}",
+            hint="PID may have been reused; investigate before signaling",
+        )
+
+    pidfd: int | None = None
+    try:
+        if sys.platform.startswith("linux") and hasattr(os, "pidfd_open"):
+            try:
+                pidfd = os.pidfd_open(pid, 0)
+            except ProcessLookupError:
+                return False
+            except OSError as exc:
+                raise ValidationIssue(
+                    "full_run_pidfd_unavailable",
+                    f"Cannot bind the live supervisor process handle: {type(exc).__name__}",
+                ) from exc
+
+        # Revalidate after acquiring the kernel-bound handle (or immediately
+        # before Darwin's standard-library signal fallback). This rejects reuse
+        # between the first liveness probe and the signal operation.
+        ok, reason = verify_fingerprint(
+            fingerprint,
+            expected_session_id=expected_session_id,
+        )
+        if not ok:
+            if reason == "pid not alive":
+                return False
+            raise ValidationIssue(
+                "full_run_fingerprint_mismatch",
+                f"Refusing signal after identity recheck: {reason}",
+                hint="PID may have been reused; investigate before signaling",
+            )
+
+        try:
+            if pidfd is not None and hasattr(signal, "pidfd_send_signal"):
+                signal.pidfd_send_signal(pidfd, signum)
+            else:
+                os.kill(pid, signum)
+        except ProcessLookupError:
+            return False
+        except (PermissionError, OSError) as exc:
+            raise ValidationIssue(
+                "full_run_signal_failed",
+                f"Unable to signal the verified supervisor: {type(exc).__name__}",
+            ) from exc
+        return True
+    finally:
+        if pidfd is not None:
+            os.close(pidfd)
+
+
+def read_exit_record(
+    root: Path,
+    *,
+    repo_root: Path | None = None,
+) -> dict[str, Any] | None:
     """Host-owned exit sidecar record written after the provider process exits."""
     path = Path(root) / "exit_record.json"
-    if not path.is_file():
+    if repo_root is not None:
+        if not repo_regular_file_exists(Path(repo_root), path):
+            return None
+    elif not path.exists() and not path.is_symlink():
         return None
     # Malformed data is materially different from an absent record: callers
     # must wake/fail instead of parking forever after a corrupted provider exit.
-    return read_json(path)
+    return _read_bounded_json_object(
+        path,
+        label="exit record",
+        repo_root=repo_root,
+    )
 
 
 def _validate_exit_record(
@@ -723,11 +1101,16 @@ def _reap_supervisor_if_child(pid: int | None) -> None:
         pass
 
 
-def write_exit_record(root: Path, record: Mapping[str, Any]) -> Path:
+def write_exit_record(
+    root: Path,
+    record: Mapping[str, Any],
+    *,
+    repo_root: Path | None = None,
+) -> Path:
     path = Path(root) / "exit_record.json"
     payload = dict(record)
     payload.setdefault("completed_at", _utc_now())
-    atomic_write_json(path, payload)
+    atomic_write_json(path, payload, repo_root=repo_root)
     return path
 
 
@@ -738,6 +1121,19 @@ from pathlib import Path
 
 exit_path = Path(sys.argv[1])
 fingerprint_path = Path(sys.argv[2])
+if (
+    exit_path.parent != fingerprint_path.parent
+    or exit_path.name != "exit_record.json"
+    or fingerprint_path.name != "supervisor.fingerprint.json"
+):
+    raise SystemExit(126)
+runtime_flags = (
+    os.O_RDONLY
+    | getattr(os, "O_CLOEXEC", 0)
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_DIRECTORY", 0)
+)
+runtime_fd = os.open(exit_path.parent, runtime_flags)
 session_id = sys.argv[3]
 provider_argv = json.loads(sys.argv[4])
 attempt = int(sys.argv[5])
@@ -746,9 +1142,11 @@ supervision_token = sys.argv[7]
 marker = "ELVES_FULL_RUN_SUPERVISION_MARKER=" + supervision_token
 marker_bytes = marker.encode("utf-8")
 provider_pid = None
+provider = None
 exit_code = 127
 stop_signal = None
-known_pids = set()
+known_identities = {}
+historical_pids = set()
 supervision_error = None
 
 def request_stop(signum, _frame):
@@ -792,13 +1190,15 @@ def linux_records():
                 raise
             close = raw.rfind(")")
             fields = raw[close + 1:].strip().split() if close >= 0 else []
-            if len(fields) < 3:
+            if len(fields) < 20:
                 raise RuntimeError("malformed_proc_stat:%s" % pid)
             try:
-                state, ppid, pgid = fields[0], int(fields[1]), int(fields[2])
+                state, ppid, pgid, started = (
+                    fields[0], int(fields[1]), int(fields[2]), fields[19]
+                )
             except ValueError as exc:
                 raise RuntimeError("malformed_proc_identity:%s" % pid) from exc
-            records[pid] = (ppid, pgid, state, "")
+            records[pid] = (ppid, pgid, state, "", started)
             if state == "Z":
                 continue
             try:
@@ -817,7 +1217,12 @@ def darwin_records():
     probe = None
     try:
         probe = subprocess.Popen(
-            [supervision_backend, "e", "-axo", "pid=,ppid=,pgid=,state=,command="],
+            [
+                supervision_backend,
+                "e",
+                "-axo",
+                "pid=,ppid=,pgid=,state=,lstart=,command=",
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -840,19 +1245,21 @@ def darwin_records():
     records = {}
     marked = set()
     for raw in stdout.decode("utf-8", errors="replace").splitlines():
-        fields = raw.strip().split(None, 4)
-        if len(fields) < 5:
+        fields = raw.strip().split(None, 9)
+        if len(fields) < 10:
             continue
         try:
             pid, ppid, pgid = (int(fields[index]) for index in range(3))
         except ValueError:
             continue
-        records[pid] = (ppid, pgid, fields[3], fields[4])
-        if fields[3] != "Z" and marker in fields[4].split():
+        started = " ".join(fields[4:9])
+        command = fields[9]
+        records[pid] = (ppid, pgid, fields[3], command, started)
+        if fields[3] != "Z" and marker in command.split():
             marked.add(pid)
     return records, marked, probe.pid
 
-def scan_alive():
+def current_records():
     global supervision_error
     try:
         if len(supervision_token) != 48 or any(
@@ -867,38 +1274,105 @@ def scan_alive():
             raise RuntimeError("unsupported_supervision_platform:%s" % sys.platform)
     except Exception as exc:
         supervision_error = "scan_failed:%s:%s" % (type(exc).__name__, exc)
+        return {}, set(), None
+    return records, marked, scanner_pid
+
+def scan_alive():
+    global supervision_error
+    records, marked, scanner_pid = current_records()
+    if supervision_error is not None:
         return set()
+    active_known = {
+        pid for pid, started in known_identities.items()
+        if pid in records
+        and records[pid][2] != "Z"
+        and records[pid][4] == started
+    }
+    for pid in list(known_identities):
+        if pid not in active_known:
+            known_identities.pop(pid, None)
     discovered = set(marked)
-    if provider_pid:
+    if provider_pid and provider is not None and provider.poll() is None:
         discovered.add(provider_pid)
     changed = True
     while changed:
         before = len(discovered)
         discovered.update(
-            pid for pid, (ppid, _pgid, state, _command) in records.items()
-            if state != "Z" and (ppid in discovered or ppid in known_pids)
+            pid for pid, (ppid, _pgid, state, _command, _started) in records.items()
+            if state != "Z" and (ppid in discovered or ppid in active_known)
         )
         changed = len(discovered) != before
     discovered.discard(os.getpid())
     if scanner_pid:
         discovered.discard(scanner_pid)
-    known_pids.update(discovered)
+    for pid in discovered:
+        record = records.get(pid)
+        if record is None or record[2] == "Z":
+            continue
+        started = record[4]
+        prior = known_identities.get(pid)
+        if prior is not None and prior != started:
+            # PID was reused between discovery passes. Never adopt or signal the
+            # replacement merely because its integer identifier is familiar.
+            continue
+        known_identities[pid] = started
+        historical_pids.add(pid)
     return {
-        pid for pid in discovered | known_pids
-        if pid in records and records[pid][2] != "Z"
+        pid for pid, started in known_identities.items()
+        if pid in records and records[pid][2] != "Z" and records[pid][4] == started
     }
 
 def signal_pids(pids, signum):
+    global supervision_error
     for pid in sorted(pids, reverse=True):
         if pid == os.getpid():
             continue
+        expected_start = known_identities.get(pid)
+        if expected_start is None:
+            continue
+        pidfd = None
+        if sys.platform.startswith("linux") and hasattr(os, "pidfd_open"):
+            try:
+                # Open the process handle before the final identity read. If the
+                # numeric PID was reused, the following start-time comparison
+                # rejects the replacement; if it exits afterward, the pidfd stays
+                # bound to the original process and cannot target the replacement.
+                pidfd = os.pidfd_open(pid, 0)
+            except ProcessLookupError:
+                continue
+            except OSError as exc:
+                supervision_error = "pidfd_open_failed:%s:%s" % (pid, exc)
+                return
+        records, _marked, _scanner_pid = current_records()
+        if supervision_error is not None:
+            if pidfd is not None:
+                os.close(pidfd)
+            return
+        current = records.get(pid)
+        if (
+            current is None
+            or current[2] == "Z"
+            or current[4] != expected_start
+        ):
+            if pidfd is not None:
+                os.close(pidfd)
+            continue
         try:
-            os.kill(pid, signum)
+            if pidfd is not None and hasattr(signal, "pidfd_send_signal"):
+                signal.pidfd_send_signal(pidfd, signum)
+            else:
+                # Darwin has no pidfd. Re-reading the exact start identity for
+                # each target immediately before this call is the strongest
+                # standard-library boundary available; never signal from a
+                # batch-cached process table.
+                os.kill(pid, signum)
         except ProcessLookupError:
             pass
         except OSError as exc:
-            global supervision_error
             supervision_error = "signal_failed:%s:%s" % (pid, exc)
+        finally:
+            if pidfd is not None:
+                os.close(pidfd)
 
 def terminate_descendants():
     alive = scan_alive()
@@ -925,7 +1399,7 @@ try:
         close_fds=True,
     )
     provider_pid = provider.pid
-    known_pids.add(provider_pid)
+    scan_alive()
     while provider.poll() is None and stop_signal is None:
         scan_alive()
         if supervision_error is not None:
@@ -955,12 +1429,34 @@ except Exception:
 fingerprint = {}
 deadline = time.monotonic() + 1.0
 while time.monotonic() < deadline:
+    fingerprint_fd = None
     try:
-        fingerprint = json.loads(fingerprint_path.read_text(encoding="utf-8"))
+        fingerprint_fd = os.open(
+            fingerprint_path.name,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=runtime_fd,
+        )
+        fingerprint_info = os.fstat(fingerprint_fd)
+        if (
+            not stat.S_ISREG(fingerprint_info.st_mode)
+            or fingerprint_info.st_nlink != 1
+            or fingerprint_info.st_size > 65536
+        ):
+            raise OSError("unsafe_fingerprint_record")
+        with os.fdopen(fingerprint_fd, "rb", closefd=False) as fingerprint_handle:
+            fingerprint_raw = fingerprint_handle.read(65537)
+        if len(fingerprint_raw) > 65536:
+            raise OSError("oversized_fingerprint_record")
+        fingerprint = json.loads(fingerprint_raw.decode("utf-8"))
         if fingerprint:
             break
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         pass
+    finally:
+        if fingerprint_fd is not None:
+            os.close(fingerprint_fd)
     time.sleep(0.01)
 
 payload = {
@@ -971,7 +1467,7 @@ payload = {
     "provider_executable": provider_argv[0] if provider_argv else None,
     "attempt": attempt,
     "supervision_token": supervision_token,
-    "supervised_pids": sorted(known_pids),
+    "supervised_pids": sorted(historical_pids),
     "descendants_absent": bool(descendants_absent),
     "supervision_error": supervision_error,
     "interrupted_signal": stop_signal,
@@ -979,13 +1475,40 @@ payload = {
     "exit_code": exit_code,
     "completed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
 }
-tmp = exit_path.with_suffix(".tmp")
-tmp.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-tmp.replace(exit_path)
+serialized = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+tmp_name = ".exit_record.%s.%s.tmp" % (os.getpid(), time.time_ns())
+tmp_fd = None
 try:
-    exit_path.chmod(0o600)
-except OSError:
-    pass
+    tmp_fd = os.open(
+        tmp_name,
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+        dir_fd=runtime_fd,
+    )
+    offset = 0
+    while offset < len(serialized):
+        offset += os.write(tmp_fd, serialized[offset:])
+    os.fsync(tmp_fd)
+    os.close(tmp_fd)
+    tmp_fd = None
+    os.replace(
+        tmp_name,
+        exit_path.name,
+        src_dir_fd=runtime_fd,
+        dst_dir_fd=runtime_fd,
+    )
+finally:
+    if tmp_fd is not None:
+        os.close(tmp_fd)
+    try:
+        os.unlink(tmp_name, dir_fd=runtime_fd)
+    except FileNotFoundError:
+        pass
+    os.close(runtime_fd)
 
 # Preserve the provider result for shell/operator diagnostics. Negative return
 # codes indicate signals; map them into the conventional 128+signal range.
@@ -1111,6 +1634,22 @@ def _remote_refs(
     return refs
 
 
+def _github_provider_managed_ref(origin_url: str, ref_name: str) -> bool:
+    """GitHub owns refs/pull/*; feature pushes legitimately regenerate them."""
+    raw = str(origin_url or "").strip()
+    host = ""
+    if "://" in raw:
+        host = str(urlsplit(raw).hostname or "")
+    else:
+        # Git's SCP-style transport: [user@]host:path. Absolute/relative local
+        # paths and file:// URLs must never gain provider-managed exemptions.
+        match = re.fullmatch(r"(?:[^@/\s]+@)?(?P<host>[^:/\s]+):.+", raw)
+        if match:
+            host = match.group("host")
+    github_origin = host.rstrip(".").lower() == "github.com"
+    return github_origin and ref_name.startswith("refs/pull/")
+
+
 def snapshot_protected_refs(
     repo_root: Path,
     *,
@@ -1147,9 +1686,13 @@ def snapshot_protected_refs(
         if len(parts) == 2 and parts[0] not in excluded:
             snaps[parts[0]] = parts[1]
     remote = _remote_refs(repo_root)
+    origin_url = _canonical_origin_url(repo_root) if remote else ""
     feature_remote = f"remote::origin::refs/heads/{feature_branch}" if feature_branch else None
     for key, value in remote.items():
-        if key != feature_remote:
+        remote_ref = key.removeprefix("remote::origin::")
+        if key != feature_remote and not _github_provider_managed_ref(
+            origin_url, remote_ref
+        ):
             snaps[key] = value
     return snaps
 
@@ -1297,10 +1840,70 @@ def _assert_origin_binding(
 
 def _staged_acceptance_ids(packet_path: Path) -> list[str]:
     try:
-        text = packet_path.read_text(encoding="utf-8")
-    except OSError:
-        return []
-    return sorted(set(re.findall(r"\b(?:B\d+-A\d+|M-A\d+)\b", text)))
+        raw = _read_bounded_regular_bytes(
+            packet_path,
+            max_bytes=MAX_PACKET_BYTES,
+            label="full-run packet",
+        )
+        text = raw.decode("utf-8")
+    except StorageError as exc:
+        raise ValidationIssue("full_run_packet_unreadable", exc.message) from exc
+    except UnicodeDecodeError as exc:
+        raise ValidationIssue(
+            "full_run_packet_encoding",
+            "Full-run packet must be valid UTF-8",
+            path=str(packet_path),
+        ) from exc
+    if packet_path.suffix.lower() == ".json":
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValidationIssue(
+                "full_run_packet_invalid_json",
+                "JSON full-run packet must contain one valid object",
+                path=str(packet_path),
+            ) from exc
+        if not isinstance(payload, Mapping):
+            raise ValidationIssue(
+                "full_run_packet_invalid_json",
+                "JSON full-run packet must contain one object",
+                path=str(packet_path),
+            )
+        rows = payload.get("acceptance")
+        if rows is None:
+            return []
+        if not isinstance(rows, list):
+            raise ValidationIssue(
+                "full_run_acceptance_invalid",
+                "JSON packet acceptance must be an array of definition objects",
+                path=str(packet_path),
+            )
+        ids: list[str] = []
+        for index, row in enumerate(rows):
+            if not isinstance(row, Mapping):
+                raise ValidationIssue(
+                    "full_run_acceptance_invalid",
+                    f"JSON packet acceptance[{index}] must be an object",
+                    path=str(packet_path),
+                )
+            acceptance_id = row.get("id")
+            criterion = row.get("criterion")
+            if (
+                not isinstance(acceptance_id, str)
+                or not _ACCEPTANCE_ID_RE.fullmatch(acceptance_id.strip())
+                or not isinstance(criterion, str)
+                or not criterion.strip()
+            ):
+                raise ValidationIssue(
+                    "full_run_acceptance_invalid",
+                    f"JSON packet acceptance[{index}] requires a stable id and nonempty criterion",
+                    path=str(packet_path),
+                )
+            ids.append(acceptance_id.strip())
+        return ids
+    # Count only canonical definition rows. Inline references and the required
+    # report example may repeat ids without defining a second criterion.
+    return [match.group("id") for match in _ACCEPTANCE_DEFINITION_RE.finditer(text)]
 
 
 _PROC_SCAN_SKIP_ERRNOS = frozenset(
@@ -1494,12 +2097,12 @@ def _run_supervision_canary(executable: Path) -> bool:
         )
     finally:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
-            try:
+            # This is our unreaped direct child; its PID cannot be reused until
+            # wait(), so the Popen handle is a stronger identity than its PGID.
+            if proc.poll() is None:
                 proc.kill()
-            except OSError:
-                pass
+        except OSError:
+            pass
         try:
             proc.wait(timeout=1.0)
         except (OSError, subprocess.TimeoutExpired):
@@ -1546,16 +2149,22 @@ def _validate_full_run_git_contract(
             f"Full-run worktree does not exist: {worker}",
         )
     try:
-        packet_mode = packet_input.lstat().st_mode
+        packet_info = packet_input.lstat()
     except OSError as exc:
         raise ValidationIssue(
             "full_run_packet_missing",
             f"Full-run packet is not readable: {packet}",
         ) from exc
-    if not stat.S_ISREG(packet_mode):
+    if not stat.S_ISREG(packet_info.st_mode):
         raise ValidationIssue(
             "full_run_packet_not_regular",
             f"Full-run packet must be a regular non-symlink file: {packet}",
+        )
+    if packet_info.st_size > MAX_PACKET_BYTES:
+        raise ValidationIssue(
+            "full_run_packet_too_large",
+            f"Full-run packet exceeds {MAX_PACKET_BYTES} byte limit",
+            path=str(packet),
         )
     from .leases import worktree_is_registered  # noqa: PLC0415
 
@@ -1675,10 +2284,32 @@ def prepare_full_run(
         prepare_phase=True,
     )
 
+    staged_acceptance_ids = _staged_acceptance_ids(Path(packet_path).expanduser())
+    if adapter_name != "fixture":
+        if not staged_acceptance_ids:
+            raise ValidationIssue(
+                "full_run_acceptance_ids_required",
+                "Production full-run packet requires canonical B#-A#/M-A# acceptance definition rows",
+                path=str(packet_path),
+            )
+        duplicate_ids = sorted(
+            {
+                item
+                for item in staged_acceptance_ids
+                if staged_acceptance_ids.count(item) > 1
+            }
+        )
+        if duplicate_ids:
+            raise ValidationIssue(
+                "full_run_acceptance_ids_duplicate",
+                "Production full-run packet contains duplicate stable acceptance definitions",
+                path=str(packet_path),
+            )
+
     root = full_run_root(repo_root, sid)
     state_path = root / "state.json"
-    if state_path.is_file() and not allow_overwrite:
-        existing = read_json(state_path)
+    if repo_regular_file_exists(Path(repo_root), state_path) and not allow_overwrite:
+        existing = read_json(state_path, repo_root=Path(repo_root))
         if existing.get("session_id") != sid:
             raise ValidationIssue(
                 "full_run_collision",
@@ -1692,9 +2323,9 @@ def prepare_full_run(
             hint="Pass a new session or stop the existing run first",
         )
 
-    ensure_private_dir(root)
-    ensure_private_dir(root / "worker-home")
-    ensure_private_dir(root / "worker-tmp")
+    ensure_private_dir(root, repo_root=Path(repo_root))
+    ensure_private_dir(root / "worker-home", repo_root=Path(repo_root))
+    ensure_private_dir(root / "worker-tmp", repo_root=Path(repo_root))
 
     exe = (executable or DEFAULT_EXECUTABLE).strip() or DEFAULT_EXECUTABLE
     if adapter_name == "fixture":
@@ -1734,7 +2365,7 @@ def prepare_full_run(
         origin_url=git_metadata.get("origin_url"),
         origin_config_digest=git_metadata.get("origin_config_digest"),
         initial_remote_feature_tip=git_metadata.get("remote_feature_tip"),
-        acceptance_ids=_staged_acceptance_ids(Path(packet_path).expanduser().resolve()),
+        acceptance_ids=sorted(staged_acceptance_ids),
         supervisor_executable=supervisor_executable,
         supervision_token=supervision_token,
         supervision_canary_passed=supervision_canary_passed,
@@ -1745,14 +2376,11 @@ def prepare_full_run(
             "Trusted Lane A is policy trust, not an OS Git sandbox; protected-ref movement blocks readiness",
         ],
     )
-    atomic_write_json(state_path, state.to_dict())
+    atomic_write_json(state_path, state.to_dict(), repo_root=Path(repo_root))
     for name in ("events.jsonl", "transcript.log"):
         path = root / name
-        if not path.exists():
-            path.write_text("", encoding="utf-8")
-            try:
-                path.chmod(0o600)
-            except OSError:
+        if not repo_regular_file_exists(Path(repo_root), path):
+            with open_repo_text(Path(repo_root), path, mode="w"):
                 pass
     report = _running_report(state, final_head=start_head)
     errs = validate_run_report(
@@ -1765,7 +2393,7 @@ def prepare_full_run(
     if errs:
         raise ValidationIssue("full_run_report_invalid", "; ".join(errs))
     report_path = root / "report.json"
-    atomic_write_json(report_path, report)
+    atomic_write_json(report_path, report, repo_root=Path(repo_root))
     _append_event(
         root / "events.jsonl",
         {
@@ -1779,7 +2407,12 @@ def prepare_full_run(
         },
         expected_session_id=sid,
         expected_branch=branch,
+        repo_root=Path(repo_root),
     )
+    public_state = state.to_dict()
+    # This is a signaling capability for marker-bound descendant supervision,
+    # not operator telemetry. Keep it only in the mode-0600 private state file.
+    public_state.pop("supervision_token", None)
     return {
         "ok": True,
         "action": "full_run_prepare",
@@ -1789,7 +2422,7 @@ def prepare_full_run(
         "events_path": str(root / "events.jsonl"),
         "report_path": str(report_path),
         "transcript_path": str(root / "transcript.log"),
-        "state": state.to_dict(),
+        "state": public_state,
         "driver_contract": "parked_monitor",
         "driver_monitor_mode": "parked_monitor",
         "model_calls_made": False,
@@ -1804,6 +2437,7 @@ def _append_event(
     expected_session_id: str | None = None,
     expected_branch: str | None = None,
     seen_terminal: bool = False,
+    repo_root: Path | None = None,
 ) -> None:
     errors = validate_event(
         event,
@@ -1813,24 +2447,29 @@ def _append_event(
     )
     if errors:
         raise ValidationIssue("full_run_event_invalid", "; ".join(errors))
-    with events_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(dict(event), separators=(",", ":")) + "\n")
-    try:
-        events_path.chmod(0o600)
-    except OSError:
-        pass
+    payload = json.dumps(dict(event), separators=(",", ":")) + "\n"
+    if repo_root is not None:
+        with open_repo_text(repo_root, events_path, mode="a") as handle:
+            handle.write(payload)
+    else:
+        with events_path.open("a", encoding="utf-8") as handle:
+            handle.write(payload)
+        try:
+            events_path.chmod(0o600)
+        except OSError:
+            pass
 
 
 def load_state(repo_root: Path, session_id: str) -> FullRunState:
     root = full_run_root(repo_root, session_id)
     path = root / "state.json"
-    if not path.is_file():
+    if not repo_regular_file_exists(Path(repo_root), path):
         raise ValidationIssue(
             "full_run_not_found",
             f"No full-run state for session `{session_id}`",
             path=str(path),
         )
-    data = read_json(path)
+    data = read_json(path, repo_root=Path(repo_root))
     try:
         assert_embedded_id(data, session_id, id_field="session_id")
     except StorageError as exc:
@@ -1850,9 +2489,9 @@ def load_state(repo_root: Path, session_id: str) -> FullRunState:
 
 def save_state(repo_root: Path, state: FullRunState) -> Path:
     root = full_run_root(repo_root, state.session_id)
-    ensure_private_dir(root)
+    ensure_private_dir(root, repo_root=Path(repo_root))
     path = root / "state.json"
-    atomic_write_json(path, state.to_dict())
+    atomic_write_json(path, state.to_dict(), repo_root=Path(repo_root))
     return path
 
 
@@ -1911,13 +2550,21 @@ def _archive_and_reset_resume_attempt(
 ) -> None:
     root = full_run_root(repo_root, state.session_id)
     archive = root / "attempts" / f"attempt-{state.attempt:04d}"
-    if archive.exists():
+    try:
+        archive.lstat()
+    except FileNotFoundError:
+        pass
+    else:
         raise ValidationIssue(
             "full_run_attempt_archive_exists",
             f"Attempt archive already exists: {archive}",
         )
-    archive.mkdir(parents=True, mode=0o700)
-    atomic_write_json(archive / "state.json", state.to_dict())
+    ensure_private_dir(archive, repo_root=Path(repo_root))
+    atomic_write_json(
+        archive / "state.json",
+        state.to_dict(),
+        repo_root=Path(repo_root),
+    )
     for name in (
         "events.jsonl",
         "report.json",
@@ -1929,11 +2576,18 @@ def _archive_and_reset_resume_attempt(
         "transcript.log",
     ):
         source = root / name
-        if source.exists():
-            os.replace(source, archive / name)
+        if repo_regular_file_exists(Path(repo_root), source):
+            move_repo_regular_file(
+                Path(repo_root),
+                source,
+                archive / name,
+                replace=False,
+            )
 
     state.attempt += 1
     state.supervision_token = secrets.token_hex(24)
+    state.credential_granted_names = []
+    state.credential_grant_digests = {}
     state.closed_process_identity = None
     state.interruption_evidence = None
     state.pid = None
@@ -1949,9 +2603,15 @@ def _archive_and_reset_resume_attempt(
     state.next_action = "launch"
     state.head = checkpoint_head
     state.create_session = False
-    (root / "events.jsonl").write_text("", encoding="utf-8")
-    (root / "transcript.log").write_text("", encoding="utf-8")
-    atomic_write_json(root / "report.json", _running_report(state, final_head=checkpoint_head))
+    with open_repo_text(Path(repo_root), root / "events.jsonl", mode="w"):
+        pass
+    with open_repo_text(Path(repo_root), root / "transcript.log", mode="w"):
+        pass
+    atomic_write_json(
+        root / "report.json",
+        _running_report(state, final_head=checkpoint_head),
+        repo_root=Path(repo_root),
+    )
     _append_event(
         root / "events.jsonl",
         {
@@ -1965,6 +2625,7 @@ def _archive_and_reset_resume_attempt(
         },
         expected_session_id=state.session_id,
         expected_branch=state.branch,
+        repo_root=Path(repo_root),
     )
 
 
@@ -2126,26 +2787,40 @@ def launch_full_run(
                 "Grok resume argv is not bound to the exact staged session id",
             )
     state.last_argv = list(provider_argv)
+    effective_grant_names = list(
+        credential_grant_names
+        if credential_grant_names is not None
+        else state.credential_grant_names
+    )
+    state.credential_grant_names = effective_grant_names
     launch_env = build_full_run_env(
         state=state,
         root=root,
-        credential_grant_names=credential_grant_names or state.credential_grant_names,
+        credential_grant_names=effective_grant_names,
     )
     # Never return credential values.
     granted_names = [
         n
-        for n in (credential_grant_names or state.credential_grant_names or [])
+        for n in effective_grant_names
         if n in launch_env
     ]
+    state.credential_granted_names = list(granted_names)
+    state.credential_grant_digests = {
+        name: _credential_grant_digest(state, name, launch_env[name])
+        for name in granted_names
+    }
+    # Persist the exact granted names before spawn so a concurrently invoked
+    # monitor/log command can redact opaque values from the first worker byte.
+    save_state(repo_root, state)
 
     transcript = root / "transcript.log"
-    ensure_private_dir(root / "worker-home")
-    ensure_private_dir(root / "worker-tmp")
+    ensure_private_dir(root / "worker-home", repo_root=Path(repo_root))
+    ensure_private_dir(root / "worker-tmp", repo_root=Path(repo_root))
     for stale_path in (
         root / "exit_record.json",
         root / "supervisor.fingerprint.json",
     ):
-        if stale_path.exists():
+        if repo_regular_file_exists(Path(repo_root), stale_path):
             raise ValidationIssue(
                 "full_run_stale_exit_artifact",
                 "Refusing launch while an unarchived supervisor artifact exists",
@@ -2166,8 +2841,7 @@ def launch_full_run(
     )
     # Open transcript for inheritance, then close parent fd so launchers across
     # separate CLI invocations do not leave unclosed handles / ResourceWarnings.
-    stdout_handle = transcript.open("a", encoding="utf-8")
-    try:
+    with open_repo_text(Path(repo_root), transcript, mode="a") as stdout_handle:
         proc = subprocess.Popen(
             supervisor_argv,
             cwd=state.worktree if state.adapter != "fixture" else state.worktree,
@@ -2178,8 +2852,6 @@ def launch_full_run(
             start_new_session=True,
             close_fds=True,
         )
-    finally:
-        stdout_handle.close()
 
     pgid = os.getpgid(proc.pid) if hasattr(os, "getpgid") else proc.pid
     # Brief settle so ps can observe the process.
@@ -2201,7 +2873,11 @@ def launch_full_run(
         state.create_session = False
     # The supervisor is the provider's real parent, waits it, and records its exact
     # exit code before it exits. Monitor validates this launcher-captured identity.
-    atomic_write_json(root / "supervisor.fingerprint.json", fp.to_dict())
+    atomic_write_json(
+        root / "supervisor.fingerprint.json",
+        fp.to_dict(),
+        repo_root=Path(repo_root),
+    )
     state.exit_sidecar_pid = proc.pid  # compatibility field: now the parent supervisor PID
     state.exit_code = None
     # Drop Popen without waiting: process is tracked by fingerprint + durable exit record.
@@ -2216,9 +2892,15 @@ def launch_full_run(
     except Exception:  # noqa: BLE001
         pass
     save_state(repo_root, state)
-    (root / "worker.pid").write_text(str(proc.pid) + "\n", encoding="utf-8")
-    (root / "worker.pgid").write_text(str(pgid) + "\n", encoding="utf-8")
-    atomic_write_json(root / "worker.fingerprint.json", fp.to_dict())
+    with open_repo_text(Path(repo_root), root / "worker.pid", mode="w") as handle:
+        handle.write(str(proc.pid) + "\n")
+    with open_repo_text(Path(repo_root), root / "worker.pgid", mode="w") as handle:
+        handle.write(str(pgid) + "\n")
+    atomic_write_json(
+        root / "worker.fingerprint.json",
+        fp.to_dict(),
+        repo_root=Path(repo_root),
+    )
     _append_event(
         root / "events.jsonl",
         {
@@ -2232,6 +2914,7 @@ def launch_full_run(
         },
         expected_session_id=session_id,
         expected_branch=state.branch,
+        repo_root=Path(repo_root),
     )
     return {
         "ok": True,
@@ -2380,14 +3063,51 @@ def _read_events(
     *,
     expected_session_id: str,
     expected_branch: str,
+    exact_secret_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+    allow_partial_final: bool = False,
+    repo_root: Path | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    if not events_path.is_file():
+    if repo_root is not None:
+        try:
+            if not repo_regular_file_exists(repo_root, events_path):
+                return [], []
+        except StorageError as exc:
+            return [], [exc.message]
+    elif not events_path.exists() and not events_path.is_symlink():
         return [], []
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
     seen_terminal = False
-    for line_no, line in enumerate(events_path.read_text(encoding="utf-8").splitlines(), 1):
-        line = line.strip()
+    try:
+        raw = _read_bounded_regular_bytes(
+            events_path,
+            max_bytes=MAX_EVENT_FILE_BYTES,
+            label="event log",
+            repo_root=repo_root,
+        )
+    except StorageError as exc:
+        return [], [exc.message]
+
+    complete_final = not raw or raw.endswith(b"\n")
+    raw_lines = raw.splitlines()
+    if not complete_final and raw_lines:
+        if allow_partial_final:
+            raw_lines = raw_lines[:-1]
+        else:
+            errors.append("final event record is incomplete")
+            raw_lines = raw_lines[:-1]
+    if len(raw_lines) > MAX_EVENT_LINES:
+        return [], [f"event log exceeds {MAX_EVENT_LINES} line limit"]
+
+    for line_no, raw_line in enumerate(raw_lines, 1):
+        if len(raw_line) > MAX_EVENT_LINE_BYTES:
+            errors.append(f"line {line_no}: event exceeds line-size limit")
+            continue
+        try:
+            line = raw_line.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            errors.append(f"line {line_no}: event must be UTF-8")
+            continue
         if not line:
             continue
         try:
@@ -2403,6 +3123,7 @@ def _read_events(
             expected_session_id=expected_session_id,
             expected_branch=expected_branch,
             seen_terminal=seen_terminal,
+            exact_secret_values=exact_secret_values,
         )
         if verrs:
             errors.extend(f"line {line_no}: {e}" for e in verrs)
@@ -2411,6 +3132,79 @@ def _read_events(
             seen_terminal = True
         rows.append(event)
     return rows, errors
+
+
+def _bounded_text_tail(
+    path: Path,
+    *,
+    lines: int,
+    repo_root: Path | None = None,
+) -> list[str]:
+    """Read a bounded suffix without loading a worker transcript wholesale."""
+    if lines <= 0:
+        return []
+    if repo_root is not None:
+        try:
+            tail = read_repo_text_tail(
+                repo_root,
+                path,
+                max_bytes=MAX_TRANSCRIPT_TAIL_BYTES,
+                max_lines=lines,
+            )
+        except StorageError as exc:
+            if exc.code == "not_found":
+                return []
+            raise
+        return [line[-MAX_TRANSCRIPT_LINE_CHARS:] for line in tail]
+    if not path.exists() and not path.is_symlink():
+        return []
+    try:
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode):
+            raise StorageError(
+                "transcript_not_regular",
+                "transcript must be a regular non-symlink file",
+            )
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags)
+        opened = os.fstat(fd)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_dev != before.st_dev
+            or opened.st_ino != before.st_ino
+        ):
+            raise StorageError(
+                "transcript_identity_changed",
+                "transcript changed identity while opening",
+            )
+        size = opened.st_size
+        start = max(0, size - MAX_TRANSCRIPT_TAIL_BYTES)
+        with os.fdopen(fd, "rb", closefd=False) as handle:
+            handle.seek(start)
+            raw = handle.read(MAX_TRANSCRIPT_TAIL_BYTES)
+    except StorageError:
+        raise
+    except OSError as exc:
+        raise StorageError(
+            "transcript_unavailable",
+            f"transcript cannot be read safely: {type(exc).__name__}",
+        ) from exc
+    finally:
+        if "fd" in locals():
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+    chunks = raw.splitlines()
+    # A nonzero seek can begin in the middle of a line. Discard that fragment;
+    # callers receive fewer lines rather than an unbounded backward scan.
+    if start and chunks:
+        chunks = chunks[1:]
+    tail = chunks[-lines:]
+    return [
+        chunk[-MAX_TRANSCRIPT_LINE_CHARS:].decode("utf-8", errors="replace")
+        for chunk in tail
+    ]
 
 
 def _git_commit_chain(cwd: Path, start_head: str, final_head: str) -> list[str]:
@@ -2502,17 +3296,40 @@ def monitor_full_run(
         and state.fingerprint is None
     )
     root = full_run_root(repo_root, session_id)
-    events, event_errors = _read_events(
-        root / "events.jsonl",
-        expected_session_id=session_id,
-        expected_branch=state.branch,
-    )
+    exact_secret_values = _state_secret_values(state)
+    grant_context_verified = _launch_grants_verified(state)
+    if grant_context_verified:
+        events, event_errors = _read_events(
+            root / "events.jsonl",
+            expected_session_id=session_id,
+            expected_branch=state.branch,
+            exact_secret_values=exact_secret_values,
+            allow_partial_final=not identity_retired and bool(state.pid or state.pgid),
+            repo_root=Path(repo_root),
+        )
+    else:
+        events, event_errors = [], [
+            "launch credential context cannot be verified for worker evidence"
+        ]
     report_path = root / "report.json"
     report: dict[str, Any] = {}
-    report_errors: list[str] = []
-    if report_path.is_file():
+    report_errors: list[str] = (
+        []
+        if grant_context_verified
+        else ["launch credential context cannot be verified for worker report"]
+    )
+    try:
+        report_exists = repo_regular_file_exists(Path(repo_root), report_path)
+    except StorageError as exc:
+        report_exists = False
+        report_errors = [exc.message]
+    if report_exists and grant_context_verified:
         try:
-            report = read_json(report_path)
+            report = _read_bounded_json_object(
+                report_path,
+                label="run report",
+                repo_root=Path(repo_root),
+            )
             report_errors = validate_run_report(
                 report,
                 expected_session_id=session_id,
@@ -2521,7 +3338,19 @@ def monitor_full_run(
                 require_complete_acceptance=report.get("status") == "complete",
                 expected_run_id=_expected_run_id(session_id),
                 expected_attempt=state.attempt,
+                exact_secret_values=exact_secret_values,
             )
+            redacted_report = _redact_full_run_structure(
+                report, exact_values=exact_secret_values
+            )
+            if redacted_report != report:
+                # The worker writes this private artifact directly. Replace any
+                # detected credential material before surfacing a generic error.
+                atomic_write_json(
+                    report_path,
+                    redacted_report,
+                    repo_root=Path(repo_root),
+                )
             if report_errors:
                 report = {}
         except StorageError as exc:
@@ -2559,7 +3388,10 @@ def monitor_full_run(
     candidate_exit_record = None
     if not identity_retired:
         try:
-            candidate_exit_record = read_exit_record(root)
+            candidate_exit_record = read_exit_record(
+                root,
+                repo_root=Path(repo_root),
+            )
         except StorageError as exc:
             exit_record_errors.append(exc.message)
     if candidate_exit_record is not None and not identity_retired:
@@ -2586,14 +3418,13 @@ def monitor_full_run(
                 fp_ok = False
                 fp_reason = "validated exit record after full process-group exit"
 
-    # Observed feature-branch head (supervisor heartbeat source).
+    # Observed feature-branch state. Process liveness is not a heartbeat: a hung
+    # provider can remain fingerprint-valid indefinitely and must still wake the
+    # parked driver when no meaningful worker/event activity is observed.
     observed_head = _git_head(Path(state.worktree))
     observed_branch = _git_branch(Path(state.worktree))
     if observed_head:
         state.head = observed_head
-        # Automatic supervisor heartbeat while process is alive.
-        if alive:
-            state.heartbeat_at = _utc_now()
 
     last_type = None
     saw_run_complete_event = False
@@ -2604,8 +3435,9 @@ def monitor_full_run(
                 state.batch = int(ev.get("batch") or state.batch or 0)
             except (TypeError, ValueError):
                 pass
-        if ev.get("type") in {"commit_pushed", "heartbeat", "batch_complete"}:
-            state.heartbeat_at = str(ev.get("timestamp") or state.heartbeat_at)
+        state.heartbeat_at = _latest_utc_iso8601(
+            state.heartbeat_at, ev.get("timestamp")
+        )
         if ev.get("type") == "blocked":
             state.status = "blocked"
             state.blocker = str(ev.get("summary") or "blocked")
@@ -2717,7 +3549,7 @@ def monitor_full_run(
                 try:
                     hb_dt = datetime.fromisoformat(hb.replace("Z", "+00:00"))
                     age = (datetime.now(timezone.utc) - hb_dt).total_seconds()
-                    if age > stale_after_seconds and not fp_ok:
+                    if age > max(0, stale_after_seconds):
                         state.status = "stale"
                         state.next_action = "driver_wake_stale_heartbeat"
                 except ValueError:
@@ -2782,6 +3614,10 @@ def monitor_full_run(
             state.next_action = "driver_wake_error"
             reconcile_payload = {"ok": False, "error": issue.message}
 
+    if state.blocker:
+        state.blocker = _redact_full_run_text(
+            state.blocker, exact_values=exact_secret_values
+        )
     save_state(repo_root, state)
     from .behavior_policy import PARKED_MONITOR_WAKE_CONDITIONS  # noqa: PLC0415
 
@@ -2827,6 +3663,7 @@ def monitor_full_run(
     assert "transcript" not in status
     assert "stdout" not in status
     assert set(status) <= STATUS_KEYS | {"ok"}
+    _redact_full_run_mapping_in_place(status, exact_values=exact_secret_values)
     return status
 
 
@@ -2837,7 +3674,7 @@ def stop_full_run(
     session_id: str,
     grace_seconds: float = 1.0,
 ) -> dict[str, Any]:
-    """Terminate the recorded process group only after fingerprint verification."""
+    """Terminate only the exact fingerprinted supervisor identity."""
     state = load_state(repo_root, session_id)
     root = full_run_root(repo_root, session_id)
     if (
@@ -2868,7 +3705,7 @@ def stop_full_run(
     completed_record: dict[str, Any] | None = None
     exit_record_errors: list[str] = []
     try:
-        candidate_record = read_exit_record(root)
+        candidate_record = read_exit_record(root, repo_root=Path(repo_root))
     except StorageError as exc:
         candidate_record = None
         exit_record_errors.append(exc.message)
@@ -2877,14 +3714,13 @@ def stop_full_run(
         if not exit_record_errors:
             completed_record = candidate_record
 
-    # A sidecar is completion evidence only after its exact PID and complete
-    # process group are dead. If descendants remain, fall through and stop them.
+    # A sidecar is completion evidence only after its exact supervisor PID and
+    # marker-bound descendants are dead. Never probe a reusable numeric PGID.
     if completed_record is not None:
         _reap_supervisor_if_child(state.pid)
         pid_alive = bool(pid and _pid_alive(pid))
-        group_alive = _process_group_alive(pgid)
         supervised_pids = _supervised_alive(state)
-        if not pid_alive and not group_alive and not supervised_pids:
+        if not pid_alive and not supervised_pids:
             state.exit_code = int(completed_record["exit_code"])
             if state.status not in {"complete", "failed", "blocked", "stopped"}:
                 state.status = "stopped"
@@ -2906,14 +3742,13 @@ def stop_full_run(
                 "signaled": False,
                 "still_alive": False,
                 "status": state.status,
-                "reason": "supervisor and process group already exited with a validated record",
+                "reason": "supervisor domain already exited with a validated record",
                 "fingerprint_verified": True,
             }
 
     pid_alive = bool(pid and _pid_alive(pid))
-    group_alive = _process_group_alive(pgid)
     supervised_pids = _supervised_alive(state)
-    if not pid_alive and not group_alive and not supervised_pids:
+    if not pid_alive and not supervised_pids:
         if (
             state.fingerprint
             and completed_record is None
@@ -2935,7 +3770,7 @@ def stop_full_run(
             "signaled": False,
             "still_alive": False,
             "status": state.status,
-            "reason": "no live supervisor PID or process group",
+            "reason": "no live supervisor identity or marker-bound descendants",
             "fingerprint_verified": bool(completed_record),
             "exit_record_errors": exit_record_errors,
         }
@@ -2948,136 +3783,78 @@ def stop_full_run(
         if not ok:
             raise ValidationIssue(
                 "full_run_fingerprint_mismatch",
-                f"Refusing stop/killpg: {reason}",
+                f"Refusing stop: {reason}",
                 path=str(root / "worker.fingerprint.json"),
                 hint="PID may have been reused; investigate before signaling",
             )
         fingerprint_verified = True
-        # Only signal a PGID that is the verified process group of the live PID.
-        try:
-            live_pgid = os.getpgid(pid) if pid else None
-        except OSError:
-            live_pgid = None
-        stored_pgid = state.fingerprint.get("pgid") or state.pgid
-        if stored_pgid is not None and live_pgid is not None and int(stored_pgid) != int(live_pgid):
-            raise ValidationIssue(
-                "full_run_fingerprint_mismatch",
-                "Refusing stop/killpg: stored pgid is not the verified process group",
-            )
-        pgid = live_pgid if live_pgid is not None else stored_pgid
     elif pid_alive:
         raise ValidationIssue(
             "full_run_fingerprint_missing",
             "Refusing stop: live supervisor PID has no exact fingerprint",
         )
-    elif group_alive:
-        # The supervisor has exited, so its live fingerprint cannot be checked.
-        # A structurally exact launcher-owned exit record is the only remaining
-        # authority for signaling the recorded orphaned process group.
-        if completed_record is None:
-            raise ValidationIssue(
-                "full_run_fingerprint_mismatch",
-                "Refusing stop: process group remains alive without a validated exit record",
-            )
-        fingerprint_verified = True
     elif supervised_pids:
-        # Marker capability is generated by the host and bound to this attempt;
-        # it remains authority over setsid/double-fork descendants.
-        fingerprint_verified = True
+        # Never signal cached descendant PIDs or a reusable numeric PGID from the
+        # host. Recursive cleanup is owned by the still-fingerprinted supervisor;
+        # once it is gone, surviving descendants are a wake-worthy failure that
+        # requires operator inspection rather than risking an unrelated process.
+        raise ValidationIssue(
+            "full_run_supervisor_missing_with_descendants",
+            "Refusing direct descendant signaling after the supervisor identity disappeared",
+        )
 
     signaled = False
-    if pgid:
-        try:
-            os.killpg(int(pgid), signal.SIGTERM)
-            signaled = True
-        except (ProcessLookupError, PermissionError, OSError):
-            if pid:
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                    signaled = True
-                except (ProcessLookupError, PermissionError, OSError):
-                    pass
-    elif pid:
-        try:
-            os.kill(pid, signal.SIGTERM)
-            signaled = True
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
-    for supervised_pid in sorted(supervised_pids, reverse=True):
-        if supervised_pid in {pid, os.getpid()}:
-            continue
-        try:
-            os.kill(supervised_pid, signal.SIGTERM)
-            signaled = True
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
+    if pid_alive and state.fingerprint:
+        signaled = _signal_verified_supervisor(
+            state.fingerprint,
+            expected_session_id=session_id,
+            signum=signal.SIGTERM,
+        )
 
-    deadline = time.monotonic() + min(max(grace_seconds, 0.0), 2.0)
+    # The embedded supervisor may need to terminate a provider plus recursively
+    # discovered descendants before it publishes the exit record. Give that
+    # identity-bound cleanup a small floor even when callers request zero grace.
+    deadline = time.monotonic() + min(max(grace_seconds, 2.5), 5.0)
     while time.monotonic() < deadline:
         if (
             not bool(pid and _pid_alive(pid))
-            and not _process_group_alive(pgid)
             and not _supervised_alive(state)
         ):
             break
         time.sleep(0.05)
 
     pid_alive = bool(pid and _pid_alive(pid))
-    group_alive = _process_group_alive(pgid)
     supervised_pids = _supervised_alive(state)
-    still_alive = pid_alive or group_alive or bool(supervised_pids)
+    still_alive = pid_alive or bool(supervised_pids)
     if still_alive:
-        # Re-verify a still-live supervisor before SIGKILL. If only descendants
-        # remain, the validated exit record above remains the group authority.
-        if state.fingerprint and pid_alive:
-            ok, reason = verify_fingerprint(
-                state.fingerprint, expected_session_id=session_id
+        # Escalate only the exact supervisor identity. If it has already exited,
+        # do not target reusable PGID/descendant integers; the final state below
+        # remains failed with the surviving-domain evidence intact.
+        if pid_alive and state.fingerprint:
+            _signal_verified_supervisor(
+                state.fingerprint,
+                expected_session_id=session_id,
+                signum=signal.SIGKILL,
             )
-            if not ok:
-                raise ValidationIssue(
-                    "full_run_fingerprint_mismatch",
-                    f"Refusing SIGKILL: {reason}",
-                )
-        if pgid:
-            try:
-                os.killpg(int(pgid), signal.SIGKILL)
-            except (ProcessLookupError, PermissionError, OSError):
-                if pid:
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                    except (ProcessLookupError, PermissionError, OSError):
-                        pass
-        elif pid:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
-        for supervised_pid in sorted(supervised_pids, reverse=True):
-            if supervised_pid in {pid, os.getpid()}:
-                continue
-            try:
-                os.kill(supervised_pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
         kill_deadline = time.monotonic() + 1.0
         while time.monotonic() < kill_deadline:
             if (
                 not bool(pid and _pid_alive(pid))
-                and not _process_group_alive(pgid)
                 and not _supervised_alive(state)
             ):
                 break
             time.sleep(0.05)
         still_alive = (
             bool(pid and _pid_alive(pid))
-            or _process_group_alive(pgid)
             or bool(_supervised_alive(state))
         )
 
     state.status = "failed" if still_alive else "stopped"
     state.next_action = "driver_wake_error" if still_alive else "stopped"
     if still_alive:
-        state.blocker = "process group remains alive after SIGTERM and SIGKILL"
+        state.blocker = (
+            "supervised process domain remains alive after identity-bound supervisor signals"
+        )
     state.completed_at = _utc_now()
     if not still_alive:
         evidence = completed_record or {
@@ -3105,10 +3882,11 @@ def stop_full_run(
             "head": state.head or state.start_head,
             "batch": state.batch or 0,
             "type": "heartbeat",
-            "summary": "Supervisor stop requested; verified process group signaled",
+            "summary": "Supervisor stop requested; exact supervisor identity signaled",
         },
         expected_session_id=session_id,
         expected_branch=state.branch,
+        repo_root=Path(repo_root),
     )
     return {
         "ok": not still_alive,
@@ -3131,11 +3909,22 @@ def logs_full_run(
 ) -> dict[str, Any]:
     bounded_tail = min(100, max(0, int(tail_lines)))
     root = full_run_root(repo_root, session_id)
-    events, errors = _read_events(
-        root / "events.jsonl",
-        expected_session_id=session_id,
-        expected_branch=load_state(repo_root, session_id).branch,
-    )
+    state = load_state(repo_root, session_id)
+    exact_secret_values = _state_secret_values(state)
+    launch_grants_verified = _launch_grants_verified(state)
+    if launch_grants_verified:
+        events, errors = _read_events(
+            root / "events.jsonl",
+            expected_session_id=session_id,
+            expected_branch=state.branch,
+            exact_secret_values=exact_secret_values,
+            allow_partial_final=bool(state.pid or state.pgid),
+            repo_root=Path(repo_root),
+        )
+    else:
+        events, errors = [], [
+            "launch credential context cannot be verified for worker logs"
+        ]
     payload: dict[str, Any] = {
         "ok": not errors,
         "session_id": session_id,
@@ -3144,20 +3933,51 @@ def logs_full_run(
         "transcript_included": False,
         "merge_authority": False,
     }
-    if raw_tail:
+    if raw_tail and not launch_grants_verified:
+        payload["transcript_error"] = (
+            "raw transcript unavailable: launch credential context cannot be verified"
+        )
+    elif raw_tail:
         transcript = root / "transcript.log"
-        if transcript.is_file():
-            lines = transcript.read_text(encoding="utf-8", errors="replace").splitlines()
-            # Bounded only — still private artifact.
-            payload["transcript_tail"] = [
-                line[-1000:] for line in (lines[-bounded_tail:] if bounded_tail else [])
-            ]
+        try:
+            transcript_exists = repo_regular_file_exists(Path(repo_root), transcript)
+        except StorageError as exc:
+            payload["transcript_error"] = exc.message
+            transcript_exists = False
+        if transcript_exists:
+            try:
+                raw_lines = _bounded_text_tail(
+                    transcript,
+                    lines=bounded_tail,
+                    repo_root=Path(repo_root),
+                )
+            except StorageError as exc:
+                payload["transcript_error"] = exc.message
+                raw_lines = []
+            raw_window = "\n".join(raw_lines)
+            if _PEM_BOUNDARY_RE.search(raw_window):
+                payload["transcript_tail"] = ["[REDACTED:pem_block]"]
+            else:
+                redacted_window = _redact_full_run_text(
+                    raw_window, exact_values=exact_secret_values
+                )
+                payload["transcript_tail"] = [
+                    line[-MAX_TRANSCRIPT_LINE_CHARS:]
+                    for line in redacted_window.splitlines()
+                ]
             payload["transcript_included"] = True
+    _redact_full_run_mapping_in_place(payload, exact_values=exact_secret_values)
     return payload
 
 
 def write_report(repo_root: Path, session_id: str, report: Mapping[str, Any]) -> Path:
     state = load_state(repo_root, session_id)
+    if not _launch_grants_verified(state):
+        raise ValidationIssue(
+            "full_run_credential_context_unverified",
+            "Cannot accept worker report without the exact launch credential context",
+        )
+    exact_secret_values = _state_secret_values(state)
     errors = validate_run_report(
         report,
         expected_session_id=session_id,
@@ -3166,6 +3986,7 @@ def write_report(repo_root: Path, session_id: str, report: Mapping[str, Any]) ->
         require_complete_acceptance=report.get("status") == "complete",
         expected_run_id=_expected_run_id(session_id),
         expected_attempt=state.attempt,
+        exact_secret_values=exact_secret_values,
     )
     if errors:
         raise ValidationIssue("full_run_report_invalid", "; ".join(errors))
@@ -3173,7 +3994,7 @@ def write_report(repo_root: Path, session_id: str, report: Mapping[str, Any]) ->
     payload = dict(report)
     payload["merge_authority"] = False
     path = full_run_root(repo_root, session_id) / "report.json"
-    atomic_write_json(path, payload)
+    atomic_write_json(path, payload, repo_root=Path(repo_root))
     return path
 
 
@@ -3193,6 +4014,11 @@ def reconcile_full_run_with_git(
     )
 
     state = load_state(repo_root, session_id)
+    if not _launch_grants_verified(state):
+        raise ValidationIssue(
+            "full_run_credential_context_unverified",
+            "Cannot reconcile worker evidence without the exact launch credential context",
+        )
     worktree = Path(state.worktree)
     if state.launch_start_head != state.start_head:
         raise ValidationIssue(
@@ -3223,8 +4049,20 @@ def reconcile_full_run_with_git(
 
     report_path = full_run_root(repo_root, session_id) / "report.json"
     report: dict[str, Any] = {}
-    if report_path.is_file():
-        report = read_json(report_path)
+    exact_secret_values = _state_secret_values(state)
+    try:
+        report_exists = repo_regular_file_exists(Path(repo_root), report_path)
+    except StorageError as exc:
+        raise ValidationIssue("full_run_report_invalid", exc.message) from exc
+    if report_exists:
+        try:
+            report = _read_bounded_json_object(
+                report_path,
+                label="run report",
+                repo_root=Path(repo_root),
+            )
+        except StorageError as exc:
+            raise ValidationIssue("full_run_report_invalid", exc.message) from exc
         errs = validate_run_report(
             report,
             expected_session_id=session_id,
@@ -3233,7 +4071,17 @@ def reconcile_full_run_with_git(
             require_complete_acceptance=report.get("status") == "complete",
             expected_run_id=_expected_run_id(session_id),
             expected_attempt=state.attempt,
+            exact_secret_values=exact_secret_values,
         )
+        redacted_report = _redact_full_run_structure(
+            report, exact_values=exact_secret_values
+        )
+        if redacted_report != report:
+            atomic_write_json(
+                report_path,
+                redacted_report,
+                repo_root=Path(repo_root),
+            )
         if errs:
             raise ValidationIssue("full_run_report_invalid", "; ".join(errs))
     if not report or report.get("status") != "complete":
@@ -3250,6 +4098,9 @@ def reconcile_full_run_with_git(
         full_run_root(repo_root, session_id) / "events.jsonl",
         expected_session_id=session_id,
         expected_branch=state.branch,
+        exact_secret_values=exact_secret_values,
+        allow_partial_final=False,
+        repo_root=Path(repo_root),
     )
     evidence_errors = event_errors + _validate_git_bound_evidence(
         state, report, events, tip

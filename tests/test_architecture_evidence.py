@@ -40,6 +40,7 @@ from cobbler_runtime.public_api_snapshot import (  # noqa: E402
     diff_snapshots,
 )
 from cobbler_runtime.schema import EffectiveAttempt  # noqa: E402
+from cobbler_runtime.storage import StorageError  # noqa: E402
 from cobbler_runtime.adapters import AdapterInvocation  # noqa: E402
 
 
@@ -282,6 +283,44 @@ class PreflightCacheTests(unittest.TestCase):
             decision3 = reuse_preflight(repo, head=head)
             self.assertFalse(decision3["reuse"])
 
+    def test_symlinked_elves_ancestor_fails_before_outside_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo = base / "repo"
+            outside = base / "outside"
+            repo.mkdir()
+            outside.mkdir()
+            sentinel = outside / "sentinel.txt"
+            sentinel.write_text("unchanged\n", encoding="utf-8")
+            (repo / ".elves").symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaises(StorageError) as ctx:
+                record_passing_preflight(repo, head="abc123")
+            self.assertEqual(ctx.exception.code, "symlink_component")
+            self.assertFalse((outside / "runtime").exists())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged\n")
+
+    def test_cache_leaf_symlink_fails_closed_for_read_and_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo = base / "repo"
+            outside = base / "outside"
+            repo.mkdir()
+            outside.mkdir()
+            record_passing_preflight(repo, head="first")
+            cache = repo / ".elves" / "runtime" / "preflight-cache" / "latest.json"
+            cache.unlink()
+            target = outside / "latest.json"
+            original = '{"sentinel": "unchanged"}\n'
+            target.write_text(original, encoding="utf-8")
+            cache.symlink_to(target)
+
+            with self.assertRaises(StorageError):
+                reuse_preflight(repo, head="second")
+            with self.assertRaises(StorageError):
+                record_passing_preflight(repo, head="second")
+            self.assertEqual(target.read_text(encoding="utf-8"), original)
+
 
 class EvidenceReviewTests(unittest.TestCase):
     def test_deterministic_selection_and_escalation(self) -> None:
@@ -319,10 +358,22 @@ class PublicApiSnapshotTests(unittest.TestCase):
             root = Path(tmp)
             (root / "scripts" / "cobbler_runtime").mkdir(parents=True)
             (root / "scripts" / "cobbler_runtime" / "__init__.py").write_text(
+                "class ValidationIssue(Exception):\n    pass\n\n"
+                "class RoleName(str):\n    pass\n\n"
                 '__all__ = ["ValidationIssue", "RoleName"]\n'
             )
             (root / "scripts" / "cobbler_agents.py").write_text(
-                'sub.add_parser("doctor")\nsub.add_parser("implement")\n'
+                "import argparse\n\n"
+                "def cmd_doctor(args):\n"
+                "    payload = {'status': 'ok'}\n"
+                "    print(payload)\n"
+                "    return 0\n\n"
+                "def build_parser():\n"
+                "    parser = argparse.ArgumentParser()\n"
+                "    sub = parser.add_subparsers(dest='command', required=True)\n"
+                "    doctor = sub.add_parser('doctor')\n"
+                "    doctor.set_defaults(func=cmd_doctor)\n"
+                "    return parser\n"
             )
             first = compatibility_gate(root, required=False)
             self.assertTrue(first["ok"])
@@ -344,6 +395,7 @@ class PublicApiSnapshotTests(unittest.TestCase):
             self.assertTrue(second["ok"], second)
             # Breaking: remove an export.
             (root / "scripts" / "cobbler_runtime" / "__init__.py").write_text(
+                "class ValidationIssue(Exception):\n    pass\n\n"
                 '__all__ = ["ValidationIssue"]\n'
             )
             third = compatibility_gate(root, required=True)

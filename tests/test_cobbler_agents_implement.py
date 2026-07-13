@@ -28,6 +28,7 @@ _ensure_import_path()
 from cobbler_runtime.implement import (  # noqa: E402
     DEFAULT_MODEL,
     DEFAULT_PERMISSION_MODE,
+    MAX_DONE_REPORT_BYTES,
     build_launch_argv,
     humanize_grok_failure,
     implement_root,
@@ -41,6 +42,7 @@ from cobbler_runtime.implement import (  # noqa: E402
     status_payload,
 )
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
+import cobbler_runtime.storage as storage_module  # noqa: E402
 
 
 def _run_cli(repo_root: Path, *args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
@@ -224,6 +226,129 @@ class PrepareImplementTests(unittest.TestCase):
                 any("alias" in n.lower() for n in payload["state"]["notes"])
             )
 
+    def test_prepare_rejects_symlinked_runtime_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime_parent = root / ".elves" / "runtime"
+            runtime_parent.mkdir(parents=True)
+            external = root / "external-runtime"
+            external.mkdir()
+            implement = runtime_parent / "implement"
+            try:
+                implement.symlink_to(external, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink creation unavailable")
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                prepare_implement(root, session_id="s")
+
+            self.assertEqual(ctx.exception.code, "implement_runtime_symlink")
+            self.assertEqual(list(external.iterdir()), [])
+
+    def test_state_read_rejects_hardlink_without_touching_external_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root, session_id="hardlink-state")
+            state = state_path(root)
+            external = root / "external-state.json"
+            original = state.read_text(encoding="utf-8")
+            external.write_text(original, encoding="utf-8")
+            state.unlink()
+            try:
+                os.link(external, state)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard links unavailable")
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                status_payload(root)
+
+            self.assertEqual(ctx.exception.code, "implement_runtime_hardlink")
+            self.assertEqual(external.read_text(encoding="utf-8"), original)
+
+    def test_state_read_rejects_ancestor_swap_after_initial_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root, session_id="race-state")
+            runtime = implement_root(root)
+            parked = runtime.with_name("implement-parked")
+            external = root / "external-runtime"
+            external.mkdir()
+            outside_state = external / "state.json"
+            outside_state.write_text('{"outside":true}\n', encoding="utf-8")
+            original_guard = storage_module.guard_repo_path
+            armed = True
+
+            def swap_after_guard(repo_root: Path, path: Path) -> Path:
+                nonlocal armed
+                candidate = original_guard(repo_root, path)
+                if armed and Path(path) == state_path(root):
+                    runtime.rename(parked)
+                    runtime.symlink_to(external, target_is_directory=True)
+                    armed = False
+                return candidate
+
+            try:
+                with (
+                    mock.patch(
+                        "cobbler_runtime.storage.guard_repo_path",
+                        side_effect=swap_after_guard,
+                    ),
+                    self.assertRaises(ValidationIssue) as ctx,
+                ):
+                    status_payload(root)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlink race fixture unavailable")
+
+            self.assertEqual(ctx.exception.code, "implement_runtime_symlink")
+            self.assertEqual(
+                outside_state.read_text(encoding="utf-8"), '{"outside":true}\n'
+            )
+
+    def test_state_read_rejects_leaf_symlink_swap_before_open(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root, session_id="race-state-leaf")
+            state = state_path(root)
+            parked = state.with_name("state-parked.json")
+            external = root / "external-state.json"
+            original = '{"outside":"keep"}\n'
+            external.write_text(original, encoding="utf-8")
+            original_assert = storage_module._assert_safe_regular_leaf
+            armed = True
+
+            def swap_after_leaf_check(
+                parent_fd: int,
+                name: str,
+                *,
+                display_path: Path,
+            ) -> os.stat_result | None:
+                nonlocal armed
+                info = original_assert(
+                    parent_fd,
+                    name,
+                    display_path=display_path,
+                )
+                if armed and display_path == state:
+                    state.rename(parked)
+                    state.symlink_to(external)
+                    armed = False
+                return info
+
+            try:
+                with (
+                    mock.patch(
+                        "cobbler_runtime.storage._assert_safe_regular_leaf",
+                        side_effect=swap_after_leaf_check,
+                    ),
+                    self.assertRaises(ValidationIssue) as ctx,
+                ):
+                    status_payload(root)
+            except (OSError, NotImplementedError):
+                self.skipTest("file symlink race fixture unavailable")
+
+            self.assertEqual(ctx.exception.code, "implement_runtime_symlink")
+            self.assertEqual(external.read_text(encoding="utf-8"), original)
+
 
 class LaunchAndResumeTests(unittest.TestCase):
     def test_launch_payload_print_only_and_persists(self) -> None:
@@ -334,6 +459,291 @@ class RunGateTests(unittest.TestCase):
             self.assertTrue(record["done_report_present"])
             self.assertEqual(record["done_report"]["status"], "complete")
 
+    def test_gate_uses_minimal_env_and_redacts_all_returned_and_saved_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root)
+            secret = "opaque-gate-secret-123456789"
+            done = implement_root(root) / "done" / "batch-2.json"
+            done.write_text(
+                json.dumps(
+                    {
+                        "batch": 2,
+                        "status": "complete",
+                        "nested": {secret: secret},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            command = [
+                sys.executable,
+                "-c",
+                (
+                    "import os,sys; "
+                    f"print({secret!r}); "
+                    "print('child_has_secret=' + str('CUSTOM_GATE_SECRET' in os.environ)); "
+                    "print('child_has_unrelated=' + str('UNRELATED_HOST_VALUE' in os.environ)); "
+                    "print('HOME=' + os.environ['HOME']); "
+                    "print('TMPDIR=' + os.environ['TMPDIR']); "
+                    f"sys.stderr.write({secret!r} + '\\n'); "
+                    "print('Ran 1 test in 0.0s'); print('OK')"
+                ),
+            ]
+            with mock.patch.dict(
+                os.environ,
+                {"CUSTOM_GATE_SECRET": secret, "UNRELATED_HOST_VALUE": "do-not-inherit"},
+                clear=False,
+            ):
+                record = run_gate(root, batch=2, test_command=command)
+
+            returned = json.dumps(record, sort_keys=True)
+            saved = (implement_root(root) / "gates" / "batch-2.json").read_text(
+                encoding="utf-8"
+            )
+            self.assertNotIn(secret, returned)
+            self.assertNotIn(secret, saved)
+            self.assertIn("[REDACTED:", returned)
+            self.assertIn("child_has_secret=False", record["stdout_tail"])
+            self.assertIn("child_has_unrelated=False", record["stdout_tail"])
+            home_line = next(
+                line for line in record["stdout_tail"].splitlines() if line.startswith("HOME=")
+            )
+            tmp_line = next(
+                line for line in record["stdout_tail"].splitlines() if line.startswith("TMPDIR=")
+            )
+            self.assertFalse(Path(home_line.removeprefix("HOME=")).exists())
+            self.assertFalse(Path(tmp_line.removeprefix("TMPDIR=")).exists())
+
+    def test_gate_bounds_done_report_and_rejects_runtime_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root)
+            done = implement_root(root) / "done" / "batch-4.json"
+            done.write_bytes(b"x" * (MAX_DONE_REPORT_BYTES + 1))
+            command = [
+                sys.executable,
+                "-c",
+                "print('Ran 1 test in 0.0s'); print('OK')",
+            ]
+            record = run_gate(root, batch=4, test_command=command)
+            self.assertTrue(record["done_report_present"])
+            self.assertIsNone(record["done_report"])
+            self.assertTrue(any("byte limit" in item for item in record["warnings"]))
+
+            external = root / "external-done.json"
+            external.write_text('{"status":"complete"}\n', encoding="utf-8")
+            done.unlink()
+            try:
+                done.symlink_to(external)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink creation unavailable")
+            with self.assertRaises(ValidationIssue) as ctx:
+                run_gate(root, batch=4, test_command=command)
+            self.assertEqual(ctx.exception.code, "implement_runtime_symlink")
+            self.assertEqual(external.read_text(encoding="utf-8"), '{"status":"complete"}\n')
+
+    def test_gate_spawn_error_is_redacted_and_scoped_env_is_cleaned(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root)
+            secret = "opaque-spawn-secret-123456789"
+            with (
+                mock.patch.dict(
+                    os.environ, {"CUSTOM_GATE_SECRET": secret}, clear=False
+                ),
+                mock.patch(
+                    "cobbler_runtime.implement.subprocess.run",
+                    side_effect=OSError(f"cannot execute {secret}"),
+                ) as run_mock,
+                self.assertRaises(ValidationIssue) as ctx,
+            ):
+                run_gate(root, batch=5, test_command=[secret])
+            self.assertEqual(ctx.exception.code, "implement_gate_spawn_failed")
+            self.assertNotIn(secret, ctx.exception.message)
+            child_env = run_mock.call_args.kwargs["env"]
+            self.assertNotIn("CUSTOM_GATE_SECRET", child_env)
+            self.assertFalse(Path(child_env["HOME"]).exists())
+            self.assertFalse(Path(child_env["TMPDIR"]).exists())
+
+    def test_gate_redacts_before_tail_truncation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root)
+            secret = "opaque-boundary-secret-zyxwvutsrqponmlk"
+            prefix = "Ran 1 test in 0.0s\nOK\n"
+            # Make the 2,000-character tail start ten characters into the
+            # secret. Redacting only after slicing would expose its suffix.
+            stdout = prefix + secret + ("z" * (2010 - len(secret)))
+            test_result = subprocess.CompletedProcess(
+                args=["gate-test"], returncode=0, stdout=stdout, stderr=""
+            )
+            git_result = subprocess.CompletedProcess(
+                args=["git", "rev-parse", "HEAD"],
+                returncode=1,
+                stdout="",
+                stderr="",
+            )
+            with (
+                mock.patch.dict(
+                    os.environ, {"CUSTOM_GATE_SECRET": secret}, clear=False
+                ),
+                mock.patch(
+                    "cobbler_runtime.implement.subprocess.run",
+                    side_effect=[test_result, git_result],
+                ),
+            ):
+                record = run_gate(root, batch=6, test_command=["gate-test"])
+
+            self.assertNotIn(secret[10:], record["stdout_tail"])
+            saved = (implement_root(root) / "gates" / "batch-6.json").read_text(
+                encoding="utf-8"
+            )
+            self.assertNotIn(secret[10:], saved)
+
+    def test_gate_rejects_hardlinked_done_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root)
+            external = root / "external-done.json"
+            original = '{"status":"complete"}\n'
+            external.write_text(original, encoding="utf-8")
+            done = implement_root(root) / "done" / "batch-7.json"
+            try:
+                os.link(external, done)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard links unavailable")
+            command = [
+                sys.executable,
+                "-c",
+                "print('Ran 1 test in 0.0s'); print('OK')",
+            ]
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                run_gate(root, batch=7, test_command=command)
+
+            self.assertEqual(ctx.exception.code, "implement_runtime_hardlink")
+            self.assertEqual(external.read_text(encoding="utf-8"), original)
+
+    def test_gate_rejects_hardlinked_destination_without_replacing_external(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root)
+            external = root / "external-gate.json"
+            original = '{"outside":"keep"}\n'
+            external.write_text(original, encoding="utf-8")
+            gate = implement_root(root) / "gates" / "batch-8.json"
+            try:
+                os.link(external, gate)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard links unavailable")
+            command = [
+                sys.executable,
+                "-c",
+                "print('Ran 1 test in 0.0s'); print('OK')",
+            ]
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                run_gate(root, batch=8, test_command=command)
+
+            self.assertEqual(ctx.exception.code, "implement_runtime_hardlink")
+            self.assertEqual(external.read_text(encoding="utf-8"), original)
+
+    def test_gate_write_rejects_ancestor_swap_after_initial_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root)
+            gates = implement_root(root) / "gates"
+            parked = gates.with_name("gates-parked")
+            external = root / "external-gates"
+            external.mkdir()
+            sentinel = external / "outside.json"
+            sentinel.write_text('{"outside":"keep"}\n', encoding="utf-8")
+            gate = gates / "batch-9.json"
+            original_guard = storage_module.guard_repo_path
+            armed = True
+
+            def swap_after_guard(repo_root: Path, path: Path) -> Path:
+                nonlocal armed
+                candidate = original_guard(repo_root, path)
+                if armed and Path(path) == gate:
+                    gates.rename(parked)
+                    gates.symlink_to(external, target_is_directory=True)
+                    armed = False
+                return candidate
+
+            command = [
+                sys.executable,
+                "-c",
+                "print('Ran 1 test in 0.0s'); print('OK')",
+            ]
+            try:
+                with (
+                    mock.patch(
+                        "cobbler_runtime.storage.guard_repo_path",
+                        side_effect=swap_after_guard,
+                    ),
+                    self.assertRaises(ValidationIssue) as ctx,
+                ):
+                    run_gate(root, batch=9, test_command=command)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlink race fixture unavailable")
+
+            self.assertEqual(ctx.exception.code, "implement_runtime_symlink")
+            self.assertEqual(
+                sentinel.read_text(encoding="utf-8"), '{"outside":"keep"}\n'
+            )
+            self.assertFalse((external / "batch-9.json").exists())
+
+    def test_gate_write_rejects_leaf_hardlink_swap_before_replace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root)
+            gate = implement_root(root) / "gates" / "batch-10.json"
+            gate.write_text('{"old":true}\n', encoding="utf-8")
+            external = root / "external-gate.json"
+            original = '{"outside":"keep"}\n'
+            external.write_text(original, encoding="utf-8")
+            original_assert = storage_module._assert_safe_regular_leaf
+            armed = True
+
+            def swap_after_leaf_check(
+                parent_fd: int,
+                name: str,
+                *,
+                display_path: Path,
+            ) -> os.stat_result | None:
+                nonlocal armed
+                info = original_assert(
+                    parent_fd,
+                    name,
+                    display_path=display_path,
+                )
+                if armed and display_path == gate:
+                    gate.unlink()
+                    os.link(external, gate)
+                    armed = False
+                return info
+
+            command = [
+                sys.executable,
+                "-c",
+                "print('Ran 1 test in 0.0s'); print('OK')",
+            ]
+            try:
+                with (
+                    mock.patch(
+                        "cobbler_runtime.storage._assert_safe_regular_leaf",
+                        side_effect=swap_after_leaf_check,
+                    ),
+                    self.assertRaises(ValidationIssue) as ctx,
+                ):
+                    run_gate(root, batch=10, test_command=command)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard-link race fixture unavailable")
+
+            self.assertEqual(ctx.exception.code, "implement_runtime_hardlink")
+            self.assertEqual(external.read_text(encoding="utf-8"), original)
+
 
 class StatusTests(unittest.TestCase):
     def test_status_absent_and_present(self) -> None:
@@ -346,6 +756,64 @@ class StatusTests(unittest.TestCase):
             present = status_payload(root)
             self.assertTrue(present["present"])
             self.assertEqual(present["state"]["session_id"], "sid")
+
+    def test_status_listing_rejects_hardlinked_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root, session_id="sid")
+            external = root / "external-list.json"
+            original = '{"outside":"keep"}\n'
+            external.write_text(original, encoding="utf-8")
+            gate = implement_root(root) / "gates" / "batch-1.json"
+            try:
+                os.link(external, gate)
+            except (OSError, NotImplementedError):
+                self.skipTest("hard links unavailable")
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                status_payload(root)
+
+            self.assertEqual(ctx.exception.code, "implement_runtime_hardlink")
+            self.assertEqual(external.read_text(encoding="utf-8"), original)
+
+    def test_status_listing_rejects_ancestor_swap_after_initial_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root, session_id="sid")
+            gates = implement_root(root) / "gates"
+            parked = gates.with_name("gates-parked")
+            external = root / "external-gates"
+            external.mkdir()
+            sentinel = external / "batch-outside.json"
+            sentinel.write_text('{"outside":"keep"}\n', encoding="utf-8")
+            original_guard = storage_module.guard_repo_path
+            armed = True
+
+            def swap_after_guard(repo_root: Path, path: Path) -> Path:
+                nonlocal armed
+                candidate = original_guard(repo_root, path)
+                if armed and Path(path) == gates:
+                    gates.rename(parked)
+                    gates.symlink_to(external, target_is_directory=True)
+                    armed = False
+                return candidate
+
+            try:
+                with (
+                    mock.patch(
+                        "cobbler_runtime.storage.guard_repo_path",
+                        side_effect=swap_after_guard,
+                    ),
+                    self.assertRaises(ValidationIssue) as ctx,
+                ):
+                    status_payload(root)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlink race fixture unavailable")
+
+            self.assertEqual(ctx.exception.code, "implement_runtime_symlink")
+            self.assertEqual(
+                sentinel.read_text(encoding="utf-8"), '{"outside":"keep"}\n'
+            )
 
 
 class CliIntegrationTests(unittest.TestCase):
@@ -493,6 +961,66 @@ class LaunchExecOptionalTests(unittest.TestCase):
             # Minimal env: no wholesale host secret inheritance in call kwargs.
             env = popen_mock.call_args.kwargs.get("env") or {}
             self.assertNotIn("OPENAI_API_KEY", env)
+            self.assertFalse(Path(env["HOME"]).exists())
+            self.assertFalse(Path(env["TMPDIR"]).exists())
+
+    def test_nonzero_exit_redacts_grants_and_cleans_scoped_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root, session_id="failed-sess", executable="tool")
+            packet = root / "p.md"
+            packet.write_text("p\n", encoding="utf-8")
+            secret = "xai-failure-secret-123456789"
+            proc = mock.Mock(returncode=17, pid=12345)
+            proc.communicate.return_value = (secret, f"provider failed: {secret}")
+            with (
+                mock.patch.dict(os.environ, {"XAI_API_KEY": secret}, clear=False),
+                mock.patch(
+                    "cobbler_runtime.implement.subprocess.Popen", return_value=proc
+                ) as popen_mock,
+            ):
+                payload = launch_payload(
+                    root,
+                    packet=packet,
+                    exec_process=True,
+                    executable="tool",
+                )
+
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["exit_code"], 17)
+            self.assertNotIn(secret, json.dumps(payload, sort_keys=True))
+            child_env = popen_mock.call_args.kwargs["env"]
+            self.assertEqual(child_env["XAI_API_KEY"], secret)
+            self.assertFalse(Path(child_env["HOME"]).exists())
+            self.assertFalse(Path(child_env["TMPDIR"]).exists())
+
+    def test_spawn_error_redacts_grants_and_cleans_scoped_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root, session_id="spawn-sess", executable="tool")
+            packet = root / "p.md"
+            packet.write_text("p\n", encoding="utf-8")
+            secret = "xai-spawn-secret-123456789"
+            with (
+                mock.patch.dict(os.environ, {"XAI_API_KEY": secret}, clear=False),
+                mock.patch(
+                    "cobbler_runtime.implement.subprocess.Popen",
+                    side_effect=OSError(f"cannot start {secret}"),
+                ) as popen_mock,
+                self.assertRaises(ValidationIssue) as ctx,
+            ):
+                launch_payload(
+                    root,
+                    packet=packet,
+                    exec_process=True,
+                    executable="tool",
+                )
+
+            self.assertEqual(ctx.exception.code, "implement_launch_spawn_failed")
+            self.assertNotIn(secret, ctx.exception.message)
+            child_env = popen_mock.call_args.kwargs["env"]
+            self.assertFalse(Path(child_env["HOME"]).exists())
+            self.assertFalse(Path(child_env["TMPDIR"]).exists())
 
     def test_resume_batch_exec_preserves_bounded_redacted_legacy_tails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -530,7 +1058,9 @@ class LaunchExecOptionalTests(unittest.TestCase):
                 ("", ""),
             ]
             with (
-                mock.patch("cobbler_runtime.implement.subprocess.Popen", return_value=proc),
+                mock.patch(
+                    "cobbler_runtime.implement.subprocess.Popen", return_value=proc
+                ) as popen_mock,
                 mock.patch("cobbler_runtime.implement.os.getpgid", return_value=24680),
                 mock.patch("cobbler_runtime.implement.os.killpg") as killpg,
             ):
@@ -544,6 +1074,9 @@ class LaunchExecOptionalTests(unittest.TestCase):
             self.assertEqual(payload["exit_code"], 124)
             self.assertEqual(killpg.call_args_list, [mock.call(24680, 15), mock.call(24680, 9)])
             self.assertEqual(proc.communicate.call_count, 3)
+            child_env = popen_mock.call_args.kwargs["env"]
+            self.assertFalse(Path(child_env["HOME"]).exists())
+            self.assertFalse(Path(child_env["TMPDIR"]).exists())
 
 
 if __name__ == "__main__":
