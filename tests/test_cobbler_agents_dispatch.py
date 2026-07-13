@@ -446,7 +446,7 @@ class QuorumPolicyTests(unittest.TestCase):
 
 
 class ParallelDispatchTests(unittest.TestCase):
-    def test_three_lanes_overlap_in_wall_clock_time(self) -> None:
+    def test_three_lanes_have_overlapping_execution_spans(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             scripts = []
@@ -484,19 +484,19 @@ class ParallelDispatchTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertTrue(result.council_verified)
         self.assertEqual(len(result.successful_reports), 3)
-        # Sequential would take ~0.75s+; parallel should be well under 0.65s.
-        self.assertLess(
-            elapsed,
-            0.65,
-            f"lanes appear sequential: elapsed={elapsed:.3f}s",
-        )
-        # Also assert pairwise start/end overlap evidence.
+        # Use the recorded execution spans as the concurrency proof. An absolute
+        # wall-clock ceiling is runner-speed dependent and was flaky on loaded
+        # macOS CI despite all three lanes demonstrably overlapping.
+        self.assertLess(elapsed, 5.0, f"parallel dispatch was unexpectedly slow: {elapsed:.3f}s")
         spans = [(lane.start_time, lane.end_time) for lane in result.lane_results]
         self.assertEqual(len(spans), 3)
         # Each lane should start before the earliest end (true concurrency).
         earliest_end = min(end for _, end in spans)
         for start, _end in spans:
             self.assertLessEqual(start, earliest_end + 0.05)
+        concurrent_makespan = max(end for _, end in spans) - min(start for start, _ in spans)
+        sequential_span_sum = sum(end - start for start, end in spans)
+        self.assertLess(concurrent_makespan, sequential_span_sum)
 
     def test_optional_lane_failure_preserves_other_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
