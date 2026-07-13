@@ -47,11 +47,11 @@ headless loop, session recovery, docs) so others benefit.
 Even as a **work driver** or plan/review lens under Claude Code/Codex, we have **not fully tested**
 every configuration of:
 
-- OpenCode (`opencode-cli` / `opencode-labor`) + OpenRouter model matrix  
-- Antigravity (`agy`) + model tiers  
-- Gemini CLI headless flags / auth modes  
-- OpenRouter thin lens + every provider/model slug  
-- Muse, AlphaEvolve, Grok implement edge cases  
+- OpenCode (`opencode-cli` / `opencode-labor`) + OpenRouter model matrix
+- Antigravity (`agy`) + model tiers
+- Gemini CLI headless flags / auth modes
+- OpenRouter thin lens + every provider/model slug
+- Muse, AlphaEvolve, Grok implement edge cases
 
 Adapters and recipes exist so people can try them. Expect rough edges, version drift, and gaps.
 
@@ -216,33 +216,33 @@ Gemini/Antigravity as independent plan/review lenses when you already pay for th
 
 When the user asks to onboard, reconfigure models, or “which model should do what”:
 
-1. **Plan**  
+1. **Plan**
    Run `onboard plan --json`. Do not invent inventory.
 
-2. **Interview**  
+2. **Interview**
    Walk `questions[]` from the packet. For each purpose, show available options (respect
-   `available_hint`: missing CLI or env name → say so). Offer **host-native** first.  
+   `available_hint`: missing CLI or env name → say so). Offer **host-native** first.
    If they want OpenRouter / Muse, confirm the env **name** is set (key already in environment or
    ignored `.env.local`) — never ask them to paste the secret into chat.
 
-3. **Apply**  
+3. **Apply**
    Run `onboard apply` with the chosen routes. Prefer host-native fallbacks (default).
 
-4. **Probe**  
+4. **Probe**
    Run `onboard probe --json`. Report pass / warn / fail. Fix or re-choose failing routes.
 
-5. **Optional live smoke**  
+5. **Optional live smoke**
    Only if the user wants a paid check: run a **tiny** real completion per external route (host
    tool), then re-run probe or record smoke evidence. Never print credentials. Default is
    structural probes only.
 
-6. **Update later**  
+6. **Update later**
    Same flow. `onboard show` first, then re-interview **changed** purposes only.
    `onboard apply` **merges** into existing `.elves/models.toml` roles (unspecified flags keep
    prior values). Pass `--reset-roles` only when you intentionally want unspecified roles reset
    to host-native. Use `--force` when overwriting a TOML that has unknown sections.
 
-7. **Staging snapshot**  
+7. **Staging snapshot**
    During Elves staging, paste effective routes into the Survival Guide so the PR shows provenance
    without committing machine-local TOML.
 

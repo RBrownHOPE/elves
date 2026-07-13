@@ -137,8 +137,8 @@ Pin `requested_model` per tier in ignored `models.toml`. Prefer host-native vali
 - **Implement with Antigravity (experimental, not Lane A):**
   - Lane A (`cobbler_agents implement prepare|launch|…`) remains **Grok Build–oriented**
   - You *may* set `implement = antigravity-labor` in local `models.toml` for role routing / one-shot
-    packets, or host-launch:  
-    `agy --model "Gemini 3.5 Flash (High)" --dangerously-skip-permissions -p "…"`  
+    packets, or host-launch:
+    `agy --model "Gemini 3.5 Flash (High)" --dangerously-skip-permissions -p "…"`
   - Not host-import write-lease qualified; qualify tools/cost yourself; keep `host-native` validate
 - Fallback: `host-native`
 - Gemini CLI is transitioning into the Antigravity family; Elves adapters use headless
@@ -379,9 +379,9 @@ python3 scripts/cobbler_agents.py onboard apply --json \
 
 ### Context rules (same as Google)
 
-1. **Preferred:** exact `session_id` so the planner chat resumes for review  
-2. **Fallback:** repo documents the agent can read  
-3. **Never:** `latest` / `continue`  
+1. **Preferred:** exact `session_id` so the planner chat resumes for review
+2. **Fallback:** repo documents the agent can read
+3. **Never:** `latest` / `continue`
 4. Review bar: completeness + constitution + regressions, not only local diff correctness
 
 Optional Survival Guide:

@@ -141,10 +141,10 @@ Copy-paste prompts: [`kickoff-prompt-template.md`](kickoff-prompt-template.md) s
 
 ## Implementation backlog (later)
 
-1. Survival-guide template fields for `e2e mode` + labor re-drive budget  
-2. `implement gate` / host checklist that fails closed on missing acceptance evidence after labor  
-3. Optional scripted gap-packet helper after work-driver status  
-4. Dogfood: force partial Grok batch, prove re-drive, then chat-to-work and chat-to-land once each  
+1. Survival-guide template fields for `e2e mode` + labor re-drive budget
+2. `implement gate` / host checklist that fails closed on missing acceptance evidence after labor
+3. Optional scripted gap-packet helper after work-driver status
+4. Dogfood: force partial Grok batch, prove re-drive, then chat-to-work and chat-to-land once each
 
 ---
 

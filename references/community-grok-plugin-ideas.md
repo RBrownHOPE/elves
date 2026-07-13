@@ -1,8 +1,8 @@
 # Community Grok plugin ideas (future backlog)
 
-**Credit:** Ideas below were reviewed from the open-source companions  
-[stdevMac/grok-in-claude](https://github.com/stdevMac/grok-in-claude) and  
-[stdevMac/grok-in-codex](https://github.com/stdevMac/grok-in-codex) (Apache-2.0).  
+**Credit:** Ideas below were reviewed from the open-source companions
+[stdevMac/grok-in-claude](https://github.com/stdevMac/grok-in-claude) and
+[stdevMac/grok-in-codex](https://github.com/stdevMac/grok-in-codex) (Apache-2.0).
 Those plugins keep Claude Code / Codex as the orchestrator and hand labor to the local Grok CLI.
 
 Elves already owns overnight runs, writer leases, packets, gates, and Cobbler routing. We **do not**

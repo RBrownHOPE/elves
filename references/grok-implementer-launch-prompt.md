@@ -14,7 +14,7 @@ advanced worker flow in [`councilelves-launch-prompt.md`](councilelves-launch-pr
 `python3 scripts/cobbler_agents.py worker …`. Do **not** use that lease path as the default
 overnight path.
 
-Future community-plugin ideas (not implemented):  
+Future community-plugin ideas (not implemented):
 [`community-grok-plugin-ideas.md`](community-grok-plugin-ideas.md).
 
 ## Survival Guide field (only when using an external implementer)
@@ -132,15 +132,15 @@ Packet file version: **1** (markdown preferred; JSON optional for machine fields
 
 A batch packet must stand alone after compaction and include:
 
-1. **batch** name / number and why it exists  
-2. **intent / behaviors** — product-level done criteria  
-3. **Build On** — existing paths, patterns, and utilities to extend  
-4. **owned surfaces** — exact files/modules the implementer may edit  
-5. **forbidden surfaces** — run memory, credentials, other worktrees, out-of-scope paths  
-6. **acceptance** — concrete criteria and what evidence looks like  
-7. **validation commands** — focused + full suite the implementer must run  
-8. **commit subject prefix** — e.g. `[feat/… · Batch N/M · Implement] …`  
-9. **stop conditions** — when to stop and what to write back  
+1. **batch** name / number and why it exists
+2. **intent / behaviors** — product-level done criteria
+3. **Build On** — existing paths, patterns, and utilities to extend
+4. **owned surfaces** — exact files/modules the implementer may edit
+5. **forbidden surfaces** — run memory, credentials, other worktrees, out-of-scope paths
+6. **acceptance** — concrete criteria and what evidence looks like
+7. **validation commands** — focused + full suite the implementer must run
+8. **commit subject prefix** — e.g. `[feat/… · Batch N/M · Implement] …`
+9. **stop conditions** — when to stop and what to write back
 10. **done report path** — typically `.elves/runtime/implement/done/batch-N.json`
 
 Store packets under `.elves/runtime/packets/` (ignored runtime tree). Prefer absolute `--prompt-file`
@@ -175,18 +175,18 @@ missing report is non-fatal). Host still owns merge/tag and final readiness.
 
 ## What Grok may do (when selected as implementer / Mode A1)
 
-- Edit owned product surfaces only  
-- Run focused and full tests  
-- Commit and push progress slices on the feature branch  
-- Write the done report for the batch  
+- Edit owned product surfaces only
+- Run focused and full tests
+- Commit and push progress slices on the feature branch
+- Write the done report for the batch
 
 ## What Grok must not do
 
-- Merge to main, tag, or open a second PR  
-- Change Survival Guide stop/merge policy unless the packet assigns it  
-- Touch credentials or secrets  
-- Review its own work as if it were independent host review  
-- Use the host-import lease commands unless the packet explicitly selects `untrusted` 
+- Merge to main, tag, or open a second PR
+- Change Survival Guide stop/merge policy unless the packet assigns it
+- Touch credentials or secrets
+- Review its own work as if it were independent host review
+- Use the host-import lease commands unless the packet explicitly selects `untrusted`
 
 ## Host after handoff
 
