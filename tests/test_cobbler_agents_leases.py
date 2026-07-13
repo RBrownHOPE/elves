@@ -34,6 +34,7 @@ from cobbler_runtime.audit import (  # noqa: E402
     pre_turn_snapshots,
 )
 from cobbler_runtime.leases import (  # noqa: E402
+    host_qualification_evidence,
     LeaseState,
     LeaseStore,
     build_write_task_packet,
@@ -74,6 +75,20 @@ def _init_repo(path: Path) -> str:
 
 def _detached_worktree(main: Path, worktree: Path, head: str) -> None:
     _run(main, ["git", "worktree", "add", "--detach", str(worktree), head])
+
+
+
+def _qual(worker, head, session_id="sess", adapter="grok-build"):
+    return host_qualification_evidence(
+        adapter=adapter,
+        model="grok-4.5",
+        sandbox="devbox",
+        worktree=str(worker),
+        cwd=str(worker),
+        parent="host-parent",
+        source_head=head,
+        session_id=session_id,
+    )
 
 
 class PathScopeTests(unittest.TestCase):
@@ -146,6 +161,7 @@ class LeaseExclusivityTests(unittest.TestCase):
                 adapter="grok-build",
                 profile="grok-build-write",
                 allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head, session_id="sess-1", adapter="grok-build"),
             )
             with self.assertRaises(ValidationIssue) as ctx:
                 store.prepare(
@@ -156,6 +172,7 @@ class LeaseExclusivityTests(unittest.TestCase):
                     base_head=head,
                     adapter="grok-build",
                     profile="grok-build-write",
+                qualification_evidence=_qual(worker, head, session_id="sess-2", adapter="grok-build"),
                 )
             self.assertEqual(ctx.exception.code, "lease_exclusivity")
 
@@ -236,6 +253,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 adapter="grok-build",
                 profile="grok-build-write",
                 allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
             store.activate("lease-ok")
             pre = pre_turn_snapshots(worker)
@@ -282,7 +300,7 @@ class AuditAndPatchTests(unittest.TestCase):
             self.assertEqual(audit.commit_chain[0].parents[0], head)
 
             store.mark_auditing("lease-ok")
-            store.mark_audited_pass("lease-ok")
+            store.mark_audited_pass("lease-ok", evidence={"ok": True, "lease_id": "lease-ok", "worker_tip": audit.worker_tip, "base_head": head, "commit_chain": [c.to_dict() for c in audit.commit_chain], "evidence_digest": "test-digest"})
             lease = store.get("lease-ok")
             patch_dir = root / "patches"
             patches = export_binary_patches(
@@ -317,6 +335,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 adapter="grok-build",
                 profile="p",
                 allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
             store.activate(lease.lease_id)
             elves = worker / ".elves"
@@ -345,6 +364,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 adapter="grok-build",
                 profile="p",
                 allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
             # Create two divergent commits and merge
             _run(worker, ["git", "checkout", "-b", "side-a"])
@@ -384,6 +404,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 adapter="grok-build",
                 profile="p",
                 allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
             pre = pre_turn_snapshots(worker)
             (worker / "src" / "app.py").write_text("v\n", encoding="utf-8")
@@ -414,6 +435,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 adapter="grok-build",
                 profile="p",
                 allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
             audit = audit_lease_turn(
                 store.get(lease.lease_id),
@@ -442,6 +464,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 adapter="grok-build",
                 profile="p",
                 allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
             (worker / "src" / "app.py").write_text("staged?\n", encoding="utf-8")
             _run(worker, ["git", "add", "--", "src/app.py"])
@@ -467,6 +490,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 profile="workspace",
                 sandbox_profile="workspace",
                 allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
             self.assertFalse(lease.detached_commits_permitted)
             self.assertFalse(lease.workspace_sandbox_commit_capable)
@@ -494,6 +518,7 @@ class AuditAndPatchTests(unittest.TestCase):
                 adapter="grok-build",
                 profile="p",
                 allowed_paths=["src/"],
+                qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
             )
             store.activate(lease.lease_id)
             # Simulate host advanced tip
@@ -503,7 +528,7 @@ class AuditAndPatchTests(unittest.TestCase):
             new_tip = _git(host, "rev-parse", "HEAD")
             # Worker still at old tip, clean
             store.mark_auditing(lease.lease_id)
-            store.mark_audited_pass(lease.lease_id)
+            store.mark_audited_pass(lease.lease_id, evidence={"ok": True, "lease_id": lease.lease_id, "worker_tip": lease.worker_tip or head, "base_head": head, "commit_chain": [], "evidence_digest": "test-digest"})
             store.mark_exported(lease.lease_id, str(root / "patches"))
             store.mark_integrated(lease.lease_id)
             result = store.refresh_worker_to_tip(lease.lease_id, new_tip=new_tip)
@@ -569,6 +594,7 @@ class UnqualifiedWriteTests(unittest.TestCase):
                     adapter="grok-build",
                     profile="unqualified",
                     write_profile_qualified=False,
+                qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
                 )
             self.assertEqual(ctx.exception.code, "write_profile_unqualified")
 

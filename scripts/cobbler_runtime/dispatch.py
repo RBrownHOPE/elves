@@ -1017,24 +1017,89 @@ async def _run_single_attempt(
             invocation.stdin_text, exact_values=exact_secret_values
         ).text.encode("utf-8")
 
+    # External lanes: disposable tracked-source isolation (HOME/TMP/XDG + snapshot cwd).
+    # Host-native already returned above; this path is subprocess-only.
+    isolated_lane_obj = None
+    child_env = scrub.env
     child_cwd = invocation.cwd or str(repo_root)
+    isolation_required = bool(getattr(spec, "require_isolation", False)) or bool(
+        getattr(attempt, "require_isolation", False)
+    )
+    use_isolation = attempt.adapter not in {"host-native"} and not bool(
+        getattr(spec, "skip_isolation", False)
+    )
+    if use_isolation:
+        try:
+            from .isolation import IsolationSpec, create_tracked_snapshot  # noqa: PLC0415
+
+            isolated_lane_obj = create_tracked_snapshot(
+                IsolationSpec(
+                    repo_root=Path(repo_root),
+                    lane_id=safe_path_component(spec.lane_id, field="lane_id"),
+                    include_instructions_as_data=bool(
+                        getattr(spec, "include_instructions_as_data", False)
+                    ),
+                    credential_grants={
+                        name: scrub.env[name]
+                        for name in grants
+                        if name in scrub.env and scrub.env[name]
+                    },
+                    base_env={"PATH": scrub.env.get("PATH", os.environ.get("PATH", "/usr/bin:/bin"))},
+                )
+            )
+            snap = Path(isolated_lane_obj.env["ELVES_ISOLATED_SNAPSHOT"])
+            child_cwd = str(snap)
+            # Isolated env + explicit grants only (already in isolated_lane_obj.env).
+            child_env = dict(isolated_lane_obj.env)
+            # Preserve non-secret PATH-like values from scrub that isolation may need.
+            for key in ("PATH", "LANG", "LC_ALL", "TERM"):
+                if key in scrub.env and key not in child_env:
+                    child_env[key] = scrub.env[key]
+            attempt_result.effective_contract["isolation"] = {
+                "enabled": True,
+                "snapshot": child_cwd,
+                "instruction_data_files": list(isolated_lane_obj.instruction_data_files),
+            }
+        except Exception as exc:  # noqa: BLE001
+            if isolation_required:
+                return _fail(
+                    reason=(
+                        f"required_isolation_failed: {type(exc).__name__}: {exc}; "
+                        "refusing repo-root launch"
+                    ),
+                    failure_class="isolation_failure",
+                    command=redacted_command,
+                )
+            # Optional isolation failure: fall back native with recorded reason.
+            attempt_result.effective_contract["isolation"] = {
+                "enabled": False,
+                "fallback": "native",
+                "reason": f"{type(exc).__name__}: {exc}",
+            }
+            child_cwd = invocation.cwd or str(repo_root)
+            child_env = scrub.env
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *raw_command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             stdin=asyncio.subprocess.PIPE if stdin_bytes is not None else None,
-            env=scrub.env,
+            env=child_env,
             cwd=child_cwd,
             start_new_session=True,
         )
     except FileNotFoundError as exc:
+        if isolated_lane_obj is not None:
+            isolated_lane_obj.cleanup()
         return _fail(
             reason=f"executable not found: {exc}",
             failure_class="launch_error",
             command=redacted_command,
         )
     except OSError as exc:
+        if isolated_lane_obj is not None:
+            isolated_lane_obj.cleanup()
         return _fail(
             reason=f"launch error: {exc}",
             failure_class="launch_error",
@@ -1049,86 +1114,103 @@ async def _run_single_attempt(
     except OSError:
         launched_pgid = None
 
+    def _cleanup_isolation() -> None:
+        if isolated_lane_obj is not None:
+            try:
+                isolated_lane_obj.cleanup()
+            except Exception:  # noqa: BLE001
+                pass
+
     timed_out = False
-    cleanup: dict[str, Any] = {"pgid": launched_pgid}
+    cleanup: dict[str, Any] = {
+        "pgid": launched_pgid,
+        "isolation_root": str(isolated_lane_obj.root) if isolated_lane_obj else None,
+    }
     stdout_b = b""
     stderr_b = b""
     try:
-        stdout_b, stderr_b = await asyncio.wait_for(
-            proc.communicate(input=stdin_bytes),
-            timeout=spec.timeout_seconds,
-        )
-    except asyncio.TimeoutError:
-        timed_out = True
-        cleanup = await _terminate_process_group(proc, known_pgid=launched_pgid)
-        stdout_b, stderr_b = b"", b""
-    except asyncio.CancelledError:
-        cleanup = await _terminate_process_group(proc, known_pgid=launched_pgid)
-        raise
-    except Exception as exc:  # noqa: BLE001
-        cleanup = await _terminate_process_group(proc, known_pgid=launched_pgid)
-        stdout = ""
-        stderr = ""
-        return _fail(
-            reason=redact_text(
-                f"execution_runtime_error: {type(exc).__name__}: {exc}",
-                exact_values=exact_secret_values,
-            ).text,
-            failure_class="execution_failure",
-            command=redacted_command,
-            process_launched=True,
-            exit_code=proc.returncode,
-            cleanup=cleanup,
-            stdout=stdout,
-            stderr=stderr,
-        )
+        try:
+            stdout_b, stderr_b = await asyncio.wait_for(
+                proc.communicate(input=stdin_bytes),
+                timeout=spec.timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            timed_out = True
+            cleanup = await _terminate_process_group(proc, known_pgid=launched_pgid)
+            cleanup["isolation_root"] = (
+                str(isolated_lane_obj.root) if isolated_lane_obj else None
+            )
+            stdout_b, stderr_b = b"", b""
+        except asyncio.CancelledError:
+            cleanup = await _terminate_process_group(proc, known_pgid=launched_pgid)
+            raise
+        except Exception as exc:  # noqa: BLE001
+            cleanup = await _terminate_process_group(proc, known_pgid=launched_pgid)
+            stdout = ""
+            stderr = ""
+            return _fail(
+                reason=redact_text(
+                    f"execution_runtime_error: {type(exc).__name__}: {exc}",
+                    exact_values=exact_secret_values,
+                ).text,
+                failure_class="execution_failure",
+                command=redacted_command,
+                process_launched=True,
+                exit_code=proc.returncode,
+                cleanup=cleanup,
+                stdout=stdout,
+                stderr=stderr,
+            )
 
-    # After normal exit, prove the process group is empty (no surviving descendants).
-    # A leader that returns success while leaving group members is a failed attempt.
-    if not timed_out and launched_pgid is not None and _pgid_alive(launched_pgid):
-        cleanup = await _terminate_process_group(proc, known_pgid=launched_pgid)
+        # After normal exit, prove the process group is empty (no surviving descendants).
+        if not timed_out and launched_pgid is not None and _pgid_alive(launched_pgid):
+            cleanup = await _terminate_process_group(proc, known_pgid=launched_pgid)
+            stdout_raw = (stdout_b or b"").decode("utf-8", errors="replace")
+            stderr_raw = (stderr_b or b"").decode("utf-8", errors="replace")
+            stdout = redact_text(stdout_raw, exact_values=exact_secret_values).text
+            stderr = redact_text(stderr_raw, exact_values=exact_secret_values).text
+            write_text_artifact(attempt_dir / "stdout.txt", stdout)
+            write_text_artifact(attempt_dir / "stderr.txt", stderr)
+            return _fail(
+                reason=(
+                    f"descendant_process_group_still_alive:pgid={launched_pgid}; "
+                    f"cleanup={cleanup}"
+                ),
+                failure_class="execution_failure",
+                command=redacted_command,
+                process_launched=True,
+                exit_code=proc.returncode,
+                cleanup=cleanup,
+                stdout=stdout,
+                stderr=stderr,
+            )
+
         stdout_raw = (stdout_b or b"").decode("utf-8", errors="replace")
         stderr_raw = (stderr_b or b"").decode("utf-8", errors="replace")
         stdout = redact_text(stdout_raw, exact_values=exact_secret_values).text
         stderr = redact_text(stderr_raw, exact_values=exact_secret_values).text
         write_text_artifact(attempt_dir / "stdout.txt", stdout)
         write_text_artifact(attempt_dir / "stderr.txt", stderr)
-        return _fail(
-            reason=(
-                f"descendant_process_group_still_alive:pgid={launched_pgid}; "
-                f"cleanup={cleanup}"
-            ),
-            failure_class="execution_failure",
-            command=redacted_command,
-            process_launched=True,
-            exit_code=proc.returncode,
-            cleanup=cleanup,
-            stdout=stdout,
-            stderr=stderr,
-        )
 
-    stdout_raw = (stdout_b or b"").decode("utf-8", errors="replace")
-    stderr_raw = (stderr_b or b"").decode("utf-8", errors="replace")
-    stdout = redact_text(stdout_raw, exact_values=exact_secret_values).text
-    stderr = redact_text(stderr_raw, exact_values=exact_secret_values).text
-    write_text_artifact(attempt_dir / "stdout.txt", stdout)
-    write_text_artifact(attempt_dir / "stderr.txt", stderr)
-
-    if timed_out:
-        reason = f"timeout after {spec.timeout_seconds}s; process_group_cleanup={cleanup}"
-        if cleanup and not cleanup.get("group_absent", False):
-            reason += "; descendant_process_group_not_cleared"
-        return _fail(
-            reason=reason,
-            failure_class="timeout",
-            command=redacted_command,
-            process_launched=True,
-            exit_code=proc.returncode,
-            timeout=True,
-            cleanup=cleanup,
-            stdout=stdout,
-            stderr=stderr,
-        )
+        if timed_out:
+            reason = f"timeout after {spec.timeout_seconds}s; process_group_cleanup={cleanup}"
+            if cleanup and not cleanup.get("group_absent", False):
+                reason += "; descendant_process_group_not_cleared"
+            return _fail(
+                reason=reason,
+                failure_class="timeout",
+                command=redacted_command,
+                process_launched=True,
+                exit_code=proc.returncode,
+                timeout=True,
+                cleanup=cleanup,
+                stdout=stdout,
+                stderr=stderr,
+            )
+    finally:
+        _cleanup_isolation()
+        if isolated_lane_obj is not None:
+            cleanup["isolation_cleaned"] = not isolated_lane_obj.root.exists()
     # Use redacted command in subsequent failure paths.
     command = redacted_command
 

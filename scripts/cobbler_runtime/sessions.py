@@ -625,14 +625,45 @@ class SessionRegistry:
                 path=str(chosen),
             ) from exc
 
-    def save(self, record: SessionRecord) -> SessionRecord:
+    def save(self, record: SessionRecord, *, expected_revision: int | None = None) -> SessionRecord:
+        """Persist a session record with optional compare-and-swap on revision."""
         self._ensure_writable()
         with directory_lock(self.root):
+            path = self._record_path(record.session_id)
+            if path.is_file():
+                try:
+                    current = json.loads(path.read_text(encoding="utf-8"))
+                    current_rev = int(current.get("revision") or 0)
+                except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                    raise ValidationIssue(
+                        "session_record_malformed",
+                        f"Cannot CAS-save over unreadable record: {exc}",
+                        path=str(path),
+                    ) from exc
+                if expected_revision is not None and current_rev != int(expected_revision):
+                    raise ValidationIssue(
+                        "session_revision_conflict",
+                        f"Stale session write: expected revision {expected_revision}, "
+                        f"disk has {current_rev}",
+                        path=str(path),
+                        hint="Reload the record and retry",
+                    )
+                # Default CAS: writer must not silently clobber a newer revision.
+                if expected_revision is None and int(record.revision or 0) not in {
+                    0,
+                    current_rev,
+                }:
+                    if int(record.revision or 0) < current_rev:
+                        raise ValidationIssue(
+                            "session_revision_conflict",
+                            f"Stale session write: in-memory revision {record.revision} "
+                            f"< disk {current_rev}",
+                            path=str(path),
+                        )
             record.revision = int(record.revision or 0) + 1
             record.updated_at = _utc_now()
             if not record.created_at:
                 record.created_at = record.updated_at
-            path = self._record_path(record.session_id)
             atomic_write_json(path, record.to_dict(), mode=stat.S_IRUSR | stat.S_IWUSR)
             self._rewrite_index()
             return record

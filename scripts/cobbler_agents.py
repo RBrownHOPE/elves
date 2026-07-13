@@ -154,13 +154,14 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     repo_root = _repo_root_from_args(args)
     resolved = resolve_from_repo(repo_root)
     inventory = doctor_inventory(resolved.profiles)
-    registry = SessionRegistry(repo_root)
+    registry = SessionRegistry.open_readonly(repo_root)
     sessions = [rec.to_dict() for rec in registry.list_sessions()]
     payload: dict[str, Any] = {
         "ok": resolved.ok,
         "repo_root": str(repo_root),
         "model_calls_made": False,
         "mutated_repo": False,
+        "read_only": True,
         "adapters": inventory["adapters"],
         "adapter_registry": registry_snapshot(),
         "capabilities": summarize_capabilities(resolved.profiles),
@@ -203,8 +204,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def cmd_session(args: argparse.Namespace) -> int:
     """Exact session registry helpers (list / probe / resume argv)."""
     repo_root = _repo_root_from_args(args)
-    registry = SessionRegistry(repo_root)
     action = args.session_action
+
+    if action in {"list", "probe"}:
+        # Truly read-only: never create runtime directories.
+        registry = SessionRegistry.open_readonly(repo_root)
+    else:
+        registry = SessionRegistry(repo_root)
 
     if action == "list":
         records = [rec.to_dict() for rec in registry.list_sessions()]
@@ -214,6 +220,7 @@ def cmd_session(args: argparse.Namespace) -> int:
             "sessions": records,
             "count": len(records),
             "mutated_repo": False,
+            "read_only": True,
         }
         if args.json:
             return _emit_json(payload, exit_code=0)
@@ -229,12 +236,17 @@ def cmd_session(args: argparse.Namespace) -> int:
         try:
             rec = registry.get(args.session_id)
         except ValidationIssue as issue:
-            payload = {"ok": False, "issues": [issue.to_dict()]}
+            payload = {"ok": False, "issues": [issue.to_dict()], "read_only": True}
             if args.json:
                 return _emit_json(payload, exit_code=1)
             print(f"session probe: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
             return 1
-        payload = {"ok": True, "session": rec.to_dict(), "mutated_repo": False}
+        payload = {
+            "ok": True,
+            "session": rec.to_dict(),
+            "mutated_repo": False,
+            "read_only": True,
+        }
         if args.json:
             return _emit_json(payload, exit_code=0)
         print(f"session probe: {rec.session_id}")
@@ -247,15 +259,61 @@ def cmd_session(args: argparse.Namespace) -> int:
         return 0
 
     if action == "resume":
-        # Build exact resume argv only — does not launch paid inference.
+        # Exact registered record only — never construct argv for unregistered IDs.
+        try:
+            rec = registry.get(args.session_id)
+        except ValidationIssue as issue:
+            payload = {"ok": False, "issues": [issue.to_dict()]}
+            if args.json:
+                return _emit_json(payload, exit_code=1)
+            print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+            return 1
+        adapter = args.adapter or rec.harness
+        profile = args.profile or rec.profile or adapter
+        model = args.model or rec.actual_model or rec.requested_model
+        cwd = args.cwd or rec.cwd
+        # Reject contradictory overrides.
+        if args.adapter and rec.harness and args.adapter != rec.harness:
+            issue = ValidationIssue(
+                "session_resume_adapter_mismatch",
+                f"Override adapter `{args.adapter}` != registered `{rec.harness}`",
+            )
+            payload = {"ok": False, "issues": [issue.to_dict()]}
+            if args.json:
+                return _emit_json(payload, exit_code=1)
+            print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+            return 1
+        if getattr(args, "require_write", False):
+            missing = []
+            for field_name, value in (
+                ("adapter", adapter),
+                ("model", model),
+                ("cwd", cwd),
+                ("worktree", rec.worktree),
+                ("parent_id", rec.parent_id),
+                ("source_head", rec.source_head),
+            ):
+                if not value:
+                    missing.append(field_name)
+            if missing or rec.write_reuse_blocked:
+                issue = ValidationIssue(
+                    "session_write_reuse_unqualified",
+                    "Write reuse refused: missing observations or write_reuse_blocked",
+                    hint=",".join(missing) if missing else rec.block_reason or "blocked",
+                )
+                payload = {"ok": False, "issues": [issue.to_dict()]}
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+                return 1
         try:
             inv = build_session_resume_invocation(
-                adapter=args.adapter,
-                profile=args.profile or args.adapter,
+                adapter=adapter,
+                profile=profile,
                 session_id=args.session_id,
                 executable=args.executable,
-                requested_model=args.model,
-                cwd=args.cwd,
+                requested_model=model,
+                cwd=cwd,
             )
         except ValidationIssue as issue:
             payload = {"ok": False, "issues": [issue.to_dict()]}
@@ -267,10 +325,11 @@ def cmd_session(args: argparse.Namespace) -> int:
             "ok": True,
             "session_id": args.session_id,
             "invocation": inv.to_dict(),
+            "registered": True,
             "launched": False,
             "mutated_repo": False,
             "notes": [
-                "Exact session resume argv only; no process was launched",
+                "Exact registered session resume argv only; no process was launched",
                 "Verify CWD/worktree registration before any write role",
             ],
         }
@@ -623,7 +682,16 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 start_head=args.start_head,
                 worktree=args.worktree or repo_root,
                 packet_path=args.packet,
-                executable=args.executable,
+                adapter=getattr(args, "adapter", None) or "grok-build",
+                model=getattr(args, "model", None) or "grok-4.5",
+                permission_mode=getattr(args, "permission_mode", None) or "auto",
+                effort=getattr(args, "effort", None) or "medium",
+                executable=getattr(args, "executable", None),
+                create=not bool(getattr(args, "resume", False)),
+                check=bool(getattr(args, "check", False)),
+                max_turns=int(getattr(args, "max_turns", 80) or 80),
+                fixture_script=getattr(args, "fixture_script", None),
+                credential_grant_names=list(getattr(args, "grant_env", None) or []) or None,
             )
             if args.json:
                 return _emit_json(payload, exit_code=0)
@@ -631,23 +699,18 @@ def cmd_implement(args: argparse.Namespace) -> int:
             return 0
 
         if action == "full-run-launch":
-            env = {}
-            for item in getattr(args, "env", None) or []:
-                if "=" in item:
-                    key, value = item.split("=", 1)
-                    env[key] = value
             payload = launch_full_run(
                 repo_root,
                 session_id=args.session_id,
-                background=not bool(getattr(args, "foreground", False)),
-                env=env or None,
-                extra_args=list(getattr(args, "extra_arg", None) or []),
+                resume=bool(getattr(args, "resume", False)),
+                credential_grant_names=list(getattr(args, "grant_env", None) or []) or None,
             )
             if args.json:
                 return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
             print(
                 f"full-run launch: session={payload.get('session_id')} "
-                f"pid={payload.get('pid')} status={payload.get('status')}"
+                f"pid={payload.get('pid')} adapter={payload.get('adapter')} "
+                f"status={payload.get('status')}"
             )
             return 0 if payload.get("ok") else 1
 
@@ -1148,11 +1211,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_flags(session_resume)
     session_resume.add_argument("--session-id", required=True, help="Exact session id")
-    session_resume.add_argument("--adapter", default="claude-code", help="Adapter name")
+    session_resume.add_argument(
+        "--adapter",
+        default=None,
+        help="Adapter override (must match registered harness when provided)",
+    )
     session_resume.add_argument("--profile", default=None, help="Profile name")
     session_resume.add_argument("--executable", default=None, help="Executable override")
     session_resume.add_argument("--model", default=None, help="Requested model")
     session_resume.add_argument("--cwd", default=None, help="Verified CWD/worktree path")
+    session_resume.add_argument(
+        "--require-write",
+        action="store_true",
+        help="Fail closed unless write-reuse observations are complete and unblocked",
+    )
     session_resume.set_defaults(func=cmd_session)
 
     worker = sub.add_parser(
@@ -1242,35 +1314,55 @@ def build_parser() -> argparse.ArgumentParser:
     i_fr_prepare.add_argument("--start-head", required=True)
     i_fr_prepare.add_argument("--packet", required=True, help="Path to full-run packet")
     i_fr_prepare.add_argument(
+        "--adapter",
+        default="grok-build",
+        help="grok-build (default) or fixture (explicit test mode only)",
+    )
+    i_fr_prepare.add_argument("--model", default="grok-4.5")
+    i_fr_prepare.add_argument("--permission-mode", default="auto")
+    i_fr_prepare.add_argument("--effort", default="medium")
+    i_fr_prepare.add_argument(
         "--executable",
-        required=True,
-        help="Worker executable (fixture path allowed in tests)",
+        default=None,
+        help="CLI executable (default: grok; fixture mode uses python3)",
     )
     i_fr_prepare.add_argument("--worktree", default=None)
+    i_fr_prepare.add_argument("--check", action="store_true")
+    i_fr_prepare.add_argument("--max-turns", type=int, default=80)
+    i_fr_prepare.add_argument(
+        "--resume",
+        action="store_true",
+        help="Prepare for resume (exact --resume) instead of create (--session-id)",
+    )
+    i_fr_prepare.add_argument(
+        "--fixture-script",
+        default=None,
+        help="Explicit test fixture script (only with --adapter fixture)",
+    )
+    i_fr_prepare.add_argument(
+        "--grant-env",
+        action="append",
+        default=[],
+        help="Credential grant by NAME only (value from private env; never KEY=VALUE)",
+    )
     i_fr_prepare.set_defaults(func=cmd_implement)
 
     i_fr_launch = implement_sub.add_parser(
         "full-run-launch",
-        help="Background-launch the full-run worker for one exact session",
+        help="Background-launch Grok (or explicit fixture) for one exact session",
     )
     _add_common_flags(i_fr_launch)
     i_fr_launch.add_argument("--session-id", required=True)
     i_fr_launch.add_argument(
-        "--env",
-        action="append",
-        default=[],
-        help="Explicit env grant KEY=VALUE (repeatable; no host env inherit)",
-    )
-    i_fr_launch.add_argument(
-        "--extra-arg",
-        action="append",
-        default=[],
-        help="Extra argv before packet path (repeatable)",
-    )
-    i_fr_launch.add_argument(
-        "--foreground",
+        "--resume",
         action="store_true",
-        help="Reserved; launch still returns promptly via Popen",
+        help="Force resume argv (--resume) even if prepare stored create=true",
+    )
+    i_fr_launch.add_argument(
+        "--grant-env",
+        action="append",
+        default=[],
+        help="Credential grant by NAME only (never KEY=VALUE on argv)",
     )
     i_fr_launch.set_defaults(func=cmd_implement)
 

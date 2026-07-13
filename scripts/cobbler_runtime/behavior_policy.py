@@ -296,10 +296,11 @@ def resolve_from_signals(
     *,
     intent: str = "",
 ) -> BehaviorDecision:
-    """Best-effort resolution from boolean signal map / intent keywords.
+    """Compose handling dimensions independently (not first-match overwrite).
 
-    Prefer explicit scenario IDs in production. This helper exists for semantic
-    tests that feed structured signals rather than prose phrase checks.
+    Kickoff, landing, trust/lane, delegation, and driver-monitor are combined so
+    e.g. full_run+trusted_grok+chat_to_land keeps Grok parked-monitor *and*
+    chat-to-land merge intent.
     """
     flags = {k: bool(v) for k, v in (signals or {}).items()}
     text = (intent or "").lower()
@@ -307,23 +308,104 @@ def resolve_from_signals(
     def has(*keys: str) -> bool:
         return any(flags.get(k) or k.replace("_", " ") in text for k in keys)
 
+    # Base scenario for notes/scenario_id only.
     if has("untrusted", "writer_lease", "detached_lease"):
-        return resolve_scenario("untrusted_writer")
+        base = resolve_scenario("untrusted_writer")
+    elif has("legacy_two_call", "stage_only"):
+        base = resolve_scenario("legacy_two_call")
+    elif has("full_run", "overnight", "turn_over_to_grok", "trusted_grok"):
+        base = resolve_scenario("full_run_trusted_grok")
+    elif has("single_kickoff", "run_now", "chat_to_work"):
+        base = resolve_scenario("single_kickoff_e2e")
+    elif has("bounded_task", "one_batch"):
+        base = resolve_scenario("bounded_task")
+    elif has("test_integrity", "update_tests"):
+        base = resolve_scenario("test_integrity")
+    elif has("rollback", "rollback_tag"):
+        base = resolve_scenario("rollback_naming")
+    elif has("chat_to_land", "merge_on_green", "reviewed_pr_landing"):
+        base = resolve_scenario("chat_to_land")
+    else:
+        base = resolve_scenario("direct_edit")
+
+    # Compose dimensions independently on top of the base.
+    handling_level = base.handling_level
+    kickoff_mode = base.kickoff_mode
+    work_driver = base.work_driver
+    delegation_scope = base.delegation_scope
+    git_mode = base.git_mode
+    driver_monitor_mode = base.driver_monitor_mode
+    landing_mode = base.landing_mode
+    continuation = base.continuation
+    notes = list(base.notes)
+
+    if has("untrusted", "writer_lease", "detached_lease"):
+        work_driver = "untrusted_writer"
+        git_mode = "detached_lease"
+        delegation_scope = "batch"
+        driver_monitor_mode = "interactive"
+        handling_level = "bounded_task"
+    elif has("full_run", "overnight") and has(
+        "trusted_grok", "turn_over_to_grok", "full_run"
+    ):
+        # Trusted Grok full-run: keep parked-monitor + branch_progress even when
+        # landing mode is also chat-to-land.
+        work_driver = "grok_build"
+        delegation_scope = "full_run"
+        git_mode = "branch_progress"
+        driver_monitor_mode = "parked_monitor"
+        handling_level = "full_run"
+        continuation = "same_session"
+        if kickoff_mode in {"n_a", "legacy_two_call"} and not has("legacy_two_call"):
+            kickoff_mode = "single_kickoff"
+        notes.append("composed: trusted Grok full-run parked-monitor")
+    elif has("trusted_grok", "turn_over_to_grok") and has("full_run", "overnight"):
+        work_driver = "grok_build"
+        delegation_scope = "full_run"
+        git_mode = "branch_progress"
+        driver_monitor_mode = "parked_monitor"
+        handling_level = "full_run"
+        continuation = "same_session"
+        notes.append("composed: trusted Grok full-run parked-monitor")
+
     if has("chat_to_land", "merge_on_green", "reviewed_pr_landing"):
-        return resolve_scenario("chat_to_land")
+        landing_mode = "chat_to_land"
+        handling_level = "full_run"
+        kickoff_mode = "single_kickoff" if kickoff_mode == "n_a" else kickoff_mode
+        notes.append("composed: chat-to-land landing")
+    elif has("chat_to_work", "run_now", "single_kickoff") and landing_mode == "none":
+        landing_mode = "chat_to_work"
+
     if has("legacy_two_call", "stage_only"):
-        return resolve_scenario("legacy_two_call")
-    if has("full_run", "overnight", "turn_over_to_grok", "trusted_grok"):
-        return resolve_scenario("full_run_trusted_grok")
-    if has("single_kickoff", "run_now", "chat_to_work"):
-        return resolve_scenario("single_kickoff_e2e")
-    if has("bounded_task", "one_batch"):
-        return resolve_scenario("bounded_task")
-    if has("test_integrity", "update_tests"):
-        return resolve_scenario("test_integrity")
-    if has("rollback", "rollback_tag"):
-        return resolve_scenario("rollback_naming")
-    return resolve_scenario("direct_edit")
+        kickoff_mode = "legacy_two_call"
+        continuation = "host_reprompt"
+        notes.append("composed: explicit legacy two-call")
+
+    if has("direct_edit") and not has("full_run", "bounded_task", "trusted_grok"):
+        handling_level = "direct_edit"
+        work_driver = "host_native"
+        delegation_scope = "none"
+        driver_monitor_mode = "interactive"
+
+    if has("bounded_task", "one_batch") and not has("full_run", "trusted_grok"):
+        handling_level = "bounded_task"
+        delegation_scope = "batch"
+        continuation = "resume_batch"
+
+    return BehaviorDecision(
+        scenario_id=base.scenario_id,
+        handling_level=handling_level,
+        kickoff_mode=kickoff_mode,
+        work_driver=work_driver,
+        delegation_scope=delegation_scope,
+        git_mode=git_mode,
+        driver_monitor_mode=driver_monitor_mode,
+        landing_mode=landing_mode,
+        test_integrity=base.test_integrity,
+        rollback_naming="run_scoped",
+        continuation=continuation,
+        notes=tuple(notes),
+    )
 
 
 def policy_snapshot() -> dict[str, Any]:

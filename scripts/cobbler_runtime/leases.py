@@ -31,6 +31,38 @@ from .storage import (
 )
 
 
+def host_qualification_evidence(
+    *,
+    adapter: str,
+    model: str,
+    sandbox: str = "devbox",
+    worktree: str,
+    cwd: str,
+    parent: str,
+    source_head: str,
+    session_id: str,
+    capabilities: Mapping[str, Any] | None = None,
+    observed_at: str | None = None,
+) -> dict[str, Any]:
+    """Build a host-issued qualification record (test and host helpers)."""
+    return {
+        "adapter": adapter,
+        "model": model,
+        "sandbox": sandbox,
+        "worktree": worktree,
+        "cwd": cwd,
+        "parent": parent,
+        "source_head": source_head,
+        "session_id": session_id,
+        "capabilities": dict(capabilities or {"write": True}),
+        "evidence_kind": "host_observed",
+        "observed_at": observed_at or _utc_now(),
+        "host_observed": True,
+        "stale": False,
+        "preference_declared": False,
+    }
+
+
 class LeaseState(str, Enum):
     PREPARED = "prepared"
     ACTIVE = "active"
@@ -202,7 +234,10 @@ class WriterLease:
     base_head: str
     adapter: str
     profile: str
+    revision: int = 0
     sandbox_profile: str = "devbox"
+    qualification_digest: str | None = None
+    audit_evidence_digest: str | None = None
     allowed_paths: list[str] = field(default_factory=list)
     forbidden_path_prefixes: list[str] = field(
         default_factory=lambda: list(DEFAULT_FORBIDDEN_PATH_PREFIXES)
@@ -242,7 +277,10 @@ class WriterLease:
             base_head=str(data["base_head"]),
             adapter=str(data["adapter"]),
             profile=str(data["profile"]),
+            revision=int(data.get("revision") or 0),
             sandbox_profile=str(data.get("sandbox_profile") or "devbox"),
+            qualification_digest=data.get("qualification_digest"),
+            audit_evidence_digest=data.get("audit_evidence_digest"),
             allowed_paths=list(data.get("allowed_paths") or []),
             forbidden_path_prefixes=list(
                 data.get("forbidden_path_prefixes") or DEFAULT_FORBIDDEN_PATH_PREFIXES
@@ -588,7 +626,7 @@ class LeaseStore:
             ) from exc
         return WriterLease.from_dict(data)
 
-    def save(self, lease: WriterLease) -> WriterLease:
+    def save(self, lease: WriterLease, *, expected_revision: int | None = None) -> WriterLease:
         if not self._create:
             raise ValidationIssue(
                 "lease_store_read_only",
@@ -596,10 +634,36 @@ class LeaseStore:
                 path=str(self.root),
             )
         with directory_lock(self.root):
+            path = self._path(lease.lease_id)
+            if path.is_file():
+                try:
+                    current = json.loads(path.read_text(encoding="utf-8"))
+                    current_rev = int(current.get("revision") or 0)
+                except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                    raise ValidationIssue(
+                        "lease_record_malformed",
+                        f"Cannot CAS-save over unreadable lease: {exc}",
+                        path=str(path),
+                    ) from exc
+                if expected_revision is not None and current_rev != int(expected_revision):
+                    raise ValidationIssue(
+                        "lease_revision_conflict",
+                        f"Stale lease write: expected revision {expected_revision}, "
+                        f"disk has {current_rev}",
+                        path=str(path),
+                    )
+                if expected_revision is None and int(lease.revision or 0) not in {0, current_rev}:
+                    if int(lease.revision or 0) < current_rev:
+                        raise ValidationIssue(
+                            "lease_revision_conflict",
+                            f"Stale lease write: in-memory revision {lease.revision} "
+                            f"< disk {current_rev}",
+                            path=str(path),
+                        )
+            lease.revision = int(lease.revision or 0) + 1
             lease.updated_at = _utc_now()
             if not lease.created_at:
                 lease.created_at = lease.updated_at
-            path = self._path(lease.lease_id)
             atomic_write_json(path, lease.to_dict(), mode=stat.S_IRUSR | stat.S_IWUSR)
             return lease
 
@@ -632,15 +696,39 @@ class LeaseStore:
                 "write_profile_unqualified",
                 f"Write profile `{profile}` is not qualified for isolated write",
             )
-        # Host-issued observed qualification (when provided) fails closed on gaps.
-        if qualification_evidence is not None:
-            ok, reasons = qualify_write_evidence(qualification_evidence)
-            if not ok:
+        # Host-issued observed qualification is required (not optional).
+        if qualification_evidence is None:
+            raise ValidationIssue(
+                "write_qualification_required",
+                "Writer lease prepare requires host-issued qualification evidence",
+                path="lease.qualification_evidence",
+                hint="Pass --qualification-file or --qualification-id from host-owned evidence",
+            )
+        ok, reasons = qualify_write_evidence(qualification_evidence)
+        if not ok:
+            raise ValidationIssue(
+                "write_qualification_failed",
+                "Write qualification evidence failed closed: " + ", ".join(reasons),
+                path="lease.qualification_evidence",
+            )
+        # Enforce exact registered session when provided by evidence.
+        evidence_session = str(qualification_evidence.get("session_id") or session_id)
+        if evidence_session != session_id:
+            raise ValidationIssue(
+                "write_qualification_session_mismatch",
+                f"Qualification session `{evidence_session}` != lease session `{session_id}`",
+            )
+        if str(qualification_evidence.get("adapter") or "") not in {"", adapter}:
+            if str(qualification_evidence.get("adapter")) != adapter:
                 raise ValidationIssue(
-                    "write_qualification_failed",
-                    "Write qualification evidence failed closed: " + ", ".join(reasons),
-                    path="lease.qualification_evidence",
+                    "write_qualification_adapter_mismatch",
+                    "Qualification adapter does not match lease adapter",
                 )
+        import hashlib
+
+        qual_digest = hashlib.sha256(
+            json.dumps(dict(qualification_evidence), sort_keys=True).encode("utf-8")
+        ).hexdigest()
         if used_headless_worktree_resume and adapter == "grok-build":
             from .sessions import assert_grok_worktree_isolation
 
@@ -702,6 +790,7 @@ class LeaseStore:
                 notes=notes,
                 worker_tip=pre["head"],
                 workspace_sandbox_commit_capable=workspace_capable,
+                qualification_digest=qual_digest,
             )
             if sandbox_profile == "workspace":
                 lease.notes = (
@@ -725,10 +814,50 @@ class LeaseStore:
         lease.state = transition_lease_state(lease.state, LeaseState.AUDITING)
         return self.save(lease)
 
-    def mark_audited_pass(self, lease_id: str) -> WriterLease:
-        """Record immutable audit success. Export is legal only from this state."""
+    def mark_audited_pass(
+        self,
+        lease_id: str,
+        *,
+        evidence: Mapping[str, Any] | None = None,
+    ) -> WriterLease:
+        """Record immutable audit success. Requires proof evidence; never bare promote."""
+        if evidence is None or not isinstance(evidence, Mapping):
+            raise ValidationIssue(
+                "audit_evidence_required",
+                "mark_audited_pass requires a complete audit evidence object",
+                path=f"leases.{lease_id}",
+            )
+        if not evidence.get("ok"):
+            raise ValidationIssue(
+                "audit_evidence_not_ok",
+                "Cannot promote to audited_pass when evidence.ok is not true",
+            )
+        required_fields = (
+            "lease_id",
+            "worker_tip",
+            "base_head",
+            "commit_chain",
+            "evidence_digest",
+        )
+        missing = [f for f in required_fields if f not in evidence]
+        if missing:
+            raise ValidationIssue(
+                "audit_evidence_incomplete",
+                "Audit evidence missing fields: " + ", ".join(missing),
+            )
         lease = self.get(lease_id)
+        if str(evidence.get("lease_id")) != lease.lease_id:
+            raise ValidationIssue(
+                "audit_evidence_lease_mismatch",
+                "Audit evidence lease_id does not match store lease",
+            )
         lease.state = transition_lease_state(lease.state, LeaseState.AUDITED_PASS)
+        lease.worker_tip = str(evidence.get("worker_tip") or lease.worker_tip)
+        lease.audit_evidence_digest = str(evidence.get("evidence_digest"))
+        # Persist evidence under store-owned snapshot path.
+        evidence_dir = self.snapshot_dir(lease_id)
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(evidence_dir / "audit_evidence.json", dict(evidence))
         return self.save(lease)
 
     def mark_exported(self, lease_id: str, patch_dir: str) -> WriterLease:
