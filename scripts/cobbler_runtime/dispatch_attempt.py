@@ -1,13 +1,8 @@
-"""Focused components for a single council/implement attempt.
+"""Attempt policy, transport, and artifact primitives for council dispatch.
 
-Extracted from the former monolithic ``_run_single_attempt`` path:
-- transport/env scrubbing
-- host-native executor binding
-- subprocess launch + process-group cleanup
-- artifact writes
-- result/redaction assembly
-
-``dispatch._run_single_attempt`` remains the thin coordinator.
+Process ownership lives in ``dispatch_external`` and result ownership lives in
+``dispatch_results``.  Keeping those layers separate lets the lane lifecycle
+depend only on focused modules rather than importing the dispatch facade.
 """
 
 from __future__ import annotations
@@ -51,6 +46,39 @@ def prepare_transport(
         grants=tuple(grants),
         exact_secret_values=exact,
     )
+
+
+def attempt_env_grants(spec: Any, attempt: EffectiveAttempt) -> tuple[str, ...]:
+    """Resolve grants without allowing a fallback to inherit primary secrets."""
+    if attempt.env_grants:
+        return tuple(attempt.env_grants)
+    # Primary-only convenience when attempts have not already been expanded.
+    if not spec.attempts and attempt.reason == "primary":
+        return tuple(spec.env_grants)
+    return ()
+
+
+def check_capabilities(
+    attempt: EffectiveAttempt,
+    *,
+    lane_qualified: tuple[str, ...] = (),
+) -> tuple[str | None, list[str], list[str]]:
+    """Compare requirements with a trusted qualification snapshot."""
+    required = [name for name in (attempt.capabilities or ()) if name]
+    if not required:
+        return None, [], []
+    if attempt.adapter == "host-native":
+        return None, required, []
+    qualified = set(attempt.qualified_capabilities or ()) | set(lane_qualified or ())
+    missing = [name for name in required if name not in qualified]
+    if missing:
+        return (
+            "capability_mismatch: required capabilities not qualified for attempt: "
+            + ", ".join(missing),
+            required,
+            missing,
+        )
+    return None, required, []
 
 
 def write_attempt_artifacts(
@@ -129,20 +157,41 @@ def classify_failure(
     *,
     timeout: bool,
     exit_code: int | None,
-    error: str,
+    error: str | None,
 ) -> str:
     if timeout:
         return "timeout"
-    lower = (error or "").lower()
-    if "not found" in lower or "launch" in lower:
-        return "launch_error"
-    if "capability" in lower:
+    text = (error or "").lower()
+    if (
+        "unsafe_extra_args" in text
+        or "duplicate_extra_args" in text
+        or "may not override reserved" in text
+        or "duplicate extra_args" in text
+    ):
+        return "unsafe_arguments"
+    if "capability" in text:
         return "capability"
-    if "unavailable" in lower:
+    if "not found" in text or "executable not found" in text or "launch" in text:
+        return "launch_error"
+    if "disabled" in text or "unavailable" in text or "host_native" in text:
         return "unavailable"
+    if "actual_model" in text or "untrusted_model" in text:
+        return "model_evidence"
+    if (
+        "json" in text
+        or "malformed" in text
+        or "missing_report" in text
+        or "role_mismatch" in text
+        or "invalid_verdict" in text
+        or "invalid_confidence" in text
+        or "invalid_report" in text
+    ):
+        return "malformed_output"
     if exit_code not in (None, 0):
         return "execution_failure"
-    return "execution_failure"
+    if error:
+        return "execution_failure"
+    return "unknown"
 
 
 def monotonic_now() -> float:

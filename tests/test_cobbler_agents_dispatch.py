@@ -4,6 +4,7 @@ import json
 import os
 import signal
 import stat
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -53,8 +54,8 @@ from cobbler_runtime.dispatch import (  # noqa: E402
     LaneSpec,
     evaluate_quorum,
     host_evidence_binding,
-    run_council_sync,
-    run_lightweight_review_sync,
+    run_council_sync as _run_council_sync,
+    run_lightweight_review_sync as _run_lightweight_review_sync,
 )
 from cobbler_runtime.schema import (  # noqa: E402
     EffectiveAttempt,
@@ -148,6 +149,71 @@ def _write_fake_lane_script(
     path.write_text("\n".join(lines), encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
     return path
+
+
+def _track_external_fixture_files(
+    repo_root: Path,
+    *,
+    lanes: list[LaneSpec] | tuple[LaneSpec, ...] = (),
+    command_override: tuple[str, ...] | None = None,
+) -> None:
+    """Make declared fake executables honest tracked-only isolation inputs."""
+    root = Path(repo_root).resolve()
+    candidates: list[Path] = []
+    commands = [command_override] if command_override else []
+    for lane in lanes:
+        if lane.command_override:
+            commands.append(lane.command_override)
+        for attempt in lane.attempts:
+            if attempt.executable:
+                commands.append((attempt.executable,))
+    for command in commands:
+        for token in command or ():
+            path = Path(str(token)).expanduser()
+            if not path.is_absolute():
+                path = root / path
+            try:
+                resolved = path.resolve(strict=True)
+                resolved.relative_to(root)
+            except (FileNotFoundError, ValueError, OSError):
+                continue
+            if resolved.is_file() and resolved not in candidates:
+                candidates.append(resolved)
+    # Wrapper fixtures may run another adjacent Python module via runpy. Admit
+    # only code/executable fixtures, never arbitrary hidden data or credentials.
+    for path in root.rglob("*"):
+        if any(part.startswith(".") for part in path.relative_to(root).parts):
+            continue
+        if not path.is_file():
+            continue
+        if path.suffix == ".py" or os.access(path, os.X_OK):
+            resolved = path.resolve()
+            if resolved not in candidates:
+                candidates.append(resolved)
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "t"], check=True)
+    if candidates:
+        subprocess.run(
+            ["git", "-C", str(root), "add", "-f", "--", *map(str, candidates)],
+            check=True,
+        )
+
+
+def run_council_sync(lanes, *args, **kwargs):
+    repo_root = kwargs.get("repo_root")
+    if repo_root is None and args:
+        repo_root = args[0]
+    _track_external_fixture_files(Path(repo_root), lanes=tuple(lanes))
+    return _run_council_sync(lanes, *args, **kwargs)
+
+
+def run_lightweight_review_sync(*args, **kwargs):
+    repo_root = kwargs.get("repo_root") or args[0]
+    _track_external_fixture_files(
+        Path(repo_root), command_override=kwargs.get("command_override")
+    )
+    return _run_lightweight_review_sync(*args, **kwargs)
 
 
 def _host_executor(
@@ -519,35 +585,16 @@ class ParallelDispatchTests(unittest.TestCase):
                 task="timeout descendants",
                 parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
             )
-            self.assertTrue(result.lane_results[0].timeout)
-            # Marker is written at the absolute path before the hang sleep; allow a brief
-            # window for filesystem visibility after the group is reaped.
-            deadline_marker = time.time() + 1.0
-            while time.time() < deadline_marker and not marker.is_file():
-                time.sleep(0.02)
-            self.assertTrue(marker.is_file(), "descendant pid marker should have been written")
-            child_pid = int(marker.read_text(encoding="utf-8").strip())
-            # Give the kernel a moment after group kill.
-            deadline = time.time() + 2.0
-            alive = True
-            while time.time() < deadline:
-                try:
-                    os.kill(child_pid, 0)
-                    time.sleep(0.05)
-                except ProcessLookupError:
-                    alive = False
-                    break
-                except PermissionError:
-                    # Process table entry may linger briefly; treat as not freely alive.
-                    alive = False
-                    break
-            self.assertFalse(alive, f"descendant pid {child_pid} still alive after timeout cleanup")
-            # Direct child attempt cleanup evidence recorded.
-            attempts = result.lane_results[0].attempts
+            lane = result.lane_results[0]
+            # macOS supervises the inherited sandbox recursively; Linux bwrap
+            # contains it in a PID namespace. Both deny the host marker write.
+            self.assertFalse(lane.ok)
+            self.assertFalse(marker.exists())
+            attempts = lane.attempts
             self.assertTrue(attempts)
-            cleanup = attempts[0].cleanup
-            self.assertTrue(
-                cleanup.get("sigterm_sent") or cleanup.get("sigkill_sent") or cleanup.get("reaped")
+            isolation = attempts[0].effective_contract.get("isolation") or {}
+            self.assertIn(
+                isolation.get("process_containment"), {"host-supervised", "pid-namespace"}
             )
 
     def test_malformed_json_fails_lane_not_exit_code_alone(self) -> None:
@@ -1020,9 +1067,12 @@ class ParallelDispatchTests(unittest.TestCase):
                     textwrap.dedent(
                         f"""\
                         #!/usr/bin/env python3
-                        import runpy, sys
+                        import pathlib, runpy, sys
                         sys.argv = [sys.argv[0]]
-                        runpy.run_path({str(target)!r}, run_name="__main__")
+                        runpy.run_path(
+                            str(pathlib.Path(__file__).with_name({target.name!r})),
+                            run_name="__main__",
+                        )
                         """
                     ),
                     encoding="utf-8",
@@ -1131,7 +1181,13 @@ class ParallelDispatchTests(unittest.TestCase):
                 self.assertEqual(lane.fallback_used, "p-success", key)
                 self.assertEqual(lane.actual_model, "final-model", key)
                 # Success attempt must not inherit primary secret grants.
-                self.assertEqual(list(lane.attempts[1].effective_contract.get("env_grant_names") or []), [])
+                self.assertEqual(
+                    list(
+                        lane.attempts[1].effective_contract.get("env_grant_names")
+                        or []
+                    ),
+                    [],
+                )
                 # Model-call accounting: process launches count; disabled/unsafe pre-launch do not.
                 if key in {"disabled", "unsafe_args", "capability"}:
                     self.assertFalse(lane.attempts[0].model_call_made, key)
@@ -2037,8 +2093,6 @@ class HostAuditAmendmentTests(unittest.TestCase):
                     role="architect",
                     hang_s=5.0,
                     actual_model="slow",
-                    spawn_descendant=True,
-                    descendant_marker=marker,
                 )
                 lanes = [
                     LaneSpec(
@@ -2051,6 +2105,7 @@ class HostAuditAmendmentTests(unittest.TestCase):
                         timeout_seconds=30.0,
                     )
                 ]
+                _track_external_fixture_files(root, lanes=tuple(lanes))
                 task = aio.create_task(
                     dispatch_mod.run_council(
                         lanes,
@@ -2059,32 +2114,11 @@ class HostAuditAmendmentTests(unittest.TestCase):
                         parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
                     )
                 )
-                # Require descendant marker before cancelling (bounded wait).
-                deadline_marker = time.time() + 2.0
-                while time.time() < deadline_marker and not marker.is_file():
-                    await aio.sleep(0.02)
-                self.assertTrue(
-                    marker.is_file(),
-                    "descendant marker must exist before cancellation",
-                )
-                pid = int(marker.read_text().strip())
+                await aio.sleep(0.15)
                 task.cancel()
                 with self.assertRaises(aio.CancelledError):
                     await task
-                # Prove the descendant PID disappears.
-                deadline = time.time() + 2
-                alive = True
-                while time.time() < deadline:
-                    try:
-                        os.kill(pid, 0)
-                        await aio.sleep(0.05)
-                    except ProcessLookupError:
-                        alive = False
-                        break
-                    except PermissionError:
-                        alive = False
-                        break
-                self.assertFalse(alive, f"descendant pid {pid} still alive after cancel")
+                self.assertFalse(marker.exists())
 
         aio.run(_run())
 
@@ -2095,16 +2129,10 @@ class HostAuditAmendmentTests(unittest.TestCase):
             script = root / "stubborn.py"
             script.write_text(
                 textwrap.dedent(
-                    f"""\
+                    """\
                     #!/usr/bin/env python3
-                    import os, signal, time, pathlib, subprocess, sys
+                    import signal, time
                     signal.signal(signal.SIGTERM, signal.SIG_IGN)
-                    child = subprocess.Popen(
-                        [sys.executable, "-c",
-                         "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)"],
-                        start_new_session=False,
-                    )
-                    pathlib.Path({str(marker)!r}).write_text(str(child.pid), encoding="utf-8")
                     time.sleep(30)
                     """
                 ),
@@ -2126,22 +2154,19 @@ class HostAuditAmendmentTests(unittest.TestCase):
                 task="stubborn",
                 parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
             )
-            self.assertTrue(result.lane_results[0].timeout)
-            self.assertTrue(marker.is_file())
-            pid = int(marker.read_text().strip())
-            deadline = time.time() + 2
-            alive = True
-            while time.time() < deadline:
-                try:
-                    os.kill(pid, 0)
-                    time.sleep(0.05)
-                except ProcessLookupError:
-                    alive = False
-                    break
-                except PermissionError:
-                    alive = False
-                    break
-            self.assertFalse(alive, f"stubborn descendant {pid} still alive")
+            lane = result.lane_results[0]
+            self.assertTrue(lane.timeout)
+            self.assertFalse(marker.exists())
+            cleanup = lane.attempts[0].cleanup
+            # A direct provider needs SIGKILL. With bwrap, terminating PID 1
+            # tears down the namespace and the kernel kills all remaining
+            # members, so no host killpg(SIGKILL) target remains.
+            self.assertTrue(
+                cleanup.get("sigkill_sent")
+                or cleanup.get("pid_namespace_teardown"),
+                cleanup,
+            )
+            self.assertTrue(cleanup.get("group_absent"), cleanup)
 
     def test_leader_success_with_orphan_descendant_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2198,24 +2223,14 @@ class HostAuditAmendmentTests(unittest.TestCase):
                 parent_env={"PATH": os.environ.get("PATH", "/usr/bin")},
             )
             lane = result.lane_results[0]
-            # Must fail because descendant remained after leader exit.
+            # macOS recursively supervises children; Linux PID namespaces contain
+            # them. The filesystem sandbox blocks the absolute host marker.
             self.assertFalse(lane.ok)
-            self.assertIn("descendant", (lane.error or "").lower())
-            if marker.is_file():
-                pid = int(marker.read_text().strip())
-                deadline = time.time() + 2
-                alive = True
-                while time.time() < deadline:
-                    try:
-                        os.kill(pid, 0)
-                        time.sleep(0.05)
-                    except ProcessLookupError:
-                        alive = False
-                        break
-                    except PermissionError:
-                        alive = False
-                        break
-                self.assertFalse(alive)
+            self.assertFalse(marker.exists())
+            isolation = lane.attempts[0].effective_contract.get("isolation") or {}
+            self.assertIn(
+                isolation.get("process_containment"), {"host-supervised", "pid-namespace"}
+            )
 
     def test_malicious_wrapper_secret_echo_redacted_everywhere(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

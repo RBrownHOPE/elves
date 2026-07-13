@@ -1,214 +1,61 @@
-"""Parallel read-only council dispatch with quorum and ordered fallbacks.
+"""Compatibility facade and orchestration for parallel read-only dispatch.
 
 Lanes launch concurrently. Inside each lane, primary then fallback attempts run
-sequentially after every material failure class. Transport model evidence is
-adapter-specific. Host synthesis remains the only fitted-answer step.
+sequentially after every material failure class. Focused ``dispatch_*`` modules
+own contracts, attempt policy, external processes, and result assembly. Host
+synthesis remains the only fitted-answer step.
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
-import inspect
-import json
-import os
-import signal
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Mapping, Sequence, Union
+from typing import Any, Awaitable, Callable, Mapping, Sequence
 
-# Challenge packet -> evidence mapping (sync or async).
-HostExecutor = Callable[[Mapping[str, Any]], Union[Mapping[str, Any], Awaitable[Mapping[str, Any]]]]
-
-from .adapters import (
-    ADAPTER_CONTRACT_PAIRS,
-    AdapterInvocation,
-    build_readonly_invocation,
-    decode_adapter_output,
-    default_decoder_for_adapter,
-    validate_adapter_contract_pair,
-    validate_extra_args,
-    validate_role_report,
-)
 from .context import (
     ContextPacket,
-    EnvScrubResult,
     build_context_packet,
     create_exclusive_artifact_root,
     ensure_private_dir,
     new_run_id,
-    redact_structure,
-    redact_text,
     resolve_contained_path,
     safe_path_component,
-    scrub_environment,
     write_json_artifact,
-    write_text_artifact,
+)
+# Historical imports remain available from this facade while focused modules
+# own their implementations.
+from .dispatch_attempt import (
+    attempt_env_grants as _attempt_env_grants,
+    check_capabilities as _check_capabilities,
+    classify_failure as _classify_failure,
+)
+from .dispatch_external import (
+    PROCESS_GROUP_GRACE_SECONDS,
+    PROCESS_GROUP_VERIFY_ATTEMPTS,
+    PROCESS_GROUP_VERIFY_POLL_SECONDS,
+    pgid_alive as _pgid_alive,
+    terminate_process_group as _terminate_process_group,
+)
+from .dispatch_lane_attempt import run_single_attempt as _run_single_attempt_impl
+from .dispatch_models import (
+    AttemptResult,
+    CouncilResult,
+    HostExecutor,
+    LaneResult,
+    LaneSpec,
+)
+from .dispatch_results import (
+    assemble_external_result as _assemble_external_result,
+    build_failed_attempt as _build_failed_attempt,
+    summarize as _summarize,
 )
 from .schema import EffectiveAttempt, ValidationIssue
 
 
 LaneRunner = Callable[["LaneSpec", ContextPacket, Path], Awaitable["LaneResult"]]
-
-PROCESS_GROUP_GRACE_SECONDS = 0.5
-PROCESS_GROUP_VERIFY_POLL_SECONDS = 0.05
-PROCESS_GROUP_VERIFY_ATTEMPTS = 20
-
-
-@dataclass(frozen=True)
-class LaneSpec:
-    """One independent read-only council lane."""
-
-    lane_id: str
-    role: str
-    adapter: str
-    profile: str
-    requested_model: str | None = None
-    executable: str | None = None
-    required: bool = False
-    timeout_seconds: float = 30.0
-    extra_args: tuple[str, ...] = ()
-    env_extra_allowlist: tuple[str, ...] = ()
-    env_grants: tuple[str, ...] = ()
-    command_override: tuple[str, ...] | None = None
-    attempts: tuple[EffectiveAttempt, ...] = ()
-    injected_host_evidence: dict[str, Any] | None = None
-    # Trusted host executor callback: (challenge: dict) -> evidence dict.
-    # Static injected_host_evidence alone cannot count as a verified vote.
-    host_executor: HostExecutor | None = None
-    # Trusted qualified capability names for this lane (fixture/host evidence).
-    qualified_capabilities: tuple[str, ...] = ()
-    # When True, lane grants come only from attempt.env_grants (no LaneSpec inherit).
-    isolate_attempt_env_grants: bool = True
-    # Exact external chat/session id for plan→review continuity (never latest/continue).
-    session_id: str | None = None
-
-
-@dataclass
-class AttemptResult:
-    """Evidence for one ordered attempt inside a lane."""
-
-    attempt_index: int
-    profile: str
-    adapter: str
-    requested_model: str | None
-    actual_model: str | None
-    model_evidence_source: str | None
-    status: str
-    failure_class: str | None = None
-    reason: str | None = None
-    ok: bool = False
-    timeout: bool = False
-    exit_code: int | None = None
-    command: list[str] = field(default_factory=list)
-    start_time: float = 0.0
-    end_time: float = 0.0
-    cleanup: dict[str, Any] = field(default_factory=dict)
-    effective_contract: dict[str, Any] = field(default_factory=dict)
-    process_launched: bool = False
-    model_call_made: bool = False
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class LaneResult:
-    """Per-lane evidence for host synthesis."""
-
-    lane_id: str
-    role: str
-    adapter: str
-    profile: str
-    ok: bool
-    launch_time: float
-    start_time: float
-    end_time: float
-    timeout: bool = False
-    exit_code: int | None = None
-    requested_model: str | None = None
-    actual_model: str | None = None
-    model_evidence_source: str | None = None
-    stdout_summary: str = ""
-    stderr_summary: str = ""
-    report: dict[str, Any] | None = None
-    error: str | None = None
-    fallback_used: str | None = None
-    stripped_env_names: list[str] = field(default_factory=list)
-    granted_env_names: list[str] = field(default_factory=list)
-    command: list[str] = field(default_factory=list)
-    artifact_dir: str | None = None
-    attempts: list[AttemptResult] = field(default_factory=list)
-    successful_attempt_index: int | None = None
-    failure_class: str | None = None
-    execution_id: str | None = None
-    process_launched: bool = False
-    # Explicit call/mutation truth (not inferred from path substrings).
-    model_call_made: bool = False
-    mutated_repo: bool = False
-
-    @property
-    def wall_seconds(self) -> float:
-        return max(0.0, self.end_time - self.start_time)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class CouncilResult:
-    """Aggregate parallel council outcome for host synthesis."""
-
-    run_id: str
-    ok: bool
-    council_verified: bool
-    blocked: bool
-    confidence: str
-    successful_reports: list[dict[str, Any]] = field(default_factory=list)
-    lane_results: list[LaneResult] = field(default_factory=list)
-    target_quorum: int | None = None
-    required_quorum: int | None = None
-    phase_required: bool = False
-    notes: list[str] = field(default_factory=list)
-    artifact_root: str | None = None
-    model_calls_made: bool = False
-    mutated_repo: bool = False
-    successful_execution_ids: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "run_id": self.run_id,
-            "ok": self.ok,
-            "council_verified": self.council_verified,
-            "blocked": self.blocked,
-            "confidence": self.confidence,
-            "successful_reports": list(self.successful_reports),
-            "lane_results": [lane.to_dict() for lane in self.lane_results],
-            "target_quorum": self.target_quorum,
-            "required_quorum": self.required_quorum,
-            "phase_required": self.phase_required,
-            "notes": list(self.notes),
-            "artifact_root": self.artifact_root,
-            "successful_count": len(self.successful_execution_ids),
-            "model_calls_made": self.model_calls_made,
-            "mutated_repo": self.mutated_repo,
-            "successful_execution_ids": list(self.successful_execution_ids),
-        }
-
-
-def _summarize(
-    text: str,
-    *,
-    exact_values: frozenset[str] | set[str] | None = None,
-    limit: int = 400,
-) -> str:
-    redacted = redact_text(text or "", exact_values=exact_values).text
-    compact = " ".join(redacted.split())
-    if len(compact) <= limit:
-        return compact
-    return compact[: limit - 3] + "..."
 
 
 def validate_quorum_value(
@@ -328,208 +175,6 @@ def _binding_digest(*, run_id: str, lane_id: str, role: str, task: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _pgid_alive(pgid: int) -> bool:
-    try:
-        os.killpg(pgid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # Exists but not signalable as us — treat as still present.
-        return True
-    except OSError:
-        return False
-
-
-async def _terminate_process_group(
-    proc: asyncio.subprocess.Process,
-    *,
-    grace_seconds: float = PROCESS_GROUP_GRACE_SECONDS,
-    known_pgid: int | None = None,
-) -> dict[str, Any]:
-    """Terminate entire process group; verify absence before success."""
-    cleanup: dict[str, Any] = {
-        "signaled_group": False,
-        "sigterm_sent": False,
-        "sigkill_sent": False,
-        "reaped": False,
-        "group_absent": False,
-        "pid": proc.pid,
-        "pgid": known_pgid,
-        "error": None,
-    }
-    pgid = known_pgid
-    if pgid is None and proc.pid is not None:
-        try:
-            pgid = os.getpgid(proc.pid)
-        except ProcessLookupError:
-            try:
-                await proc.wait()
-            except Exception:
-                pass
-            cleanup["reaped"] = True
-            # Leader gone — still try known_pgid path below if provided.
-            pgid = None
-        except OSError as exc:
-            cleanup["error"] = f"getpgid_failed:{exc}"
-            pgid = None
-    elif proc.pid is None and pgid is None:
-        cleanup["error"] = "no_pid"
-        cleanup["group_absent"] = True
-        return cleanup
-
-    cleanup["pgid"] = pgid
-    try:
-        host_pgid = os.getpgid(0)
-    except OSError:
-        host_pgid = None
-    if pgid is not None and host_pgid is not None and pgid == host_pgid:
-        cleanup["error"] = "refused_to_signal_host_process_group"
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-        try:
-            await proc.wait()
-            cleanup["reaped"] = True
-        except Exception as exc:
-            cleanup["error"] = f"{cleanup['error']};reap:{exc}"
-        return cleanup
-
-    def _kill_group(sig: int) -> bool:
-        if pgid is None:
-            return False
-        try:
-            os.killpg(pgid, sig)
-            return True
-        except ProcessLookupError:
-            return False
-        except OSError:
-            return False
-
-    cleanup["signaled_group"] = True
-    if _kill_group(signal.SIGTERM):
-        cleanup["sigterm_sent"] = True
-    else:
-        try:
-            proc.terminate()
-            cleanup["sigterm_sent"] = True
-        except ProcessLookupError:
-            pass
-
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=grace_seconds)
-        cleanup["reaped"] = True
-    except (asyncio.TimeoutError, ProcessLookupError):
-        if _kill_group(signal.SIGKILL):
-            cleanup["sigkill_sent"] = True
-        else:
-            try:
-                proc.kill()
-                cleanup["sigkill_sent"] = True
-            except ProcessLookupError:
-                pass
-        try:
-            await proc.wait()
-            cleanup["reaped"] = True
-        except Exception as exc:
-            cleanup["error"] = f"reap_failed:{exc}"
-
-    # Verify group members are gone — do not succeed while descendants live.
-    if pgid is not None:
-        for _ in range(PROCESS_GROUP_VERIFY_ATTEMPTS):
-            if not _pgid_alive(pgid):
-                cleanup["group_absent"] = True
-                break
-            # Residual members: escalate hard kill.
-            _kill_group(signal.SIGKILL)
-            cleanup["sigkill_sent"] = True
-            await asyncio.sleep(PROCESS_GROUP_VERIFY_POLL_SECONDS)
-        if not cleanup["group_absent"]:
-            cleanup["error"] = (
-                (cleanup.get("error") or "")
-                + f";process_group_still_alive:pgid={pgid}"
-            ).lstrip(";")
-    else:
-        cleanup["group_absent"] = cleanup.get("reaped", False)
-    return cleanup
-
-
-def _classify_failure(*, timeout: bool, exit_code: int | None, error: str | None) -> str:
-    if timeout:
-        return "timeout"
-    text = (error or "").lower()
-    if (
-        "unsafe_extra_args" in text
-        or "duplicate_extra_args" in text
-        or "may not override reserved" in text
-        or "duplicate extra_args" in text
-    ):
-        return "unsafe_arguments"
-    if "capability" in text:
-        return "capability"
-    if "not found" in text or "executable not found" in text or "launch" in text:
-        return "launch_error"
-    if "disabled" in text or "unavailable" in text or "host_native" in text:
-        return "unavailable"
-    if "actual_model" in text or "untrusted_model" in text:
-        return "model_evidence"
-    if (
-        "json" in text
-        or "malformed" in text
-        or "missing_report" in text
-        or "role_mismatch" in text
-        or "invalid_verdict" in text
-        or "invalid_confidence" in text
-        or "invalid_report" in text
-    ):
-        return "malformed_output"
-    if exit_code not in (None, 0):
-        return "execution_failure"
-    if error:
-        return "execution_failure"
-    return "unknown"
-
-
-def _attempt_env_grants(spec: LaneSpec, attempt: EffectiveAttempt) -> tuple[str, ...]:
-    """Each attempt uses only its own grants; empty means no secrets (no inherit)."""
-    if attempt.env_grants:
-        return tuple(attempt.env_grants)
-    # Primary-only convenience when attempts not expanded: use LaneSpec grants
-    # only for the synthetic primary when attempts tuple is empty.
-    if not spec.attempts and attempt.reason == "primary":
-        return tuple(spec.env_grants)
-    return ()
-
-
-def _check_capabilities(
-    attempt: EffectiveAttempt,
-    *,
-    lane_qualified: tuple[str, ...] = (),
-) -> tuple[str | None, list[str], list[str]]:
-    """Compare required capabilities to a trusted qualified snapshot.
-
-    Returns (error_or_None, required_list, missing_list). Config preference text
-    cannot self-certify qualification; only attempt.qualified_capabilities and
-    lane_qualified snapshots count.
-    """
-    required = [name for name in (attempt.capabilities or ()) if name]
-    if not required:
-        return None, [], []
-    if attempt.adapter == "host-native":
-        return None, required, []
-    qualified = set(attempt.qualified_capabilities or ()) | set(lane_qualified or ())
-    missing = [name for name in required if name not in qualified]
-    if missing:
-        return (
-            "capability_mismatch: required capabilities not qualified for attempt: "
-            + ", ".join(missing),
-            required,
-            missing,
-        )
-    return None, required, []
-
-
 class _HostEvidenceLedger:
     """Issue per-lane challenges and bind real host executor invocations."""
 
@@ -645,241 +290,6 @@ class _HostEvidenceLedger:
         return bound, execution_id
 
 
-
-def _build_failed_attempt(
-    *,
-    attempt_result: AttemptResult,
-    spec: LaneSpec,
-    attempt: EffectiveAttempt,
-    launch_time: float,
-    scrub: EnvScrubResult,
-    grants: list[str],
-    exact_secret_values: frozenset[str],
-    attempt_dir: str,
-    reason: str,
-    failure_class: str,
-    command: list[str] | None = None,
-    process_launched: bool = False,
-    exit_code: int | None = None,
-    timeout: bool = False,
-    cleanup: dict[str, Any] | None = None,
-    stdout: str = "",
-    stderr: str = "",
-    model_call_made: bool | None = None,
-) -> tuple[AttemptResult, LaneResult]:
-    end = time.monotonic()
-    red_reason = redact_text(reason, exact_values=exact_secret_values).text
-    call_made = (
-        model_call_made
-        if model_call_made is not None
-        else (process_launched and attempt.adapter != "host-native")
-    )
-    attempt_result.end_time = end
-    attempt_result.status = "failed"
-    attempt_result.failure_class = failure_class
-    attempt_result.reason = red_reason
-    attempt_result.ok = False
-    attempt_result.timeout = timeout
-    attempt_result.exit_code = exit_code
-    attempt_result.command = list(command or [])
-    attempt_result.cleanup = dict(cleanup or {})
-    attempt_result.process_launched = process_launched
-    attempt_result.model_call_made = call_made
-    attempt_result.requested_model = (
-        redact_text(str(attempt.requested_model), exact_values=exact_secret_values).text
-        if attempt.requested_model is not None
-        else None
-    )
-    lane = LaneResult(
-        lane_id=spec.lane_id,
-        role=spec.role,
-        adapter=attempt.adapter,
-        profile=attempt.profile,
-        ok=False,
-        launch_time=launch_time,
-        start_time=attempt_result.start_time,
-        end_time=end,
-        timeout=timeout,
-        exit_code=exit_code,
-        error=red_reason,
-        requested_model=attempt_result.requested_model,
-        stripped_env_names=list(scrub.stripped_names),
-        granted_env_names=list(grants),
-        command=list(command or []),
-        artifact_dir=attempt_dir,
-        failure_class=failure_class,
-        stdout_summary=_summarize(stdout, exact_values=exact_secret_values),
-        stderr_summary=_summarize(stderr, exact_values=exact_secret_values),
-        process_launched=process_launched,
-        model_call_made=call_made,
-        mutated_repo=False,
-    )
-    return attempt_result, lane
-
-
-def _assemble_external_result(
-    *,
-    proc_result: dict[str, Any],
-    invocation: Any,
-    redacted_command: list[str],
-    attempt_result: AttemptResult,
-    attempt: EffectiveAttempt,
-    spec: LaneSpec,
-    attempt_index: int,
-    attempt_dir: Path,
-    exact_secret_values: frozenset[str],
-    scrub: EnvScrubResult,
-    grants: list[str],
-    launch_time: float,
-    fail_fn,
-) -> tuple[AttemptResult, LaneResult]:
-    if not proc_result.get("ok"):
-        stdout = redact_text(proc_result.get("stdout_raw") or "", exact_values=exact_secret_values).text
-        stderr = redact_text(proc_result.get("stderr_raw") or "", exact_values=exact_secret_values).text
-        if stdout:
-            write_text_artifact(attempt_dir / "stdout.txt", stdout)
-        if stderr:
-            write_text_artifact(attempt_dir / "stderr.txt", stderr)
-        return fail_fn(
-            reason=redact_text(str(proc_result.get("reason") or "external failed"), exact_values=exact_secret_values).text,
-            failure_class=str(proc_result.get("failure_class") or "execution_failure"),
-            command=redacted_command,
-            process_launched=bool(proc_result.get("process_launched")),
-            exit_code=proc_result.get("exit_code"),
-            timeout=bool(proc_result.get("timeout")),
-            cleanup=proc_result.get("cleanup") or {},
-            stdout=stdout,
-            stderr=stderr,
-        )
-    stdout_raw = proc_result.get("stdout_raw") or ""
-    stderr_raw = proc_result.get("stderr_raw") or ""
-    stdout = redact_text(stdout_raw, exact_values=exact_secret_values).text
-    stderr = redact_text(stderr_raw, exact_values=exact_secret_values).text
-    write_text_artifact(attempt_dir / "stdout.txt", stdout)
-    write_text_artifact(attempt_dir / "stderr.txt", stderr)
-    exit_code = int(proc_result.get("exit_code") or 0)
-    command = redacted_command
-    decoder = invocation.decoder or default_decoder_for_adapter(attempt.adapter)
-    try:
-        decoded = decode_adapter_output(
-            stdout_raw,
-            decoder=decoder,
-            expected_role=spec.role,
-            requested_model=attempt.requested_model,
-            require_model=attempt.requested_model is not None,
-        )
-        report = redact_structure(decoded.role_report, exact_values=exact_secret_values)
-        actual = (
-            redact_text(str(decoded.actual_model), exact_values=exact_secret_values).text
-            if decoded.actual_model is not None
-            else None
-        )
-        decoded = type(decoded)(
-            role_report=report,
-            actual_model=actual,
-            model_evidence_source=decoded.model_evidence_source,
-            session_id=decoded.session_id,
-            transport_notes=decoded.transport_notes,
-        )
-    except ValidationIssue as issue:
-        msg = redact_text(issue.message, exact_values=exact_secret_values).text
-        if exit_code != 0:
-            msg = f"non-zero terminal status: exit_code={exit_code}; {msg}"
-        return fail_fn(
-            reason=msg,
-            failure_class=_classify_failure(timeout=False, exit_code=exit_code, error=issue.message),
-            command=command,
-            process_launched=True,
-            exit_code=exit_code,
-            stdout=stdout,
-            stderr=stderr,
-        )
-    end_time = time.monotonic()
-    attempt_result.end_time = end_time
-    attempt_result.exit_code = exit_code
-    attempt_result.command = list(command)
-    attempt_result.actual_model = decoded.actual_model
-    attempt_result.model_evidence_source = decoded.model_evidence_source
-    attempt_result.process_launched = True
-    attempt_result.model_call_made = True
-    if exit_code != 0:
-        # Keep parseable report for diagnostics, but never mark ok.
-        end_time = time.monotonic()
-        attempt_result.end_time = end_time
-        attempt_result.status = "failed"
-        attempt_result.failure_class = "execution_failure"
-        attempt_result.reason = f"non-zero terminal status: exit_code={exit_code}"
-        attempt_result.ok = False
-        attempt_result.model_call_made = True
-        lane = LaneResult(
-            lane_id=spec.lane_id,
-            role=spec.role,
-            adapter=attempt.adapter,
-            profile=attempt.profile,
-            ok=False,
-            launch_time=launch_time,
-            start_time=attempt_result.start_time,
-            end_time=end_time,
-            exit_code=exit_code,
-            error=attempt_result.reason,
-            requested_model=(
-                redact_text(str(attempt.requested_model), exact_values=exact_secret_values).text
-                if attempt.requested_model is not None
-                else None
-            ),
-            actual_model=decoded.actual_model,
-            model_evidence_source=decoded.model_evidence_source,
-            report=decoded.role_report,
-            stripped_env_names=list(scrub.stripped_names),
-            granted_env_names=[n for n in grants if n in scrub.kept_names],
-            command=command,
-            artifact_dir=str(attempt_dir),
-            failure_class="execution_failure",
-            stdout_summary=_summarize(stdout, exact_values=exact_secret_values),
-            stderr_summary=_summarize(stderr, exact_values=exact_secret_values),
-            process_launched=True,
-            model_call_made=True,
-            mutated_repo=False,
-        )
-        return attempt_result, lane
-    execution_id = hashlib.sha256(
-        f"{spec.lane_id}:{attempt_index}:{decoded.actual_model}:{time.time()}".encode()
-    ).hexdigest()[:16]
-    attempt_result.ok = True
-    attempt_result.status = "success"
-    lane = LaneResult(
-        lane_id=spec.lane_id,
-        role=spec.role,
-        adapter=attempt.adapter,
-        profile=attempt.profile,
-        ok=True,
-        launch_time=launch_time,
-        start_time=attempt_result.start_time,
-        end_time=end_time,
-        exit_code=exit_code,
-        requested_model=(
-            redact_text(str(attempt.requested_model), exact_values=exact_secret_values).text
-            if attempt.requested_model is not None
-            else None
-        ),
-        actual_model=decoded.actual_model,
-        model_evidence_source=decoded.model_evidence_source,
-        stdout_summary=_summarize(stdout, exact_values=exact_secret_values),
-        stderr_summary=_summarize(stderr, exact_values=exact_secret_values),
-        report=decoded.role_report,
-        stripped_env_names=list(scrub.stripped_names),
-        granted_env_names=[n for n in grants if n in scrub.kept_names],
-        command=command,
-        artifact_dir=str(attempt_dir),
-        successful_attempt_index=attempt_index,
-        execution_id=execution_id,
-        process_launched=True,
-        model_call_made=True,
-        mutated_repo=False,
-    )
-    return attempt_result, lane
-
-
 async def _run_single_attempt(
     *,
     spec: LaneSpec,
@@ -898,9 +308,7 @@ async def _run_single_attempt(
     Host-native execution, isolated external lifecycle, decode/result assembly,
     and artifact/redaction live in focused modules under ``dispatch_*``.
     """
-    from .dispatch_lane_attempt import run_single_attempt  # noqa: PLC0415
-
-    return await run_single_attempt(
+    return await _run_single_attempt_impl(
         spec=spec,
         attempt=attempt,
         attempt_index=attempt_index,

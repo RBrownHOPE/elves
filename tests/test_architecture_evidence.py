@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -13,6 +17,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+from cobbler_runtime import dispatch as dispatch_facade  # noqa: E402
+from cobbler_runtime import dispatch_attempt as dispatch_attempt_mod  # noqa: E402
+from cobbler_runtime import dispatch_external as dispatch_external_mod  # noqa: E402
+from cobbler_runtime import dispatch_models as dispatch_models_mod  # noqa: E402
+from cobbler_runtime import dispatch_results as dispatch_results_mod  # noqa: E402
 from cobbler_runtime.dispatch_attempt import (  # noqa: E402
     build_effective_contract,
     classify_failure,
@@ -32,6 +41,158 @@ from cobbler_runtime.public_api_snapshot import (  # noqa: E402
 )
 from cobbler_runtime.schema import EffectiveAttempt  # noqa: E402
 from cobbler_runtime.adapters import AdapterInvocation  # noqa: E402
+
+
+class DispatchArchitectureBoundaryTests(unittest.TestCase):
+    FACADE_MAX_LINES = 800
+    SINGLE_ATTEMPT_MAX_LINES = 150
+    FOCUSED_MODULES = (
+        "dispatch_attempt.py",
+        "dispatch_external.py",
+        "dispatch_host_native.py",
+        "dispatch_lane_attempt.py",
+        "dispatch_models.py",
+        "dispatch_results.py",
+    )
+
+    def test_dispatch_facade_reexports_single_owner_symbols(self) -> None:
+        self.assertIs(dispatch_facade.LaneSpec, dispatch_models_mod.LaneSpec)
+        self.assertIs(dispatch_facade.AttemptResult, dispatch_models_mod.AttemptResult)
+        self.assertIs(dispatch_facade.LaneResult, dispatch_models_mod.LaneResult)
+        self.assertIs(dispatch_facade.CouncilResult, dispatch_models_mod.CouncilResult)
+        self.assertIs(
+            dispatch_facade._build_failed_attempt,
+            dispatch_results_mod.build_failed_attempt,
+        )
+        self.assertIs(
+            dispatch_facade._assemble_external_result,
+            dispatch_results_mod.assemble_external_result,
+        )
+        self.assertIs(
+            dispatch_facade._classify_failure,
+            dispatch_attempt_mod.classify_failure,
+        )
+        self.assertIs(
+            dispatch_facade._attempt_env_grants,
+            dispatch_attempt_mod.attempt_env_grants,
+        )
+        self.assertIs(
+            dispatch_facade._check_capabilities,
+            dispatch_attempt_mod.check_capabilities,
+        )
+        self.assertIs(
+            dispatch_facade._summarize,
+            dispatch_results_mod.summarize,
+        )
+        self.assertIs(
+            dispatch_facade._terminate_process_group,
+            dispatch_external_mod.terminate_process_group,
+        )
+        self.assertIs(dispatch_facade._pgid_alive, dispatch_external_mod.pgid_alive)
+
+    def test_focused_dispatch_modules_never_import_facade(self) -> None:
+        runtime = SCRIPTS / "cobbler_runtime"
+        for filename in self.FOCUSED_MODULES:
+            source = (runtime / filename).read_text()
+            tree = ast.parse(source, filename=filename)
+            facade_imports = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and (
+                    node.module or ""
+                ).split(".")[-1] == "dispatch":
+                    facade_imports.append(node)
+                elif isinstance(node, ast.Import) and any(
+                    alias.name.split(".")[-1] == "dispatch"
+                    for alias in node.names
+                ):
+                    facade_imports.append(node)
+            self.assertEqual(facade_imports, [], filename)
+
+    def test_dispatch_facade_has_no_moved_bodies_and_stays_bounded(self) -> None:
+        source = inspect.getsource(dispatch_facade)
+        tree = ast.parse(source)
+        definitions = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertTrue(
+            {
+                "LaneSpec",
+                "AttemptResult",
+                "LaneResult",
+                "CouncilResult",
+                "_build_failed_attempt",
+                "_assemble_external_result",
+                "_terminate_process_group",
+                "_pgid_alive",
+                "_classify_failure",
+                "_attempt_env_grants",
+                "_check_capabilities",
+            }.isdisjoint(definitions)
+        )
+        self.assertLessEqual(len(source.splitlines()), self.FACADE_MAX_LINES)
+        self.assertLessEqual(
+            len(inspect.getsource(dispatch_facade._run_single_attempt).splitlines()),
+            self.SINGLE_ATTEMPT_MAX_LINES,
+        )
+
+    def test_optional_external_attempt_is_skipped_without_sandbox(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            attempt = EffectiveAttempt(
+                profile="custom-cli",
+                adapter="custom-cli",
+                executable="custom-cli",
+                requested_model=None,
+                extra_args=(),
+                input_contract="json-stdio",
+                output_contract="custom-json-envelope",
+                capabilities=(),
+                reason="optional isolation",
+                required=False,
+                enabled=True,
+                source="test",
+            )
+
+            spec = dispatch_models_mod.LaneSpec(
+                lane_id="optional-external",
+                role="reviewer",
+                adapter="custom-cli",
+                profile="custom-cli",
+                required=False,
+            )
+
+            with mock.patch(
+                "cobbler_runtime.dispatch_external.resolve_fs_sandbox_backend",
+                return_value=None,
+            ), mock.patch.object(
+                dispatch_external_mod,
+                "create_tracked_snapshot",
+            ) as create_snapshot:
+                plan = dispatch_external_mod.prepare_external_launch(
+                    spec=spec,
+                    attempt=attempt,
+                    attempt_index=0,
+                    repo_root=root,
+                    packet_path=root / "packet.json",
+                    prompt_path=root / "prompt.txt",
+                    packet_dict={},
+                    redacted_task="review",
+                    exact_secret_values=frozenset(),
+                    grants=[],
+                    scrub_env={"PATH": "/usr/bin:/bin"},
+                    command_override=None,
+                    parent_env=None,
+                )
+
+            self.assertTrue(plan.external_attempt_skipped)
+            self.assertEqual(plan.isolation_meta.get("external_attempt"), "skipped")
+            self.assertEqual(plan.isolation_meta.get("fallback_chain"), "continue")
+            self.assertNotIn("host-native", str(plan.isolation_meta))
+            self.assertIsNone(plan.isolated)
+            self.assertEqual(plan.argv, [])
+            create_snapshot.assert_not_called()
 
 
 class DispatchAttemptComponentTests(unittest.TestCase):
@@ -165,7 +326,20 @@ class PublicApiSnapshotTests(unittest.TestCase):
             )
             first = compatibility_gate(root, required=False)
             self.assertTrue(first["ok"])
-            # Internal-only: no public change.
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "tests@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Elves Tests"], cwd=root, check=True
+            )
+            subprocess.run(["git", "add", "scripts"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "baseline"], cwd=root, check=True)
+            subprocess.run(["git", "switch", "-qc", "feature"], cwd=root, check=True)
+            # Internal-only: required mode derives the baseline from main rather
+            # than trusting the advisory candidate-local artifact.
             second = compatibility_gate(root, required=True)
             self.assertTrue(second["ok"], second)
             # Breaking: remove an export.

@@ -7,26 +7,40 @@ public coordinator (≤150 lines).
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from typing import Any, Mapping
 
 from .context import (
     ContextPacket,
+    ensure_private_dir,
     redact_structure,
     redact_text,
     resolve_contained_path,
     safe_path_component,
-    ensure_private_dir,
     write_json_artifact,
     write_text_artifact,
 )
+from .dispatch_attempt import (
+    attempt_env_grants,
+    build_effective_contract,
+    check_capabilities,
+    classify_failure,
+    prepare_transport,
+    record_command_digests,
+    write_attempt_artifacts,
+)
+from .dispatch_external import prepare_external_launch, run_external_subprocess
+from .dispatch_host_native import run_host_native_attempt
+from .dispatch_models import AttemptResult, LaneResult, LaneSpec
+from .dispatch_results import assemble_external_result, build_failed_attempt
 from .schema import EffectiveAttempt, ValidationIssue
 
 
 async def run_single_attempt(
     *,
-    spec: Any,
+    spec: LaneSpec,
     attempt: EffectiveAttempt,
     attempt_index: int,
     packet: ContextPacket,
@@ -36,34 +50,15 @@ async def run_single_attempt(
     repo_root: Path,
     host_ledger: Any,
     task: str,
-) -> tuple[Any, Any]:
+) -> tuple[AttemptResult, LaneResult]:
     """Full attempt lifecycle. Returns (AttemptResult, LaneResult)."""
-    from .dispatch import (  # noqa: PLC0415  — late import avoids cycle
-        AttemptResult,
-        LaneResult,
-        _build_failed_attempt,
-        _check_capabilities,
-        _classify_failure,
-        _assemble_external_result,
-        _attempt_env_grants,
-    )
-    from .dispatch_attempt import (  # noqa: PLC0415
-        build_effective_contract,
-        prepare_transport,
-        record_command_digests,
-        write_attempt_artifacts,
-    )
-    from .dispatch_external import prepare_external_launch, run_external_subprocess  # noqa: PLC0415
-    from .dispatch_host_native import run_host_native_attempt  # noqa: PLC0415
-
-
     launch_time = time.monotonic()
     attempt_dir = resolve_contained_path(
         work_dir,
         f"attempt-{attempt_index}-{safe_path_component(attempt.profile, field='profile')}",
     )
     ensure_private_dir(attempt_dir)
-    grants = _attempt_env_grants(spec, attempt)
+    grants = attempt_env_grants(spec, attempt)
     transport = prepare_transport(
         parent_env=parent_env,
         env_extra_allowlist=tuple(spec.env_extra_allowlist),
@@ -104,8 +99,8 @@ async def run_single_attempt(
         ),
     )
 
-    def _fail(**kwargs: Any) -> tuple[Any, Any]:
-        return _build_failed_attempt(
+    def _fail(**kwargs: Any) -> tuple[AttemptResult, LaneResult]:
+        return build_failed_attempt(
             attempt_result=attempt_result,
             spec=spec,
             attempt=attempt,
@@ -118,8 +113,11 @@ async def run_single_attempt(
         )
 
     if not attempt.enabled:
-        return _fail(reason=f"profile `{attempt.profile}` is disabled", failure_class="unavailable")
-    cap_err, cap_required, cap_missing = _check_capabilities(
+        return _fail(
+            reason=f"profile `{attempt.profile}` is disabled",
+            failure_class="unavailable",
+        )
+    cap_err, cap_required, cap_missing = check_capabilities(
         attempt, lane_qualified=spec.qualified_capabilities
     )
     attempt_result.effective_contract["required_capabilities"] = list(cap_required)
@@ -140,12 +138,11 @@ async def run_single_attempt(
             host_ledger=host_ledger,
             task=task,
             launch_time=launch_time,
-            lane_result_cls=LaneResult,
             fail_fn=_fail,
-            classify_failure_fn=_classify_failure,
         )
-    try:
-        plan = prepare_external_launch(
+    prepare_task = asyncio.create_task(
+        asyncio.to_thread(
+            prepare_external_launch,
             spec=spec,
             attempt=attempt,
             attempt_index=attempt_index,
@@ -160,48 +157,71 @@ async def run_single_attempt(
             command_override=command_override,
             parent_env=parent_env,
         )
+    )
+    try:
+        plan = await asyncio.shield(prepare_task)
+    except asyncio.CancelledError as cancelled:
+        # A worker thread cannot be force-cancelled safely. Acquire its result,
+        # remove any completed snapshot, then propagate cancellation.
+        try:
+            cancelled_plan = await asyncio.shield(prepare_task)
+        except BaseException:
+            raise cancelled
+        if cancelled_plan.isolated is not None:
+            cancelled_plan.isolated.cleanup()
+        raise
     except ValidationIssue as issue:
         return _fail(
             reason=issue.message,
             failure_class=(
                 "isolation_failure"
                 if "isolation" in (issue.code or "")
-                else _classify_failure(timeout=False, exit_code=None, error=issue.message)
+                else classify_failure(
+                    timeout=False,
+                    exit_code=None,
+                    error=issue.message,
+                )
             ),
         )
     attempt_result.effective_contract["isolation"] = plan.isolation_meta
-    if plan.fallback_host_native:
+    if plan.external_attempt_skipped:
         return _fail(
             reason=(
-                "optional_isolation_failed_fallback_host_native: "
+                "external_attempt_skipped_fallback_chain_continues: "
                 + str(plan.isolation_meta.get("reason") or "isolation failed")
             ),
             failure_class="unavailable",
         )
-    invocation = plan.invocation
-    raw_command = list(plan.argv)
-    redacted_command = record_command_digests(
-        attempt_result.effective_contract,
-        raw_command=raw_command,
-        exact_secret_values=exact_secret_values,
-        invocation=invocation,
-    )
-    if invocation and invocation.prompt_file_body is not None:
-        write_text_artifact(
-            prompt_path,
-            redact_text(invocation.prompt_file_body, exact_values=exact_secret_values).text,
+    try:
+        invocation = plan.invocation
+        raw_command = list(plan.argv)
+        redacted_command = record_command_digests(
+            attempt_result.effective_contract,
+            raw_command=raw_command,
+            exact_secret_values=exact_secret_values,
+            invocation=invocation,
         )
-    elif not prompt_path.exists():
-        write_text_artifact(prompt_path, redacted_task)
-    from .dispatch import _terminate_process_group, _pgid_alive  # noqa: PLC0415
-
-    proc_result = await run_external_subprocess(
-        plan=plan,
-        timeout_seconds=spec.timeout_seconds,
-        terminate_process_group=_terminate_process_group,
-        pgid_alive=_pgid_alive,
-    )
-    return _assemble_external_result(
+        if invocation and invocation.prompt_file_body is not None:
+            write_text_artifact(
+                prompt_path,
+                redact_text(
+                    invocation.prompt_file_body,
+                    exact_values=exact_secret_values,
+                ).text,
+            )
+        elif not prompt_path.exists():
+            write_text_artifact(prompt_path, redacted_task)
+        proc_result = await run_external_subprocess(
+            plan=plan,
+            timeout_seconds=spec.timeout_seconds,
+        )
+    except BaseException:
+        # run_external_subprocess owns cleanup once called; this covers artifact
+        # and command-evidence failures between plan creation and launch.
+        if plan.isolated is not None:
+            plan.isolated.cleanup()
+        raise
+    return assemble_external_result(
         proc_result=proc_result,
         invocation=invocation,
         redacted_command=redacted_command,

@@ -8,15 +8,17 @@ from typing import Any, Mapping
 
 from .adapters import validate_role_report
 from .context import redact_structure, redact_text
+from .dispatch_attempt import classify_failure
+from .dispatch_models import AttemptResult, LaneResult, LaneSpec
 from .schema import EffectiveAttempt, ValidationIssue
 
 
 async def run_host_native_attempt(
     *,
-    spec: Any,
+    spec: LaneSpec,
     attempt: EffectiveAttempt,
     attempt_index: int,
-    attempt_result: Any,
+    attempt_result: AttemptResult,
     attempt_dir: str,
     packet_dict: Mapping[str, Any],
     exact_secret_values: frozenset[str],
@@ -25,10 +27,8 @@ async def run_host_native_attempt(
     host_ledger: Any,
     task: str,
     launch_time: float,
-    lane_result_cls: type,
     fail_fn,
-    classify_failure_fn,
-) -> tuple[Any, Any]:
+) -> tuple[AttemptResult, LaneResult]:
     """Execute host-native path. Returns (attempt_result, lane_result)."""
     if host_ledger is None:
         return fail_fn(
@@ -100,7 +100,7 @@ async def run_host_native_attempt(
     except ValidationIssue as issue:
         fail = fail_fn(
             reason=issue.message,
-            failure_class=classify_failure_fn(
+            failure_class=classify_failure(
                 timeout=False, exit_code=None, error=issue.message
             ),
         )
@@ -124,7 +124,7 @@ async def run_host_native_attempt(
     attempt_result.actual_model = actual
     attempt_result.model_evidence_source = source
     attempt_result.model_call_made = True
-    lane = lane_result_cls(
+    lane = LaneResult(
         lane_id=spec.lane_id,
         role=spec.role,
         adapter="host-native",
