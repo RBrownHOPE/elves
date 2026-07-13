@@ -11,7 +11,7 @@ workflows such as math research. **Cobbler** is the default coordinator: it deci
 answer directly, ask independent reviewers, assign scoped workers, or record a run decision, then
 returns one clear recommendation.
 
-**Current release: v2.0.0** — those workflows, coordinated by Cobbler, under a **native-first** rule
+**Current release: v2.1.0** — those workflows, coordinated by Cobbler, under a **native-first** rule
 and **without locking you into one model ecosystem**. **Claude Code or Codex is the main driver**
 (orchestrator); Cobbler coordinates natively — no Grok, OpenRouter, or multi-provider setup required
 to run overnight. Optional **work drivers**, **plan/review lenses**, and **math-domain tools**
@@ -21,13 +21,13 @@ for the job; fall back to host-native when you don’t. That optional matrix is 
 OpenCode/Antigravity as the **main driver** (Elves skill host) is exotic and **may or may not
 work**. If something breaks or you harden a path, **prefer a PR** (or
 [file an issue](https://github.com/aigorahub/elves/issues), no secrets). Operator helpers:
-`python3 scripts/cobbler_agents.py`. See [`CHANGELOG.md`](CHANGELOG.md) (`[2.0.0]`),
+`python3 scripts/cobbler_agents.py`. See [`CHANGELOG.md`](CHANGELOG.md) (`[2.1.0]`),
 [`references/model-onboarding.md`](references/model-onboarding.md), and
 [`references/math-alphaevolve.md`](references/math-alphaevolve.md).
 
 You write the plan and own the merge decision. The agent does everything in between.
 
-**Default (v2.0+): one kickoff after conceptual agreement.** Chat with the main agent (and optional
+**Default (v2.1+): one kickoff (optional trusted Grok full-run with parked driver) after conceptual agreement.** Chat with the main agent (and optional
 planning lenses) until the work is clear, then send a single **chat-to-work** or **chat-to-land**
 prompt: Elves plans, stages (branch/PR/docs/preflight), runs batches, and either leaves a landable
 PR or completes the merge ceremony — your choice in the kickoff. See
@@ -359,7 +359,7 @@ and configured — same native-first rule as the rest of Cobbler and the math mo
 
 **Optional external batch implementer** (e.g. Grok Build, only if you have it): record
 `implementation_lane: fast` and use
-`python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
+`python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status|full-run-*|full-run-*`.
 See [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
 
 **Optional stricter host-import writer** (advanced lease path — not the default overnight path):
@@ -576,7 +576,7 @@ The launch prompt starts unattended execution. Elves re-reads the prepared docs,
 - **Auto-discovered validation gates** for Node.js, Python, Go, Rust, and Makefile projects. No configuration required.
 - **Pluggable review**: GitHub PR comments by default (zero config), custom review API opt-in, additional custom checks
 - **Subagent delegation** for long runs (Claude Code): coordinator manages the loop, subagents do the deep work
-- **Rollback safety**: `git tag elves/pre-batch-N` before every batch, so any batch can be cleanly unwound
+- **Rollback safety**: run/session-scoped rollback refs before every batch, so any batch can be cleanly unwound
 - **Scout mode**: after all planned work is done, the agent looks for adjacent improvements, test gaps, and documentation holes. Prioritizes risk-reducing fixes first, then quality, then leaves ambiguous items. Commits tagged `[branch · Scout]`, with validation gates required and clear stop rules.
 - **Proof scope**: touched-surface proof per batch (only test what you changed), broad regression at entropy checks and before readiness. Re-earn proof after each push; don't inherit from prior commits.
 - **High-risk regression pass**: batches with medium/high blast radius can trigger a second,
@@ -882,7 +882,7 @@ elves/
 - **Never merge by default.** The PR is for review, not merging; that gate stays with the human. The exceptions are explicit: either merge-on-green in Run Control, or the reviewed-PR landing command. In both cases the agent lands a regular merge commit after the final readiness review passes, never a squash. Merge commits are preferred for agentic work because they preserve a clean boundary around the whole run, which makes later rollback, audit, or surgery much easier.
 - **Document every decision.** Anything the agent decides without user input goes in the execution log under *Decisions made*. The human reviews these choices when they return.
 - **Fail safely, not silently.** If the agent is genuinely blocked, it stops and says so. If a test gate fails, it fixes the issue before continuing. It doesn't skip gates or paper over failures.
-- **Rollback before every batch.** `elves/pre-batch-N` tags mean any batch can be cleanly unwound without touching other work.
+- **Rollback before every batch.** run/session-scoped rollback refs mean any batch can be cleanly unwound without global tag collisions.
 - **Agent infrastructure is real engineering.** Developers who treat agent infrastructure as a real engineering concern (tight code review systems, organized work trees, failure handling) end up with something that functions like a tireless junior team working every hour they're away from their desk.
 - **Quality is not an afterthought.** Agents naturally spend 80% of batch time implementing and rush through validation and review. Elves treats implement, validate, and review as roughly equal phases. Implementation produces a draft. Validation and review produce something shippable.
 - **The philosophy applies everywhere, not just review.** The nine code quality principles (root cause over band-aids, centralize over duplicate, extend over create, etc.) aren't just a reviewer's checklist. They inform how batches are planned (architecture-aware ordering), how contracts are written (what to build on), how implementation begins (pre-implementation survey), and how review verifies (did you actually use what you found?). A principle enforced only at review time creates rework. Applied from planning onward, it prevents the rework from happening.
@@ -996,7 +996,7 @@ python3 /tmp/elves/scripts/sync_installed_skills.py --apply --target claude
 rm -rf /tmp/elves
 ```
 
-This installs `~/.claude/skills/elves/` and five small Claude Code alias skills:
+This installs `~/.claude/skills/elves/` and seven small Claude Code alias skills:
 `~/.claude/skills/cobbler/`, `~/.claude/skills/cobbler-mode/`,
 `~/.claude/skills/council/`, `~/.claude/skills/ec/`, and
 `~/.claude/skills/elves-council/`. Those directories create `/cobbler`, `/cobbler-mode`,
@@ -1029,7 +1029,7 @@ git clone https://github.com/aigorahub/elves.git .claude/skills/elves
 rm -rf .claude/skills/elves/.git  # remove the nested git repo
 
 # Optional project-local aliases. Skip any alias directory you already own.
-for alias in cobbler cobbler-mode council ec elves-council; do
+for alias in cobbler cobbler-mode council ec elves-council setup-cobbler setup-council; do
   if [ -e ".claude/skills/${alias}" ]; then
     echo "Skipping existing .claude/skills/${alias}"
   else

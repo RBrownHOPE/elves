@@ -72,3 +72,8 @@ This repo now treats documentation as a maintained surface:
 
 Because this repo *is* a skill, changes almost always cross multiple surfaces. Updating one file in
 isolation is usually not sufficient.
+
+
+## v2.1.0 full-run note
+
+Trusted Grok full-run uses one session, feature-branch progress, parked-monitor driver, and bounded events. Untrusted detached leases remain a distinct authority model.

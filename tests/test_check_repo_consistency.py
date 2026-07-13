@@ -802,10 +802,9 @@ Cobbler
         self.assertIn('".github/ISSUE_TEMPLATE/**"', phrases)
         self.assertIn('"aliases/**"', phrases)
         self.assertIn('"docs/cobbler.md"', phrases)
-        self.assertIn("scripts/pr_portfolio_report.py", phrases)
-        self.assertIn("scripts/validate_survival_guide.py", phrases)
-        self.assertIn("scripts/elves_landing_check.py", phrases)
-        self.assertIn("scripts/workspace_guard.py", phrases)
+        self.assertIn('"scripts/**"', phrases)
+        self.assertIn("python3 scripts/verify_repo.py --skip-smokes", phrases)
+        self.assertIn("python3 scripts/installed_bundle_smoke.py --host all", phrases)
 
     def test_repo_consistency_workflow_requires_node24_action_majors(self) -> None:
         label = ".github/workflows/repo-consistency.yml"

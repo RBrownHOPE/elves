@@ -4,6 +4,44 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-07-12
+
+### Trusted full-run delegation (major stabilization)
+
+Elves **2.1.0** ships a real delegated full-run mode: after Claude Code or Codex stages a trusted
+Grok Build run, one persistent worker owns feature-branch implementation, tests, commits, pushes,
+and structured progress while the driver parks on bounded events. Host-native remains the default;
+Grok Build stays optional and explicit.
+
+### Runtime, install, and adapter truth
+
+- Recursive shipment of `scripts/cobbler_runtime/` plus `openrouter_lens.py` into installed bundles
+- Fresh Claude Code and Codex installed-bundle smokes from outside the source tree
+- Built-in adapter registry preserves Gemini/Antigravity/OpenCode identities and contracts
+- Canonical `scripts/verify_repo.py` gate; CI triggers on `scripts/**`
+- Exactly seven managed Claude aliases; Codex installs no Claude alias tree
+
+### Parity, isolation, and security
+
+- Structured behavior policy and full-run supervisor (prepare/launch/monitor/logs/stop)
+- Digest-keyed private session/lease storage, locks, write qualification fail-closed
+- Disposable tracked-source isolation, minimal implement env grants, process-group cleanup
+- Export only from `AUDITED_PASS` with hashed manifests and cumulative apply-check
+- Delegated feature-branch Git contract; run/session-scoped rollback refs
+- One-to-one plan acceptance IDs with Master Acceptance evidence
+
+### Evidence-aware validation and architecture
+
+- Attempt path decomposed into transport/artifact/result helpers
+- Preflight evidence reuse keyed by HEAD/config; final readiness never cache-only
+- Evidence-aware focused review selection with high-risk escalation
+- Implemented public-API snapshot compatibility gate
+
+### Documentation and release
+
+- Host-honest Claude/Codex invocation, full-run Run Control fields, corrected test-integrity and
+  rollback guidance, progressive README disclosure, v2.1.0 metadata
+
 ## [2.0.0] - 2026-07-12
 
 ### Efficient multi-model workflows under Cobbler (major)

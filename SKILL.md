@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "2.0.0"
+  version: "2.1.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -22,7 +22,7 @@ host-native Claude Code or Codex remains enough to run.
 
 **This skill is scaffolding.** It gives you a framework: the loop, the documents, the gates. But every project is different. The user will customize the survival guide, the test gates, and the review process for their specific needs. Follow the framework, but adapt to what the project actually requires.
 
-**Default user path (v2.0+): one kickoff.** Prefer **chat-to-work** or **chat-to-land**
+**Default user path (v2.1+): one kickoff. Trusted Grok full-run uses one packet, one exact session, feature-branch branch_progress, and a parked-monitor driver.** Prefer **chat-to-work** or **chat-to-land**
 ([`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md)): the user chats to conceptual
 agreement (optionally with multi-planner lenses), then one prompt covers plan + stage + full batch
 loop. Merge only if they chose chat-to-land / merge opt-in; otherwise leave a landable PR.
@@ -256,7 +256,7 @@ native overnight run:
 - **Work drivers (batch labor)** — only when the user has the CLI and wants it. Record
   `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
   `.elves-session.json`). Grok Build via
-  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status` (Lane A;
+  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status|full-run-*` (Lane A;
   optional `--model fast|deep`, `--check`) and OpenCode via `--adapter opencode-cli` / labor
   profiles. Host owns packets, gates, and merge. Launch recipe:
   `references/grok-implementer-launch-prompt.md`.
@@ -1178,7 +1178,7 @@ Never use `git push --force` to bypass a diverged branch. Never use `git rebase`
 
 ## Test Integrity
 
-**Never modify a test to make it pass. Fix the code, not the test.**
+**Never weaken or delete a test merely to obtain green.** Legitimate behavior-driven test updates are allowed with preserved/improved coverage and explicit evidence.
 
 Agents under pressure to clear failing gates will sometimes take shortcuts: weakening assertions, commenting out test cases, shortening timeouts, rewriting tests to match broken behavior, or disabling tests entirely. This is the single most dangerous thing an autonomous agent can do. It makes failures invisible.
 

@@ -67,3 +67,8 @@
 - Merge policy: by default the agent never merges and never squashes — the user merges. The user may
   opt into a `merge-on-green` preference, in which case the agent lands a regular merge commit (never
   a squash) only after the Final Readiness Review passes.
+
+
+## v2.1.0 full-run note
+
+Trusted Grok full-run uses one session, feature-branch progress, parked-monitor driver, and bounded events. Untrusted detached leases remain a distinct authority model.

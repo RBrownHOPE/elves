@@ -1,6 +1,6 @@
 # E2E chat-to-work and chat-to-land (design)
 
-**Status:** **recommended default user path (v2.0+)** — design + kickoff templates. Classic
+**Status:** **recommended default user path (v2.1+)** — design + kickoff templates. Classic
 **two-call stage-then-start** remains optional for huge or unstable plans.
 
 **Product intent:** efficient, intelligent workflows for agentic development and research —

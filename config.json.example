@@ -33,6 +33,9 @@
     "_comment": "Performance hygiene for long runs. Keep live docs concise, archive old log entries in place, and never mutate Codex/Claude app state during a coding run."
   },
 
+  "delegation_scope_example": "full_run",
+  "git_mode_example": "branch_progress",
+  "driver_monitor_mode_example": "parked-monitor",
   "cobbler": {
     "enabled": true,
     "coordination_default": "cobbler-first",

@@ -26,7 +26,7 @@ implementation_lane: fast | untrusted
 - **External implementer (`fast`):** host stages plan/PR/worktree and one batch packet; e.g. a
   persistent Grok Build session implements the batch; host gates between batches. See
   [`grok-implementer-launch-prompt.md`](grok-implementer-launch-prompt.md).
-  Operator CLI: `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
+  Operator CLI: `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status|full-run-*`.
 - **Host-import writer (`untrusted`):** exclusive writer lease, detached commits, host audit/import
   only (launch text below). CLI: `python3 scripts/cobbler_agents.py worker …`.
 

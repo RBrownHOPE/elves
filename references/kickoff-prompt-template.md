@@ -1,6 +1,6 @@
 # Kickoff Prompt Template
 
-> **Recommended (v2.0+): one kickoff after conceptual agreement.**
+> **Recommended (v2.1+): one kickoff after conceptual agreement.**
 >
 > Chat with the main agent (optional multi-planner lenses) until the work is clear, then send
 > **Chat-to-work** (landable PR, no merge) or **Chat-to-land** (through merge) — templates at the

@@ -80,3 +80,8 @@
 - Setup is optional. Never stage `.elves/models.toml` or paste API keys into TOML/chat/Survival Guide.
   Codex has no top-level `/setup-cobbler` slash — use `$elves setup-cobbler` or natural language.
   OpenRouter/API-only routes are optional read-only breadth unless a wrapper qualifies write/isolation.
+
+
+## v2.1.0 full-run note
+
+Trusted Grok full-run uses one session, feature-branch progress, parked-monitor driver, and bounded events. Untrusted detached leases remain a distinct authority model.

@@ -1,5 +1,5 @@
 ---
-version: "2.0.0"
+version: "2.1.0"
 ---
 
 # Elves: Autonomous Development Agent (Codex)
@@ -12,7 +12,7 @@ or Codex is enough for a full overnight run.
 
 **You never merge by default — the user merges when they return. The exceptions are an explicit merge-on-green opt-in recorded in Run Control, or the Reviewed PR Landing Command below. Either way, land only with a regular merge commit after the final readiness review passes, never a squash.**
 
-**Default user path (v2.0+): one kickoff.** Prefer **chat-to-work** or **chat-to-land**
+**Default user path (v2.1+): one kickoff. Trusted Grok full-run uses one packet, one exact session, feature-branch branch_progress, and a parked-monitor driver.** Prefer **chat-to-work** or **chat-to-land**
 (`references/e2e-chat-to-land.md`): chat to conceptual agreement (optional multi-planner), then one
 prompt plans, stages, and runs batches. Merge only if chat-to-land / explicit merge opt-in;
 otherwise landable PR only.
@@ -224,7 +224,7 @@ native overnight run:
 - **Work drivers (batch labor)** — only when the user has the CLI and wants it. Record
   `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
   `.elves-session.json`). Grok Build via
-  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status` (Lane A;
+  `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status|full-run-*|full-run-*` (Lane A;
   optional `--model fast|deep`, `--check`) and OpenCode via `--adapter opencode-cli` / labor
   profiles. Host owns packets, gates, and merge. Launch recipe:
   `references/grok-implementer-launch-prompt.md`.
@@ -546,7 +546,7 @@ Default: **4 developers × 2-week sprint** (~40 person-days). Override in plan/s
 - sprint-length: 1 week
 ```
 
-Each batch must be independently shippable. Split before writing code if a batch is too large. Record breakdown in execution log before implementation. Create a rollback tag before each batch: `git tag elves/pre-batch-N`.
+Each batch must be independently shippable. Split before writing code if a batch is too large. Record breakdown in execution log before implementation. Create a run/session-scoped rollback ref before each batch (for example `refs/elves/rollback/<run>/<session>/batch-N`), not a global unscoped tag.
 
 **Architecture-aware ordering:** Batch order isn't just about feature dependencies — it's about architectural dependencies. If multiple batches need a shared utility, put it in the earliest batch. If a batch introduces a new pattern (error handling, component structure), schedule it before batches that should follow that pattern. Each batch should create the foundation the next batch builds on.
 
@@ -569,7 +569,7 @@ Identify the first incomplete batch.
 
 ### 3. Tag
 ```bash
-git tag elves/pre-batch-N
+# run-scoped: refs/elves/rollback/<run-id>/<session-id>/batch-N
 ```
 
 ### 4. Contract
@@ -712,7 +712,7 @@ Append to execution log:
 **Decisions made:** [every judgment call made without user input]
 **Docs:** Impacted [list]. Updated [list]. Promoted [list or "none"]. Deferred [list or "none"]
 **Regression attestation:** Cumulative diff: [N files, +X/-Y lines]. Shared surfaces: [list or "none"]. Public API surface delta: [not configured / unavailable / captured / changed / required_failed]. Test baseline: [start to now, delta]. Confidence: [HIGH/MEDIUM/LOW], [why]
-**Commit:** [SHA] | **Rollback tag:** elves/pre-batch-N
+**Commit:** [SHA] | **Rollback ref:** refs/elves/rollback/<run>/<session>/batch-N
 
 **Next:** 1. [next task]  2. [task after]
 ```
@@ -846,12 +846,14 @@ If `git push` fails because the remote branch has diverged, **first rule out a c
 
 ## Test Integrity
 
-**Never modify a test to make it pass. Fix the code, not the test.**
+**Never weaken or delete a test merely to obtain green. Fix the code, not the gate.**
 
-- Never comment out, skip, or delete a test.
-- Never weaken an assertion.
-- Never shorten a timeout to hide a flaky failure.
-- If you believe a test is wrong, log it under **Decisions made** and move on. The user decides.
+- Legitimate behavior-driven test updates are allowed when product behavior changes and coverage
+  is preserved or improved; record explicit evidence in the execution log/report.
+- Never comment out, skip, or delete a test only to make a suite pass.
+- Never weaken an assertion or shorten a timeout to hide a flaky failure.
+- If you believe a test is wrong without a behavior change, log it under **Decisions made** and
+  move on. The user decides.
 
 ## Compaction Recovery
 

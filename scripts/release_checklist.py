@@ -209,6 +209,64 @@ def build_release_checklist(
     result.failures.extend(example_failures)
     result.warnings.extend(example_warnings)
 
+    # Alias inventory + installed import smoke when the full skill tree is present.
+    alias_root = repo_root / "aliases" / "claude"
+    runtime_pkg = repo_root / "scripts" / "cobbler_runtime"
+    openrouter = repo_root / "scripts" / "openrouter_lens.py"
+    expected_aliases = {
+        "cobbler",
+        "cobbler-mode",
+        "council",
+        "ec",
+        "elves-council",
+        "setup-cobbler",
+        "setup-council",
+    }
+    full_tree = alias_root.is_dir() and runtime_pkg.is_dir()
+    if full_tree:
+        found = {p.name for p in alias_root.iterdir() if p.is_dir()}
+        if found != expected_aliases:
+            result.failures.append(
+                "aliases/claude: expected exactly seven managed aliases "
+                f"{sorted(expected_aliases)}; found {sorted(found)}"
+            )
+        for name in sorted(expected_aliases):
+            skill = alias_root / name / "SKILL.md"
+            if not skill.is_file():
+                result.failures.append(f"aliases/claude/{name}: missing SKILL.md")
+        py_modules = [p for p in runtime_pkg.rglob("*.py") if "__pycache__" not in p.parts]
+        if len(py_modules) < 5:
+            result.failures.append(
+                f"scripts/cobbler_runtime: expected recursive modules, found {len(py_modules)}"
+            )
+        if not openrouter.is_file():
+            result.failures.append("scripts/openrouter_lens.py: missing required runtime helper")
+        else:
+            import py_compile
+
+            try:
+                py_compile.compile(str(openrouter), doraise=True)
+                for path in py_modules:
+                    py_compile.compile(str(path), doraise=True)
+                result.notes.append(
+                    "Alias inventory (7) + installed-import structural compile smoke: OK"
+                )
+            except py_compile.PyCompileError as exc:
+                result.failures.append(f"installed-import compile smoke failed: {exc}")
+    elif alias_root.is_dir() or runtime_pkg.is_dir() or openrouter.is_file():
+        result.warnings.append(
+            "Partial skill tree detected; skipped full alias/import inventory enforcement"
+        )
+
+    # README version line alignment (when the repo has a README).
+    readme_path = repo_root / "README.md"
+    if readme_path.is_file():
+        readme = read_text(readme_path)
+        if f"v{active_version}" not in readme and f"{active_version}" not in readme:
+            result.failures.append(
+                f"README.md: missing current version marker `{active_version}`"
+            )
+
     if base_ref:
         changes, warning = changed_files_since(repo_root, base_ref)
         if warning:

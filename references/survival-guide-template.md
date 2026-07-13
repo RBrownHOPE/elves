@@ -55,6 +55,18 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
   blocking coordinator defects.
 - **Re-read rule:** Immediately after every commit and push, re-read this survival guide before doing anything else.
 - **Checkpoint rule:** If `Checkpoint semantics` is `delivery target only`, log the checkpoint, push it, and continue immediately. Do not stop at the checkpoint.
+
+- **E2E mode:** [chat-to-work | chat-to-land | legacy-two-call | direct]
+- **Work driver:** [host-native | grok-build | untrusted-writer]
+- **Implementation lane:** [fast | untrusted]
+- **Delegation scope:** [none | batch | full_run]
+- **Git mode:** [host_only | branch_progress | detached_lease]
+- **Driver monitor mode:** [interactive | parked-monitor | n/a]
+- **Driver update policy:** [bounded events + heartbeats | interactive]
+- **Driver review policy:** [final independent review only | per-batch]
+- **High-risk checkpoints:** [list or none]
+- **Re-drive budget:** [N external worker re-drives | n/a]
+- **Continuation harness:** [none | /goal | host-native]
 - **Continuation rule:** If work remains and `Actual stop conditions` are not met, continue without waiting for user acknowledgment.
 
 ---
