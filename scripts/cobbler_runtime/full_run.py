@@ -80,7 +80,9 @@ EVENT_TYPES = frozenset(
 )
 TERMINAL_EVENT_TYPES = frozenset({"run_complete", "blocked"})
 DEFAULT_STALE_SECONDS = 300
-EXIT_RECORD_SETTLE_SECONDS = 0.25
+# Darwin process-group reaping is slower under CI load; give the exact recorded
+# supervisor a little longer to leave the group before failing closed.
+EXIT_RECORD_SETTLE_SECONDS = 0.75 if sys.platform == "darwin" else 0.25
 _SHA1_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 _REPORT_STATUSES = frozenset({"running", "complete", "blocked", "failed", "stopped"})
@@ -2760,11 +2762,71 @@ def _process_start_time(pid: int) -> str | None:
     return None
 
 
+def _darwin_proc_pidpath(pid: int) -> str | None:
+    """Return the kernel-reported absolute path for a live Darwin process."""
+    if sys.platform != "darwin" or pid <= 0:
+        return None
+    try:
+        lib_name = ctypes.util.find_library("c")
+        if not lib_name:
+            return None
+        lib = ctypes.CDLL(lib_name, use_errno=True)
+        buf = ctypes.create_string_buffer(4096)
+        # int proc_pidpath(int pid, void *buffer, uint32_t buffersize);
+        proc_pidpath = getattr(lib, "proc_pidpath", None)
+        if proc_pidpath is None:
+            return None
+        proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        proc_pidpath.restype = ctypes.c_int
+        written = int(proc_pidpath(int(pid), buf, ctypes.c_uint32(len(buf))))
+        if written <= 0:
+            return None
+        path = buf.value.decode("utf-8", errors="surrogateescape").strip()
+        return path or None
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+
+
+def _normalize_executable_path(path: str | None) -> str | None:
+    """Normalize process paths so capture/verify comparisons stay stable.
+
+    On macOS, ``sys.executable`` often points at a framework ``bin/pythonX.Y``
+    shim while ``proc_pidpath``/``ps`` report the nested
+    ``Python.app/Contents/MacOS/Python`` binary. Treat those as the same identity
+    when they resolve under the same framework version root.
+    """
+    if not path:
+        return None
+    try:
+        text = str(Path(str(path)).expanduser())
+    except (OSError, RuntimeError, TypeError, ValueError):
+        text = str(path)
+    try:
+        resolved = str(Path(text).resolve())
+    except OSError:
+        resolved = text
+    # Collapse .../Python.framework/Versions/X/bin/python* and
+    # .../Python.framework/Versions/X/Resources/Python.app/Contents/MacOS/Python
+    # to the shared framework version directory when present.
+    marker = "/Python.framework/Versions/"
+    if marker in resolved:
+        head, tail = resolved.split(marker, 1)
+        version = tail.split("/", 1)[0]
+        if version:
+            return f"{head}{marker}{version}"
+    return resolved
+
+
 def _process_executable(pid: int) -> str | None:
     try:
         return os.readlink(f"/proc/{pid}/exe")
     except OSError:
         pass
+    # Prefer the kernel path on Darwin. ``ps -o command=`` is only a fallback and
+    # can disagree with ``sys.executable`` (framework shim vs Python.app binary).
+    darwin_path = _darwin_proc_pidpath(pid)
+    if darwin_path:
+        return darwin_path
     try:
         result = subprocess.run(
             ["ps", "-o", "command=", "-p", str(pid)],
@@ -2786,11 +2848,22 @@ def capture_fingerprint(
     session_id: str,
     executable_hint: str | None = None,
 ) -> ProcessFingerprint:
+    # Brief retry so Darwin proc_pidpath/ps can observe a just-spawned child
+    # before we fall back to the launcher's sys.executable hint.
+    executable = _process_executable(pid)
+    if not executable:
+        for _ in range(5):
+            time.sleep(0.02)
+            executable = _process_executable(pid)
+            if executable:
+                break
+    if not executable and executable_hint:
+        executable = str(executable_hint)
     return ProcessFingerprint(
         pid=pid,
         pgid=pgid,
         start_time=_process_start_time(pid),
-        executable=_process_executable(pid) or executable_hint,
+        executable=executable,
         session_id=session_id,
     )
 
@@ -2834,14 +2907,11 @@ def verify_fingerprint(
         return False, "live process executable unreadable"
     # Compare the observed command identity exactly when possible. Resolving only
     # basenames would accept a reused PID running a different same-named binary.
-    expected_exe = str(Path(fp.executable).expanduser())
-    observed_exe = str(Path(current_exe).expanduser())
-    try:
-        expected_exe = str(Path(expected_exe).resolve())
-        observed_exe = str(Path(observed_exe).resolve())
-    except OSError:
-        pass
-    if expected_exe != observed_exe:
+    # Darwin framework shims are normalized to the shared Versions/X root so a
+    # launcher hint of bin/pythonX.Y still matches Python.app/Contents/MacOS/Python.
+    expected_exe = _normalize_executable_path(fp.executable)
+    observed_exe = _normalize_executable_path(current_exe)
+    if not expected_exe or not observed_exe or expected_exe != observed_exe:
         return False, "pid executable mismatch"
     # PGID membership: stored pgid must match live process group of the PID.
     if fp.pgid is not None:
@@ -6106,8 +6176,9 @@ def launch_full_run(
             )
 
         pgid = os.getpgid(proc.pid) if hasattr(os, "getpgid") else proc.pid
-        # Brief settle so ps can observe the blocked supervisor identity.
-        time.sleep(0.05)
+        # Brief settle so Darwin proc_pidpath/ps can observe the blocked
+        # supervisor identity before capture falls back to sys.executable.
+        time.sleep(0.1 if sys.platform == "darwin" else 0.05)
         fp = capture_fingerprint(
             pid=proc.pid,
             pgid=pgid,

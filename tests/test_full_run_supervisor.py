@@ -4266,7 +4266,9 @@ class FullRunLifecycleTests(unittest.TestCase):
             fixture_script=delayed,
         )
         launch_full_run(self.repo, session_id=self.session)
-        deadline = time.time() + 2
+        # macOS CI process-group reaping and fingerprint observation need more
+        # wall time than the Linux runners used for the original 2s budget.
+        deadline = time.time() + (8 if sys.platform == "darwin" else 3)
         status = monitor_full_run(self.repo, session_id=self.session, stale_after_seconds=60)
         while status["check_summary"]["report_status"] != "complete" and time.time() < deadline:
             time.sleep(0.02)
