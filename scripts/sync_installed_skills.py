@@ -40,6 +40,7 @@ TOP_LEVEL_RUNTIME_SCRIPT_PATHS = [
     "scripts/elves_landing_check.py",
     "scripts/cobbler_agents.py",
     "scripts/openrouter_lens.py",
+    "scripts/workspace_guard.py",
 ]
 
 # Entire package is shipped recursively — no per-module allowlist.
@@ -49,7 +50,6 @@ REPO_ONLY_SCRIPT_PATHS = [
     "scripts/check_repo_consistency.py",
     "scripts/release_checklist.py",
     "scripts/pr_portfolio_report.py",
-    "scripts/workspace_guard.py",
     "scripts/sync_installed_skills.py",
     "scripts/verify_repo.py",
     "scripts/installed_bundle_smoke.py",

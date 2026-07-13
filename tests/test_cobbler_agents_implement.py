@@ -472,10 +472,12 @@ class LaunchExecOptionalTests(unittest.TestCase):
             packet = root / "p.md"
             packet.write_text("p\n", encoding="utf-8")
             # On Unix `true` succeeds; argv[0] is "true" with flags that true ignores.
-            with mock.patch("cobbler_runtime.implement.subprocess.run") as run_mock:
-                run_mock.return_value = subprocess.CompletedProcess(
-                    args=["true"], returncode=0
-                )
+            proc = mock.Mock()
+            proc.returncode = 0
+            proc.communicate.return_value = ("", "")
+            proc.pid = 12345
+            with mock.patch("cobbler_runtime.implement.subprocess.Popen") as popen_mock:
+                popen_mock.return_value = proc
                 payload = launch_payload(
                     root,
                     packet=packet,
@@ -484,7 +486,12 @@ class LaunchExecOptionalTests(unittest.TestCase):
                 )
             self.assertTrue(payload["launched"])
             self.assertTrue(payload["ok"])
-            run_mock.assert_called_once()
+            popen_mock.assert_called_once()
+            self.assertIn("stdout_digest", payload)
+            self.assertNotIn("stdout_tail", payload)
+            # Minimal env: no wholesale host secret inheritance in call kwargs.
+            env = popen_mock.call_args.kwargs.get("env") or {}
+            self.assertNotIn("OPENAI_API_KEY", env)
 
 
 if __name__ == "__main__":

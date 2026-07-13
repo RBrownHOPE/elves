@@ -641,13 +641,56 @@ def launch_payload(
 
     if exec_process:
         # Optional operator convenience; not the default host path.
+        # Minimal adapter-specific environment + named credential grants only.
+        from .isolation import implement_min_env  # noqa: PLC0415
+        from .context import redact_text  # noqa: PLC0415
+
+        grant_names = [
+            "XAI_API_KEY",
+            "GROK_API_KEY",
+        ]
+        if is_opencode:
+            grant_names.extend(["OPENROUTER_API_KEY", "OPENAI_API_KEY"])
+        grants = {
+            name: os.environ[name]
+            for name in grant_names
+            if name in os.environ and os.environ[name]
+        }
+        child_env = implement_min_env(
+            adapter=adapter_name,
+            worktree=Path(worktree),
+            credential_grants=grants,
+        )
         try:
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 argv,
                 cwd=str(Path(worktree).expanduser().resolve()),
-                capture_output=True,
+                env=child_env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
+                start_new_session=True,
             )
+            try:
+                stdout, stderr = proc.communicate(timeout=3600)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(os.getpgid(proc.pid), 15)
+                except (ProcessLookupError, PermissionError, OSError):
+                    proc.kill()
+                stdout, stderr = proc.communicate(timeout=5)
+                payload["launched"] = True
+                payload["model_calls_made"] = True
+                payload["exit_code"] = 124
+                payload["ok"] = False
+                payload["error_human"] = "implement --exec timed out; process group terminated"
+                payload["stdout_digest"] = __import__("hashlib").sha256(
+                    (stdout or "").encode()
+                ).hexdigest()[:16]
+                payload["stderr_digest"] = __import__("hashlib").sha256(
+                    (stderr or "").encode()
+                ).hexdigest()[:16]
+                return payload
         except OSError as exc:
             raise ValidationIssue(
                 "implement_launch_spawn_failed",
@@ -658,16 +701,22 @@ def launch_payload(
         payload["model_calls_made"] = True
         payload["exit_code"] = int(proc.returncode)
         payload["ok"] = proc.returncode == 0
-        stdout = proc.stdout or ""
-        stderr = proc.stderr or ""
-        if stdout:
-            payload["stdout_tail"] = stdout[-4000:]
-        if stderr:
-            payload["stderr_tail"] = stderr[-4000:]
+        # Never return raw stdout/stderr tails — only redacted summaries + digests.
+        stdout = stdout or ""
+        stderr = stderr or ""
+        payload["stdout_digest"] = __import__("hashlib").sha256(
+            stdout.encode()
+        ).hexdigest()[:16]
+        payload["stderr_digest"] = __import__("hashlib").sha256(
+            stderr.encode()
+        ).hexdigest()[:16]
+        payload["stdout_summary"] = redact_text(stdout[-500:], exact_values=set(grants.values())).text
+        payload["stderr_summary"] = redact_text(stderr[-500:], exact_values=set(grants.values())).text
+        payload["credential_grant_names_present"] = sorted(grants.keys())
         if not payload["ok"] and not is_opencode:
             payload["error_human"] = humanize_grok_failure(
-                stderr=stderr,
-                stdout=stdout,
+                stderr=redact_text(stderr, exact_values=set(grants.values())).text,
+                stdout=redact_text(stdout, exact_values=set(grants.values())).text,
                 exit_code=int(proc.returncode),
             )
         return payload

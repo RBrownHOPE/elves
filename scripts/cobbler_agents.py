@@ -534,6 +534,23 @@ def cmd_worker(args: argparse.Namespace) -> int:
             profile = grok_write_profile(args.grok_version)
             if args.sandbox_profile == "workspace":
                 profile = workspace_sandbox_write_profile()
+            # Host-issued qualification: private evidence file or registry id (not booleans).
+            qualification = None
+            qual_file = getattr(args, "qualification_file", None)
+            qual_id = getattr(args, "qualification_id", None)
+            if qual_file:
+                qpath = Path(qual_file)
+                qualification = json.loads(qpath.read_text(encoding="utf-8"))
+            elif qual_id:
+                # Store-owned digest path under leases/qualifications/
+                qpath = store.snapshot_dir(qual_id) / "qualification.json"
+                if not qpath.is_file():
+                    raise ValidationIssue(
+                        "qualification_id_not_found",
+                        f"No host qualification record for id `{qual_id}`",
+                        path=str(qpath),
+                    )
+                qualification = json.loads(qpath.read_text(encoding="utf-8"))
             lease = store.prepare(
                 lease_id=args.lease_id,
                 host_checkout=Path(args.host_checkout),
@@ -547,12 +564,17 @@ def cmd_worker(args: argparse.Namespace) -> int:
                 detached_commits_permitted=profile.detached_commits_permitted,
                 write_profile_qualified=profile.qualified and not args.unqualified,
                 grok_version=args.grok_version,
+                qualification_evidence=qualification,
             )
             store.activate(lease.lease_id)
-            # Capture pre-turn snapshots beside lease record for later audit.
+            # Capture pre-turn snapshots under store-owned digest path (not raw lease id).
             snaps = pre_turn_snapshots(Path(lease.worker_checkout))
-            snap_path = Path(repo_root) / ".elves" / "runtime" / "leases" / f"{lease.lease_id}.pre.json"
-            snap_path.write_text(json.dumps(snaps, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            snap_dir = store.snapshot_dir(lease.lease_id)
+            snap_dir.mkdir(parents=True, exist_ok=True)
+            snap_path = snap_dir / "pre.json"
+            from cobbler_runtime.storage import atomic_write_json  # noqa: PLC0415
+
+            atomic_write_json(snap_path, snaps)
             inv = None
             if args.adapter == "grok-build":
                 inv = build_write_resume_invocation(
@@ -576,9 +598,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
         if action == "audit":
             lease = store.get(args.lease_id)
             store.mark_auditing(lease.lease_id)
-            pre_path = (
-                Path(repo_root) / ".elves" / "runtime" / "leases" / f"{args.lease_id}.pre.json"
-            )
+            pre_path = store.snapshot_dir(args.lease_id) / "pre.json"
             pre = {}
             if pre_path.is_file():
                 pre = json.loads(pre_path.read_text(encoding="utf-8"))
@@ -594,6 +614,16 @@ def cmd_worker(args: argparse.Namespace) -> int:
             )
             if not result.ok:
                 store.reject(args.lease_id, "; ".join(result.reasons))
+            else:
+                # Persist immutable evidence + atomic audited_pass transition.
+                import hashlib
+
+                evidence = result.to_dict()
+                evidence["pre_snapshots"] = pre
+                evidence["evidence_digest"] = hashlib.sha256(
+                    json.dumps(evidence, sort_keys=True).encode("utf-8")
+                ).hexdigest()
+                store.mark_audited_pass(args.lease_id, evidence=evidence)
             payload = {"ok": result.ok, "audit": result.to_dict(), "mutated_repo": False}
             if args.json:
                 return _emit_json(payload, exit_code=0 if result.ok else 1)
@@ -605,18 +635,49 @@ def cmd_worker(args: argparse.Namespace) -> int:
         if action == "export":
             lease = store.get(args.lease_id)
             out = Path(args.output_dir)
-            audit = audit_lease_turn(lease)
-            if not audit.ok:
-                store.reject(args.lease_id, "; ".join(audit.reasons))
-                payload = {"ok": False, "audit": audit.to_dict()}
-                if args.json:
-                    return _emit_json(payload, exit_code=1)
-                print("worker export: FAILED audit", file=sys.stderr)
-                return 1
+            # Load persisted audit evidence; never rerun a weaker audit without snapshots.
+            evidence_path = store.snapshot_dir(args.lease_id) / "audit_evidence.json"
+            if not evidence_path.is_file():
+                raise ValidationIssue(
+                    "export_missing_audit_evidence",
+                    "Export requires persisted audit evidence from an AUDITED_PASS lease",
+                    path=str(evidence_path),
+                )
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            if not evidence.get("ok") or lease.state.value not in {
+                "audited_pass",
+                "exported",
+                "apply_checked",
+            }:
+                raise ValidationIssue(
+                    "export_requires_audited_pass",
+                    f"Export refused: lease state={lease.state.value} evidence.ok={evidence.get('ok')}",
+                )
+            if evidence.get("lease_id") != lease.lease_id:
+                raise ValidationIssue(
+                    "export_evidence_lease_mismatch",
+                    "Persisted audit evidence lease_id does not match",
+                )
+            chain = evidence.get("commit_chain") or []
+            from cobbler_runtime.audit import CommitInfo  # noqa: PLC0415
+
+            commit_objs = [
+                CommitInfo(
+                    sha=str(c["sha"]),
+                    parents=list(c.get("parents") or []),
+                    tree=str(c.get("tree") or ""),
+                    subject=str(c.get("subject") or ""),
+                    author=str(c.get("author") or ""),
+                    paths=list(c.get("paths") or []),
+                )
+                for c in chain
+                if isinstance(c, dict)
+            ]
             patches = export_binary_patches(
                 lease,
                 output_dir=out,
-                chain=audit.commit_chain,
+                chain=commit_objs,
+                audit_evidence=evidence,
             )
             store.mark_exported(args.lease_id, str(out))
             apply_result = None
@@ -625,6 +686,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
                     Path(lease.host_checkout),
                     patches,
                     base_head=lease.base_head,
+                    cumulative=True,
+                    disposable=True,
                 )
             payload = {
                 "ok": True,
@@ -1249,6 +1312,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--unqualified",
         action="store_true",
         help="Mark write profile unqualified (should fail)",
+    )
+    w_prepare.add_argument(
+        "--qualification-file",
+        default=None,
+        help="Host-owned private qualification evidence JSON (required for prepare)",
+    )
+    w_prepare.add_argument(
+        "--qualification-id",
+        default=None,
+        help="Host-owned qualification registry id under store-owned snapshot path",
     )
     w_prepare.set_defaults(func=cmd_worker)
 

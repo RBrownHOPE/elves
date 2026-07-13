@@ -273,7 +273,7 @@ If not applicable, write: **No active paid or long-running compute.**
 
 **Risk:** [One sentence describing the highest-risk aspect of this batch]
 
-**Rollback tag:** `elves/pre-batch-N` _(create this before starting)_
+**Rollback tag:** run/session-scoped rollback refs _(create this before starting)_
 
 ---
 
@@ -742,15 +742,15 @@ synthesize-model: coordinator
 
 1. **Create a rollback tag before every batch:**
    ```bash
-   git tag elves/pre-batch-N
-   git push origin elves/pre-batch-N
+   # host-only run-scoped: refs/elves/rollback/<run-id>/<session-id>/batch-N
+   git push origin refs/elves/rollback/<run>/<session>/batch-N
    ```
 2. **Never force-push** the working branch.
 3. **Never rebase** the working branch during a run (it invalidates rollback tags).
 4. **Never merge by default.** Not even a fast-forward. The user merges when they return — unless they set a merge-on-green preference or explicitly invoke the reviewed-PR landing command. In either opt-in path, land a regular merge commit (never a squash) only after the final readiness review passes.
 5. **If something goes badly wrong**, stop and create a clean recovery branch from the last good tag instead of rewriting history:
    ```bash
-   git checkout -b recovery/from-elves-pre-batch-N elves/pre-batch-N
+   git checkout -b recovery/from-elves-pre-batch-N refs/elves/rollback/<run>/<session>/batch-N
    git push -u origin HEAD
    ```
    Then document what happened in the execution log and stop. Leave the original branch untouched for later inspection.

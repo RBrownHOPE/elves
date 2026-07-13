@@ -113,7 +113,9 @@ if [ -z "$REMOTE_URL" ]; then
   fail "No git remote 'origin' found"
   info "Fix: git remote add origin <url>"
 else
-  pass "Remote origin: ${REMOTE_URL}"
+  # Redact credentials embedded in origin URLs (user:token@host).
+  REDACTED_REMOTE=$(printf '%s' "${REMOTE_URL}" | sed -E 's#(https?://)[^/@]+@#\1[REDACTED]@#')
+  pass "Remote origin: ${REDACTED_REMOTE}"
 fi
 
 # ---------------------------------------------------------------------------

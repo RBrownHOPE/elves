@@ -127,7 +127,8 @@ PYEOF
 try_custom_cmd() {
   [ -z "${ELVES_NOTIFY_CMD:-}" ] && return 1
 
-  log "Custom command: ${ELVES_NOTIFY_CMD}"
+  # Never log ELVES_NOTIFY_CMD itself (may embed tokens/webhooks).
+  log "Custom command: configured (command redacted)"
   # SECURITY NOTE: eval is intentional here. ELVES_NOTIFY_CMD is set by the user
   # in their own environment, not by untrusted input. It allows users to configure
   # arbitrary notification commands (e.g., 'curl -d "$BODY" ntfy.sh/my-topic').
@@ -136,7 +137,8 @@ try_custom_cmd() {
     log "Custom command: delivered"
     return 0
   else
-    ERR_MSG=$(cat "${CUSTOM_ERR_FILE}" 2>/dev/null | head -3 || echo "(no output)")
+    # Redact secret-shaped fragments from error output.
+    ERR_MSG=$(cat "${CUSTOM_ERR_FILE}" 2>/dev/null | head -3 | sed -E 's/(https?:\/\/[^[:space:]]+@)/https:\/\/[REDACTED]@/g; s/(token|key|secret|password)=[^[:space:]]+/\1=[REDACTED]/gi' || echo "(no output)")
     err "Custom command failed: ${ERR_MSG}"
     return 1
   fi

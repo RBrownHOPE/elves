@@ -705,7 +705,7 @@ Rules:
 - Each batch must pass validation, review, AND preview deployment (if configured) before the next batch starts.
 - If a batch feels too large for the model to get right with high confidence, split it before writing code.
 - Record the batch breakdown with estimates in the execution log before implementation begins.
-- Create a rollback tag before each batch: `git tag elves/pre-batch-N`
+- Create a rollback tag before each batch: run/session-scoped rollback refs (`refs/elves/rollback/<run>/<session>/batch-N`)
 
 ## Subagent Strategy
 
@@ -770,7 +770,7 @@ If this is the first batch and no code exists yet, run a minimal smoke test inst
 
 ### 3. Tag
 
-Create a rollback safety point: `git tag elves/pre-batch-N`
+Create a rollback safety point: run/session-scoped rollback refs (`refs/elves/rollback/<run>/<session>/batch-N`)
 
 ### 4. Contract
 

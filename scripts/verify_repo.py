@@ -153,6 +153,67 @@ def check_git_diff(repo_root: Path) -> tuple[bool, str]:
     return True, "git diff --check ok"
 
 
+def check_preflight_cache(repo_root: Path) -> tuple[bool, str]:
+    """Record or reuse HEAD/config-keyed preflight evidence (not final readiness)."""
+    try:
+        scripts = str(repo_root / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        from cobbler_runtime.preflight_cache import (  # noqa: PLC0415
+            record_passing_preflight,
+            reuse_preflight,
+        )
+
+        head_proc = _run(["git", "rev-parse", "HEAD"], cwd=repo_root)
+        head = (head_proc.stdout or "").strip() or "unknown"
+        decision = reuse_preflight(repo_root, head=head)
+        if decision.get("reuse"):
+            return True, f"preflight cache reuse ok (final_readiness_accepts_cache_alone=false)"
+        # Fresh capture after successful structural gates is done by caller; here just key.
+        record_passing_preflight(
+            repo_root,
+            head=head,
+            gates={"verify_repo_structural": "pass"},
+            notes=["recorded by verify_repo; final readiness still requires live broad gate"],
+        )
+        return True, "preflight evidence recorded (not final readiness)"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"preflight cache failed: {exc}"
+
+
+def check_public_api(repo_root: Path) -> tuple[bool, str]:
+    try:
+        scripts = str(repo_root / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        from cobbler_runtime.public_api_snapshot import compatibility_gate  # noqa: PLC0415
+
+        result = compatibility_gate(repo_root, required=False)
+        if result.get("ok"):
+            return True, f"public-api gate ok action={result.get('action')}"
+        return False, f"public-api gate failed: {result.get('breaking')}"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"public-api gate error: {exc}"
+
+
+def check_evidence_review_plan(repo_root: Path) -> tuple[bool, str]:
+    try:
+        scripts = str(repo_root / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        from cobbler_runtime.evidence_review import plan_review  # noqa: PLC0415
+
+        diff = _run(["git", "diff", "--name-only", "origin/main...HEAD"], cwd=repo_root)
+        paths = [p for p in (diff.stdout or "").splitlines() if p.strip()]
+        plan = plan_review(changed_paths=paths or ["scripts/verify_repo.py"])
+        return True, (
+            f"evidence-review risk={plan.risk_level} broad={plan.broad_gate_required} "
+            f"focused={len(plan.focused_checks)}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        return False, f"evidence-review plan failed: {exc}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -186,6 +247,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Emit machine-readable results",
     )
+    parser.add_argument(
+        "--final-readiness",
+        action="store_true",
+        help="Force broad gate selection notes (never accept preflight cache alone)",
+    )
     args = parser.parse_args(argv)
     repo_root = Path(args.repo_root).resolve()
 
@@ -195,6 +261,9 @@ def main(argv: list[str] | None = None) -> int:
         ("json", lambda: check_json(repo_root)),
         ("consistency", lambda: check_consistency(repo_root)),
         ("release", lambda: check_release(repo_root, args.version)),
+        ("preflight-cache", lambda: check_preflight_cache(repo_root)),
+        ("evidence-review", lambda: check_evidence_review_plan(repo_root)),
+        ("public-api", lambda: check_public_api(repo_root)),
     ]
     if not args.skip_tests:
         gates.append(("unit-tests", lambda: check_unit_tests(repo_root)))

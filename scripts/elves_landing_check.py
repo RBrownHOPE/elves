@@ -365,6 +365,58 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
                     "acceptance evidence is structure/regex-lock only.",
                 )
 
+    # Stable acceptance ID one-to-one mapping (B#-A# / M-A#) when plan uses them.
+    try:
+        scripts_dir = str(Path(__file__).resolve().parent)
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        from cobbler_runtime.delegated_git import (  # noqa: PLC0415
+            parse_plan_acceptance,
+            validate_acceptance_mapping,
+        )
+        from cobbler_runtime.schema import ValidationIssue  # noqa: PLC0415
+
+        try:
+            plan_items = parse_plan_acceptance(text)
+        except ValidationIssue as issue:
+            # Only hard-fail when the plan clearly intended stable IDs but is unparseable
+            # for mapping (e.g. mixed/malformed B#-A# lines), or when session uses IDs.
+            session_uses_ids = any(
+                isinstance(item, dict) and item.get("id")
+                for b in as_batches(session)
+                for item in acceptance_items(b)
+            )
+            if session_uses_ids or "B1-A" in text or "M-A" in text:
+                report.error("plan_acceptance_unparseable", issue.message)
+            return
+
+        # Detect duplicate plan IDs before map build.
+        seen_ids: set[str] = set()
+        for item in plan_items:
+            aid = item["id"]
+            if aid in seen_ids:
+                report.error("plan_acceptance_duplicate_id", f"Duplicate plan acceptance id {aid}")
+            seen_ids.add(aid)
+
+        evidence_items: list[dict[str, Any]] = []
+        for batch in as_batches(session):
+            for item in acceptance_items(batch):
+                if item.get("id"):
+                    evidence_items.append(item)
+        if evidence_items or any(i["id"].startswith("M-A") for i in plan_items):
+            mapping_errors = validate_acceptance_mapping(
+                plan_items,
+                evidence_items,
+                require_master=any(i["id"].startswith("M-A") for i in plan_items),
+            )
+            for err in mapping_errors:
+                report.error("acceptance_id_mapping", err)
+    except Exception as exc:  # noqa: BLE001
+        report.warn(
+            "acceptance_id_mapping_unavailable",
+            f"Could not run stable acceptance ID mapping: {exc}",
+        )
+
 
 def check_execution_log(log_path: Path, report: Report) -> None:
     if not log_path.exists():

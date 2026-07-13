@@ -628,7 +628,7 @@ Every gate must pass before proceeding. If a gate fails, apply the **bug-fix pro
 
 **This is where the Ralph Loop does its real work.** You built something. You tested it. Now get independent feedback and feed it back into the next iteration.
 
-**Read the commit history first** (`git log elves/pre-batch-N..HEAD`). The coding agent communicates through commit messages — design decisions, justifications, rationale for non-obvious choices. Before flagging something, check whether the commit already explains why. Then read **all** PR feedback — every review thread, issue comment, and CI check run. Don't sample:
+**Read the commit history first** (`git log refs/elves/rollback/<run>/<session>/batch-N..HEAD`). The coding agent communicates through commit messages — design decisions, justifications, rationale for non-obvious choices. Before flagging something, check whether the commit already explains why. Then read **all** PR feedback — every review thread, issue comment, and CI check run. Don't sample:
 ```bash
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments"  --paginate > /tmp/pr-comments.json
