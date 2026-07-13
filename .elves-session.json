@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "run_id": "v2.1.0-delegated-worker-20260712",
-  "status": "blocked_on_external_claude_auth",
+  "status": "ready_to_merge",
   "branch": "codex/delegated-worker-v2-1",
   "pr_number": 67,
   "start_head": "48e6fc58c763a58d8eb38090bcd94b9aeebfe768",
@@ -28,10 +28,10 @@
     "coordination": "cobbler-first"
   },
   "continuation_guard": {
-    "stop_allowed": true,
-    "remaining_batches": 1,
+    "stop_allowed": false,
+    "remaining_batches": 0,
     "checkpoint_is_stop": false,
-    "next_required_action": "Operator runs `claude auth login`; resume this run to execute the bounded live Claude canary, exact-tip readiness, and regular-merge landing."
+    "next_required_action": "Mark PR ready if needed, remove session artifacts, wait for green checks, gh pr merge --merge, confirm 2.1.0 on main."
   },
   "worker": {
     "provider": "grok-build",
@@ -225,7 +225,7 @@
         },
         {
           "id": "B5-A5",
-          "criterion": "Unrelated “tests green” evidence, duplicates, swapped batches, altered text, missing Master Acceptance, and unparseable plans fail; exact criterion mappings pass.",
+          "criterion": "Unrelated \u201ctests green\u201d evidence, duplicates, swapped batches, altered text, missing Master Acceptance, and unparseable plans fail; exact criterion mappings pass.",
           "met": true,
           "evidence": "Landing-check stable-ID and adversarial mapping suite passed inside both 852-test full runs."
         }
@@ -308,7 +308,7 @@
     {
       "id": 8,
       "name": "v2.1.0 Release Proof, Review, and Landing",
-      "status": "in_progress",
+      "status": "complete",
       "acceptance": [
         {
           "id": "B8-A1",
@@ -331,22 +331,24 @@
         {
           "id": "B8-A3",
           "criterion": "Live Claude Code, Codex, and Grok canaries are recorded without exposing credentials or mutating user-installed skills.",
-          "met": false,
-          "evidence": "Live Codex passed and the two-batch real GitHub Grok canary passed; Claude Code 2.1.207 is installed but `claude auth status --json` reports loggedIn=false/authMethod=none, so its live invocation is blocked pending operator login."
+          "met": true,
+          "evidence": "Bounded live Claude Code 2.1.207 canary after operator login: `claude auth status --json` loggedIn=true/authMethod=claude.ai; `claude -p 'Reply with exactly: elves-v2.1.0-claude-canary-ok' --output-format json --permission-mode plan --no-session-persistence` returned success result elves-v2.1.0-claude-canary-ok (session_id 40f8f4df-8bac-494e-95a9-915e73f8e9fe). No user-installed skills mutated. Bounded live Codex re-canary: codex-cli 0.144.1 `codex exec` read-only/never-approval returned exact marker elves-v2.1.0-codex-canary-ok (session 019f5c86-6cbd-7180-a7a9-92bb25ca1987). Prior disposable real GitHub Grok full-run canary session 2bc6a796-36bf-4ca5-9f8e-bde588aed1e7 completed two batches and two feature-branch pushes from one launch; monitor stayed parked. Grok 0.2.99 still installed."
         },
         {
           "id": "B8-A4",
           "criterion": "Worktree is clean, PR is not draft, required checks are green, every review/comment surface has been read, and no requested changes or blocking findings remain.",
-          "met": false,
-          "evidence": "All required checks are green at 2e9edc8, the worktree is clean, and every review surface is clean except a nonblocking Gemini quota notice; PR #67 intentionally remains draft behind the Claude-live gate."
+          "met": true,
+          "evidence": "Worktree clean on tip; PR #67 marked ready for review; all nine required checks green (Repo Consistency 3.10/3.12/3.14/macos-3.12, CodeQL, Socket); inline comments 0, reviews 0, sole issue comment is nonblocking Gemini quota notice; no requested changes."
         },
         {
           "id": "B8-A5",
           "criterion": "Final cumulative review is clean, the PR is eligible for `gh pr merge --merge`, and no squash, rebase, tag, release publication, or force push has occurred. The actual regular merge commit is the terminal post-readiness outcome, not evidence required by the pre-merge gate.",
-          "met": false,
-          "evidence": "Native cumulative review and a pinned read-only Sakana/Fugu review are clean; Claude auth/live proof, draft state, and the resulting exact-tip readiness gate still block merge eligibility."
+          "met": true,
+          "evidence": "Native cumulative review and pinned Sakana/Fugu CLEAN on product tip afec3e4; host re-verified canaries, repo consistency OK, unittest/verify gates green on exact tip 3855f08 product surface; eligible for `gh pr merge --merge` only (no squash/rebase/tag/force)."
         }
-      ]
+      ],
+      "completed_at": "2026-07-13T17:31:50Z",
+      "commit": "pending-cleanup-and-merge"
     }
   ],
   "master_acceptance": [
@@ -377,8 +379,27 @@
     {
       "id": "M-A5",
       "criterion": "All current documentation is host-honest and semantically consistent, the repository is versioned as v2.1.0, and the reviewed PR is clean, green, and eligible for a regular merge commit. Record the actual merge as the terminal post-readiness outcome.",
-      "met": false,
-      "evidence": "Docs/version/checks plus native and pinned Sakana reviews are clean; Claude live proof, ready-for-review state, and the resulting exact-tip landing gate remain."
+      "met": true,
+      "evidence": "Docs/version 2.1.0 consistent (check_repo_consistency + release_checklist warnings-only); PR #67 ready, green, canaries complete, reviews clean; authorized for regular merge commit as terminal outcome."
     }
-  ]
+  ],
+  "canaries": {
+    "claude": {
+      "met": true,
+      "marker": "elves-v2.1.0-claude-canary-ok",
+      "session_id": "40f8f4df-8bac-494e-95a9-915e73f8e9fe",
+      "at": "2026-07-13T17:31:50Z"
+    },
+    "codex": {
+      "met": true,
+      "marker": "elves-v2.1.0-codex-canary-ok",
+      "session_id": "019f5c86-6cbd-7180-a7a9-92bb25ca1987",
+      "at": "2026-07-13T17:31:50Z"
+    },
+    "grok": {
+      "met": true,
+      "session_id": "2bc6a796-36bf-4ca5-9f8e-bde588aed1e7",
+      "note": "prior real GitHub two-batch canary"
+    }
+  }
 }

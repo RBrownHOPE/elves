@@ -56,7 +56,10 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  # Matrix expands check-run names to "verify (os, py)". Branch protection on main
+  # still requires the exact context name "check", so a non-matrix aggregator job
+  # below re-exports that name after every matrix cell succeeds.
+  verify:
     strategy:
       fail-fast: false
       matrix:
@@ -106,3 +109,14 @@ jobs:
             BASE_REF="HEAD^"
           fi
           python3 scripts/verify_repo.py --ci --version 2.1.0 --base-ref "$BASE_REF"
+
+  check:
+    needs: verify
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    steps:
+      - name: Require every matrix verify cell
+        run: |
+          result='${{ needs.verify.result }}'
+          echo "verify matrix result: ${result}"
+          test "${result}" = "success"
