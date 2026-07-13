@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "run_id": "v2.1.0-delegated-worker-20260712",
-  "status": "final_readiness_blocked_on_claude_auth",
+  "status": "blocked_on_external_claude_auth",
   "branch": "codex/delegated-worker-v2-1",
   "pr_number": 67,
   "start_head": "48e6fc58c763a58d8eb38090bcd94b9aeebfe768",
@@ -28,10 +28,10 @@
     "coordination": "cobbler-first"
   },
   "continuation_guard": {
-    "stop_allowed": false,
+    "stop_allowed": true,
     "remaining_batches": 1,
     "checkpoint_is_stop": false,
-    "next_required_action": "Authenticate Claude Code, run the bounded live Claude canary, then finish exact-tip readiness and regular-merge landing."
+    "next_required_action": "Operator runs `claude auth login`; resume this run to execute the bounded live Claude canary, exact-tip readiness, and regular-merge landing."
   },
   "worker": {
     "provider": "grok-build",
@@ -338,13 +338,13 @@
           "id": "B8-A4",
           "criterion": "Worktree is clean, PR is not draft, required checks are green, every review/comment surface has been read, and no requested changes or blocking findings remain.",
           "met": false,
-          "evidence": "All required checks are green and review surfaces are clean except a nonblocking Gemini quota notice; PR #67 remains draft and host-owned run-memory reconciliation is not yet committed."
+          "evidence": "All required checks are green at 2e9edc8, the worktree is clean, and every review surface is clean except a nonblocking Gemini quota notice; PR #67 intentionally remains draft behind the Claude-live gate."
         },
         {
           "id": "B8-A5",
           "criterion": "Final cumulative review is clean, the PR is eligible for `gh pr merge --merge`, and no squash, rebase, tag, release publication, or force push has occurred. The actual regular merge commit is the terminal post-readiness outcome, not evidence required by the pre-merge gate.",
           "met": false,
-          "evidence": "Native cumulative review is clean at afec3e4 and Sakana review is pending; draft/auth/readiness gates still block merge eligibility."
+          "evidence": "Native cumulative review and a pinned read-only Sakana/Fugu review are clean; Claude auth/live proof, draft state, and the resulting exact-tip readiness gate still block merge eligibility."
         }
       ]
     }
@@ -378,7 +378,7 @@
       "id": "M-A5",
       "criterion": "All current documentation is host-honest and semantically consistent, the repository is versioned as v2.1.0, and the reviewed PR is clean, green, and eligible for a regular merge commit. Record the actual merge as the terminal post-readiness outcome.",
       "met": false,
-      "evidence": "Docs/version/checks and native review are clean; Claude live proof, final Sakana result, ready-for-review state, and exact-tip landing gate remain."
+      "evidence": "Docs/version/checks plus native and pinned Sakana reviews are clean; Claude live proof, ready-for-review state, and the resulting exact-tip landing gate remain."
     }
   ]
 }
