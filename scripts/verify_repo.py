@@ -119,6 +119,51 @@ def _bounded_failure_tail(output: str) -> str:
     lines = output.strip().splitlines()
     if not lines:
         return ""
+    failure_headers = [
+        index
+        for index, line in enumerate(lines)
+        if line.startswith(("ERROR: ", "FAIL: "))
+    ]
+    if failure_headers:
+        # unittest prints one independently useful block per error/failure, then
+        # arbitrary test stdout may push every block except the last outside a
+        # plain tail window. Preserve a bounded excerpt of *each* block so CI
+        # diagnostics do not hide the failures needed to repair another OS.
+        block_budget = max(8, (UNIT_TEST_FAILURE_MAX_LINES - 6) // len(failure_headers))
+        excerpts: list[str] = []
+        for position, start in enumerate(failure_headers):
+            next_start = (
+                failure_headers[position + 1]
+                if position + 1 < len(failure_headers)
+                else len(lines)
+            )
+            end = next_start
+            for index in range(start + 1, next_start):
+                if lines[index].startswith("=" * 20) or lines[index].startswith("Ran "):
+                    end = index
+                    break
+            block = lines[start:end]
+            if len(block) > block_budget:
+                head_count = max(4, block_budget - 4)
+                block = [
+                    *block[:head_count],
+                    "[...failure block bounded...]",
+                    *block[-3:],
+                ]
+            if excerpts:
+                excerpts.append("[...next failure...]")
+            excerpts.extend(block)
+        summary = [
+            line
+            for line in lines
+            if line.startswith("Ran ") or line.startswith("FAILED (")
+        ][-2:]
+        excerpts.extend(summary)
+        rendered = "\n".join(excerpts)
+        if len(rendered) > UNIT_TEST_FAILURE_MAX_CHARS:
+            rendered = rendered[:UNIT_TEST_FAILURE_MAX_CHARS]
+            rendered = rendered.rstrip() + "\n[...bounded...]"
+        return _redact_message(rendered)
     tail = lines[-UNIT_TEST_FAILURE_MAX_LINES:]
     traceback_indexes = [
         index

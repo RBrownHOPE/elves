@@ -111,6 +111,44 @@ class VerifyRepoUnitTests(unittest.TestCase):
         self.assertIn("ValueError: boom", message)
         self.assertLess(len(message), self.verify.UNIT_TEST_FAILURE_MAX_CHARS + 500)
 
+    def test_unit_test_failure_preserves_every_failure_block_before_noisy_stdout(self) -> None:
+        failure = "\n".join(
+            [
+                "=" * 70,
+                "ERROR: test_first (tests.test_example.ExampleTests.test_first)",
+                "-" * 70,
+                "Traceback (most recent call last):",
+                '  File "tests/test_example.py", line 10, in test_first',
+                '    raise RuntimeError("first root cause")',
+                "RuntimeError: first root cause",
+                "=" * 70,
+                "FAIL: test_second (tests.test_example.ExampleTests.test_second)",
+                "-" * 70,
+                "Traceback (most recent call last):",
+                '  File "tests/test_example.py", line 20, in test_second',
+                "    self.assertEqual(1, 2)",
+                "AssertionError: 1 != 2",
+                "-" * 70,
+                "Ran 2 tests in 0.1s",
+                "FAILED (failures=1, errors=1)",
+            ]
+        )
+        proc = subprocess.CompletedProcess(
+            args=[sys.executable, "-m", "unittest"],
+            returncode=1,
+            stdout="\n".join(f"noisy stdout {index}" for index in range(200)),
+            stderr=failure,
+        )
+        with mock.patch.object(self.verify, "_run", return_value=proc):
+            ok, message = self.verify.check_unit_tests(REPO_ROOT)
+
+        self.assertFalse(ok)
+        self.assertIn("ERROR: test_first", message)
+        self.assertIn("RuntimeError: first root cause", message)
+        self.assertIn("FAIL: test_second", message)
+        self.assertIn("AssertionError: 1 != 2", message)
+        self.assertLess(len(message), self.verify.UNIT_TEST_FAILURE_MAX_CHARS + 500)
+
     def test_verification_child_does_not_inherit_host_secret_environment(self) -> None:
         sentinel = "verification-env-sentinel-27f40d"
         with mock.patch.dict(
