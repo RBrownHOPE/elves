@@ -99,7 +99,9 @@ GitHub push authentication is independent of Grok provider authentication. For a
 `https://github.com/...` origin, add `--grant-github-push` to project the authenticated host `gh`
 token through one launch-scoped credential helper, or grant exactly one of `GH_TOKEN` and
 `GITHUB_TOKEN` by name. No host HOME, XDG directory, Git config, or SSH agent is inherited; only
-keyed token metadata is persisted, and unsupported network transports fail before spawn.
+keyed token metadata is persisted, and unsupported network transports fail before spawn. Elves
+projects validated explicit `user.name` / `user.email` values into author/committer variables so
+Git never guesses identity inside the isolated HOME; missing identity is a pre-spawn error.
 
 The stop capability hardens the runtime artifact channel against malformed/forged leaves inside a
 trusted branch-progress route. It is not a same-user security boundary against a malicious worker;

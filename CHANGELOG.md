@@ -41,7 +41,8 @@ Grok Build stays optional and explicit.
 - Explicit GitHub HTTPS branch-push authentication through either `--grant-github-push` or one
   named `GH_TOKEN`/`GITHUB_TOKEN` grant; the isolated worker receives one reset, launch-scoped Git
   credential helper while raw credentials, host Git config, HOME/XDG state, and SSH agents remain
-  outside persisted/public state
+  outside persisted/public state; explicit host author/committer identity is projected and missing
+  identity fails before Git can guess
 - Packet-bound `high_risk_checkpoint` events and exact host acknowledgements gate both active runs
   and completed-provider final readiness, so omitted or emit-and-complete checkpoint races fail
   closed

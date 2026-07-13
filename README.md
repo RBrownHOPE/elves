@@ -393,7 +393,9 @@ host `gh` credential privately, or grant exactly one of `GH_TOKEN` / `GITHUB_TOK
 keeps the worker's HOME/XDG/Git config isolated, resets other credential helpers, installs one
 launch-scoped helper that reads the token only from the child environment, and persists only keyed
 digest/length metadata. SSH and other network push transports fail before spawn; local/file remotes
-remain credential-free for deterministic runs and tests.
+remain credential-free for deterministic runs and tests. The launcher also resolves explicit host
+`user.name` / `user.email` values and binds them into the isolated author/committer environment;
+missing identity fails before spawn instead of letting Git guess.
 
 Packets declare an exact wake gate with `- High-risk checkpoint: <stable-id>`. The worker must emit
 the matching `high_risk_checkpoint` event, and the host acknowledges that exact pending ID only

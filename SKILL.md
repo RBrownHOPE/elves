@@ -293,8 +293,9 @@ native overnight run:
   auth ancestors or supported-platform ACLs before spawn. GitHub feature-branch pushes use an
   independent explicit route: `--grant-github-push` projects the authenticated host `gh` token, or
   the operator grants exactly one of `GH_TOKEN` / `GITHUB_TOKEN` by name. The worker never inherits
-  host HOME/XDG/Git config or SSH-agent state; unsupported network push transports fail before
-  spawn. Hard external
+  host HOME/XDG/Git config or SSH-agent state; explicit host `user.name` / `user.email` values are
+  bound into its isolated author/committer environment, and missing identity or unsupported
+  network push transports fail before spawn. Hard external
   routes require a recursive boundary acquired atomically with the child. The current Python
   runtime cannot prove that boundary on Linux or macOS, so optional routes fall back host-native
   and required routes block before snapshot creation or spawn. Legacy

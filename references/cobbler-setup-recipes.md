@@ -322,7 +322,8 @@ The feature-branch push route is separate from Grok login. With a canonical GitH
 `--grant-github-push` privately projects the authenticated host `gh` token into one isolated
 launch-scoped Git credential helper. Alternatively grant exactly one of `GH_TOKEN` or
 `GITHUB_TOKEN` by name. Elves never inherits the host HOME/Git config/SSH agent, stores no raw
-token, and rejects unsupported network push transports before provider spawn.
+token, binds explicit host `user.name` / `user.email` values into the isolated commit environment,
+and rejects missing identity or unsupported network push transports before provider spawn.
 
 The capability probe requires an exact native Mach-O/ELF Grok executable, runs it in an isolated
 credential-free environment, binds its full safe ancestor chain through child pre-spawn, and
