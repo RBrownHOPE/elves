@@ -3,6 +3,7 @@
   "run_id": "v2.1.0-delegated-worker-20260712",
   "status": "staging",
   "branch": "codex/delegated-worker-v2-1",
+  "pr_number": 67,
   "start_head": "48e6fc58c763a58d8eb38090bcd94b9aeebfe768",
   "plan_path": "docs/plans/v2.1.0-delegated-worker-stabilization.md",
   "survival_guide_path": "docs/elves/v2.1.0-delegated-worker-survival-guide.md",
@@ -34,8 +35,8 @@
   "worker": {
     "provider": "grok-build",
     "model": "grok-4.5",
-    "session_id": null,
-    "status": "not_started",
+    "session_id": "20e34572-1a71-44ee-b32d-722e74e93cdc",
+    "status": "prepared",
     "worktree": "/Users/john/aigora/dev/elves-delegated-worker-v2-1",
     "transcript_path": ".elves/runtime/implement/full-run.log",
     "report_path": ".elves/runtime/implement/full-run-report.json",
