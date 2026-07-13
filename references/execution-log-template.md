@@ -110,12 +110,12 @@
 - Git remote / push / `gh` auth: [PASS / WARN / FAIL]
 - Validation gate dry run: [PASS / WARN / FAIL]
 - Environment / sleep / notification checks: [PASS / WARN / N/A]
-- Notes: [anything the next call needs to know before launch]
+- Notes: [single-kickoff continues after launch-ready; legacy two-call only if explicit]
 
 **Launch readiness:** [READY / BLOCKED]
 
 **Launch prompt:**
-> [Paste the short launch prompt handed to the user for the next call.]
+> [Legacy two-call only: paste short launch prompt. Single-kickoff continues without a second human message.]
 
 ---
 

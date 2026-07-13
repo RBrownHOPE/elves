@@ -57,7 +57,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
   explicitly opt in, and keep snapshot artifacts under ignored `.elves/api-surface/`.
 - Run preflight and log any warnings or blockers
 - Record any durable-doc paths the run should use (`.ai-docs/*`) if the repo keeps them
-- Prepare a short launch prompt for the next call
+- Single-kickoff: continue into execution once launch-ready (no second human message)
 
 **Non-negotiables:**
 - [Hard rule 1]
@@ -65,7 +65,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - [Hard rule 3]
 
 **Stop condition for this call:**
-- Stop only after the run is launch-ready and you have handed me the launch prompt for the next call
+- Single-kickoff: do not stop after staging; continue. Legacy two-call only if I explicitly chose it
 ```
 
 **Example:**
@@ -98,7 +98,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
   explicitly opt in, and keep snapshot artifacts under ignored `.elves/api-surface/`.
 - Run preflight and log any warnings or blockers
 - Record any durable-doc paths the run should use (`.ai-docs/*`) if the repo keeps them
-- Prepare a short launch prompt for the next call
+- Single-kickoff: continue into execution once launch-ready (no second human message)
 
 **Non-negotiables:**
 - Never modify public /api/* response shapes
@@ -107,7 +107,7 @@ Stage this Elves run. Do not start implementing the batches in this call.
 - You never merge by default. The PR is for me to review, unless I explicitly opt into merge-on-green or ask for the reviewed-PR landing command.
 
 **Stop condition for this call:**
-- Stop only after the run is launch-ready and you have handed me the launch prompt for the next call
+- Single-kickoff: do not stop after staging; continue. Legacy two-call only if I explicitly chose it
 ```
 
 ---

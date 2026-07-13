@@ -1,3 +1,5 @@
+> **Primary path (v2.1+):** trusted Grok full-run uses `full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop` with parked-monitor. **Batch resume** (`prepare|launch|gate|resume-batch`) is the legacy/alternative path.
+
 # Grok Implementer Launch Prompt (optional external implementer)
 
 **This is not the Elves default.** Vanilla Cobbler implements with the host agent (Claude Code or

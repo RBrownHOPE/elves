@@ -218,7 +218,7 @@ plan, the codebase, or good engineering practice.
 - [ ] Preflight run and critical failures cleared
 - [ ] Run mode, return time, and non-negotiables recorded
 - [ ] Stop Gate initialized with `Stop allowed right now: no` unless a real stop condition already applies
-- [ ] Launch prompt prepared for the next call
+- [ ] Single-kickoff continues after staging (legacy two-call only if explicit); launch prompt only for legacy path
 
 ---
 

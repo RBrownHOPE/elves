@@ -763,22 +763,25 @@ Cobbler
         )
 
     def test_config_domain_workflow_validator_reports_stale_openrouter_defaults(self) -> None:
-        original_read_text = self.consistency.read_text
+        # Policy validator lives in consistency_engine; patch its read_text.
+        import consistency_engine  # noqa: PLC0415
+
+        original_read_text = consistency_engine.read_text
         stale_config = json.loads((REPO_ROOT / "config.json.example").read_text())
         stale_config["math"]["provider_policy"] = "openrouter-first"
         stale_config["math"]["required_env"] = ["OPENROUTER_API_KEY"]
         stale_config["math"]["role_models"]["proof_critic"] = "openrouter:<model-id>"
 
         def fake_read_text(path: Path) -> str:
-            if path == self.consistency.REPO_ROOT / "config.json.example":
+            if path == consistency_engine.REPO_ROOT / "config.json.example":
                 return json.dumps(stale_config)
             return original_read_text(path)
 
-        self.consistency.read_text = fake_read_text
+        consistency_engine.read_text = fake_read_text
         try:
-            errors = self.consistency.validate_config_domain_workflow()
+            errors = consistency_engine.validate_config_domain_workflow()
         finally:
-            self.consistency.read_text = original_read_text
+            consistency_engine.read_text = original_read_text
 
         self.assertIn(
             "config.json.example: `math.provider_policy` must not be `openrouter-first`",
