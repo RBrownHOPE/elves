@@ -231,35 +231,52 @@ class VerifyRepoUnitTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, 2)
 
     def test_landing_gate_passes_explicit_session_and_optional_plan(self) -> None:
+        # Use a disposable session/plan pair. Product tips remove .elves-session.json
+        # after Final Completion cleanup; the gate still must be unit-testable.
         proc = subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr="")
-        session = REPO_ROOT / ".elves-session.json"
-        plan = REPO_ROOT / "docs/plans/v2.1.0-delegated-worker-stabilization.md"
-        provenance = [
-            (True, session, "ok"),
-            (True, plan, "ok"),
-            (True, plan, "ok"),
-        ]
-        with (
-            mock.patch.object(
-                self.verify, "_verified_repo_file", side_effect=provenance
-            ),
-            mock.patch.object(
-                self.verify, "_verify_session_identity", return_value=(True, "ok")
-            ),
-            mock.patch.object(self.verify, "_run", return_value=proc) as run,
-        ):
-            ok, message = self.verify.check_landing(
-                REPO_ROOT,
-                session_path=Path(".elves-session.json"),
-                plan_path=Path("docs/plans/v2.1.0-delegated-worker-stabilization.md"),
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "docs/plans/v2.1.0-delegated-worker-stabilization.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# plan\n", encoding="utf-8")
+            session = root / ".elves-session.json"
+            session.write_text(
+                json.dumps(
+                    {
+                        "plan_path": "docs/plans/v2.1.0-delegated-worker-stabilization.md",
+                        "branch": "feat/landing-gate",
+                    }
+                ),
+                encoding="utf-8",
             )
+            provenance = [
+                (True, session, "ok"),
+                (True, plan, "ok"),
+                (True, plan, "ok"),
+            ]
+            with (
+                mock.patch.object(
+                    self.verify, "_verified_repo_file", side_effect=provenance
+                ),
+                mock.patch.object(
+                    self.verify, "_verify_session_identity", return_value=(True, "ok")
+                ),
+                mock.patch.object(self.verify, "_run", return_value=proc) as run,
+            ):
+                ok, message = self.verify.check_landing(
+                    root,
+                    session_path=Path(".elves-session.json"),
+                    plan_path=Path(
+                        "docs/plans/v2.1.0-delegated-worker-stabilization.md"
+                    ),
+                )
 
-        self.assertTrue(ok, message)
-        command = run.call_args.args[0]
-        self.assertIn("--session", command)
-        self.assertIn("--plan", command)
-        self.assertIn("--repo-root", command)
-        self.assertIn("--json", command)
+            self.assertTrue(ok, message)
+            command = run.call_args.args[0]
+            self.assertIn("--session", command)
+            self.assertIn("--plan", command)
+            self.assertIn("--repo-root", command)
+            self.assertIn("--json", command)
 
     def test_final_readiness_executes_landing_gate(self) -> None:
         success = (True, "ok")
