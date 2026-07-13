@@ -20,6 +20,7 @@ Exit non-zero on the first hard failure unless --continue-on-error is set.
 from __future__ import annotations
 
 import argparse
+import ast
 import html
 import json
 import os
@@ -1194,6 +1195,145 @@ def _shared_secret_assignment_name(value: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _python_harmless_assignment_spans(text: str) -> tuple[tuple[int, int], ...]:
+    """Return sensitive-looking Python assignments that embed no secret text.
+
+    The shared free-text secret pattern intentionally treats names such as
+    ``token`` as high-risk. In Python, however, passing an existing sentinel as
+    the ``_token`` argument embeds no credential value, nor does an arithmetic
+    size limit such as a maximum byte count. Parse the source so only real
+    Name/Attribute references and numeric metadata expressions receive that
+    exemption; string, bytes, and unrelated numeric literals remain findings.
+    """
+
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError, TypeError):
+        return ()
+
+    lines = text.splitlines(keepends=True)
+    line_starts: list[int] = []
+    offset = 0
+    for line in lines:
+        line_starts.append(offset)
+        offset += len(line)
+
+    def source_offset(line_number: int, byte_column: int) -> int | None:
+        if line_number < 1 or line_number > len(lines) or byte_column < 0:
+            return None
+        line = lines[line_number - 1]
+        encoded = line.encode("utf-8")
+        if byte_column > len(encoded):
+            return None
+        try:
+            character_column = len(encoded[:byte_column].decode("utf-8"))
+        except UnicodeDecodeError:
+            return None
+        return line_starts[line_number - 1] + character_column
+
+    def pure_symbol_reference(node: ast.AST) -> bool:
+        if isinstance(node, ast.Name):
+            return True
+        return isinstance(node, ast.Attribute) and pure_symbol_reference(node.value)
+
+    def pure_numeric_expression(node: ast.AST) -> bool:
+        if isinstance(node, ast.Constant):
+            return type(node.value) in {int, float, complex}
+        if isinstance(node, ast.UnaryOp) and isinstance(
+            node.op, (ast.UAdd, ast.USub, ast.Invert)
+        ):
+            return pure_numeric_expression(node.operand)
+        if isinstance(node, ast.BinOp) and isinstance(
+            node.op,
+            (
+                ast.Add,
+                ast.Sub,
+                ast.Mult,
+                ast.Div,
+                ast.FloorDiv,
+                ast.Mod,
+                ast.Pow,
+                ast.LShift,
+                ast.RShift,
+                ast.BitOr,
+                ast.BitXor,
+                ast.BitAnd,
+            ),
+        ):
+            return pure_numeric_expression(node.left) and pure_numeric_expression(
+                node.right
+            )
+        return False
+
+    def numeric_metadata_name(name: str) -> bool:
+        components = set(filter(None, re.split(r"[_-]+", name.upper())))
+        return bool(
+            components
+            & {
+                "BYTES",
+                "COUNT",
+                "LENGTH",
+                "LIMIT",
+                "MAX",
+                "MAXIMUM",
+                "MIN",
+                "MINIMUM",
+                "SIZE",
+            }
+        )
+
+    def target_sites(node: ast.AST) -> tuple[tuple[str, int, int], ...]:
+        if isinstance(node, ast.Name):
+            return ((node.id, node.lineno, node.col_offset),)
+        if isinstance(node, ast.Attribute):
+            attr_bytes = len(node.attr.encode("utf-8"))
+            return (
+                (
+                    node.attr,
+                    node.end_lineno,
+                    node.end_col_offset - attr_bytes,
+                ),
+            )
+        if isinstance(node, (ast.Tuple, ast.List)):
+            return tuple(site for item in node.elts for site in target_sites(item))
+        return ()
+
+    spans: list[tuple[int, int]] = []
+
+    def append_spans(
+        sites: tuple[tuple[str, int, int], ...], value: ast.AST
+    ) -> None:
+        end_line = getattr(value, "end_lineno", None)
+        end_column = getattr(value, "end_col_offset", None)
+        if not isinstance(end_line, int) or not isinstance(end_column, int):
+            return
+        end = source_offset(end_line, end_column)
+        if end is None:
+            return
+        for name, line_number, column in sites:
+            if not _secret_assignment_name(name):
+                continue
+            if not pure_symbol_reference(value) and not (
+                numeric_metadata_name(name) and pure_numeric_expression(value)
+            ):
+                continue
+            start = source_offset(line_number, column)
+            if start is not None and start < end:
+                spans.append((start, end))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.keyword) and node.arg is not None:
+            append_spans(((node.arg, node.lineno, node.col_offset),), node.value)
+        elif isinstance(node, ast.Assign):
+            sites = tuple(site for target in node.targets for site in target_sites(target))
+            append_spans(sites, node.value)
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            append_spans(target_sites(node.target), node.value)
+        elif isinstance(node, ast.NamedExpr):
+            append_spans(target_sites(node.target), node.value)
+    return tuple(spans)
+
+
 def _assignment_is_pattern_literal(text: str, match: re.Match[str]) -> bool:
     line_start = text.rfind("\n", 0, match.start()) + 1
     line_end = text.find("\n", match.end())
@@ -1212,6 +1352,53 @@ def _assignment_is_pattern_literal(text: str, match: re.Match[str]) -> bool:
         if not suffix or suffix.startswith(("[", "\\", "(")):
             return True
     return False
+
+
+def _assignment_is_safe_shell_parameter_reference(
+    text: str, match: re.Match[str]
+) -> bool:
+    """Recognize nested shell parameter references with no literal fallback.
+
+    A credential variable name inside a parameter expansion is code, not a
+    credential value. Only empty fallbacks or recursively nested parameter
+    references are accepted; any literal fallback remains a scanner finding.
+    """
+
+    opening = match.start() - 2
+    if opening < 0 or text[opening : match.start()] != "${":
+        return False
+
+    def parse_expansion(start: int) -> int | None:
+        if text[start : start + 2] != "${":
+            return None
+        cursor = start + 2
+        name = re.match(r"[A-Za-z_][A-Za-z0-9_]*", text[cursor:])
+        if name is None:
+            return None
+        cursor += len(name.group(0))
+        if cursor < len(text) and text[cursor] == "}":
+            return cursor + 1
+
+        operator = next(
+            (
+                candidate
+                for candidate in (":-", ":+", ":?", ":=", "-", "+", "?", "=")
+                if text.startswith(candidate, cursor)
+            ),
+            None,
+        )
+        if operator is None:
+            return None
+        cursor += len(operator)
+        while cursor < len(text) and text[cursor] != "}":
+            nested_end = parse_expansion(cursor)
+            if nested_end is None:
+                return None
+            cursor = nested_end
+        return cursor + 1 if cursor < len(text) and text[cursor] == "}" else None
+
+    end = parse_expansion(opening)
+    return end is not None and match.start() < end
 
 
 def check_secret_patterns(repo_root: Path) -> tuple[bool, str]:
@@ -1264,8 +1451,18 @@ def check_secret_patterns(repo_root: Path) -> tuple[bool, str]:
             except OSError:
                 continue
             relative = path.relative_to(repo_root)
+            python_harmless_spans = (
+                _python_harmless_assignment_spans(text)
+                if path.suffix == ".py"
+                else ()
+            )
             for match in _SECRET_ASSIGNMENT.finditer(text):
                 if not _secret_assignment_name(match.group("name")):
+                    continue
+                if any(
+                    start == match.start() < end
+                    for start, end in python_harmless_spans
+                ):
                     continue
                 if _assignment_is_pattern_literal(text, match):
                     continue
@@ -1306,6 +1503,13 @@ def check_secret_patterns(repo_root: Path) -> tuple[bool, str]:
                         if not assignment_name or not _secret_assignment_name(
                             assignment_name
                         ):
+                            continue
+                        if any(
+                            start == match.start() < end
+                            for start, end in python_harmless_spans
+                        ):
+                            continue
+                        if _assignment_is_safe_shell_parameter_reference(text, match):
                             continue
                     if _secret_value_placeholder(pattern_name, value):
                         continue

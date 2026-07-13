@@ -21,6 +21,7 @@ from unittest import mock
 
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+CLI = SCRIPTS / "cobbler_agents.py"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
@@ -496,6 +497,39 @@ class FullRunReportValidationTests(unittest.TestCase):
             with self.subTest(field=field, value=value):
                 event = {**valid, field: value}
                 self.assertTrue(validate_event(event))
+
+    def test_high_risk_checkpoint_event_must_be_staged_unique_and_typed(self) -> None:
+        event = {
+            "timestamp": "2026-07-13T05:14:00Z",
+            "session_id": "session-1",
+            "branch": "feat/x",
+            "head": "a" * 40,
+            "batch": 2,
+            "type": "high_risk_checkpoint",
+            "checkpoint_id": "security-boundary",
+            "summary": "Host review requested",
+        }
+        self.assertEqual(
+            validate_event(
+                event,
+                expected_high_risk_checkpoints=["security-boundary"],
+            ),
+            [],
+        )
+        self.assertTrue(
+            validate_event(event, expected_high_risk_checkpoints=[])
+        )
+        self.assertTrue(
+            validate_event(
+                event,
+                expected_high_risk_checkpoints=["security-boundary"],
+                seen_high_risk_checkpoints=["security-boundary"],
+            )
+        )
+        self.assertTrue(validate_event({**event, "checkpoint_id": "bad id"}))
+        self.assertTrue(
+            validate_event({**event, "type": "heartbeat"})
+        )
 
     def test_report_v1_rejects_malformed_batch_and_commit_records(self) -> None:
         valid = self._complete()
@@ -1890,6 +1924,10 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 "PATH",
                 "XDG_STATE_HOME",
                 "ELVES_FULL_RUN_EVENTS",
+                "GIT_CONFIG_COUNT",
+                "GIT_ASKPASS",
+                "SSH_AUTH_SOCK",
+                "GH_CONFIG_DIR",
             ):
                 with self.subTest(reserved_name=reserved_name):
                     with self.assertRaises(ValidationIssue) as ctx:
@@ -1982,6 +2020,113 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 ctx.exception.code,
                 "full_run_isolation_control_grant_forbidden",
             )
+
+    def test_github_https_push_auth_is_explicit_isolated_and_token_free_in_config(
+        self,
+    ) -> None:
+        state = full_run_module.FullRunState(
+            session_id="github-push-auth",
+            branch="feat/x",
+            start_head="a" * 40,
+            worktree="/tmp/worktree",
+            packet_path="/tmp/packet",
+            origin_url="https://github.com/example/project.git",
+            supervision_token="b" * 48,
+        )
+        with self.assertRaises(ValidationIssue) as ctx:
+            full_run_module._configure_github_push_auth(
+                state,
+                {"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+                grant_github_push=False,
+            )
+        self.assertEqual(ctx.exception.code, "full_run_github_push_auth_required")
+
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": "/nonexistent-isolated-home",
+            "GH_TOKEN": "abc",
+        }
+        full_run_module._configure_github_push_auth(
+            state,
+            env,
+            grant_github_push=False,
+        )
+        self.assertEqual(state.github_push_auth_strategy, "env_gh_token")
+        self.assertEqual(env["GIT_TERMINAL_PROMPT"], "0")
+        self.assertNotIn("abc", env["GIT_CONFIG_VALUE_1"])
+        credential = subprocess.run(
+            ["git", "credential", "fill"],
+            input="protocol=https\nhost=github.com\n\n",
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        fields = dict(
+            line.split("=", 1)
+            for line in credential.stdout.splitlines()
+            if "=" in line
+        )
+        self.assertEqual(fields.get("username"), "x-access-token")
+        self.assertEqual(fields.get("password"), "abc")
+
+    def test_host_gh_push_projection_persists_only_strategy_and_keyed_metadata_input(
+        self,
+    ) -> None:
+        state = full_run_module.FullRunState(
+            session_id="host-github-push-auth",
+            branch="feat/x",
+            start_head="a" * 40,
+            worktree="/tmp/worktree",
+            packet_path="/tmp/packet",
+            origin_url="https://github.com/example/project.git",
+            supervision_token="b" * 48,
+        )
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+        with mock.patch.object(
+            full_run_module,
+            "_read_host_github_token",
+            return_value="abc",
+        ):
+            full_run_module._configure_github_push_auth(
+                state,
+                env,
+                grant_github_push=True,
+            )
+        self.assertEqual(state.github_push_auth_strategy, "host_gh_token")
+        self.assertEqual(state.credential_grant_names, ["GH_TOKEN"])
+        self.assertEqual(env["GH_TOKEN"], "abc")
+        self.assertNotIn("abc", json.dumps(state.to_dict(), sort_keys=True))
+        self.assertNotIn("abc", env["GIT_CONFIG_VALUE_1"])
+
+    def test_isolated_push_auth_rejects_ssh_and_leaves_local_remotes_credential_free(
+        self,
+    ) -> None:
+        state = full_run_module.FullRunState(
+            session_id="push-transport",
+            branch="feat/x",
+            start_head="a" * 40,
+            worktree="/tmp/worktree",
+            packet_path="/tmp/packet",
+            origin_url="git@github.com:example/project.git",
+            supervision_token="b" * 48,
+        )
+        with self.assertRaises(ValidationIssue) as ctx:
+            full_run_module._configure_github_push_auth(
+                state,
+                {},
+                grant_github_push=False,
+            )
+        self.assertEqual(ctx.exception.code, "full_run_git_push_transport_unsupported")
+
+        state.origin_url = "/tmp/local-origin.git"
+        env: dict[str, str] = {}
+        full_run_module._configure_github_push_auth(
+            state,
+            env,
+            grant_github_push=False,
+        )
+        self.assertFalse(any(name.startswith("GIT_") for name in env))
 
     def test_grok_credentials_are_never_implicitly_granted(self) -> None:
         state = full_run_module.FullRunState(
@@ -3345,6 +3490,187 @@ class FullRunLifecycleTests(unittest.TestCase):
         self.assertLessEqual(len(bounded["transcript_tail"]), 100)
         self.assertTrue(all(len(line) <= 1000 for line in bounded["transcript_tail"]))
 
+    def test_planned_high_risk_checkpoint_wakes_once_then_explicit_ack_reparks(self) -> None:
+        self.packet.write_text(
+            "# packet\n\n- High-risk checkpoint: security-boundary\n",
+            encoding="utf-8",
+        )
+        worker = Path(self.tmp.name) / "checkpoint_worker.py"
+        worker.write_text(
+            "import json, os, time\n"
+            "from datetime import datetime, timezone\n"
+            "from pathlib import Path\n"
+            "event = {\n"
+            "  'timestamp': datetime.now(timezone.utc).replace(microsecond=0).isoformat(),\n"
+            "  'session_id': os.environ['ELVES_FULL_RUN_SESSION'],\n"
+            "  'branch': os.environ['ELVES_FULL_RUN_BRANCH'],\n"
+            "  'head': os.environ['ELVES_FULL_RUN_START_HEAD'],\n"
+            "  'batch': 1,\n"
+            "  'type': 'high_risk_checkpoint',\n"
+            "  'checkpoint_id': 'security-boundary',\n"
+            "  'summary': 'Host review requested',\n"
+            "}\n"
+            "with Path(os.environ['ELVES_FULL_RUN_EVENTS']).open('a') as handle:\n"
+            "  handle.write(json.dumps(event, separators=(',', ':')) + '\\n')\n"
+            "time.sleep(30)\n",
+            encoding="utf-8",
+        )
+        prepare = prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=worker,
+        )
+        self.assertEqual(
+            prepare["state"]["planned_high_risk_checkpoints"],
+            ["security-boundary"],
+        )
+        launch_full_run(self.repo, session_id=self.session)
+        events_path = full_run_root(self.repo, self.session) / "events.jsonl"
+        deadline = time.time() + 5
+        while "security-boundary" not in events_path.read_text(encoding="utf-8"):
+            self.assertLess(time.time(), deadline, "checkpoint event was not emitted")
+            time.sleep(0.02)
+
+        wake = monitor_full_run(self.repo, session_id=self.session)
+        self.assertEqual(wake["state"], "healthy", wake)
+        self.assertEqual(
+            wake["next_action"], "driver_wake_high_risk_checkpoint"
+        )
+        self.assertEqual(wake["pending_high_risk_checkpoint"], "security-boundary")
+        self.assertTrue(wake["chat_update_recommended"])
+        self.assertFalse(wake["unchanged_healthy_poll_silent"])
+
+        repeated = monitor_full_run(self.repo, session_id=self.session)
+        self.assertEqual(
+            repeated["next_action"], "driver_wake_high_risk_checkpoint"
+        )
+        self.assertFalse(repeated["chat_update_recommended"])
+        self.assertFalse(repeated["unchanged_healthy_poll_silent"])
+
+        acknowledged = monitor_full_run(
+            self.repo,
+            session_id=self.session,
+            acknowledge_high_risk_checkpoint="security-boundary",
+        )
+        self.assertEqual(acknowledged["next_action"], "parked_monitor")
+        self.assertIsNone(acknowledged["pending_high_risk_checkpoint"])
+        self.assertEqual(
+            acknowledged["acknowledged_high_risk_checkpoints"],
+            ["security-boundary"],
+        )
+        with self.assertRaises(ValidationIssue) as ctx:
+            monitor_full_run(
+                self.repo,
+                session_id=self.session,
+                acknowledge_high_risk_checkpoint="security-boundary",
+            )
+        self.assertEqual(ctx.exception.code, "full_run_checkpoint_ack_invalid")
+
+    def test_checkpoint_emitted_before_clean_exit_still_gates_final_readiness(self) -> None:
+        self.packet.write_text(
+            "# packet\n\n- High-risk checkpoint: security-boundary\n",
+            encoding="utf-8",
+        )
+        worker = Path(self.tmp.name) / "checkpoint_complete_worker.py"
+        worker.write_text(
+            FAKE_WORKER.replace(
+                'emit("run_started", 0, "fake worker started")',
+                'emit("run_started", 0, "fake worker started")\n'
+                'emit("high_risk_checkpoint", 0, "host review requested", '
+                'checkpoint_id="security-boundary")',
+            ),
+            encoding="utf-8",
+        )
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=worker,
+        )
+        launch_full_run(self.repo, session_id=self.session)
+
+        deadline = time.time() + 10
+        status = monitor_full_run(self.repo, session_id=self.session)
+        while (
+            status.get("state") not in {"complete", "failed"}
+            and time.time() < deadline
+        ):
+            time.sleep(0.05)
+            status = monitor_full_run(self.repo, session_id=self.session)
+
+        self.assertEqual(status["state"], "complete", status)
+        self.assertEqual(
+            status["next_action"], "driver_wake_high_risk_checkpoint"
+        )
+        self.assertEqual(status["pending_high_risk_checkpoint"], "security-boundary")
+        acknowledged = monitor_full_run(
+            self.repo,
+            session_id=self.session,
+            acknowledge_high_risk_checkpoint="security-boundary",
+        )
+        self.assertEqual(acknowledged["state"], "complete", acknowledged)
+        self.assertEqual(acknowledged["next_action"], "final_readiness")
+        self.assertIsNone(acknowledged["pending_high_risk_checkpoint"])
+
+    def test_clean_completion_fails_when_planned_checkpoint_event_is_omitted(self) -> None:
+        self.packet.write_text(
+            "# packet\n\n- High-risk checkpoint: security-boundary\n",
+            encoding="utf-8",
+        )
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=self.worker,
+        )
+        launch_full_run(self.repo, session_id=self.session)
+
+        deadline = time.time() + 10
+        status = monitor_full_run(self.repo, session_id=self.session)
+        while status.get("state") not in {"failed", "blocked"} and time.time() < deadline:
+            time.sleep(0.05)
+            status = monitor_full_run(self.repo, session_id=self.session)
+
+        self.assertEqual(status["state"], "failed", status)
+        self.assertEqual(status["next_action"], "driver_wake_error")
+        self.assertIn("omitted", status["blocker"])
+
+    def test_checkpoint_contract_is_bound_into_private_packet_digest(self) -> None:
+        self.packet.write_text(
+            "# packet\n\n- High-risk checkpoint: data-migration\n",
+            encoding="utf-8",
+        )
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=self.worker,
+        )
+        state = load_state(self.repo, self.session)
+        self.assertEqual(state.planned_high_risk_checkpoints, ["data-migration"])
+        state.planned_high_risk_checkpoints = []
+        full_run_module.save_state(self.repo, state)
+        with self.assertRaises(ValidationIssue) as ctx:
+            launch_full_run(self.repo, session_id=self.session)
+        self.assertEqual(ctx.exception.code, "full_run_packet_binding_changed")
+
     def test_monitor_wakes_on_pathological_event_and_report_json(self) -> None:
         prepare_full_run(
             self.repo,
@@ -3508,16 +3834,15 @@ class FullRunLifecycleTests(unittest.TestCase):
                     {"CUSTOM_OPAQUE_TOKEN": secret},
                     clear=False,
                 ):
-                    unavailable = logs_full_run(
-                        self.repo,
-                        session_id=self.session,
-                        raw_tail=True,
-                        tail_lines=10,
-                    )
-                unavailable_serialized = json.dumps(unavailable, sort_keys=True)
-                self.assertFalse(unavailable["transcript_included"])
-                self.assertIn("cannot be verified", unavailable_serialized)
-                self.assertNotIn(secret, unavailable_serialized)
+                    with self.assertRaises(ValidationIssue) as ctx:
+                        logs_full_run(
+                            self.repo,
+                            session_id=self.session,
+                            raw_tail=True,
+                            tail_lines=10,
+                        )
+                self.assertEqual(ctx.exception.code, "full_run_state_malformed")
+                self.assertNotIn(secret, ctx.exception.message)
                 setattr(corrupt, field_name, original_value)
                 full_run_module.save_state(self.repo, corrupt)
 
@@ -3561,6 +3886,57 @@ class FullRunLifecycleTests(unittest.TestCase):
         sanitized_report = (run_root / "report.json").read_text(encoding="utf-8")
         self.assertNotIn(secret, sanitized_report)
         self.assertIn("REDACTED:credential_grant_key", sanitized_report)
+
+    def test_malformed_state_fails_every_public_cli_without_traceback_or_value_leak(self) -> None:
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=self.worker,
+        )
+        state_path = full_run_root(self.repo, self.session) / "state.json"
+        record = json.loads(state_path.read_text(encoding="utf-8"))
+        sentinel = "opaque-corrupt-state-secret-123456789"
+        record["worktree"] = [sentinel]
+        state_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+        for action in (
+            "full-run-launch",
+            "full-run-monitor",
+            "full-run-logs",
+            "full-run-stop",
+        ):
+            with self.subTest(action=action):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(CLI),
+                        "implement",
+                        action,
+                        "--repo-root",
+                        str(self.repo),
+                        "--session-id",
+                        self.session,
+                        "--json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 1, result.stderr)
+                response = json.loads(result.stdout)
+                self.assertFalse(response["ok"])
+                self.assertEqual(
+                    response["issues"][0]["code"],
+                    "full_run_state_malformed",
+                )
+                surfaced = result.stdout + result.stderr
+                self.assertNotIn(sentinel, surfaced)
+                self.assertNotIn("Traceback", surfaced)
 
     def test_raw_transcript_redacts_json_credentials_and_multiline_pem(self) -> None:
         prepare_full_run(
@@ -4156,6 +4532,91 @@ class FullRunLifecycleTests(unittest.TestCase):
         with self.assertRaises(ValidationIssue) as ctx:
             reconcile_full_run_with_git(self.repo, session_id=self.session)
         self.assertEqual(ctx.exception.code, "full_run_remote_feature_mismatch")
+
+    def test_reconcile_requires_every_planned_checkpoint_event_and_host_ack(self) -> None:
+        remote = Path(self.tmp.name) / "checkpoint-origin.git"
+        _attach_origin(self.repo, remote, self.branch)
+        _write_production_packet(self.packet, "B1-A1")
+        with self.packet.open("a", encoding="utf-8") as handle:
+            handle.write("\n- High-risk checkpoint: security-boundary\n")
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="grok-build",
+            executable="grok",
+        )
+        (self.repo / "f.txt").write_text("checkpoint evidence\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.repo), "add", "f.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.repo), "commit", "-q", "-m", "checkpoint evidence"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.repo), "push", "-q", "origin", self.branch],
+            check=True,
+        )
+        tip = subprocess.run(
+            ["git", "-C", str(self.repo), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        baseline = json.loads(
+            (full_run_root(self.repo, self.session) / "report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        write_report(
+            self.repo,
+            self.session,
+            {
+                **baseline,
+                "final_head": tip,
+                "status": "complete",
+                "batches": [{"id": "batch-1", "status": "complete", "evidence": tip}],
+                "acceptance": [
+                    {
+                        "id": "B1-A1",
+                        "criterion": "criterion for B1-A1",
+                        "met": True,
+                        "evidence": tip,
+                    }
+                ],
+                "commits": [tip],
+            },
+        )
+
+        with self.assertRaises(ValidationIssue) as missing:
+            reconcile_full_run_with_git(self.repo, session_id=self.session)
+        self.assertEqual(missing.exception.code, "full_run_checkpoint_incomplete")
+
+        full_run_module._append_event(
+            full_run_root(self.repo, self.session) / "events.jsonl",
+            {
+                "timestamp": full_run_module._utc_now(),
+                "session_id": self.session,
+                "branch": self.branch,
+                "head": tip,
+                "batch": 1,
+                "type": "high_risk_checkpoint",
+                "checkpoint_id": "security-boundary",
+                "summary": "host review requested",
+            },
+            expected_session_id=self.session,
+            expected_branch=self.branch,
+            expected_high_risk_checkpoints=["security-boundary"],
+            repo_root=self.repo,
+        )
+        with self.assertRaises(ValidationIssue) as unacknowledged:
+            reconcile_full_run_with_git(self.repo, session_id=self.session)
+        self.assertEqual(
+            unacknowledged.exception.code,
+            "full_run_checkpoint_incomplete",
+        )
 
     def test_reconcile_binds_commit_chain_events_and_staged_acceptance_ids(self) -> None:
         remote = Path(self.tmp.name) / "evidence-origin.git"

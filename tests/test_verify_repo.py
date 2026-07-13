@@ -946,6 +946,78 @@ class VerifyRepoUnitTests(unittest.TestCase):
             ok, message = self.verify.check_secret_patterns(root)
             self.assertTrue(ok, message)
 
+    def test_secret_scan_distinguishes_python_capability_references_from_literals(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            candidate = scripts / "capability.py"
+            candidate.write_text(
+                "_AUDIT_EVIDENCE_TOKEN = object()\n"
+                "def seal(payload):\n"
+                "    return Evidence(payload, _token=_AUDIT_EVIDENCE_TOKEN)\n"
+                "auth = native.auth\n"
+                "MAX_GITHUB_TOKEN_BYTES = 64 * 1024\n",
+                encoding="utf-8",
+            )
+
+            ok, message = self.verify.check_secret_patterns(root)
+
+            self.assertTrue(ok, message)
+
+            candidate.write_text(
+                "def seal(payload):\n"
+                '    return Evidence(payload, _token="real-secret-value")\n',
+                encoding="utf-8",
+            )
+
+            ok, message = self.verify.check_secret_patterns(root)
+
+            self.assertFalse(ok)
+            self.assertIn("capability.py:2", message)
+
+            candidate.write_text(
+                "TOKEN = 1234567890123456\n",
+                encoding="utf-8",
+            )
+
+            ok, message = self.verify.check_secret_patterns(root)
+
+            self.assertFalse(ok)
+            self.assertIn("capability.py:1", message)
+
+            candidate.write_text(
+                'helper = "${GH_TOKEN:-${GITHUB_TOKEN:-}}"\n',
+                encoding="utf-8",
+            )
+
+            ok, message = self.verify.check_secret_patterns(root)
+
+            self.assertTrue(ok, message)
+
+            candidate.write_text(
+                'helper = "${API_KEY:-real-secret-value}"\n',
+                encoding="utf-8",
+            )
+
+            ok, message = self.verify.check_secret_patterns(root)
+
+            self.assertFalse(ok)
+            self.assertIn("capability.py:1", message)
+
+            candidate.write_text(
+                "token = (\n"
+                "    # API_KEY=real-secret-value\n"
+                "    SENTINEL\n"
+                ")\n",
+                encoding="utf-8",
+            )
+
+            ok, message = self.verify.check_secret_patterns(root)
+
+            self.assertFalse(ok)
+            self.assertIn("capability.py:2", message)
+
     def test_markdown_links_require_tracked_targets_and_real_anchors(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

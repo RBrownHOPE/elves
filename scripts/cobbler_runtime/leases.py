@@ -356,6 +356,77 @@ class WriterLease:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> WriterLease:
+        if not isinstance(data, Mapping):
+            raise TypeError("lease record must be a mapping")
+        required_strings = (
+            "lease_id",
+            "host_checkout",
+            "worker_checkout",
+            "session_id",
+            "base_head",
+            "adapter",
+            "profile",
+        )
+        for field_name in required_strings:
+            value = data.get(field_name)
+            if not isinstance(value, str) or not value:
+                raise TypeError(f"{field_name} must be a non-empty string")
+        optional_strings = (
+            "sandbox_profile",
+            "qualification_digest",
+            "audit_evidence_digest",
+            "apply_check_evidence_digest",
+            "credential_grant_context_digest",
+            "state",
+            "created_at",
+            "updated_at",
+            "pre_status",
+            "pre_refs_digest",
+            "notes",
+            "rejection_reason",
+            "worker_tip",
+            "integrated_tip",
+            "exported_patch_dir",
+        )
+        for field_name in optional_strings:
+            value = data.get(field_name)
+            if value is not None and not isinstance(value, str):
+                raise TypeError(f"{field_name} must be a string or null")
+        sandbox_profile = data.get("sandbox_profile", "devbox")
+        if not isinstance(sandbox_profile, str) or not sandbox_profile:
+            raise TypeError("sandbox_profile must be a non-empty string")
+        list_fields = (
+            "credential_grant_names",
+            "allowed_paths",
+            "forbidden_path_prefixes",
+            "permitted_git_actions",
+            "forbidden_git_actions",
+        )
+        for field_name in list_fields:
+            value = data.get(field_name)
+            if field_name in data and (
+                not isinstance(value, list)
+                or not all(isinstance(item, str) for item in value)
+            ):
+                raise TypeError(f"{field_name} must be a string list")
+        for field_name in (
+            "detached_commits_permitted",
+            "require_detached",
+            "workspace_sandbox_commit_capable",
+        ):
+            value = data.get(field_name)
+            if field_name in data and not isinstance(value, bool):
+                raise TypeError(f"{field_name} must be a boolean")
+        revision_raw = data.get("revision", 0)
+        if (
+            not isinstance(revision_raw, int)
+            or isinstance(revision_raw, bool)
+            or revision_raw < 0
+        ):
+            raise TypeError("revision must be a non-negative integer")
+        state_raw = data.get("state", LeaseState.PREPARED.value)
+        if not isinstance(state_raw, str) or not state_raw:
+            raise TypeError("state must be a non-empty string")
         return cls(
             lease_id=str(data["lease_id"]),
             host_checkout=str(data["host_checkout"]),
@@ -364,28 +435,28 @@ class WriterLease:
             base_head=str(data["base_head"]),
             adapter=str(data["adapter"]),
             profile=str(data["profile"]),
-            revision=int(data.get("revision") or 0),
-            sandbox_profile=str(data.get("sandbox_profile") or "devbox"),
+            revision=revision_raw,
+            sandbox_profile=sandbox_profile,
             qualification_digest=data.get("qualification_digest"),
             audit_evidence_digest=data.get("audit_evidence_digest"),
             apply_check_evidence_digest=data.get("apply_check_evidence_digest"),
-            credential_grant_names=list(data.get("credential_grant_names") or []),
+            credential_grant_names=list(data.get("credential_grant_names", [])),
             credential_grant_context_digest=data.get(
                 "credential_grant_context_digest"
             ),
-            allowed_paths=list(data.get("allowed_paths") or []),
+            allowed_paths=list(data.get("allowed_paths", [])),
             forbidden_path_prefixes=list(
-                data.get("forbidden_path_prefixes") or DEFAULT_FORBIDDEN_PATH_PREFIXES
+                data.get("forbidden_path_prefixes", DEFAULT_FORBIDDEN_PATH_PREFIXES)
             ),
             permitted_git_actions=list(
-                data.get("permitted_git_actions") or DEFAULT_PERMITTED_GIT_ACTIONS
+                data.get("permitted_git_actions", DEFAULT_PERMITTED_GIT_ACTIONS)
             ),
             forbidden_git_actions=list(
-                data.get("forbidden_git_actions") or DEFAULT_FORBIDDEN_GIT_ACTIONS
+                data.get("forbidden_git_actions", DEFAULT_FORBIDDEN_GIT_ACTIONS)
             ),
             detached_commits_permitted=bool(data.get("detached_commits_permitted", True)),
             require_detached=bool(data.get("require_detached", True)),
-            state=LeaseState(str(data.get("state") or LeaseState.PREPARED.value)),
+            state=LeaseState(state_raw),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
             pre_status=data.get("pre_status"),
@@ -399,6 +470,23 @@ class WriterLease:
                 data.get("workspace_sandbox_commit_capable", False)
             ),
         )
+
+
+_LEASE_PARSE_ERRORS = (
+    AttributeError,
+    KeyError,
+    OverflowError,
+    RecursionError,
+    TypeError,
+    ValueError,
+)
+
+
+def _lease_error_category(exc: BaseException) -> str:
+    """Return a stable diagnostic category without record-controlled text."""
+    if isinstance(exc, StorageError):
+        return f"storage:{exc.code}"
+    return f"schema:{type(exc).__name__}"
 
 
 def build_write_task_packet(lease: WriterLease, *, task: str, contract: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -726,19 +814,20 @@ class LeaseStore:
                     continue
                 raise ValidationIssue(
                     "lease_storage_unsafe",
-                    f"Unsafe lease store path: {exc.message}",
-                    path=str(path),
+                    f"Unsafe lease store path ({exc.code})",
+                    path=str(self.root),
                 ) from exc
         return None
 
     def list_leases(self) -> list[WriterLease]:
         leases: list[WriterLease] = []
+        seen_ids: set[str] = set()
         self.malformed_records = []
         try:
             paths = list_repo_store_files(self.repo_root, self.root, suffix=".json")
         except StorageError as exc:
             self.malformed_records.append(
-                {"path": str(self.root), "error": f"{type(exc).__name__}: {exc}"}
+                {"path": str(self.root), "error": _lease_error_category(exc)}
             )
             return leases
         for path in paths:
@@ -748,22 +837,47 @@ class LeaseStore:
                 data = read_json(path, repo_root=self.repo_root)
                 lease = WriterLease.from_dict(data)
                 assert_embedded_id(data, lease.lease_id, id_field="lease_id")
+                expected_names = {
+                    record_filename(lease.lease_id, prefix="lease"),
+                    self._legacy_path(lease.lease_id).name,
+                }
+                if path.name not in expected_names:
+                    raise StorageError(
+                        "record_filename_mismatch",
+                        "Lease record filename does not match its embedded identity",
+                    )
+                if lease.lease_id in seen_ids:
+                    raise StorageError(
+                        "duplicate_record_id",
+                        "Duplicate lease record identity",
+                    )
+                seen_ids.add(lease.lease_id)
                 leases.append(lease)
-            except (OSError, KeyError, ValueError, TypeError, StorageError) as exc:
+            except (
+                OSError,
+                AttributeError,
+                KeyError,
+                OverflowError,
+                RecursionError,
+                TypeError,
+                ValueError,
+                StorageError,
+            ) as exc:
                 self.malformed_records.append(
-                    {"path": str(path), "error": f"{type(exc).__name__}: {exc}"}
+                    {"path": str(self.root), "error": _lease_error_category(exc)}
                 )
         return leases
 
     def list_leases_strict(self) -> list[WriterLease]:
         leases = self.list_leases()
         if self.malformed_records:
-            detail = "; ".join(
-                f"{item['path']}: {item['error']}" for item in self.malformed_records
+            categories = ", ".join(
+                sorted({item["error"] for item in self.malformed_records})
             )
             raise ValidationIssue(
                 "lease_record_malformed",
-                f"Malformed lease records block operations: {detail}",
+                "Malformed lease records block operations "
+                f"({len(self.malformed_records)} record(s); categories: {categories})",
                 path=str(self.root),
             )
         return leases
@@ -774,23 +888,44 @@ class LeaseStore:
     def get(self, lease_id: str) -> WriterLease:
         path = self._path(lease_id)
         legacy = self._legacy_path(lease_id)
-        loaded = self._read_candidate(path, legacy)
+        canonical_loaded = self._read_candidate(path)
+        legacy_loaded = self._read_candidate(legacy)
+        if canonical_loaded is not None and legacy_loaded is not None:
+            raise ValidationIssue(
+                "lease_record_ambiguous",
+                "Multiple lease records claim the same exact identity",
+                path=str(self.root),
+            )
+        loaded = canonical_loaded or legacy_loaded
         if loaded is None:
             raise ValidationIssue(
                 "lease_not_found",
-                f"No lease record for `{lease_id}`",
-                path=str(path),
+                "No lease record for the requested exact id",
+                path=str(self.root),
             )
         chosen, data = loaded
+        if legacy_loaded is not None:
+            raise ValidationIssue(
+                "lease_legacy_read_only",
+                "Legacy lease records are inventory-only until explicitly migrated",
+                path=str(self.root),
+            )
         try:
             assert_embedded_id(data, lease_id, id_field="lease_id")
         except StorageError as exc:
             raise ValidationIssue(
                 "lease_embedded_id_mismatch",
-                exc.message,
-                path=str(chosen),
+                "Lease record embedded id does not match the requested exact identity",
+                path=str(self.root),
             ) from exc
-        return WriterLease.from_dict(data)
+        try:
+            return WriterLease.from_dict(data)
+        except _LEASE_PARSE_ERRORS as exc:
+            raise ValidationIssue(
+                "lease_record_malformed",
+                f"Lease record is malformed ({_lease_error_category(exc)})",
+                path=str(self.root),
+            ) from exc
 
     def save(self, lease: WriterLease, *, expected_revision: int | None = None) -> WriterLease:
         if not self._create:
@@ -801,26 +936,35 @@ class LeaseStore:
             )
         self.root = ensure_leases_dir(self.repo_root)
         with directory_lock(self.root, repo_root=self.repo_root):
-            path = self._path(lease.lease_id)
+            # Authority-store corruption or aliases block every transition.
+            self.list_leases_strict()
             try:
-                current = read_json(path, repo_root=self.repo_root)
-            except StorageError as exc:
-                if exc.code == "not_found":
-                    current = None
-                else:
-                    raise ValidationIssue(
-                        "lease_storage_unsafe",
-                        f"Unsafe lease record path: {exc.message}",
-                        path=str(path),
-                    ) from exc
+                WriterLease.from_dict(lease.to_dict())
+            except _LEASE_PARSE_ERRORS as exc:
+                raise ValidationIssue(
+                    "lease_record_malformed",
+                    f"Lease record cannot be saved ({_lease_error_category(exc)})",
+                    path=str(self.root),
+                ) from exc
+            path = self._path(lease.lease_id)
+            legacy = self._legacy_path(lease.lease_id)
+            canonical_loaded = self._read_candidate(path)
+            legacy_loaded = self._read_candidate(legacy)
+            if legacy_loaded is not None:
+                raise ValidationIssue(
+                    "lease_legacy_read_only",
+                    "Legacy lease records are read-only until explicitly migrated",
+                    path=str(self.root),
+                )
+            current = canonical_loaded[1] if canonical_loaded is not None else None
             if current is not None:
                 try:
                     current_rev = int(current.get("revision") or 0)
                 except (TypeError, ValueError) as exc:
                     raise ValidationIssue(
                         "lease_record_malformed",
-                        f"Cannot CAS-save over unreadable lease: {exc}",
-                        path=str(path),
+                        "Cannot CAS-save over a malformed lease record",
+                        path=str(self.root),
                     ) from exc
                 if expected_revision is not None and current_rev != int(expected_revision):
                     raise ValidationIssue(

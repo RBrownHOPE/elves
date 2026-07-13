@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -494,6 +495,22 @@ class SessionListCliTests(unittest.TestCase):
         )
 
     @staticmethod
+    def _invoke_action(
+        root: Path,
+        action: str,
+        *,
+        session_id: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        argv = [sys.executable, str(CLI)]
+        if action == "doctor":
+            argv.extend(["doctor", "--repo-root", str(root), "--json"])
+        else:
+            argv.extend(["session", action, "--repo-root", str(root), "--json"])
+            if session_id is not None:
+                argv.extend(["--session-id", session_id])
+        return subprocess.run(argv, capture_output=True, text=True, check=False)
+
+    @staticmethod
     def _regular_files(root: Path) -> dict[str, bytes]:
         return {
             path.relative_to(root).as_posix(): path.read_bytes()
@@ -561,6 +578,199 @@ class SessionListCliTests(unittest.TestCase):
                 )
                 self.assertEqual(self._regular_files(root), before)
 
+    def test_malformed_values_never_leak_from_list_probe_or_doctor(self) -> None:
+        mutations = {
+            "lifecycle": "super-secret-value-123456789",
+            "usage": "opaque-legacy-credential-987654321",
+        }
+        for field_name, sentinel in mutations.items():
+            with self.subTest(field_name=field_name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_id = f"malformed-{field_name}"
+                registry = SessionRegistry(root)
+                registry.create(
+                    session_id=session_id,
+                    harness="claude-code",
+                    profile="claude-code",
+                    role="review",
+                )
+                record_path = registry._record_path(session_id)
+                payload = json.loads(record_path.read_text(encoding="utf-8"))
+                payload[field_name] = sentinel
+                record_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+                before = self._regular_files(root)
+
+                for action in ("list", "probe", "doctor"):
+                    with self.subTest(action=action):
+                        result = self._invoke_action(
+                            root,
+                            action,
+                            session_id=session_id if action == "probe" else None,
+                        )
+                        self.assertEqual(result.returncode, 1, result.stderr)
+                        response = json.loads(result.stdout)
+                        self.assertFalse(response["ok"])
+                        surfaced = result.stdout + result.stderr
+                        self.assertNotIn(sentinel, surfaced)
+                        self.assertNotIn("Traceback", surfaced)
+                        self.assertIn(
+                            response["issues"][0]["code"],
+                            {"session_record_malformed"},
+                        )
+                self.assertEqual(self._regular_files(root), before)
+
+    def test_listing_binds_filenames_and_rejects_duplicate_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_id = "bound-session-record"
+            registry = SessionRegistry(root)
+            registry.create(
+                session_id=session_id,
+                harness="codex",
+                profile="codex",
+                role="review",
+            )
+            canonical = registry._record_path(session_id)
+            misnamed = registry.root / "attacker.json"
+            canonical.rename(misnamed)
+            with self.assertRaises(ValidationIssue) as ctx:
+                registry.list_sessions_strict()
+            self.assertEqual(ctx.exception.code, "session_record_malformed")
+            misnamed.rename(canonical)
+
+            legacy = registry._legacy_record_path(session_id)
+            legacy.write_bytes(canonical.read_bytes())
+            with self.assertRaises(ValidationIssue) as ctx:
+                registry.list_sessions_strict()
+            self.assertEqual(ctx.exception.code, "session_record_malformed")
+            with self.assertRaises(ValidationIssue) as ctx:
+                registry.get(session_id)
+            self.assertEqual(ctx.exception.code, "session_record_ambiguous")
+
+    def test_empty_enums_and_boolean_revision_are_not_defaulted(self) -> None:
+        for field_name, bad_value in (
+            ("creation_method", ""),
+            ("lifecycle", ""),
+            ("revision", False),
+        ):
+            with self.subTest(field_name=field_name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_id = f"strict-{field_name}"
+                registry = SessionRegistry(root)
+                registry.create(
+                    session_id=session_id,
+                    harness="codex",
+                    profile="codex",
+                    role="review",
+                )
+                path = registry._record_path(session_id)
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                payload[field_name] = bad_value
+                path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+                with self.assertRaises(ValidationIssue) as ctx:
+                    registry.list_sessions_strict()
+                self.assertEqual(ctx.exception.code, "session_record_malformed")
+
+    def test_malformed_nested_usage_is_rejected_without_leak_or_mutation(self) -> None:
+        cases = (
+            {"input_tokens": []},
+            {
+                "quota_known": "false",
+                "remaining_quota": "opaque-usage-sentinel-123456789",
+            },
+            {"cost_usd": float("inf")},
+            {"quota_known": True, "remaining_quota": None},
+        )
+        for index, malformed_usage in enumerate(cases):
+            with self.subTest(index=index), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                session_id = f"strict-usage-{index}"
+                registry = SessionRegistry(root)
+                registry.create(
+                    session_id=session_id,
+                    harness="codex",
+                    profile="codex",
+                    role="review",
+                )
+                path = registry._record_path(session_id)
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                payload["usage"] = malformed_usage
+                path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+                before = self._regular_files(root)
+
+                for action in ("list", "probe", "doctor"):
+                    result = self._invoke_action(
+                        root,
+                        action,
+                        session_id=session_id if action == "probe" else None,
+                    )
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    response = json.loads(result.stdout)
+                    self.assertFalse(response["ok"])
+                    self.assertEqual(
+                        response["issues"][0]["code"],
+                        "session_record_malformed",
+                    )
+                    self.assertNotIn("opaque-usage-sentinel", result.stdout)
+                    self.assertNotIn("Traceback", result.stdout + result.stderr)
+                self.assertEqual(self._regular_files(root), before)
+
+    def test_legacy_session_is_readable_but_cannot_gain_write_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_id = "legacy-read-only-session"
+            registry = SessionRegistry(root)
+            registry.create(
+                session_id=session_id,
+                harness="claude-code",
+                profile="claude-code",
+                role="review",
+            )
+            canonical = registry._record_path(session_id)
+            legacy = registry._legacy_record_path(session_id)
+            canonical.rename(legacy)
+            before = self._regular_files(root)
+
+            with mock.patch.object(
+                registry,
+                "_load_exact_record",
+                wraps=registry._load_exact_record,
+            ) as load_exact:
+                record, storage_kind = registry.get_with_storage_kind(session_id)
+            self.assertEqual(record.session_id, session_id)
+            self.assertEqual(storage_kind, "legacy")
+            load_exact.assert_called_once_with(session_id)
+            with self.assertRaises(ValidationIssue) as ctx:
+                registry.activate(session_id)
+            self.assertEqual(ctx.exception.code, "session_legacy_read_only")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CLI),
+                    "session",
+                    "resume",
+                    "--repo-root",
+                    str(root),
+                    "--session-id",
+                    session_id,
+                    "--require-write",
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            response = json.loads(result.stdout)
+            self.assertEqual(
+                response["issues"][0]["code"],
+                "session_legacy_read_only",
+            )
+            self.assertEqual(self._regular_files(root), before)
+            self.assertFalse(canonical.exists())
+            self.assertTrue(legacy.is_file())
+
     def test_unsafe_store_returns_structured_exit_one_without_following_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -607,6 +817,16 @@ class UsageLedgerTests(unittest.TestCase):
         usage2 = parse_usage_payload({"total_tokens": 1000, "remaining_quota": 0})
         self.assertFalse(usage2.quota_known)
         self.assertEqual(usage2.remaining_quota, "unknown")
+        usage3 = parse_usage_payload(
+            {
+                "input_tokens": [],
+                "remaining_quota": 0,
+                "quota_known": "false",
+            }
+        )
+        self.assertIsNone(usage3.input_tokens)
+        self.assertFalse(usage3.quota_known)
+        self.assertEqual(usage3.remaining_quota, "unknown")
 
 
 class GrokLineageTests(unittest.TestCase):

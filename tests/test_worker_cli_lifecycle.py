@@ -23,7 +23,9 @@ from cobbler_runtime.leases import (  # noqa: E402
     host_qualification_evidence,
     LeaseState,
     LeaseStore,
+    WriterLease,
 )
+from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.sessions import SessionRecord, SessionRegistry  # noqa: E402
 
 
@@ -580,6 +582,45 @@ class WorkerCliLifecycleTests(unittest.TestCase):
             self.assertIn("[REDACTED:xai_token]", surfaced)
             self.assertEqual(LeaseStore(host).get(lease_id).state, LeaseState.REJECTED)
 
+    def test_audit_text_output_omits_free_form_secret_bearing_reasons(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host, worker, head, qualification_path = self._checkout(root)
+            lease_id = "lease-redacted-text-metadata"
+            self._prepare(host, worker, head, qualification_path, lease_id=lease_id)
+
+            sentinel = "xai-SYNTHETICTEXT1234567890"
+            (worker / "src" / "app.py").write_text("value = 2\n", encoding="utf-8")
+            _git(worker, "add", "--", "src/app.py")
+            _git(
+                worker,
+                "commit",
+                "-m",
+                f"[worker · Implement] token {sentinel}",
+                "--",
+                "src/app.py",
+            )
+
+            result = _run(
+                host,
+                sys.executable,
+                str(CLI),
+                "worker",
+                "audit",
+                "--repo-root",
+                str(host),
+                "--lease-id",
+                lease_id,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            surfaced = result.stdout + result.stderr
+            self.assertNotIn(sentinel, surfaced)
+            self.assertIn("audit finding(s)", surfaced)
+            self.assertIn("use --json for redacted details", surfaced)
+            self.assertEqual(LeaseStore(host).get(lease_id).state, LeaseState.REJECTED)
+
     def test_audit_rejects_opaque_exact_secret_metadata_without_any_json_leak(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1035,7 +1076,130 @@ class WorkerCliLifecycleTests(unittest.TestCase):
                 sort_keys=True,
             )
             self.assertNotIn(sentinel, surfaced)
-            self.assertIn("[REDACTED:xai_token]", surfaced)
+            self.assertNotIn("Traceback", surfaced)
+            self.assertIn("No lease record for the requested exact id", surfaced)
+
+    def test_malformed_lease_is_structured_and_never_echoes_record_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host, worker, head, qualification_path = self._checkout(root)
+            lease_id = "lease-malformed-record"
+            self._prepare(host, worker, head, qualification_path, lease_id=lease_id)
+            store = LeaseStore(host)
+            path = store._path(lease_id)
+            record = json.loads(path.read_text(encoding="utf-8"))
+            sentinel = "opaque-lease-state-secret-123456789"
+            record["state"] = sentinel
+            path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+            result, payload = self._cli(
+                host,
+                "worker",
+                "packet",
+                "--repo-root",
+                str(host),
+                "--json",
+                "--lease-id",
+                lease_id,
+                "--task",
+                "review",
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["issues"][0]["code"], "lease_record_malformed")
+            surfaced = result.stdout + result.stderr
+            self.assertNotIn(sentinel, surfaced)
+            self.assertNotIn("Traceback", surfaced)
+
+    def test_lease_listing_binds_filename_and_get_rejects_duplicate_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host, worker, head, qualification_path = self._checkout(root)
+            lease_id = "lease-bound-record"
+            self._prepare(host, worker, head, qualification_path, lease_id=lease_id)
+            store = LeaseStore(host)
+            canonical = store._path(lease_id)
+            misnamed = store.root / "attacker.json"
+            canonical.rename(misnamed)
+            with self.assertRaises(ValidationIssue) as ctx:
+                store.list_leases_strict()
+            self.assertEqual(ctx.exception.code, "lease_record_malformed")
+            misnamed.rename(canonical)
+
+            legacy = store._legacy_path(lease_id)
+            legacy.write_bytes(canonical.read_bytes())
+            with self.assertRaises(ValidationIssue) as ctx:
+                store.list_leases_strict()
+            self.assertEqual(ctx.exception.code, "lease_record_malformed")
+            with self.assertRaises(ValidationIssue) as ctx:
+                store.get(lease_id)
+            self.assertEqual(ctx.exception.code, "lease_record_ambiguous")
+
+    def test_lease_parser_preserves_empty_permissions_and_rejects_false_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host, worker, head, qualification_path = self._checkout(root)
+            lease_id = "lease-presence-aware-fields"
+            self._prepare(host, worker, head, qualification_path, lease_id=lease_id)
+            payload = LeaseStore(host).get(lease_id).to_dict()
+
+            payload["permitted_git_actions"] = []
+            self.assertEqual(WriterLease.from_dict(payload).permitted_git_actions, [])
+            for field_name, bad_value in (("state", ""), ("revision", False)):
+                with self.subTest(field_name=field_name):
+                    broken = dict(payload)
+                    broken[field_name] = bad_value
+                    with self.assertRaises((TypeError, ValueError)):
+                        WriterLease.from_dict(broken)
+
+    def test_legacy_lease_is_inventory_only_and_cannot_publish_canonical_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host, worker, head, qualification_path = self._checkout(root)
+            lease_id = "lease-legacy-read-only"
+            self._prepare(host, worker, head, qualification_path, lease_id=lease_id)
+            store = LeaseStore(host)
+            canonical = store._path(lease_id)
+            legacy = store._legacy_path(lease_id)
+            canonical.rename(legacy)
+            before = {
+                path.relative_to(host).as_posix(): path.read_bytes()
+                for path in host.rglob("*")
+                if path.is_file() and not path.is_symlink()
+            }
+
+            listed = store.list_leases_strict()
+            self.assertEqual([lease.lease_id for lease in listed], [lease_id])
+            with self.assertRaises(ValidationIssue) as ctx:
+                store.get(lease_id)
+            self.assertEqual(ctx.exception.code, "lease_legacy_read_only")
+
+            result, response = self._cli(
+                host,
+                "worker",
+                "packet",
+                "--repo-root",
+                str(host),
+                "--json",
+                "--lease-id",
+                lease_id,
+                "--task",
+                "review",
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(
+                response["issues"][0]["code"],
+                "lease_legacy_read_only",
+            )
+            after = {
+                path.relative_to(host).as_posix(): path.read_bytes()
+                for path in host.rglob("*")
+                if path.is_file() and not path.is_symlink()
+            }
+            self.assertEqual(after, before)
+            self.assertFalse(canonical.exists())
+            self.assertTrue(legacy.is_file())
 
     def test_tampered_or_missing_audit_digest_cannot_export(self) -> None:
         for mutation in ("missing", "changed"):

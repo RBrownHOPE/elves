@@ -308,9 +308,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         registry = SessionRegistry.open_readonly(repo_root)
     except StorageError as error:
         return _emit_storage_error(args, error, command="doctor")
-    sessions = [rec.to_dict() for rec in registry.list_sessions()]
+    session_issue: dict[str, Any] | None = None
+    try:
+        sessions = [rec.to_dict() for rec in registry.list_sessions_strict()]
+    except ValidationIssue as issue:
+        sessions = []
+        session_issue = _redacted_validation_issue(issue)
+    issues = [
+        _redacted_validation_issue(issue) for issue in resolved.issues
+    ]
+    if session_issue is not None:
+        issues.append(session_issue)
+    doctor_ok = resolved.ok and session_issue is None
     payload: dict[str, Any] = {
-        "ok": resolved.ok,
+        "ok": doctor_ok,
         "repo_root": str(repo_root),
         "model_calls_made": False,
         "mutated_repo": False,
@@ -321,7 +332,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         "roles": {name: route.to_dict() for name, route in resolved.roles.items()},
         "sessions": sessions,
         "session_count": len(sessions),
-        "issues": [issue.to_dict() for issue in resolved.issues],
+        "issues": issues,
         "warnings": list(resolved.warnings),
         "local_models_toml": models_toml_is_local_only(repo_root),
         "notes": inventory.get("notes", [])
@@ -333,12 +344,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         ],
     }
     if args.json:
-        return _emit_json(payload, exit_code=0 if resolved.ok else 1)
+        return _emit_json(payload, exit_code=0 if doctor_ok else 1)
 
     print("cobbler doctor")
     print(f"  repo_root: {repo_root}")
     print(f"  model_calls_made: false")
-    print(f"  ok: {resolved.ok}")
+    print(f"  ok: {doctor_ok}")
     print(f"  session_count: {len(sessions)}")
     print("  adapters:")
     for name, info in sorted(payload["adapters"].items()):
@@ -347,11 +358,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             f"session_support={info.get('session_support', {}).get('status')} "
             f"remaining_quota={info.get('remaining_quota')}"
         )
-    if resolved.issues:
+    if issues:
         print("  issues:")
-        for issue in resolved.issues:
-            print(f"    - [{issue.code}] {issue.message}")
-    return 0 if resolved.ok else 1
+        for issue in issues:
+            print(f"    - [{issue['code']}] {issue['message']}")
+    return 0 if doctor_ok else 1
 
 
 def cmd_session(args: argparse.Namespace) -> int:
@@ -415,10 +426,15 @@ def cmd_session(args: argparse.Namespace) -> int:
         try:
             rec = registry.get(args.session_id)
         except ValidationIssue as issue:
-            payload = {"ok": False, "issues": [issue.to_dict()], "read_only": True}
+            safe_issue = _redacted_validation_issue(issue)
+            payload = {"ok": False, "issues": [safe_issue], "read_only": True}
             if args.json:
                 return _emit_json(payload, exit_code=1)
-            print(f"session probe: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+            print(
+                f"session probe: FAILED [{safe_issue['code']}] "
+                f"{safe_issue['message']}",
+                file=sys.stderr,
+            )
             return 1
         payload = {
             "ok": True,
@@ -440,12 +456,17 @@ def cmd_session(args: argparse.Namespace) -> int:
     if action == "resume":
         # Exact registered record only — never construct argv for unregistered IDs.
         try:
-            rec = registry.get(args.session_id)
+            rec, record_storage_kind = registry.get_with_storage_kind(args.session_id)
         except ValidationIssue as issue:
-            payload = {"ok": False, "issues": [issue.to_dict()]}
+            safe_issue = _redacted_validation_issue(issue)
+            payload = {"ok": False, "issues": [safe_issue]}
             if args.json:
                 return _emit_json(payload, exit_code=1)
-            print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+            print(
+                f"session resume: FAILED [{safe_issue['code']}] "
+                f"{safe_issue['message']}",
+                file=sys.stderr,
+            )
             return 1
         adapter = args.adapter or rec.harness
         profile = args.profile or rec.profile or adapter
@@ -463,6 +484,22 @@ def cmd_session(args: argparse.Namespace) -> int:
             print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
             return 1
         if getattr(args, "require_write", False):
+            if record_storage_kind != "canonical":
+                issue = ValidationIssue(
+                    "session_legacy_read_only",
+                    "Legacy session records cannot qualify for write reuse until explicitly migrated",
+                    path=str(registry.root),
+                )
+                safe_issue = _redacted_validation_issue(issue)
+                payload = {"ok": False, "issues": [safe_issue]}
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(
+                    f"session resume: FAILED [{safe_issue['code']}] "
+                    f"{safe_issue['message']}",
+                    file=sys.stderr,
+                )
+                return 1
             # Observations must come from flags/probe — never substitute stored values.
             from cobbler_runtime.sessions import (  # noqa: PLC0415
                 SessionLifecycle,
@@ -1025,8 +1062,14 @@ def cmd_worker(args: argparse.Namespace) -> int:
                     exact_secret_values=exact_secret_values,
                 )
             print(f"worker audit: {'OK' if result.ok else 'FAILED'}")
-            for reason in result.reasons:
-                print(f"  - {reason}")
+            if result.reasons:
+                # Never send free-form worker/Git material to a terminal logging
+                # sink. The JSON mode above applies the exact-value redactor and
+                # is the explicit structured diagnostic surface.
+                print(
+                    f"  - {len(result.reasons)} audit finding(s); "
+                    "details omitted from text output (use --json for redacted details)"
+                )
             return 0 if result.ok else 1
 
         if action == "export":
@@ -1309,6 +1352,9 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 resume=bool(getattr(args, "resume", False)),
                 credential_grant_names=list(getattr(args, "grant_env", None) or []) or None,
                 grant_grok_auth=bool(getattr(args, "grant_grok_auth", False)),
+                grant_github_push=bool(
+                    getattr(args, "grant_github_push", False)
+                ),
             )
             if args.json:
                 return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
@@ -1324,6 +1370,9 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 repo_root,
                 session_id=args.session_id,
                 stale_after_seconds=int(getattr(args, "stale_after", 300) or 300),
+                acknowledge_high_risk_checkpoint=getattr(
+                    args, "ack_high_risk_checkpoint", None
+                ),
             )
             if args.json:
                 return _emit_json(payload, exit_code=0)
@@ -1473,12 +1522,17 @@ def cmd_implement(args: argparse.Namespace) -> int:
             return 0
 
     except ValidationIssue as issue:
-        payload = {"ok": False, "issues": [issue.to_dict()]}
+        safe_issue = _redacted_validation_issue(issue)
+        payload = {"ok": False, "issues": [safe_issue]}
         if args.json:
             return _emit_json(payload, exit_code=1)
-        print(f"implement {action}: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
-        if issue.hint:
-            print(f"  hint: {issue.hint}", file=sys.stderr)
+        print(
+            f"implement {action}: FAILED [{safe_issue['code']}] "
+            f"{safe_issue['message']}",
+            file=sys.stderr,
+        )
+        if safe_issue.get("hint"):
+            print(f"  hint: {safe_issue['hint']}", file=sys.stderr)
         return 1
 
     print(f"unknown implement action: {action}", file=sys.stderr)
@@ -2034,6 +2088,14 @@ def build_parser() -> argparse.ArgumentParser:
             "(owner/mode/ancestor/ACL) through native GROK_AUTH_PATH"
         ),
     )
+    i_fr_launch.add_argument(
+        "--grant-github-push",
+        action="store_true",
+        help=(
+            "Trusted Lane A only: project the authenticated host gh token into "
+            "the isolated worker through a launch-scoped Git credential helper"
+        ),
+    )
     i_fr_launch.set_defaults(func=cmd_implement)
 
     i_fr_monitor = implement_sub.add_parser(
@@ -2047,6 +2109,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=300,
         help="Seconds without heartbeat before stale (default: 300)",
+    )
+    i_fr_monitor.add_argument(
+        "--ack-high-risk-checkpoint",
+        default=None,
+        help="Acknowledge the exact pending staged checkpoint after host review",
     )
     i_fr_monitor.set_defaults(func=cmd_implement)
 

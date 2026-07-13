@@ -163,7 +163,7 @@ def assert_embedded_id(data: Mapping[str, Any], expected_id: str, *, id_field: s
     if embedded != expected_id:
         raise StorageError(
             "embedded_id_mismatch",
-            f"Embedded {id_field}={embedded!r} does not match expected {expected_id!r}",
+            f"Embedded {id_field} does not match the expected record identity",
         )
 
 

@@ -1226,6 +1226,10 @@ class LaunchExecOptionalTests(unittest.TestCase):
             implement_module._ImplementDescendantSupervisor,
             "attach",
             side_effect=RuntimeError("fixture attach failure"),
+        ), mock.patch.object(
+            implement_module._ImplementDescendantSupervisor,
+            "terminate_known_descendants",
+            return_value=None,
         ):
             with self.assertRaisesRegex(RuntimeError, "attach failure"):
                 implement_module._execute_bounded_process(
@@ -1269,6 +1273,14 @@ class LaunchExecOptionalTests(unittest.TestCase):
             implement_module.subprocess,
             "Popen",
             side_effect=capture_launch,
+        ), mock.patch.object(
+            implement_module._ImplementDescendantSupervisor,
+            "attach",
+            return_value=None,
+        ), mock.patch.object(
+            implement_module._ImplementDescendantSupervisor,
+            "root_exited",
+            return_value=False,
         ), mock.patch.object(
             implement_module,
             "_terminate_and_reap_process_group",
@@ -1443,10 +1455,33 @@ class LaunchExecOptionalTests(unittest.TestCase):
                 f"[(os.write(1, chunk_out), os.write(2, chunk_err)) for _ in range({chunk_count})]"
             )
 
+            real_read_bytes = Path.read_bytes
+
+            def readable_test_environment(path: Path) -> bytes:
+                try:
+                    return real_read_bytes(path)
+                except PermissionError:
+                    if (
+                        sys.platform.startswith("linux")
+                        and path.name == "environ"
+                        and path.parent.name.isdigit()
+                        and path.parent.parent == Path("/proc")
+                    ):
+                        # GitHub-hosted Linux mounts /proc with same-UID
+                        # environment reads denied. This test targets rolling
+                        # pipe capture, while a separate regression proves that
+                        # the production supervisor fails closed on that denial.
+                        return b""
+                    raise
+
             with mock.patch.object(
                 implement_module,
                 "_require_implement_supervision_capability",
                 return_value=None,
+            ), mock.patch.object(
+                Path,
+                "read_bytes",
+                new=readable_test_environment,
             ):
                 result = implement_module._execute_bounded_process(
                     [sys.executable, "-c", script],

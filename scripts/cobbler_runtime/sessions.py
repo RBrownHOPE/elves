@@ -12,6 +12,7 @@ committed as product state.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import stat
 from dataclasses import asdict, dataclass, field
@@ -144,28 +145,66 @@ class SessionRecord:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> SessionRecord:
-        usage_raw = data.get("usage") or {}
+        if not isinstance(data, Mapping):
+            raise TypeError("session record must be a mapping")
+        for field_name in ("session_id", "harness", "profile"):
+            value = data.get(field_name)
+            if not isinstance(value, str) or not value:
+                raise TypeError(f"{field_name} must be a non-empty string")
+        optional_strings = (
+            "role",
+            "requested_model",
+            "actual_model",
+            "parent_id",
+            "cwd",
+            "worktree",
+            "creation_method",
+            "resume_method",
+            "source_head",
+            "context_digest",
+            "pending_context_digest",
+            "pending_source_head",
+            "rehydration_reason",
+            "created_at",
+            "updated_at",
+            "lifecycle",
+            "last_qualification",
+            "notes",
+            "block_reason",
+        )
+        for field_name in optional_strings:
+            value = data.get(field_name)
+            if value is not None and not isinstance(value, str):
+                raise TypeError(f"{field_name} must be a string or null")
+        for field_name in ("write_reuse_blocked",):
+            value = data.get(field_name)
+            if field_name in data and not isinstance(value, bool):
+                raise TypeError(f"{field_name} must be a boolean")
+        revision_raw = data.get("revision", 0)
+        if (
+            not isinstance(revision_raw, int)
+            or isinstance(revision_raw, bool)
+            or revision_raw < 0
+        ):
+            raise TypeError("revision must be a non-negative integer")
+        components_raw = data.get("context_components", {})
+        if not isinstance(components_raw, Mapping) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in components_raw.items()
+        ):
+            raise TypeError("context_components must be a string mapping")
+        creation_method_raw = data.get(
+            "creation_method", CreationMethod.CREATE.value
+        )
+        lifecycle_raw = data.get("lifecycle", SessionLifecycle.NEW.value)
+        if not isinstance(creation_method_raw, str) or not creation_method_raw:
+            raise TypeError("creation_method must be a non-empty string")
+        if not isinstance(lifecycle_raw, str) or not lifecycle_raw:
+            raise TypeError("lifecycle must be a non-empty string")
+        usage_raw = data.get("usage", {})
         if isinstance(usage_raw, UsageRecord):
-            usage = usage_raw
-        else:
-            usage = UsageRecord(
-                input_tokens=usage_raw.get("input_tokens"),
-                output_tokens=usage_raw.get("output_tokens"),
-                total_tokens=usage_raw.get("total_tokens"),
-                cost_usd=usage_raw.get("cost_usd"),
-                remaining_quota=usage_raw.get("remaining_quota", "unknown"),
-                quota_known=bool(usage_raw.get("quota_known", False)),
-            )
-            # Never invent known quota from tokens alone.
-            if not usage.quota_known:
-                usage = UsageRecord(
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
-                    total_tokens=usage.total_tokens,
-                    cost_usd=usage.cost_usd,
-                    remaining_quota="unknown",
-                    quota_known=False,
-                )
+            usage_raw = usage_raw.to_dict()
+        usage = _usage_record_from_persisted(usage_raw)
         return cls(
             session_id=str(data["session_id"]),
             harness=str(data["harness"]),
@@ -176,28 +215,93 @@ class SessionRecord:
             parent_id=data.get("parent_id"),
             cwd=data.get("cwd"),
             worktree=data.get("worktree"),
-            creation_method=CreationMethod(
-                str(data.get("creation_method") or CreationMethod.CREATE.value)
-            ),
+            creation_method=CreationMethod(creation_method_raw),
             resume_method=data.get("resume_method"),
             source_head=data.get("source_head"),
             context_digest=data.get("context_digest"),
-            context_components=dict(data.get("context_components") or {}),
+            context_components=dict(components_raw),
             pending_context_digest=data.get("pending_context_digest"),
             pending_source_head=data.get("pending_source_head"),
             rehydration_reason=data.get("rehydration_reason"),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
-            lifecycle=SessionLifecycle(
-                str(data.get("lifecycle") or SessionLifecycle.NEW.value)
-            ),
+            lifecycle=SessionLifecycle(lifecycle_raw),
             usage=usage,
             last_qualification=data.get("last_qualification"),
             notes=str(data.get("notes") or ""),
             write_reuse_blocked=bool(data.get("write_reuse_blocked", False)),
             block_reason=data.get("block_reason"),
-            revision=int(data.get("revision") or 0),
+            revision=revision_raw,
         )
+
+
+def _usage_record_from_persisted(raw: Any) -> UsageRecord:
+    """Strictly parse untrusted registry usage without inventing quota state."""
+    if not isinstance(raw, Mapping):
+        raise TypeError("usage must be a mapping")
+
+    def optional_count(name: str) -> int | None:
+        value = raw.get(name)
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise TypeError(f"usage {name} must be a non-negative integer or null")
+        return value
+
+    cost_raw = raw.get("cost_usd")
+    if cost_raw is None:
+        cost_usd = None
+    elif (
+        not isinstance(cost_raw, (int, float))
+        or isinstance(cost_raw, bool)
+        or not math.isfinite(float(cost_raw))
+        or float(cost_raw) < 0
+    ):
+        raise TypeError("usage cost_usd must be a finite non-negative number or null")
+    else:
+        cost_usd = float(cost_raw)
+
+    quota_known_raw = raw.get("quota_known", False)
+    if not isinstance(quota_known_raw, bool):
+        raise TypeError("usage quota_known must be a boolean")
+    remaining = raw.get("remaining_quota", "unknown")
+    if (
+        isinstance(remaining, bool)
+        or not isinstance(remaining, (str, int, type(None)))
+        or (isinstance(remaining, int) and remaining < 0)
+    ):
+        raise TypeError("usage remaining_quota must be a non-negative integer, string, or null")
+    if quota_known_raw and (
+        remaining is None
+        or (isinstance(remaining, str) and remaining.strip().lower() in {"", "unknown"})
+    ):
+        raise TypeError("known usage quota requires an explicit remaining value")
+
+    return UsageRecord(
+        input_tokens=optional_count("input_tokens"),
+        output_tokens=optional_count("output_tokens"),
+        total_tokens=optional_count("total_tokens"),
+        cost_usd=cost_usd,
+        remaining_quota=remaining if quota_known_raw else "unknown",
+        quota_known=quota_known_raw,
+    )
+
+
+_RECORD_PARSE_ERRORS = (
+    AttributeError,
+    KeyError,
+    OverflowError,
+    RecursionError,
+    TypeError,
+    ValueError,
+)
+
+
+def _record_error_category(exc: BaseException) -> str:
+    """Return a stable diagnostic category without attacker-controlled values."""
+    if isinstance(exc, StorageError):
+        return f"storage:{exc.code}"
+    return f"schema:{type(exc).__name__}"
 
 
 @dataclass(frozen=True)
@@ -374,19 +478,25 @@ def parse_usage_payload(raw: Mapping[str, Any] | None) -> UsageRecord:
         value = raw.get(key)
         if value is None:
             return None
+        if isinstance(value, bool):
+            return None
         try:
-            return int(value)
+            parsed = int(value)
         except (TypeError, ValueError):
             return None
+        return parsed if parsed >= 0 else None
 
     def _float(key: str) -> float | None:
         value = raw.get(key)
         if value is None:
             return None
+        if isinstance(value, bool):
+            return None
         try:
-            return float(value)
+            parsed = float(value)
         except (TypeError, ValueError):
             return None
+        return parsed if math.isfinite(parsed) and parsed >= 0 else None
 
     input_tokens = _num("input_tokens")
     if input_tokens is None:
@@ -401,7 +511,7 @@ def parse_usage_payload(raw: Mapping[str, Any] | None) -> UsageRecord:
     if cost_usd is None:
         cost_usd = _float("cost")
 
-    quota_known = bool(raw.get("quota_known", False))
+    quota_known = raw.get("quota_known", False) is True
     remaining = raw.get("remaining_quota")
     if remaining is None:
         remaining = raw.get("quota_remaining")
@@ -415,17 +525,24 @@ def parse_usage_payload(raw: Mapping[str, Any] | None) -> UsageRecord:
             remaining_quota="unknown",
             quota_known=False,
         )
-    try:
-        remaining_val: str | int | None = int(remaining)
-    except (TypeError, ValueError):
-        remaining_val = str(remaining)
+    if isinstance(remaining, bool) or not isinstance(remaining, (str, int)):
+        remaining_val: str | int | None = None
+    else:
+        try:
+            parsed_remaining = int(remaining)
+        except (TypeError, ValueError):
+            remaining_val = str(remaining)
+        else:
+            remaining_val = parsed_remaining if parsed_remaining >= 0 else None
+    if remaining_val is None:
+        quota_known = False
     return UsageRecord(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
         cost_usd=cost_usd,
-        remaining_quota=remaining_val,
-        quota_known=True,
+        remaining_quota=remaining_val if quota_known else "unknown",
+        quota_known=quota_known,
     )
 
 
@@ -570,8 +687,8 @@ class SessionRegistry:
                     continue
                 raise ValidationIssue(
                     "session_storage_unsafe",
-                    f"Unsafe session registry path: {exc.message}",
-                    path=str(path),
+                    f"Unsafe session registry path ({exc.code})",
+                    path=str(self.root),
                 ) from exc
         return None
 
@@ -586,12 +703,13 @@ class SessionRegistry:
 
     def list_sessions(self) -> list[SessionRecord]:
         records: list[SessionRecord] = []
+        seen_ids: set[str] = set()
         self.malformed_records = []
         try:
             paths = list_repo_store_files(self.repo_root, self.root, suffix=".json")
         except StorageError as exc:
             self.malformed_records.append(
-                {"path": str(self.root), "error": f"{type(exc).__name__}: {exc}"}
+                {"path": str(self.root), "error": _record_error_category(exc)}
             )
             return records
         for path in paths:
@@ -600,9 +718,22 @@ class SessionRegistry:
             try:
                 data = read_json(path, repo_root=self.repo_root)
                 record = SessionRecord.from_dict(data)
-                # Embedded-ID must match any digest-keyed filename expectation when present.
-                if "session_id" in data:
-                    assert_embedded_id(data, record.session_id, id_field="session_id")
+                assert_embedded_id(data, record.session_id, id_field="session_id")
+                expected_names = {
+                    record_filename(record.session_id, prefix="sess"),
+                    self._legacy_record_path(record.session_id).name,
+                }
+                if path.name not in expected_names:
+                    raise StorageError(
+                        "record_filename_mismatch",
+                        "Session record filename does not match its embedded identity",
+                    )
+                if record.session_id in seen_ids:
+                    raise StorageError(
+                        "duplicate_record_id",
+                        "Duplicate session record identity",
+                    )
+                seen_ids.add(record.session_id)
                 records.append(record)
             except (
                 OSError,
@@ -617,8 +748,8 @@ class SessionRegistry:
                 # Fail closed for callers that inspect malformed_records; do not silently drop.
                 self.malformed_records.append(
                     {
-                        "path": str(path),
-                        "error": f"{type(exc).__name__}: {exc}",
+                        "path": str(self.root),
+                        "error": _record_error_category(exc),
                     }
                 )
         return records
@@ -627,43 +758,66 @@ class SessionRegistry:
         """Like list_sessions, but raise when any record file is malformed."""
         records = self.list_sessions()
         if self.malformed_records:
-            detail = "; ".join(
-                f"{item['path']}: {item['error']}" for item in self.malformed_records
+            categories = ", ".join(
+                sorted({item["error"] for item in self.malformed_records})
             )
             raise ValidationIssue(
                 "session_record_malformed",
-                f"Malformed session registry records: {detail}",
+                "Malformed session registry records "
+                f"({len(self.malformed_records)} record(s); categories: {categories})",
                 path=str(self.root),
             )
         return records
 
     def get(self, session_id: str) -> SessionRecord:
-        path = self._record_path(session_id)
-        legacy = self._legacy_record_path(session_id)
-        loaded = self._read_candidate(path, legacy)
-        if loaded is None:
-            raise ValidationIssue(
-                "session_not_found",
-                f"No session record for exact id `{session_id}`",
-                path=str(path),
-                hint="Exact session IDs are required; never use last/continue selection",
-            )
-        chosen, data = loaded
+        record, _kind = self.get_with_storage_kind(session_id)
+        return record
+
+    def get_with_storage_kind(
+        self, session_id: str
+    ) -> tuple[SessionRecord, str]:
+        """Read one exact record and bind its parsed bytes to source provenance."""
+        kind, _chosen, data = self._load_exact_record(session_id)
         try:
             assert_embedded_id(data, session_id, id_field="session_id")
-            return SessionRecord.from_dict(data)
+            return SessionRecord.from_dict(data), kind
         except StorageError as exc:
             raise ValidationIssue(
                 "session_embedded_id_mismatch",
-                f"Session `{session_id}` embedded id mismatch: {exc.message}",
-                path=str(chosen),
+                "Session record embedded id does not match the requested exact identity",
+                path=str(self.root),
             ) from exc
-        except (KeyError, TypeError, ValueError) as exc:
+        except _RECORD_PARSE_ERRORS as exc:
             raise ValidationIssue(
                 "session_record_malformed",
-                f"Session `{session_id}` record is malformed: {exc}",
-                path=str(chosen),
+                f"Session record is malformed ({_record_error_category(exc)})",
+                path=str(self.root),
             ) from exc
+
+    def _load_exact_record(
+        self, session_id: str
+    ) -> tuple[str, Path, dict[str, Any]]:
+        path = self._record_path(session_id)
+        legacy = self._legacy_record_path(session_id)
+        canonical_loaded = self._read_candidate(path)
+        legacy_loaded = self._read_candidate(legacy)
+        if canonical_loaded is not None and legacy_loaded is not None:
+            raise ValidationIssue(
+                "session_record_ambiguous",
+                "Multiple session records claim the same exact identity",
+                path=str(self.root),
+            )
+        loaded = canonical_loaded or legacy_loaded
+        if loaded is None:
+            raise ValidationIssue(
+                "session_not_found",
+                "No session record for the requested exact id",
+                path=str(self.root),
+                hint="Exact session IDs are required; never use last/continue selection",
+            )
+        chosen, data = loaded
+        kind = "canonical" if canonical_loaded is not None else "legacy"
+        return kind, chosen, data
 
     def save(self, record: SessionRecord, *, expected_revision: int | None = None) -> SessionRecord:
         """Persist a session record with optional compare-and-swap on revision."""
@@ -672,26 +826,36 @@ class SessionRegistry:
         repo_regular_file_exists(self.repo_root, self._index_path)
         with directory_lock(self.root, repo_root=self.repo_root):
             repo_regular_file_exists(self.repo_root, self._index_path)
-            path = self._record_path(record.session_id)
+            # Any malformed or aliased authority record blocks every mutation;
+            # never rewrite the index from a silently partial listing.
+            self.list_sessions_strict()
             try:
-                current = read_json(path, repo_root=self.repo_root)
-            except StorageError as exc:
-                if exc.code == "not_found":
-                    current = None
-                else:
-                    raise ValidationIssue(
-                        "session_storage_unsafe",
-                        f"Unsafe session record path: {exc.message}",
-                        path=str(path),
-                    ) from exc
+                SessionRecord.from_dict(record.to_dict())
+            except _RECORD_PARSE_ERRORS as exc:
+                raise ValidationIssue(
+                    "session_record_malformed",
+                    f"Session record cannot be saved ({_record_error_category(exc)})",
+                    path=str(self.root),
+                ) from exc
+            path = self._record_path(record.session_id)
+            legacy = self._legacy_record_path(record.session_id)
+            canonical_loaded = self._read_candidate(path)
+            legacy_loaded = self._read_candidate(legacy)
+            if legacy_loaded is not None:
+                raise ValidationIssue(
+                    "session_legacy_read_only",
+                    "Legacy session records are read-only until explicitly migrated",
+                    path=str(self.root),
+                )
+            current = canonical_loaded[1] if canonical_loaded is not None else None
             if current is not None:
                 try:
                     current_rev = int(current.get("revision") or 0)
                 except (TypeError, ValueError) as exc:
                     raise ValidationIssue(
                         "session_record_malformed",
-                        f"Cannot CAS-save over unreadable record: {exc}",
-                        path=str(path),
+                        "Cannot CAS-save over a malformed session record",
+                        path=str(self.root),
                     ) from exc
                 if expected_revision is not None and current_rev != int(expected_revision):
                     raise ValidationIssue(
@@ -751,7 +915,7 @@ class SessionRegistry:
                 "actual_model": rec.actual_model,
                 "revision": rec.revision,
             }
-            for rec in self.list_sessions()
+            for rec in self.list_sessions_strict()
         ]
         atomic_write_json(
             self._index_path,

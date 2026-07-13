@@ -73,6 +73,7 @@ EVENT_TYPES = frozenset(
         "commit_pushed",
         "gate_result",
         "batch_complete",
+        "high_risk_checkpoint",
         "blocked",
         "run_complete",
     }
@@ -89,6 +90,11 @@ _ACCEPTANCE_DEFINITION_RE = re.compile(
     r"(?P<criterion>\S(?:.*\S)?)\s*$"
 )
 _ACCEPTANCE_ID_RE = re.compile(r"^(?:B\d+-A\d+|M-A\d+)$")
+_HIGH_RISK_CHECKPOINT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_HIGH_RISK_CHECKPOINT_DEFINITION_RE = re.compile(
+    r"(?im)^\s*[-*]\s+high-risk\s+checkpoint\s*:\s*"
+    r"(?P<id>[A-Za-z0-9][A-Za-z0-9._-]{0,63})\s*$"
+)
 _ENV_GRANT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _FULL_RUN_SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)(?<![A-Za-z0-9])"
@@ -105,6 +111,7 @@ MAX_PACKET_BYTES = 1024 * 1024
 MAX_EVENT_FILE_BYTES = 1024 * 1024
 MAX_EVENT_LINES = 2000
 MAX_EVENT_LINE_BYTES = 64 * 1024
+MAX_HIGH_RISK_CHECKPOINTS = 64
 MAX_REPORT_BYTES = 512 * 1024
 MAX_JSON_DEPTH = 32
 MAX_JSON_NODES = 20_000
@@ -124,7 +131,17 @@ GROK_HOME_REL = Path("worker-grok-home")
 GROK_AUTH_FILE_NAME = "auth.json"
 GROK_AUTH_PATH_MIN_VERSION = (0, 2, 93)
 MAX_GROK_EXECUTABLE_PROBE_BYTES = 512 * 1024 * 1024
+MAX_GITHUB_TOKEN_BYTES = 64 * 1024
 _GROK_VERSION_RE = re.compile(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)")
+_GITHUB_PUSH_TOKEN_NAMES = ("GH_TOKEN", "GITHUB_TOKEN")
+_GITHUB_PUSH_AUTH_STRATEGIES = frozenset(
+    {"host_gh_token", "env_gh_token", "env_github_token"}
+)
+_GITHUB_CREDENTIAL_HELPER = (
+    "!f() { test \"$1\" = get || exit 0; "
+    "printf 'username=%s\\npassword=%s\\n' x-access-token "
+    "\"${GH_TOKEN:-${GITHUB_TOKEN:-}}\"; }; f"
+)
 _DARWIN_ACL_TYPE_EXTENDED = 0x00000100
 _DARWIN_ACL_FIRST_ENTRY = 0
 _DARWIN_ACL_NEXT_ENTRY = -1
@@ -193,6 +210,9 @@ STATUS_KEYS = frozenset(
         "chat_update_recommended",
         "unchanged_healthy_poll_silent",
         "wake_conditions",
+        "planned_high_risk_checkpoints",
+        "pending_high_risk_checkpoint",
+        "acknowledged_high_risk_checkpoints",
         "check_summary",
         "report_path",
         "events_path",
@@ -698,6 +718,8 @@ def validate_event(
     expected_branch: str | None = None,
     expected_start_head: str | None = None,
     seen_terminal: bool = False,
+    expected_high_risk_checkpoints: Sequence[str] | None = None,
+    seen_high_risk_checkpoints: Sequence[str] | None = None,
     exact_secret_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
     credential_grant_state: "FullRunState | None" = None,
 ) -> list[str]:
@@ -741,6 +763,26 @@ def validate_event(
     etype = event.get("type")
     if etype not in EVENT_TYPES:
         errors.append("invalid event type")
+    checkpoint_id = event.get("checkpoint_id")
+    if etype == "high_risk_checkpoint":
+        if (
+            not isinstance(checkpoint_id, str)
+            or not _HIGH_RISK_CHECKPOINT_ID_RE.fullmatch(checkpoint_id)
+        ):
+            errors.append("high-risk checkpoint event requires a stable checkpoint_id")
+        else:
+            if (
+                expected_high_risk_checkpoints is not None
+                and checkpoint_id not in expected_high_risk_checkpoints
+            ):
+                errors.append("high-risk checkpoint was not staged in the packet")
+            if (
+                seen_high_risk_checkpoints is not None
+                and checkpoint_id in seen_high_risk_checkpoints
+            ):
+                errors.append("high-risk checkpoint event is duplicated")
+    elif checkpoint_id is not None:
+        errors.append("checkpoint_id is only valid on high-risk checkpoint events")
     summary_value = event.get("summary")
     summary = summary_value if isinstance(summary_value, str) else ""
     if len(summary) > 500:
@@ -959,9 +1001,23 @@ class ProcessFingerprint:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ProcessFingerprint":
+        if not isinstance(data, Mapping):
+            raise TypeError("process fingerprint must be a mapping")
+        pid = data.get("pid")
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            raise TypeError("process fingerprint pid must be a positive integer")
+        pgid = data.get("pgid")
+        if pgid is not None and (
+            not isinstance(pgid, int) or isinstance(pgid, bool) or pgid <= 0
+        ):
+            raise TypeError("process fingerprint pgid must be a positive integer or null")
+        for field_name in ("start_time", "executable", "session_id"):
+            value = data.get(field_name)
+            if value is not None and not isinstance(value, str):
+                raise TypeError(f"process fingerprint {field_name} must be a string or null")
         return cls(
-            pid=int(data["pid"]),
-            pgid=data.get("pgid"),
+            pid=pid,
+            pgid=pgid,
             start_time=data.get("start_time"),
             executable=data.get("executable"),
             session_id=str(data.get("session_id") or ""),
@@ -984,6 +1040,11 @@ class FullRunState:
     packet_size: int | None = None
     packet_contract_sha256: str | None = None
     acceptance_criteria: dict[str, str] = field(default_factory=dict)
+    # Packet-bound driver wake gates. Worker events may only name staged IDs;
+    # acknowledgements are host-owned and one-shot within an attempt.
+    planned_high_risk_checkpoints: list[str] = field(default_factory=list)
+    acknowledged_high_risk_checkpoints: list[str] = field(default_factory=list)
+    pending_high_risk_checkpoint: str | None = None
     adapter: str = "grok-build"
     model: str = DEFAULT_MODEL
     permission_mode: str = DEFAULT_PERMISSION_MODE
@@ -1002,6 +1063,7 @@ class FullRunState:
     credential_grant_lengths: dict[str, int] = field(default_factory=dict)
     credential_grant_metadata_mac: str | None = None
     grok_auth_strategy: str | None = None
+    github_push_auth_strategy: str | None = None
     # Private state only. The leaf inode is deliberately excluded because Grok
     # atomically replaces auth.json when rotating refresh tokens. Binding the
     # canonical path and safe parent identity survives those legitimate writes.
@@ -1051,6 +1113,190 @@ class FullRunState:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "FullRunState":
+        if not isinstance(data, Mapping):
+            raise TypeError("full-run state must be a mapping")
+        required_strings = (
+            "session_id",
+            "branch",
+            "start_head",
+            "worktree",
+            "packet_path",
+        )
+        for field_name in required_strings:
+            value = data.get(field_name)
+            if not isinstance(value, str) or not value:
+                raise TypeError(f"{field_name} must be a non-empty string")
+        nullable_strings = (
+            "staged_packet_path",
+            "packet_sha256",
+            "packet_contract_sha256",
+            "credential_grant_metadata_mac",
+            "grok_auth_strategy",
+            "github_push_auth_strategy",
+            "head",
+            "heartbeat_at",
+            "launched_at",
+            "completed_at",
+            "blocker",
+            "next_action",
+            "fixture_script",
+            "launch_start_head",
+            "origin_url",
+            "origin_config_digest",
+            "initial_remote_feature_tip",
+            "supervision_token",
+            "supervisor_executable",
+            "pending_high_risk_checkpoint",
+        )
+        for field_name in nullable_strings:
+            value = data.get(field_name)
+            if value is not None and not isinstance(value, str):
+                raise TypeError(f"{field_name} must be a string or null")
+        default_string_fields = (
+            "adapter",
+            "model",
+            "permission_mode",
+            "effort",
+            "executable",
+            "output_format",
+            "status",
+            "driver_monitor_mode",
+            "driver_contract",
+        )
+        for field_name in default_string_fields:
+            value = data.get(field_name)
+            if field_name in data and (not isinstance(value, str) or not value):
+                raise TypeError(f"{field_name} must be a non-empty string")
+        for field_name in ("create_session", "check", "yolo", "supervision_canary_passed"):
+            value = data.get(field_name)
+            if field_name in data and not isinstance(value, bool):
+                raise TypeError(f"{field_name} must be a boolean")
+        for field_name in ("max_turns", "attempt"):
+            value = data.get(field_name)
+            if field_name in data and (
+                not isinstance(value, int) or isinstance(value, bool) or value <= 0
+            ):
+                raise TypeError(f"{field_name} must be a positive integer")
+        for field_name in ("packet_size", "batch"):
+            value = data.get(field_name)
+            if value is not None and (
+                not isinstance(value, int) or isinstance(value, bool) or value < 0
+            ):
+                raise TypeError(f"{field_name} must be a non-negative integer or null")
+        for field_name in ("pid", "pgid", "exit_sidecar_pid"):
+            value = data.get(field_name)
+            if value is not None and (
+                not isinstance(value, int) or isinstance(value, bool) or value <= 0
+            ):
+                raise TypeError(f"{field_name} must be a positive integer or null")
+        exit_code = data.get("exit_code")
+        if exit_code is not None and (
+            not isinstance(exit_code, int) or isinstance(exit_code, bool)
+        ):
+            raise TypeError("exit_code must be an integer or null")
+        nullable_mapping_fields = (
+            "staged_packet_identity",
+            "grok_auth_path_identity",
+            "grok_executable_identity",
+            "fingerprint",
+            "closed_process_identity",
+            "interruption_evidence",
+        )
+        for field_name in nullable_mapping_fields:
+            value = data.get(field_name)
+            if value is not None and not isinstance(value, Mapping):
+                raise TypeError(f"{field_name} must be a mapping or null")
+        default_mapping_fields = (
+            "acceptance_criteria",
+            "credential_grant_digests",
+            "credential_grant_lengths",
+            "protected_refs",
+        )
+        for field_name in default_mapping_fields:
+            value = data.get(field_name)
+            if field_name in data and not isinstance(value, Mapping):
+                raise TypeError(f"{field_name} must be a mapping")
+        string_list_fields = (
+            "credential_grant_names",
+            "credential_granted_names",
+            "notes",
+            "last_argv",
+            "acceptance_ids",
+            "planned_high_risk_checkpoints",
+            "acknowledged_high_risk_checkpoints",
+        )
+        for field_name in string_list_fields:
+            value = data.get(field_name)
+            if field_name in data and (
+                not isinstance(value, list)
+                or not all(isinstance(item, str) for item in value)
+            ):
+                raise TypeError(f"{field_name} must be a string list")
+        process_history = data.get("process_history")
+        if "process_history" in data and (
+            not isinstance(process_history, list)
+            or not all(isinstance(item, Mapping) for item in process_history)
+        ):
+            raise TypeError("process_history must be a list of mappings")
+        for field_name in (
+            "acceptance_criteria",
+            "credential_grant_digests",
+            "protected_refs",
+        ):
+            value = data.get(field_name)
+            if value is not None and not all(
+                isinstance(key, str) and isinstance(item, str)
+                for key, item in value.items()
+            ):
+                raise TypeError(f"{field_name} must be a string mapping")
+        grant_lengths = data.get("credential_grant_lengths")
+        if grant_lengths is not None and not all(
+            isinstance(key, str)
+            and isinstance(item, int)
+            and not isinstance(item, bool)
+            and item >= 0
+            for key, item in grant_lengths.items()
+        ):
+            raise TypeError("credential_grant_lengths must map strings to non-negative integers")
+        planned_checkpoints = data.get("planned_high_risk_checkpoints", [])
+        acknowledged_checkpoints = data.get(
+            "acknowledged_high_risk_checkpoints", []
+        )
+        pending_checkpoint = data.get("pending_high_risk_checkpoint")
+        for label, values in (
+            ("planned_high_risk_checkpoints", planned_checkpoints),
+            ("acknowledged_high_risk_checkpoints", acknowledged_checkpoints),
+        ):
+            if (
+                not isinstance(values, list)
+                or len(values) > MAX_HIGH_RISK_CHECKPOINTS
+                or len(values) != len(set(values))
+                or any(
+                    not isinstance(item, str)
+                    or not _HIGH_RISK_CHECKPOINT_ID_RE.fullmatch(item)
+                    for item in values
+                )
+            ):
+                raise TypeError(f"{label} must contain unique checkpoint ids")
+        if not set(acknowledged_checkpoints).issubset(set(planned_checkpoints)):
+            raise TypeError("acknowledged checkpoints must be planned")
+        if pending_checkpoint is not None and (
+            not isinstance(pending_checkpoint, str)
+            or pending_checkpoint not in planned_checkpoints
+            or pending_checkpoint in acknowledged_checkpoints
+        ):
+            raise TypeError("pending checkpoint must be planned and unacknowledged")
+        github_push_auth_strategy = data.get("github_push_auth_strategy")
+        if (
+            github_push_auth_strategy is not None
+            and github_push_auth_strategy not in _GITHUB_PUSH_AUTH_STRATEGIES
+        ):
+            raise TypeError("github_push_auth_strategy is invalid")
+        fingerprint = data.get("fingerprint")
+        if fingerprint is not None:
+            parsed_fingerprint = ProcessFingerprint.from_dict(fingerprint)
+            if parsed_fingerprint.session_id != data["session_id"]:
+                raise TypeError("process fingerprint session identity mismatch")
         known = set(cls.__dataclass_fields__)
         filtered = {k: v for k, v in data.items() if k in known}
         state = cls(**filtered)  # type: ignore[arg-type]
@@ -2286,6 +2532,11 @@ def _launch_evidence_context(
         if isinstance(path, str) and path:
             values.add(path)
     if state.grok_auth_strategy not in {None, "xai_api_key", "oauth_shared_file"}:
+        return False, frozenset(values)
+    if (
+        state.github_push_auth_strategy is not None
+        and state.github_push_auth_strategy not in _GITHUB_PUSH_AUTH_STRATEGIES
+    ):
         return False, frozenset(values)
     requested_valid, requested = _normalize_persisted_credential_grant_names(
         state.credential_grant_names
@@ -3849,6 +4100,176 @@ def _canonical_origin_url(repo_root: Path) -> str:
     return url
 
 
+def _origin_push_auth_kind(origin_url: str) -> str:
+    """Classify the one supported authenticated push boundary.
+
+    Local/file remotes need no credential projection and remain useful for
+    deterministic tests. GitHub HTTPS receives an explicit token-backed helper.
+    Every other network transport fails closed because the isolated worker has
+    neither host SSH-agent access nor host Git credential configuration.
+    """
+    raw = str(origin_url or "").strip()
+    parsed = urlsplit(raw)
+    if parsed.scheme == "https" and (parsed.hostname or "").lower() == "github.com":
+        return "github_https"
+    if parsed.scheme == "file":
+        return "local"
+    if not parsed.scheme and not re.match(r"^[^/@:]+@[^/:]+:", raw):
+        return "local"
+    return "unsupported"
+
+
+def _read_host_github_token(
+    parent_env: Mapping[str, str] | None = None,
+) -> str:
+    """Read one host gh token privately; never include its bytes in diagnostics."""
+    parent = dict(parent_env if parent_env is not None else os.environ)
+    executable = shutil.which("gh", path=parent.get("PATH"))
+    if not executable:
+        raise ValidationIssue(
+            "full_run_github_push_auth_unavailable",
+            "Explicit GitHub push projection requires an authenticated gh CLI",
+            hint="Run `gh auth login`, or explicitly grant GH_TOKEN/GITHUB_TOKEN by name",
+        )
+    try:
+        result = subprocess.run(
+            [executable, "auth", "token", "--hostname", "github.com"],
+            env=parent,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValidationIssue(
+            "full_run_github_push_auth_unavailable",
+            "Host GitHub credential lookup failed",
+        ) from exc
+    raw = bytes(result.stdout or b"")
+    token = raw.strip()
+    if (
+        result.returncode != 0
+        or not token
+        or len(raw) > MAX_GITHUB_TOKEN_BYTES
+        or any(byte <= 32 or byte == 127 for byte in token)
+    ):
+        raise ValidationIssue(
+            "full_run_github_push_auth_unavailable",
+            "Host gh CLI did not return one bounded noninteractive credential",
+            hint="Run `gh auth status --hostname github.com` before launching",
+        )
+    try:
+        return token.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValidationIssue(
+            "full_run_github_push_auth_unavailable",
+            "Host gh CLI returned an invalid credential encoding",
+        ) from exc
+
+
+def _configure_github_push_auth(
+    state: FullRunState,
+    launch_env: dict[str, str],
+    *,
+    grant_github_push: bool,
+    parent_env: Mapping[str, str] | None = None,
+) -> None:
+    """Project one explicit GitHub HTTPS push capability into isolated Lane A."""
+    kind = _origin_push_auth_kind(str(state.origin_url or ""))
+    if kind == "local":
+        if state.github_push_auth_strategy is not None:
+            raise ValidationIssue(
+                "full_run_github_push_auth_strategy_changed",
+                "Resume origin no longer matches the staged GitHub push strategy",
+            )
+        if grant_github_push:
+            raise ValidationIssue(
+                "full_run_github_push_auth_not_applicable",
+                "GitHub push projection is only valid for a GitHub HTTPS origin",
+            )
+        return
+    if kind != "github_https":
+        raise ValidationIssue(
+            "full_run_git_push_transport_unsupported",
+            "Isolated branch-progress pushes support local remotes or GitHub HTTPS only",
+            hint="Use a non-credentialed https://github.com origin for delegated GitHub pushes",
+        )
+
+    present_names = [
+        name for name in _GITHUB_PUSH_TOKEN_NAMES if launch_env.get(name)
+    ]
+    strategy = state.github_push_auth_strategy
+    if strategy is not None and strategy not in _GITHUB_PUSH_AUTH_STRATEGIES:
+        raise ValidationIssue(
+            "full_run_github_push_auth_strategy_changed",
+            "Persisted GitHub push strategy is invalid",
+        )
+
+    if strategy == "host_gh_token":
+        token = _read_host_github_token(parent_env)
+        launch_env.pop("GITHUB_TOKEN", None)
+        launch_env["GH_TOKEN"] = token
+        state.credential_grant_names = sorted(
+            {*state.credential_grant_names, "GH_TOKEN"}
+        )
+    elif strategy in {"env_gh_token", "env_github_token"}:
+        if grant_github_push:
+            raise ValidationIssue(
+                "full_run_github_push_auth_strategy_changed",
+                "Resume must preserve the explicitly granted GitHub token strategy",
+            )
+        expected_name = (
+            "GH_TOKEN" if strategy == "env_gh_token" else "GITHUB_TOKEN"
+        )
+        if present_names != [expected_name]:
+            raise ValidationIssue(
+                "full_run_github_push_auth_required",
+                "Resume requires the exact originally granted GitHub token name",
+            )
+    elif grant_github_push:
+        if present_names:
+            raise ValidationIssue(
+                "full_run_github_push_auth_ambiguous",
+                "Choose host gh projection or one explicit GitHub token grant, not both",
+            )
+        token = _read_host_github_token(parent_env)
+        launch_env["GH_TOKEN"] = token
+        state.credential_grant_names = sorted(
+            {*state.credential_grant_names, "GH_TOKEN"}
+        )
+        state.github_push_auth_strategy = "host_gh_token"
+    else:
+        if len(present_names) != 1:
+            raise ValidationIssue(
+                (
+                    "full_run_github_push_auth_ambiguous"
+                    if present_names
+                    else "full_run_github_push_auth_required"
+                ),
+                "GitHub HTTPS branch progress requires one explicit push credential route",
+                hint=(
+                    "Use --grant-github-push for host gh auth, or grant exactly one "
+                    "of GH_TOKEN/GITHUB_TOKEN by name"
+                ),
+            )
+        state.github_push_auth_strategy = (
+            "env_gh_token"
+            if present_names[0] == "GH_TOKEN"
+            else "env_github_token"
+        )
+
+    # Reset any inherited/repository helper chain, then install one helper that
+    # reads the token only from the private child environment. The helper text
+    # contains no credential value and terminal prompting is disabled.
+    launch_env["GIT_TERMINAL_PROMPT"] = "0"
+    launch_env["GIT_CONFIG_COUNT"] = "2"
+    launch_env["GIT_CONFIG_KEY_0"] = "credential.https://github.com.helper"
+    launch_env["GIT_CONFIG_VALUE_0"] = ""
+    launch_env["GIT_CONFIG_KEY_1"] = "credential.https://github.com.helper"
+    launch_env["GIT_CONFIG_VALUE_1"] = _GITHUB_CREDENTIAL_HELPER
+
+
 def _origin_config_digest(repo_root: Path) -> str:
     result = subprocess.run(
         ["git", "-C", str(repo_root), "config", "--local", "--get-regexp", r"^remote\.origin\."],
@@ -4200,6 +4621,47 @@ def _staged_acceptance_ids(packet_path: Path) -> list[str]:
     return [item[0] for item in _staged_acceptance_criteria(packet_path)]
 
 
+def _high_risk_checkpoints_from_packet(
+    raw: bytes,
+    *,
+    packet_path: Path,
+) -> list[str]:
+    """Parse explicitly staged checkpoint IDs from the exact packet bytes."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValidationIssue(
+            "full_run_packet_encoding",
+            "Full-run packet must be valid UTF-8",
+            path=str(packet_path),
+        ) from exc
+    if packet_path.suffix.lower() == ".json":
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValidationIssue(
+                "full_run_packet_invalid_json",
+                "JSON full-run packet must contain one valid object",
+                path=str(packet_path),
+            ) from exc
+        rows = payload.get("high_risk_checkpoints", []) if isinstance(payload, Mapping) else []
+        if not isinstance(rows, list) or any(
+            not isinstance(item, str)
+            or not _HIGH_RISK_CHECKPOINT_ID_RE.fullmatch(item)
+            for item in rows
+        ):
+            raise ValidationIssue(
+                "full_run_high_risk_checkpoints_invalid",
+                "JSON packet high_risk_checkpoints must be an array of stable IDs",
+                path=str(packet_path),
+            )
+        return list(rows)
+    return [
+        match.group("id")
+        for match in _HIGH_RISK_CHECKPOINT_DEFINITION_RE.finditer(text)
+    ]
+
+
 def _packet_contract_digest(
     *,
     source_path: str,
@@ -4207,6 +4669,7 @@ def _packet_contract_digest(
     packet_sha256: str,
     packet_size: int,
     acceptance_criteria: Mapping[str, str],
+    high_risk_checkpoints: Sequence[str],
 ) -> str:
     payload = {
         "source_path": source_path,
@@ -4214,6 +4677,7 @@ def _packet_contract_digest(
         "packet_sha256": packet_sha256,
         "packet_size": packet_size,
         "acceptance_criteria": dict(sorted(acceptance_criteria.items())),
+        "high_risk_checkpoints": sorted(high_risk_checkpoints),
     }
     canonical = json.dumps(
         payload,
@@ -4337,6 +4801,7 @@ def _revalidate_staged_packet_binding(
     )
     staged_path = Path(state.staged_packet_path or "")
     criteria = state.acceptance_criteria
+    checkpoints = state.planned_high_risk_checkpoints
     staged_identity = state.staged_packet_identity
     if (
         not state.staged_packet_path
@@ -4367,6 +4832,14 @@ def _revalidate_staged_packet_binding(
         or not isinstance(state.acceptance_ids, list)
         or any(not isinstance(item, str) for item in state.acceptance_ids)
         or sorted(state.acceptance_ids) != sorted(criteria)
+        or not isinstance(checkpoints, list)
+        or len(checkpoints) > MAX_HIGH_RISK_CHECKPOINTS
+        or len(checkpoints) != len(set(checkpoints))
+        or any(
+            not isinstance(item, str)
+            or not _HIGH_RISK_CHECKPOINT_ID_RE.fullmatch(item)
+            for item in checkpoints
+        )
     ):
         raise ValidationIssue(
             "full_run_packet_binding_missing",
@@ -4380,6 +4853,7 @@ def _revalidate_staged_packet_binding(
         packet_sha256=state.packet_sha256,
         packet_size=state.packet_size,
         acceptance_criteria=criteria,
+        high_risk_checkpoints=checkpoints,
     )
     if not hmac.compare_digest(
         expected_contract_digest,
@@ -4431,6 +4905,18 @@ def _revalidate_staged_packet_binding(
         raise ValidationIssue(
             "full_run_packet_binding_changed",
             "Staged packet acceptance contract no longer matches prepared state",
+        )
+    parsed_checkpoints = _high_risk_checkpoints_from_packet(
+        staged_raw,
+        packet_path=source_path,
+    )
+    if (
+        len(parsed_checkpoints) != len(set(parsed_checkpoints))
+        or sorted(parsed_checkpoints) != sorted(checkpoints)
+    ):
+        raise ValidationIssue(
+            "full_run_packet_binding_changed",
+            "Staged packet checkpoint contract no longer matches prepared state",
         )
     return staged_path
 
@@ -4831,6 +5317,10 @@ def prepare_full_run(
         packet_raw,
         packet_path=packet_source,
     )
+    staged_high_risk_checkpoints = _high_risk_checkpoints_from_packet(
+        packet_raw,
+        packet_path=packet_source,
+    )
     staged_acceptance_ids = [item[0] for item in staged_acceptance_rows]
     duplicate_ids = sorted(
         {
@@ -4843,6 +5333,16 @@ def prepare_full_run(
         raise ValidationIssue(
             "full_run_acceptance_ids_duplicate",
             "Full-run packet contains duplicate stable acceptance definitions",
+            path=str(packet_path),
+        )
+    if (
+        len(staged_high_risk_checkpoints) > MAX_HIGH_RISK_CHECKPOINTS
+        or len(staged_high_risk_checkpoints)
+        != len(set(staged_high_risk_checkpoints))
+    ):
+        raise ValidationIssue(
+            "full_run_high_risk_checkpoints_invalid",
+            "Full-run packet checkpoints must be unique and within the bounded limit",
             path=str(packet_path),
         )
     if adapter_name != "fixture":
@@ -4893,6 +5393,7 @@ def prepare_full_run(
         packet_sha256=packet_sha256,
         packet_size=len(packet_raw),
         acceptance_criteria=acceptance_criteria,
+        high_risk_checkpoints=staged_high_risk_checkpoints,
     )
 
     exe = (executable or DEFAULT_EXECUTABLE).strip() or DEFAULT_EXECUTABLE
@@ -4917,6 +5418,7 @@ def prepare_full_run(
         packet_size=len(packet_raw),
         packet_contract_sha256=packet_contract_sha256,
         acceptance_criteria=acceptance_criteria,
+        planned_high_risk_checkpoints=sorted(staged_high_risk_checkpoints),
         adapter=adapter_name,
         model=model,
         permission_mode=permission_mode,
@@ -5006,57 +5508,74 @@ def _append_event(
     events_path: Path,
     event: Mapping[str, Any],
     *,
+    repo_root: Path,
     expected_session_id: str | None = None,
     expected_branch: str | None = None,
+    expected_high_risk_checkpoints: Sequence[str] | None = None,
     seen_terminal: bool = False,
-    repo_root: Path | None = None,
 ) -> None:
     errors = validate_event(
         event,
         expected_session_id=expected_session_id,
         expected_branch=expected_branch,
+        expected_high_risk_checkpoints=expected_high_risk_checkpoints,
         seen_terminal=seen_terminal,
     )
     if errors:
         raise ValidationIssue("full_run_event_invalid", "; ".join(errors))
     payload = json.dumps(dict(event), separators=(",", ":")) + "\n"
-    if repo_root is not None:
-        with open_repo_text(repo_root, events_path, mode="a") as handle:
-            handle.write(payload)
-    else:
-        with events_path.open("a", encoding="utf-8") as handle:
-            handle.write(payload)
-        try:
-            events_path.chmod(0o600)
-        except OSError:
-            pass
+    with open_repo_text(repo_root, events_path, mode="a") as handle:
+        handle.write(payload)
 
 
 def load_state(repo_root: Path, session_id: str) -> FullRunState:
     root = full_run_root(repo_root, session_id)
     path = root / "state.json"
-    if not repo_regular_file_exists(Path(repo_root), path):
+    try:
+        exists = repo_regular_file_exists(Path(repo_root), path)
+    except StorageError as exc:
+        raise ValidationIssue(
+            "full_run_state_storage_unsafe",
+            f"Full-run state storage is unsafe ({exc.code})",
+            path=str(root),
+        ) from exc
+    if not exists:
         raise ValidationIssue(
             "full_run_not_found",
-            f"No full-run state for session `{session_id}`",
-            path=str(path),
+            "No full-run state for the requested exact session",
+            path=str(root),
         )
-    data = read_json(path, repo_root=Path(repo_root))
+    try:
+        data = read_json(path, repo_root=Path(repo_root))
+    except StorageError as exc:
+        raise ValidationIssue(
+            "full_run_state_storage_unsafe",
+            f"Full-run state could not be read safely ({exc.code})",
+            path=str(root),
+        ) from exc
     try:
         assert_embedded_id(data, session_id, id_field="session_id")
     except StorageError as exc:
         raise ValidationIssue(
             "full_run_embedded_id_mismatch",
-            exc.message,
-            path=str(path),
+            "Full-run state embedded id does not match the requested exact session",
+            path=str(root),
         ) from exc
-    if data.get("branch") is None or data.get("start_head") is None:
+    try:
+        return FullRunState.from_dict(data)
+    except (
+        AttributeError,
+        KeyError,
+        OverflowError,
+        RecursionError,
+        TypeError,
+        ValueError,
+    ) as exc:
         raise ValidationIssue(
-            "full_run_state_incomplete",
-            "Full-run state missing branch or start_head",
-            path=str(path),
-        )
-    return FullRunState.from_dict(data)
+            "full_run_state_malformed",
+            f"Full-run state schema is malformed ({type(exc).__name__})",
+            path=str(root),
+        ) from exc
 
 
 def save_state(repo_root: Path, state: FullRunState) -> Path:
@@ -5164,6 +5683,8 @@ def _archive_and_reset_resume_attempt(
     state.credential_grant_digests = {}
     state.credential_grant_lengths = {}
     state.credential_grant_metadata_mac = None
+    state.acknowledged_high_risk_checkpoints = []
+    state.pending_high_risk_checkpoint = None
     state.closed_process_identity = None
     state.interruption_evidence = None
     state.pid = None
@@ -5285,6 +5806,7 @@ def launch_full_run(
     background: bool = True,
     credential_grant_names: Sequence[str] | None = None,
     grant_grok_auth: bool = False,
+    grant_github_push: bool = False,
     resume: bool = False,
 ) -> dict[str, Any]:
     """Background-launch Grok (or explicit fixture) for one exact session.
@@ -5361,25 +5883,14 @@ def launch_full_run(
         else credential_grant_names
     )
     state.credential_grant_names = effective_grant_names
+    parent_env = dict(os.environ)
     launch_env = build_full_run_env(
         state=state,
         root=root,
+        parent_env=parent_env,
         credential_grant_names=effective_grant_names,
     )
-    # Never return credential values. The names are already strict environment
-    # identifiers and cannot smuggle KEY=VALUE material into state or output.
-    granted_names = [n for n in effective_grant_names if n in launch_env]
-    state.credential_granted_names = list(granted_names)
-    state.credential_grant_digests = {
-        name: _credential_grant_digest(state, name, launch_env[name])
-        for name in granted_names
-    }
-    state.credential_grant_lengths = {
-        name: len(launch_env[name]) for name in granted_names
-    }
-    state.credential_grant_metadata_mac = (
-        _credential_grant_metadata_mac(state) if granted_names else None
-    )
+    granted_names: list[str] = []
 
     transcript = root / "transcript.log"
     for isolated_dir in (
@@ -5414,6 +5925,18 @@ def launch_full_run(
     # auth path points at the one validated canonical refresh-token authority.
     proc: subprocess.Popen[bytes] | None = None
     try:
+        if state.adapter != "fixture":
+            _configure_github_push_auth(
+                state,
+                launch_env,
+                grant_github_push=grant_github_push,
+                parent_env=parent_env,
+            )
+        elif grant_github_push:
+            raise ValidationIssue(
+                "full_run_github_push_auth_not_applicable",
+                "GitHub push projection is unavailable in explicit fixture mode",
+            )
         if state.adapter == "grok-build":
             _configure_grok_auth(
                 Path(repo_root),
@@ -5422,6 +5945,27 @@ def launch_full_run(
                 launch_env,
                 grant_grok_auth=grant_grok_auth,
             )
+
+        # Never return credential values. Names are strict environment
+        # identifiers and cannot smuggle KEY=VALUE material into state/output.
+        # This snapshot occurs only after both explicit auth routes have added
+        # any derived launch-scoped grant.
+        granted_names = sorted(
+            name
+            for name in state.credential_grant_names
+            if name in launch_env and launch_env[name]
+        )
+        state.credential_granted_names = list(granted_names)
+        state.credential_grant_digests = {
+            name: _credential_grant_digest(state, name, launch_env[name])
+            for name in granted_names
+        }
+        state.credential_grant_lengths = {
+            name: len(launch_env[name]) for name in granted_names
+        }
+        state.credential_grant_metadata_mac = (
+            _credential_grant_metadata_mac(state) if granted_names else None
+        )
 
         # Recheck at the final provider-argv boundary as well as during launch
         # preflight, closing the host-side window while auth/capability probes
@@ -5530,6 +6074,7 @@ def launch_full_run(
             },
             expected_session_id=session_id,
             expected_branch=state.branch,
+            expected_high_risk_checkpoints=state.planned_high_risk_checkpoints,
             repo_root=Path(repo_root),
         )
         save_state(repo_root, state)
@@ -5597,6 +6142,7 @@ def launch_full_run(
         "adapter": state.adapter,
         "credential_grant_names_present": granted_names,
         "grok_auth_strategy": state.grok_auth_strategy,
+        "github_push_auth_strategy": state.github_push_auth_strategy,
         "model_calls_made": state.adapter != "fixture",
         "merge_authority": False,
     }
@@ -5731,6 +6277,7 @@ def _read_events(
     *,
     expected_session_id: str,
     expected_branch: str,
+    expected_high_risk_checkpoints: Sequence[str] | None = None,
     exact_secret_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
     credential_grant_state: FullRunState | None = None,
     shared_oauth_safe_projection: bool = False,
@@ -5748,6 +6295,7 @@ def _read_events(
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
     seen_terminal = False
+    seen_high_risk_checkpoints: set[str] = set()
     try:
         raw = _read_bounded_regular_bytes(
             events_path,
@@ -5814,6 +6362,8 @@ def _read_events(
             expected_session_id=expected_session_id,
             expected_branch=expected_branch,
             seen_terminal=seen_terminal,
+            expected_high_risk_checkpoints=expected_high_risk_checkpoints,
+            seen_high_risk_checkpoints=tuple(seen_high_risk_checkpoints),
             exact_secret_values=exact_secret_values,
             credential_grant_state=credential_grant_state,
         )
@@ -5822,6 +6372,8 @@ def _read_events(
             continue
         if event.get("type") in TERMINAL_EVENT_TYPES:
             seen_terminal = True
+        if event.get("type") == "high_risk_checkpoint":
+            seen_high_risk_checkpoints.add(str(event.get("checkpoint_id")))
         rows.append(
             {
                 key: event[key]
@@ -5841,6 +6393,7 @@ _SHARED_OAUTH_PUBLIC_EVENT_FIELDS: tuple[str, ...] = (
     "head",
     "batch",
     "type",
+    "checkpoint_id",
 )
 
 
@@ -6041,6 +6594,7 @@ def monitor_full_run(
     *,
     session_id: str,
     stale_after_seconds: int = DEFAULT_STALE_SECONDS,
+    acknowledge_high_risk_checkpoint: str | None = None,
 ) -> dict[str, Any]:
     """Classify health using fingerprint + branch head + validated events/report."""
     state = load_state(repo_root, session_id)
@@ -6049,6 +6603,10 @@ def monitor_full_run(
     initial_blocker = state.blocker
     initial_completed_at = state.completed_at
     initial_batch = state.batch
+    initial_pending_checkpoint = state.pending_high_risk_checkpoint
+    initial_acknowledged_checkpoints = tuple(
+        state.acknowledged_high_risk_checkpoints
+    )
     identity_retired = bool(
         state.closed_process_identity
         and state.pid is None
@@ -6062,6 +6620,7 @@ def monitor_full_run(
             root / "events.jsonl",
             expected_session_id=session_id,
             expected_branch=state.branch,
+            expected_high_risk_checkpoints=state.planned_high_risk_checkpoints,
             exact_secret_values=exact_secret_values,
             credential_grant_state=state,
             shared_oauth_safe_projection=(
@@ -6209,6 +6768,7 @@ def monitor_full_run(
 
     last_type = None
     saw_run_complete_event = False
+    observed_high_risk_checkpoints: list[str] = []
     for ev in events:
         last_type = ev.get("type") or last_type
         if ev.get("type") == "batch_started":
@@ -6231,6 +6791,38 @@ def monitor_full_run(
             # Lone run_complete never establishes completion — needs validated report
             # or clean provider exit with feature-branch progress.
             saw_run_complete_event = True
+        if ev.get("type") == "high_risk_checkpoint":
+            observed_high_risk_checkpoints.append(str(ev.get("checkpoint_id")))
+
+    if acknowledge_high_risk_checkpoint is not None:
+        checkpoint_id = str(acknowledge_high_risk_checkpoint)
+        if (
+            event_errors
+            or not _HIGH_RISK_CHECKPOINT_ID_RE.fullmatch(checkpoint_id)
+            or state.pending_high_risk_checkpoint != checkpoint_id
+            or checkpoint_id not in observed_high_risk_checkpoints
+            or checkpoint_id in state.acknowledged_high_risk_checkpoints
+        ):
+            raise ValidationIssue(
+                "full_run_checkpoint_ack_invalid",
+                "Checkpoint acknowledgement must match the exact pending validated event",
+            )
+        state.acknowledged_high_risk_checkpoints = sorted(
+            {*state.acknowledged_high_risk_checkpoints, checkpoint_id}
+        )
+        state.pending_high_risk_checkpoint = None
+
+    unacknowledged_high_risk_checkpoints = [
+        checkpoint_id
+        for checkpoint_id in observed_high_risk_checkpoints
+        if checkpoint_id not in state.acknowledged_high_risk_checkpoints
+    ]
+    if (
+        state.pending_high_risk_checkpoint is not None
+        and state.pending_high_risk_checkpoint
+        not in observed_high_risk_checkpoints
+    ):
+        event_errors.append("pending checkpoint is missing from the event log")
 
     # Report is evidence only after validation. Completion requires a fully
     # evidenced report, exact head/ancestry, and a clean exit accepted only after
@@ -6262,6 +6854,24 @@ def monitor_full_run(
     report_errors.extend(
         _validate_git_bound_evidence(state, report, events, observed_head)
     )
+    missing_high_risk_checkpoints = [
+        checkpoint_id
+        for checkpoint_id in state.planned_high_risk_checkpoints
+        if checkpoint_id not in observed_high_risk_checkpoints
+    ]
+    if (
+        exit_record is not None
+        and state.exit_code == 0
+        and report
+        and report.get("status") == "complete"
+        and missing_high_risk_checkpoints
+    ):
+        # A packet-declared checkpoint is part of the staged execution
+        # contract. A worker cannot bypass the host wake gate by simply omitting
+        # the event and racing directly to a complete report.
+        report_errors.append(
+            "complete run omitted one or more planned high-risk checkpoints"
+        )
 
     # Protected refs: any movement blocks readiness (policy trust, not OS sandbox).
     try:
@@ -6363,6 +6973,29 @@ def monitor_full_run(
             state.status = "pending"
             state.next_action = "launch"
 
+    # Planned checkpoints gate both an active run and a cleanly completed
+    # provider. This closes the race where the worker emits a checkpoint and a
+    # complete report before the driver's next poll. Error, blocker, stale, and
+    # safety outcomes still outrank the checkpoint wake path.
+    if (
+        state.status in {"healthy", "complete"}
+        and unacknowledged_high_risk_checkpoints
+    ):
+        pending = state.pending_high_risk_checkpoint
+        if pending not in unacknowledged_high_risk_checkpoints:
+            pending = unacknowledged_high_risk_checkpoints[0]
+        state.pending_high_risk_checkpoint = pending
+        state.next_action = "driver_wake_high_risk_checkpoint"
+    elif state.status == "complete":
+        state.pending_high_risk_checkpoint = None
+        if (
+            state.next_action == "driver_wake_high_risk_checkpoint"
+            or initial_next_action == "driver_wake_high_risk_checkpoint"
+        ):
+            state.next_action = "final_readiness"
+    elif state.status != "healthy":
+        state.pending_high_risk_checkpoint = None
+
     if exit_record is not None and state.fingerprint is not None:
         _retire_process_identity(
             state,
@@ -6381,7 +7014,15 @@ def monitor_full_run(
         state.completed_at = initial_completed_at
     elif initial_status == "complete" and state.status != "failed":
         state.status = "complete"
-        state.next_action = initial_next_action or "final_readiness"
+        if unacknowledged_high_risk_checkpoints:
+            state.next_action = "driver_wake_high_risk_checkpoint"
+        elif (
+            initial_next_action == "driver_wake_high_risk_checkpoint"
+            and acknowledge_high_risk_checkpoint is not None
+        ):
+            state.next_action = "final_readiness"
+        else:
+            state.next_action = initial_next_action or "final_readiness"
         state.completed_at = initial_completed_at or state.completed_at
 
     # Production finalization path: reconcile git + protected refs when complete.
@@ -6420,9 +7061,14 @@ def monitor_full_run(
         or state.blocker != initial_blocker
         or state.completed_at != initial_completed_at
         or state.batch != initial_batch
+        or state.pending_high_risk_checkpoint != initial_pending_checkpoint
+        or tuple(state.acknowledged_high_risk_checkpoints)
+        != initial_acknowledged_checkpoints
     )
     unchanged_healthy_poll_silent = bool(
-        state.status == "healthy" and not material_state_change
+        state.status == "healthy"
+        and state.next_action == "parked_monitor"
+        and not material_state_change
     )
 
     status = {
@@ -6445,6 +7091,13 @@ def monitor_full_run(
         "chat_update_recommended": material_state_change,
         "unchanged_healthy_poll_silent": unchanged_healthy_poll_silent,
         "wake_conditions": sorted(PARKED_MONITOR_WAKE_CONDITIONS),
+        "planned_high_risk_checkpoints": list(
+            state.planned_high_risk_checkpoints
+        ),
+        "pending_high_risk_checkpoint": state.pending_high_risk_checkpoint,
+        "acknowledged_high_risk_checkpoints": list(
+            state.acknowledged_high_risk_checkpoints
+        ),
         "check_summary": {
             "events": len(events),
             "last_event_type": last_type,
@@ -6458,6 +7111,9 @@ def monitor_full_run(
             "observed_branch": observed_branch,
             "exit_code": state.exit_code,
             "exit_record": bool(exit_record),
+            "high_risk_checkpoints_observed": len(
+                observed_high_risk_checkpoints
+            ),
             "reconcile_ok": (
                 None if reconcile_payload is None else bool(reconcile_payload.get("ok"))
             ),
@@ -6694,6 +7350,7 @@ def stop_full_run(
         },
         expected_session_id=session_id,
         expected_branch=state.branch,
+        expected_high_risk_checkpoints=state.planned_high_risk_checkpoints,
         repo_root=Path(repo_root),
     )
     return {
@@ -6724,6 +7381,7 @@ def logs_full_run(
             root / "events.jsonl",
             expected_session_id=session_id,
             expected_branch=state.branch,
+            expected_high_risk_checkpoints=state.planned_high_risk_checkpoints,
             exact_secret_values=exact_secret_values,
             credential_grant_state=state,
             shared_oauth_safe_projection=(
@@ -6930,6 +7588,7 @@ def reconcile_full_run_with_git(
         full_run_root(repo_root, session_id) / "events.jsonl",
         expected_session_id=session_id,
         expected_branch=state.branch,
+        expected_high_risk_checkpoints=state.planned_high_risk_checkpoints,
         exact_secret_values=exact_secret_values,
         credential_grant_state=state,
         shared_oauth_safe_projection=(
@@ -6938,6 +7597,27 @@ def reconcile_full_run_with_git(
         allow_partial_final=False,
         repo_root=Path(repo_root),
     )
+    observed_high_risk_checkpoints = {
+        str(event.get("checkpoint_id"))
+        for event in events
+        if event.get("type") == "high_risk_checkpoint"
+    }
+    missing_high_risk_checkpoints = set(state.planned_high_risk_checkpoints) - (
+        observed_high_risk_checkpoints
+    )
+    unacknowledged_high_risk_checkpoints = set(
+        state.planned_high_risk_checkpoints
+    ) - set(state.acknowledged_high_risk_checkpoints)
+    if (
+        missing_high_risk_checkpoints
+        or unacknowledged_high_risk_checkpoints
+        or state.pending_high_risk_checkpoint is not None
+    ):
+        raise ValidationIssue(
+            "full_run_checkpoint_incomplete",
+            "Final Git reconciliation requires every planned high-risk checkpoint "
+            "to be emitted and explicitly acknowledged",
+        )
     evidence_errors = event_errors + _validate_git_bound_evidence(
         state, report, events, tip
     )

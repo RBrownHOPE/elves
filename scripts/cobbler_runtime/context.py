@@ -89,9 +89,15 @@ ISOLATION_CONTROL_ENV_NAMES: frozenset[str] = frozenset(
         "TEMP",
         "GROK_HOME",
         "GROK_AUTH_PATH",
+        "GH_CONFIG_DIR",
     }
 )
-ISOLATION_CONTROL_ENV_PREFIXES: tuple[str, ...] = ("XDG_", "ELVES_")
+ISOLATION_CONTROL_ENV_PREFIXES: tuple[str, ...] = (
+    "XDG_",
+    "ELVES_",
+    "GIT_",
+    "SSH_",
+)
 _CREDENTIAL_GRANT_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # Patterns that look like secret values in free text. Matched spans are redacted;
