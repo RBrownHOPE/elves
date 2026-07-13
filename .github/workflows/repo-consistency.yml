@@ -16,15 +16,7 @@ on:
       - ".ai-docs/**"
       - "docs/cobbler.md"
       - "docs/elves/learnings.md"
-      - "scripts/check_repo_consistency.py"
-      - "scripts/install_doctor.py"
-      - "scripts/preflight_worktree.py"
-      - "scripts/pr_portfolio_report.py"
-      - "scripts/release_checklist.py"
-      - "scripts/sync_installed_skills.py"
-      - "scripts/validate_survival_guide.py"
-      - "scripts/elves_landing_check.py"
-      - "scripts/workspace_guard.py"
+      - "scripts/**"
       - "tests/**"
   push:
     branches:
@@ -43,15 +35,7 @@ on:
       - ".ai-docs/**"
       - "docs/cobbler.md"
       - "docs/elves/learnings.md"
-      - "scripts/check_repo_consistency.py"
-      - "scripts/install_doctor.py"
-      - "scripts/preflight_worktree.py"
-      - "scripts/pr_portfolio_report.py"
-      - "scripts/release_checklist.py"
-      - "scripts/sync_installed_skills.py"
-      - "scripts/validate_survival_guide.py"
-      - "scripts/elves_landing_check.py"
-      - "scripts/workspace_guard.py"
+      - "scripts/**"
       - "tests/**"
 
 permissions:
@@ -70,17 +54,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Validate helper scripts
-        run: python3 -m py_compile scripts/check_repo_consistency.py scripts/install_doctor.py scripts/preflight_worktree.py scripts/pr_portfolio_report.py scripts/release_checklist.py scripts/sync_installed_skills.py scripts/validate_survival_guide.py scripts/elves_landing_check.py scripts/workspace_guard.py
+      - name: Canonical repository verification
+        run: python3 scripts/verify_repo.py --skip-smokes
 
-      - name: Run repo consistency checker
-        run: python3 scripts/check_repo_consistency.py
-
-      - name: Run release checklist
-        run: python3 scripts/release_checklist.py --allow-unreleased
-
-      - name: Run helper script regression tests
-        run: python3 -m unittest discover -s tests -p 'test_*.py'
-
-      - name: Run default unittest discovery
-        run: python3 -m unittest discover
+      - name: Installed-bundle smokes (Claude + Codex)
+        run: python3 scripts/installed_bundle_smoke.py --host all

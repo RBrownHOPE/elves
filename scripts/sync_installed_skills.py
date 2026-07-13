@@ -12,6 +12,10 @@ this checkout exactly. Claude Code Cobbler, Cobbler Mode, and Council-compatible
 marker-gated: unmarked user-owned alias skill directories are reported as conflicts and are never
 overwritten.
 When `--target all` is used, the script only operates on installed targets it actually finds.
+
+Runtime shipment rule (v2.1.0+): ship the entire ``scripts/cobbler_runtime/`` package
+recursively plus required top-level helpers (including ``openrouter_lens.py``). Adding a
+new module under the package requires no manual copy-list edit.
 """
 
 from __future__ import annotations
@@ -25,7 +29,9 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-RUNTIME_SCRIPT_PATHS = [
+
+# Top-level helpers that must ship with installed skill bundles.
+TOP_LEVEL_RUNTIME_SCRIPT_PATHS = [
     "scripts/preflight.sh",
     "scripts/preflight_worktree.py",
     "scripts/notify.sh",
@@ -33,25 +39,22 @@ RUNTIME_SCRIPT_PATHS = [
     "scripts/validate_survival_guide.py",
     "scripts/elves_landing_check.py",
     "scripts/cobbler_agents.py",
-    "scripts/cobbler_runtime/__init__.py",
-    "scripts/cobbler_runtime/schema.py",
-    "scripts/cobbler_runtime/config.py",
-    "scripts/cobbler_runtime/capabilities.py",
-    "scripts/cobbler_runtime/adapters.py",
-    "scripts/cobbler_runtime/context.py",
-    "scripts/cobbler_runtime/dispatch.py",
-    "scripts/cobbler_runtime/sessions.py",
-    "scripts/cobbler_runtime/leases.py",
-    "scripts/cobbler_runtime/audit.py",
-    "scripts/cobbler_runtime/setup.py",
+    "scripts/openrouter_lens.py",
 ]
+
+# Entire package is shipped recursively — no per-module allowlist.
+RUNTIME_PACKAGE_PATH = "scripts/cobbler_runtime"
+
 REPO_ONLY_SCRIPT_PATHS = [
     "scripts/check_repo_consistency.py",
     "scripts/release_checklist.py",
     "scripts/pr_portfolio_report.py",
     "scripts/workspace_guard.py",
     "scripts/sync_installed_skills.py",
+    "scripts/verify_repo.py",
+    "scripts/installed_bundle_smoke.py",
 ]
+
 CLAUDE_ALIAS_MARKER = "<!-- elves-managed-alias: claude-skill-alias v1 -->"
 CLAUDE_ALIAS_NAMES = [
     "cobbler",
@@ -63,30 +66,73 @@ CLAUDE_ALIAS_NAMES = [
     "setup-council",
 ]
 
-
-TARGETS = {
-    "claude": {
-        "root": Path.home() / ".claude" / "skills" / "elves",
-        "managed_paths": ["SKILL.md", "config.json.example", "references", *RUNTIME_SCRIPT_PATHS],
-        "cleanup_paths": REPO_ONLY_SCRIPT_PATHS,
-        "alias_root": Path.home() / ".claude" / "skills",
-        "managed_aliases": CLAUDE_ALIAS_NAMES,
-    },
-    "codex": {
-        "root": Path.home() / ".codex" / "skills" / "elves",
-        "managed_paths": [
-            "SKILL.md",
-            "AGENTS.md",
-            "config.json.example",
-            "references",
-            *RUNTIME_SCRIPT_PATHS,
-        ],
-        "cleanup_paths": REPO_ONLY_SCRIPT_PATHS,
-    },
-}
-
 IGNORED_NAMES = {"__pycache__", ".DS_Store"}
 IGNORED_SUFFIXES = {".pyc"}
+
+
+def should_ignore(path: Path) -> bool:
+    return any(part in IGNORED_NAMES for part in path.parts) or path.suffix in IGNORED_SUFFIXES
+
+
+def list_runtime_package_files(repo_root: Path | None = None) -> list[str]:
+    """Return sorted relative paths of all shippable files under cobbler_runtime/."""
+    root = Path(repo_root) if repo_root is not None else REPO_ROOT
+    package = root / RUNTIME_PACKAGE_PATH
+    if not package.is_dir():
+        return []
+    files: list[str] = []
+    for path in sorted(package.rglob("*")):
+        if not path.is_file():
+            continue
+        rel_inside = path.relative_to(package)
+        if should_ignore(rel_inside):
+            continue
+        files.append(path.relative_to(root).as_posix())
+    return files
+
+
+def runtime_managed_paths(repo_root: Path | None = None) -> list[str]:
+    """Managed runtime surfaces: top-level helpers + recursive package directory."""
+    return [*TOP_LEVEL_RUNTIME_SCRIPT_PATHS, RUNTIME_PACKAGE_PATH]
+
+
+# Backward-compatible name used by tests and callers that expect a flat list of
+# managed script-ish paths. The package path is included as a directory entry;
+# individual package files are discoverable via list_runtime_package_files().
+RUNTIME_SCRIPT_PATHS = runtime_managed_paths()
+
+
+def build_targets(repo_root: Path | None = None) -> dict[str, dict]:
+    """Return TARGETS keyed for Claude Code and Codex installs."""
+    managed = runtime_managed_paths(repo_root)
+    return {
+        "claude": {
+            "root": Path.home() / ".claude" / "skills" / "elves",
+            "managed_paths": [
+                "SKILL.md",
+                "config.json.example",
+                "references",
+                *managed,
+            ],
+            "cleanup_paths": REPO_ONLY_SCRIPT_PATHS,
+            "alias_root": Path.home() / ".claude" / "skills",
+            "managed_aliases": CLAUDE_ALIAS_NAMES,
+        },
+        "codex": {
+            "root": Path.home() / ".codex" / "skills" / "elves",
+            "managed_paths": [
+                "SKILL.md",
+                "AGENTS.md",
+                "config.json.example",
+                "references",
+                *managed,
+            ],
+            "cleanup_paths": REPO_ONLY_SCRIPT_PATHS,
+        },
+    }
+
+
+TARGETS = build_targets()
 
 
 def parse_args() -> argparse.Namespace:
@@ -124,7 +170,12 @@ def selected_targets(target_name: str) -> list[str]:
 def read_version(path: Path) -> str | None:
     if not path.exists():
         return None
-    match = re.search(r'^\s*version:\s*"([^"]+)"\s*$', path.read_text(), re.MULTILINE)
+    text = path.read_text(errors="ignore")
+    # AGENTS.md uses top-level frontmatter version; SKILL.md nests under metadata.
+    match = re.search(r'^\s*version:\s*"([^"]+)"\s*$', text, re.MULTILINE)
+    if match:
+        return match.group(1)
+    match = re.search(r'^\s*version:\s*"([^"]+)"\s*$', text, re.MULTILINE)
     return match.group(1) if match else None
 
 
@@ -137,10 +188,6 @@ def sha256(path: Path) -> str:
                 break
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def should_ignore(path: Path) -> bool:
-    return any(part in IGNORED_NAMES for part in path.parts) or path.suffix in IGNORED_SUFFIXES
 
 
 def compare_file(src: Path, dst: Path, rel_path: str) -> list[str]:
@@ -235,6 +282,13 @@ def check_target(name: str) -> tuple[bool, list[str]]:
     for alias_name in TARGETS[name].get("managed_aliases", []):
         problems.extend(compare_alias(alias_name, alias_root / alias_name))
 
+    # Codex must never receive the Claude alias tree under the skill install.
+    if name == "codex":
+        for alias_name in CLAUDE_ALIAS_NAMES:
+            alias_under_skill = root / "aliases" / "claude" / alias_name
+            if alias_under_skill.exists():
+                problems.append(f"unexpected Claude alias under Codex install: {alias_under_skill}")
+
     return not problems, problems
 
 
@@ -283,6 +337,9 @@ def apply_target(name: str) -> list[str]:
 
 def main() -> int:
     args = parse_args()
+    # Do not rebuild TARGETS here: tests (and operators) may monkeypatch REPO_ROOT
+    # and TARGETS roots. Managed paths are already directory-recursive for the package.
+
     repo_version = read_version(REPO_ROOT / "SKILL.md") or "unknown"
     targets = selected_targets(args.target)
     had_drift = False

@@ -335,7 +335,9 @@ def builtin_adapter_names() -> tuple[str, ...]:
 
 
 def get_adapter(name: str) -> StubAdapter:
-    adapter = _BUILTIN.get(name)
+    """Return the built-in adapter. Never silently remaps known names to custom-cli."""
+    key = (name or "").strip().lower()
+    adapter = _BUILTIN.get(key)
     if adapter is None:
         raise ValidationIssue(
             "unknown_adapter",
@@ -344,6 +346,43 @@ def get_adapter(name: str) -> StubAdapter:
             hint=f"Built-in adapters: {', '.join(BUILTIN_ADAPTER_NAMES)}",
         )
     return adapter
+
+
+def resolve_adapter_name(name: str, *, executable: str | None = None) -> str:
+    """Map a requested adapter name to a registry identity.
+
+    Built-in adapters always keep their canonical names and contracts. Only
+    truly unknown names with an explicit executable may fall through to
+    ``custom-cli``.
+    """
+    key = (name or "").strip().lower()
+    if not key:
+        raise ValidationIssue(
+            "unknown_adapter",
+            "Adapter name is required",
+            path="adapters",
+            hint=f"Built-in adapters: {', '.join(BUILTIN_ADAPTER_NAMES)}",
+        )
+    if key in _BUILTIN:
+        return key
+    if key == "custom-cli":
+        return "custom-cli"
+    if executable:
+        return "custom-cli"
+    raise ValidationIssue(
+        "unknown_adapter",
+        f"Unknown adapter `{name}` and no executable provided",
+        path=f"adapters.{name}",
+        hint=f"Built-in adapters: {', '.join(BUILTIN_ADAPTER_NAMES)}",
+    )
+
+
+def adapter_contract_pair(name: str) -> tuple[str, str]:
+    """Canonical input/output contract pair for a built-in or custom adapter."""
+    key = (name or "").strip().lower()
+    if key not in _BUILTIN and key != "custom-cli":
+        key = "custom-cli"
+    return ADAPTER_CONTRACT_PAIRS.get(key, ("json-stdio", "custom-json-envelope"))
 
 
 def default_profiles() -> dict[str, HarnessProfile]:
@@ -558,16 +597,7 @@ def build_readonly_invocation(
     a reviewer that helped plan can keep planning context. Ambiguous tokens
     (latest/continue/last) are rejected.
     """
-    name = adapter.strip().lower()
-    if name not in _BUILTIN and name != "custom-cli":
-        if not executable:
-            raise ValidationIssue(
-                "unknown_adapter",
-                f"Unknown adapter `{adapter}` and no executable provided",
-                path=f"adapters.{adapter}",
-            )
-        name = "custom-cli"
-
+    name = resolve_adapter_name(adapter, executable=executable)
     meta = _BUILTIN.get(name, _BUILTIN["custom-cli"])
     exe = resolve_executable_for_launch(executable or meta.executable_hint)
     extras = tuple(extra_args)

@@ -36,16 +36,25 @@ class SyncInstalledSkillsTests(unittest.TestCase):
 
         version = self.sync.read_version(REPO_ROOT / "SKILL.md")
         self.assertIsNotNone(version)
-        (repo / "SKILL.md").write_text(f'---\nversion: "{version}"\n---\n')
+        (repo / "SKILL.md").write_text(
+            f'---\nmetadata:\n  version: "{version}"\n---\n'
+        )
         (repo / "AGENTS.md").write_text(f'---\nversion: "{version}"\n---\n')
         (repo / "config.json.example").write_text('{"cobbler": {"enabled": true}}\n')
         (repo / "references").mkdir()
         (repo / "references" / "guide.md").write_text("guide\n")
         (repo / "scripts").mkdir()
-        for relative in self.sync.RUNTIME_SCRIPT_PATHS + self.sync.REPO_ONLY_SCRIPT_PATHS:
+        for relative in self.sync.TOP_LEVEL_RUNTIME_SCRIPT_PATHS + self.sync.REPO_ONLY_SCRIPT_PATHS:
             path = repo / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"{relative}\n")
+        # Recursive package shipment: one seed module is enough for apply/check.
+        package = repo / self.sync.RUNTIME_PACKAGE_PATH
+        package.mkdir(parents=True, exist_ok=True)
+        (package / "__init__.py").write_text('"""runtime package."""\n')
+        (package / "schema.py").write_text("SCHEMA = True\n")
+        (package / "nested").mkdir()
+        (package / "nested" / "extra.py").write_text("EXTRA = True\n")
 
         for alias_name in self.sync.CLAUDE_ALIAS_NAMES:
             alias_dir = repo / "aliases" / "claude" / alias_name
@@ -55,31 +64,11 @@ class SyncInstalledSkillsTests(unittest.TestCase):
             )
 
         self.sync.REPO_ROOT = repo
-        self.sync.TARGETS = {
-            "claude": {
-                "root": home / ".claude" / "skills" / "elves",
-                "managed_paths": [
-                    "SKILL.md",
-                    "config.json.example",
-                    "references",
-                    *self.sync.RUNTIME_SCRIPT_PATHS,
-                ],
-                "cleanup_paths": self.sync.REPO_ONLY_SCRIPT_PATHS,
-                "alias_root": home / ".claude" / "skills",
-                "managed_aliases": self.sync.CLAUDE_ALIAS_NAMES,
-            },
-            "codex": {
-                "root": home / ".codex" / "skills" / "elves",
-                "managed_paths": [
-                    "SKILL.md",
-                    "AGENTS.md",
-                    "config.json.example",
-                    "references",
-                    *self.sync.RUNTIME_SCRIPT_PATHS,
-                ],
-                "cleanup_paths": self.sync.REPO_ONLY_SCRIPT_PATHS,
-            },
-        }
+        self.sync.TARGETS = self.sync.build_targets(repo)
+        # Point install roots into the temp home.
+        self.sync.TARGETS["claude"]["root"] = home / ".claude" / "skills" / "elves"
+        self.sync.TARGETS["claude"]["alias_root"] = home / ".claude" / "skills"
+        self.sync.TARGETS["codex"]["root"] = home / ".codex" / "skills" / "elves"
         return repo, home
 
     def test_apply_creates_missing_claude_aliases(self) -> None:
@@ -188,6 +177,35 @@ class SyncInstalledSkillsTests(unittest.TestCase):
 
             self.assertEqual(result, 0)
             self.assertIn("No installed Elves skill copies were detected.", stdout.getvalue())
+
+    def test_recursive_runtime_package_ships_nested_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo, home = self.configure_temp_repo(tmpdir)
+            problems = self.sync.apply_target("claude")
+            self.assertEqual(problems, [])
+            installed = home / ".claude" / "skills" / "elves"
+            self.assertTrue((installed / "scripts" / "cobbler_runtime" / "nested" / "extra.py").is_file())
+            self.assertTrue((installed / "scripts" / "openrouter_lens.py").is_file())
+            # Adding a module under the package requires no allowlist edit.
+            (repo / "scripts" / "cobbler_runtime" / "brand_new.py").write_text("X=1\n")
+            problems = self.sync.apply_target("claude")
+            self.assertEqual(problems, [])
+            self.assertTrue((installed / "scripts" / "cobbler_runtime" / "brand_new.py").is_file())
+
+    def test_exactly_seven_claude_aliases(self) -> None:
+        self.assertEqual(len(self.sync.CLAUDE_ALIAS_NAMES), 7)
+        self.assertEqual(
+            self.sync.CLAUDE_ALIAS_NAMES,
+            [
+                "cobbler",
+                "cobbler-mode",
+                "council",
+                "ec",
+                "elves-council",
+                "setup-cobbler",
+                "setup-council",
+            ],
+        )
 
 
 if __name__ == "__main__":
