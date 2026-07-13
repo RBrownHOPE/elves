@@ -2070,6 +2070,81 @@ class FullRunGrokArgvTests(unittest.TestCase):
         self.assertEqual(fields.get("username"), "x-access-token")
         self.assertEqual(fields.get("password"), "abc")
 
+    def test_isolated_git_identity_is_explicit_and_never_guessed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+            host_home = root / "host-home"
+            host_home.mkdir()
+            parent = {
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "HOME": str(host_home),
+            }
+            state = full_run_module.FullRunState(
+                session_id="git-identity",
+                branch="feat/x",
+                start_head="a" * 40,
+                worktree=str(repo),
+                packet_path="/tmp/packet",
+                supervision_token="b" * 48,
+            )
+            launch_env = {
+                "PATH": parent["PATH"],
+                "HOME": str(root / "worker-home"),
+            }
+            with self.assertRaises(ValidationIssue) as missing:
+                full_run_module._configure_git_commit_identity(
+                    state,
+                    launch_env,
+                    parent_env=parent,
+                )
+            self.assertEqual(
+                missing.exception.code,
+                "full_run_git_identity_unavailable",
+            )
+
+            subprocess.run(
+                ["git", "config", "--global", "user.name", "Bound Canary Author"],
+                env=parent,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "--global", "user.email", "canary@example.invalid"],
+                env=parent,
+                check=True,
+            )
+            full_run_module._configure_git_commit_identity(
+                state,
+                launch_env,
+                parent_env=parent,
+            )
+            self.assertEqual(launch_env["GIT_AUTHOR_NAME"], "Bound Canary Author")
+            self.assertEqual(
+                launch_env["GIT_AUTHOR_EMAIL"],
+                "canary@example.invalid",
+            )
+            self.assertEqual(
+                launch_env["GIT_COMMITTER_NAME"],
+                launch_env["GIT_AUTHOR_NAME"],
+            )
+            self.assertEqual(
+                launch_env["GIT_COMMITTER_EMAIL"],
+                launch_env["GIT_AUTHOR_EMAIL"],
+            )
+            identity = subprocess.run(
+                ["git", "-C", str(repo), "var", "GIT_AUTHOR_IDENT"],
+                env=launch_env,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            self.assertIn(
+                "Bound Canary Author <canary@example.invalid>",
+                identity,
+            )
+
     def test_host_gh_push_projection_persists_only_strategy_and_keyed_metadata_input(
         self,
     ) -> None:

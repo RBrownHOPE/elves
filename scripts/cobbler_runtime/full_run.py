@@ -132,6 +132,7 @@ GROK_AUTH_FILE_NAME = "auth.json"
 GROK_AUTH_PATH_MIN_VERSION = (0, 2, 93)
 MAX_GROK_EXECUTABLE_PROBE_BYTES = 512 * 1024 * 1024
 MAX_GITHUB_TOKEN_BYTES = 64 * 1024
+MAX_GIT_IDENTITY_BYTES = 4096
 _GROK_VERSION_RE = re.compile(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)")
 _GITHUB_PUSH_TOKEN_NAMES = ("GH_TOKEN", "GITHUB_TOKEN")
 _GITHUB_PUSH_AUTH_STRATEGIES = frozenset(
@@ -4119,6 +4120,81 @@ def _origin_push_auth_kind(origin_url: str) -> str:
     return "unsupported"
 
 
+def _read_host_git_identity_value(
+    worktree: Path,
+    key: str,
+    *,
+    parent_env: Mapping[str, str] | None = None,
+) -> str:
+    """Resolve one explicit host Git identity field without allowing guessing."""
+    parent = dict(parent_env if parent_env is not None else os.environ)
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(worktree), "config", "--get", key],
+            env=parent,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValidationIssue(
+            "full_run_git_identity_unavailable",
+            "Cannot resolve an explicit Git commit identity for the isolated worker",
+        ) from exc
+    raw = bytes(result.stdout or b"")
+    value = raw.strip()
+    if (
+        result.returncode != 0
+        or not value
+        or len(raw) > MAX_GIT_IDENTITY_BYTES
+        or any(byte < 32 or byte == 127 for byte in value)
+    ):
+        raise ValidationIssue(
+            "full_run_git_identity_unavailable",
+            "Trusted branch progress requires explicit Git user.name and user.email values",
+            hint="Configure Git user.name and user.email before launching the worker",
+        )
+    try:
+        decoded = value.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValidationIssue(
+            "full_run_git_identity_unavailable",
+            "Configured Git commit identity has an invalid encoding",
+        ) from exc
+    if "<" in decoded or ">" in decoded:
+        raise ValidationIssue(
+            "full_run_git_identity_invalid",
+            "Configured Git commit identity contains forbidden delimiters",
+        )
+    return decoded
+
+
+def _configure_git_commit_identity(
+    state: FullRunState,
+    launch_env: dict[str, str],
+    *,
+    parent_env: Mapping[str, str] | None = None,
+) -> None:
+    """Bind the host's explicit author identity into an otherwise isolated env."""
+    worktree = Path(state.worktree)
+    name = _read_host_git_identity_value(
+        worktree,
+        "user.name",
+        parent_env=parent_env,
+    )
+    email = _read_host_git_identity_value(
+        worktree,
+        "user.email",
+        parent_env=parent_env,
+    )
+    launch_env["GIT_AUTHOR_NAME"] = name
+    launch_env["GIT_AUTHOR_EMAIL"] = email
+    launch_env["GIT_COMMITTER_NAME"] = name
+    launch_env["GIT_COMMITTER_EMAIL"] = email
+
+
 def _read_host_github_token(
     parent_env: Mapping[str, str] | None = None,
 ) -> str:
@@ -5926,6 +6002,11 @@ def launch_full_run(
     proc: subprocess.Popen[bytes] | None = None
     try:
         if state.adapter != "fixture":
+            _configure_git_commit_identity(
+                state,
+                launch_env,
+                parent_env=parent_env,
+            )
             _configure_github_push_auth(
                 state,
                 launch_env,
