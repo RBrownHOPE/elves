@@ -12,9 +12,10 @@ drivers and lenses help when you already have them.
 
 **Current release: v2.1.0.** You write the plan and own the merge decision. The agent does the middle.
 
-**Default (v2.1+): one kickoff** after conceptual agreement — chat to agreement, then one
+**Default (v2.0+): one kickoff** after conceptual agreement — chat to agreement, then one
 **Chat-to-work** or **Chat-to-land** (`chat-to-work` / `chat-to-land`) prompt stages and runs.
-Single kickoff always continues after staging unless you explicitly chose legacy two-call. See
+Single kickoff always continues after staging unless you explicitly chose legacy two-call. v2.1
+adds trusted Grok full-run delegation with a quiet parked driver. See
 [`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md).
 
 Source-checkout helper: `python3 scripts/cobbler_agents.py`. For a global or project-local Claude
@@ -348,9 +349,14 @@ python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --session-id <exact-uuid> --branch <feature-branch> --start-head <sha> \
   --worktree <path> --packet <packet.json>
 
-# 3) Background-launch Grok (or explicit fixture for tests)
+# 3) Background-launch Grok with exactly one explicit auth strategy.
+# Existing Grok subscription/OAuth login (trusted Lane A only): share only canonical auth.json.
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
-  --session-id <exact-uuid>
+  --session-id <exact-uuid> --grant-grok-auth
+
+# API-key alternative (do not combine with --grant-grok-auth):
+# python3 scripts/cobbler_agents.py implement full-run-launch --json \
+#   --session-id <exact-uuid> --grant-env XAI_API_KEY
 
 # 4) Parked monitor (no per-push re-entry)
 python3 scripts/cobbler_agents.py implement full-run-monitor --json \
@@ -365,6 +371,28 @@ python3 scripts/cobbler_agents.py implement full-run-stop --json --session-id <e
 
 `full-run-stop` is an explicit cancellation/recovery command for a live or wedged worker. Do not
 run it after normal completion and do not use it to manufacture a clean exit.
+
+The full-run launcher always assigns private per-run `HOME`, temp/XDG directories, and `GROK_HOME`.
+It fails before spawning Grok unless the host explicitly grants `XAI_API_KEY` by name or opts into
+trusted-Lane-A `--grant-grok-auth`. The OAuth option validates the canonical owner-private host
+`auth.json` and exposes only that file through Grok's native `GROK_AUTH_PATH`; it never inherits the
+rest of `~/.grok`. One canonical file lets Grok's own locking and atomic refresh preserve rotating
+tokens. Credential values and the canonical path never enter status summaries or bounded driver
+output, and raw transcript tails are disabled for shared OAuth because historical token values may
+rotate. Shared OAuth requires Grok Build 0.2.93+ with the native capability marker; unsupported
+builds fail before spawn and must upgrade or use the named API-key route. Prefer that API-key route
+for CI or any lane that is not trusted.
+
+Before shared-OAuth launch, Elves requires and probes an exact native Mach-O/ELF Grok executable in
+an isolated, credential-free environment and binds its full safe ancestor chain through the child
+pre-spawn check. The
+canonical auth path must pass owner, mode, link, full-ancestor, and supported-platform ACL checks;
+any executable replacement or permissive ACL fails closed.
+
+This trusted branch-progress lane is a policy boundary, not same-user privilege separation. Its
+capability-authenticated stop artifact resists malformed JSON, symlink/FIFO tricks, and accidental
+marker forgery; it does not claim to resist a malicious trusted worker that deliberately reads
+host-owned runtime state in violation of the lane contract.
 
 The host creates no per-batch refs while parked. Worker commit SHAs are the internal rollback
 points, and the worker never creates, moves, or pushes refs other than the assigned feature branch.
@@ -706,21 +734,47 @@ for the primary trusted full-run path; `full-run-stop` is cancellation/recovery 
 `prepare|launch|gate|resume-batch|status` is the explicit legacy/bounded-batch path.
 See [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
 
+Hard external council subprocesses require a recursive boundary acquired atomically with the child
+process. The current Python runtime cannot prove that boundary on Linux or macOS—even with a
+bubblewrap PID namespace—so optional routes fall back to the host-native lane and required routes
+block before snapshot creation or spawn. The
+legacy bounded `implement launch --exec` / `resume-batch --exec` convenience has no qualified
+boundary on either supported OS and therefore fails closed before spawn; its default print-only
+argv workflow remains available. This does not disable host-native work or the separate trusted
+full-run route, whose same-user contract promises process-group plus observed-known-descendant
+cleanup, not malicious-worker recursive isolation.
+
 **Optional stricter host-import writer** (advanced lease path — not the default overnight path):
 
 ```bash
 python3 scripts/cobbler_agents.py worker prepare --json \
   --lease-id lease-1 --host-checkout . --worker-checkout /path/to/detached \
   --session-id <exact-child> --base-head <sha> --adapter grok-build \
-  --allowed-path scripts/ --allowed-path tests/
-python3 scripts/cobbler_agents.py worker audit --json --lease-id lease-1
+  --qualification-file /host-private/qualification.json \
+  --allowed-path scripts/ --allowed-path tests/ \
+  --grant-env XAI_API_KEY
+python3 scripts/cobbler_agents.py worker audit --json --lease-id lease-1 \
+  --grant-env XAI_API_KEY
 python3 scripts/cobbler_agents.py worker export --json --lease-id lease-1 \
   --output-dir /tmp/lease-1-patches --host-apply-check
+python3 scripts/cobbler_agents.py worker import --json --lease-id lease-1
+<run the batch's targeted and broad validation commands>
+git commit -m "[<branch> · Batch N/total · Implement] <concrete outcome>"
 python3 scripts/cobbler_agents.py worker refresh --json --lease-id lease-1 --new-tip <host-sha>
 ```
 
-Only one live lease is allowed. Worker detached commits are host-imported only; the host applies
-binary patches with `git apply --check --index` and owns branch commits/push/PR/run-memory.
+The qualification file must be host-issued private evidence for the exact registered session,
+adapter, model/profile, checkout, source HEAD, and observed write capability; a worker-authored
+boolean does not qualify a lease. Only one live lease is allowed. Worker detached commits are
+host-imported only; `worker import` descriptor-reads the manifest and patches once, proves and
+applies those exact retained bytes through Git stdin, validates the imported tree, and leaves branch
+commits/push/PR/run-memory to the host. Do not reopen exported patch paths or use a shell glob as an
+import authority.
+If this advanced path grants a launch-scoped credential, pass its environment variable **name**
+(never `KEY=VALUE`) to both `worker prepare` and `worker audit`, with the same value present in the
+host environment both times. Prepare persists only private random-key HMAC/length authority; audit
+requires the exact name set and value match so an unset or rotated opaque grant cannot escape the
+secret scan. Omit `--grant-env` from both commands for a credential-free lease.
 
 Start with [`references/council-workflow.md`](references/council-workflow.md) for the operating
 model, [`references/council-prompts.md`](references/council-prompts.md) for reusable role and
@@ -790,9 +844,10 @@ Elves prompt inside a goal:
 
 ```text
 /goal The run is staged. Start now.
-Read docs/elves/survival-guide.md first, then `.elves-session.json` if it exists, then
-docs/elves/learnings.md if it exists, then docs/plans/my-plan.md, then the execution log at
-docs/elves/execution-log.md, then `.ai-docs/manifest.md` if it exists.
+Read `.elves-session.json` first and resolve its exact `survival_guide_path`, `learnings_path`,
+`plan_path`, and `execution_log_path`; do not substitute generic filenames. Read the file at
+`<survival_guide_path>` first, then `<learnings_path>` if it exists, then `<plan_path>`, then
+`<execution_log_path>`, then `.ai-docs/manifest.md` if it exists.
 Use the survival guide Stop Gate and Elves Readiness Gate as the definition of completion.
 If the goal budget is exhausted before readiness is clean, write a reactivation handoff, push, and
 do not claim the run is complete.
@@ -1384,13 +1439,20 @@ So v1.19+ hardens both skill surfaces (Claude `SKILL.md` and Codex `AGENTS.md`) 
 Policy in one line: **green CI + `status: complete` is not landable; landable is plan Acceptance with proof.**
 
 Before Final Readiness or merge-on-green / reviewed-PR landing, run the landing check when the
-session JSON exists:
+session JSON exists. Resolve `ELVES_SKILL_ROOT` to the active installed Claude Code or Codex Elves
+bundle, keep the target repository as the working directory, and pass the exact tracked session
+path:
 
 ```bash
-python3 scripts/elves_landing_check.py
-python3 scripts/elves_landing_check.py --plan docs/plans/my-plan.md \
-  --execution-log docs/elves/execution-log.md
+python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" \
+  --session <session-path> --repo-root .
+python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" \
+  --session <session-path> --repo-root . \
+  --plan <plan-path> --evidence-root <evidence-path> --require-evidence-dirs
 ```
+
+The session's `plan_path` is authoritative. An explicit `--plan <plan-path>` is only an equality
+assertion and must match it; do not substitute generic plan, survival-guide, or execution-log paths.
 
 It fails when batches are marked `complete` without plan Acceptance evidence, when plan checkboxes
 are still open, when god-file splits are closed on structure/regex locks alone, or when multi-batch

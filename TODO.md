@@ -37,7 +37,13 @@ Project backlog and deferred tasks.
   `required: true` must be an explicit survival-guide opt-in.
 
 ### Secret redaction layer
-Elves has "don't commit .env files" and "never git add -A" but no automated scanning of what gets sent to LLM prompts. A pre-prompt filter that strips API keys, tokens, and credentials from context before sending to the model would close a real security gap. This is infrastructure, not process — probably belongs as a separate tool or MCP server rather than in the skill itself. Factory AI calls theirs "Droid Shield."
+
+- [x] Redact built-in external model transports before dispatch. Context, OpenRouter, worker
+  evidence, and structured output paths now redact secret-shaped values, sensitive mapping keys,
+  and exact launch-scoped credential values without persisting the credentials themselves.
+- [ ] Investigate host-native UI prompts and arbitrary third-party tools that bypass Elves'
+  transport helpers. Those surfaces cannot honestly be described as covered by the built-in
+  external-lane filter and may require host or MCP-level interception.
 
 ### Codebase context indexing
 The pre-implementation survey (step 5) relies on the agent searching the codebase in real time. For large repos, a pre-computed index of utilities, patterns, conventions, and module boundaries would make the survey faster and more reliable. Could be generated once during planning and updated incrementally per batch. Similar in spirit to Factory AI's "HyperCode" but implemented as a Markdown file the agent reads rather than proprietary tooling.

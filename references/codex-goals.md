@@ -83,9 +83,10 @@ Then start the run with `/goal`:
 
 ```text
 /goal The run is staged. Start now.
-Read docs/elves/survival-guide.md first, then `.elves-session.json` if it exists, then
-docs/elves/learnings.md if it exists, then docs/plans/my-plan.md, then the execution log at
-docs/elves/execution-log.md, then `.ai-docs/manifest.md` if it exists.
+Read `.elves-session.json` first and resolve its exact `survival_guide_path`, `learnings_path`,
+`plan_path`, and `execution_log_path`; do not substitute generic filenames. Read the file at
+`<survival_guide_path>` first, then `<learnings_path>` if it exists, then `<plan_path>`, then
+`<execution_log_path>`, then `.ai-docs/manifest.md` if it exists.
 
 Use the survival guide Stop Gate and Elves Readiness Gate as the definition of completion.
 Do not stop unless the Stop Gate allows it, I explicitly stop you, or you hit a genuine blocker.
@@ -109,11 +110,14 @@ normal launch.
 Codex may decide a goal is complete when the objective appears satisfied. Elves should use a
 stricter definition. The goal is complete only when the Elves Readiness Gate is clean:
 
-- All planned batches are complete or explicitly deferred.
+- Every batch and Acceptance criterion in the authoritative plan is complete with exact session
+  evidence. Scope may be deferred only by deliberately revising and re-approving the plan before
+  completion; a session-only deferral is not completion.
 - Local and preview proof are green on the current tip.
 - PR comments, review threads, issue comments, and checks are handled.
 - The final cumulative review is clean.
-- Strategic forgetting is complete and a reactivation handoff exists if any work remains.
+- Strategic forgetting is complete. A reactivation handoff is a budget checkpoint when work
+  remains, never evidence that the goal is complete.
 - Git status is clean and the branch is pushed.
 
 Progress is not completion. A checkpoint is not completion. A clean goal turn is not completion.

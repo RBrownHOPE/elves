@@ -450,7 +450,11 @@ document-order aliases recorded before completion; never renumber an established
 
 - **Evidence root:** `[path/to/scratch-or-.elves/evidence | unset]`
 - **Required for complete:** when set, each complete batch should have the four gate artifacts above
-- **Landing check:** `python3 scripts/elves_landing_check.py --evidence-root <path> [--require-evidence-dirs]`
+- **Landing check:** resolve `ELVES_SKILL_ROOT` to the active installed Claude Code or Codex Elves
+  bundle, then run `python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session <session-path> --repo-root .`
+  with `--evidence-root <path> [--require-evidence-dirs]` when configured. The session's tracked
+  `plan_path` is authoritative; an explicit `--plan <plan-path>` is only an equality assertion and
+  must match exactly. The repo-relative source-checkout shorthand is for Elves development only.
 
 Do not commit raw gate transcripts into the product PR unless the user asks. They are run evidence,
 not product code.

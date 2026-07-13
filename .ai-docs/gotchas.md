@@ -27,6 +27,15 @@
   token and latency tax delegation is meant to avoid. Route before the loop, create one host-owned
   `b0` launch ref, then use bounded telemetry until terminal/safety wake. Worker commit SHAs are
   internal rollback points; workers never create refs.
+- Isolating HOME also hides Grok's OAuth login. A real full-run must explicitly grant
+  `XAI_API_KEY` or use `--grant-grok-auth`, which keeps private per-run Grok state but points
+  Grok's native `GROK_AUTH_PATH` at the validated canonical owner-private `auth.json`. Do not copy
+  OAuth state: refresh-token rotation can invalidate the host copy and strand the only fresh token.
+  Shared OAuth is trusted-Lane-A-only and requires Grok Build 0.2.93+ with the native capability
+  marker. Require a native Mach-O/ELF artifact, probe and bind its full safe ancestor chain in an
+  isolated credential-free environment, reject scripts, and reject permissive ACLs on either the
+  executable/auth file or any ancestor;
+  stop-artifact authentication is not a hard privilege boundary against that same-user worker.
 - `.elves-session.json` is ignored by default in the repo baseline, but live Elves runs may need to
   force-add it so the branch carries structured session state during the run.
 - Local project installs can quietly shadow global installs. When behavior differs from what the
@@ -92,6 +101,13 @@
 - Setup is optional. Never stage `.elves/models.toml` or paste API keys into TOML/chat/Survival Guide.
   Codex has no top-level `/setup-cobbler` slash — use `$elves setup-cobbler` or natural language.
   OpenRouter/API-only routes are optional read-only breadth unless a wrapper qualifies write/isolation.
+- Process groups, pidfds, ancestry polling, and inherited markers are not recursive containment: a
+  double-forked `setsid` child can escape between scans. A pidfd opened only after asyncio returns
+  the child is also too late to prove atomic generation binding. Hard external council routes
+  therefore fail before snapshot creation or spawn on Linux and Darwin; optional routes fall back
+  native and required routes block. Legacy bounded `--exec` has no qualified boundary on either
+  supported OS and fails before spawn. Trusted full-run remains a separate same-user policy lane
+  and must not be described as malicious-worker recursive containment.
 
 
 ## v2.1.0 full-run note

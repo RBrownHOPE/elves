@@ -15,7 +15,9 @@ return. The exceptions are an explicit merge-on-green opt-in recorded in Run Con
 Reviewed PR Landing Command below. Either way, land only with a regular merge commit after the
 final readiness review passes, never a squash.**
 
-**Default user path (v2.1+): one kickoff. Trusted Grok full-run uses one packet, one exact session, feature-branch `branch_progress`, and a `parked_monitor` driver (the parked-monitor posture).** Prefer **chat-to-work** or **chat-to-land**
+**Default user path (v2.0+): one kickoff. v2.1 adds trusted Grok full-run: one packet, one exact
+session, feature-branch `branch_progress`, and a `parked_monitor` driver (the parked-monitor
+posture).** Prefer **chat-to-work** or **chat-to-land**
 (`references/e2e-chat-to-land.md`): chat to conceptual agreement (optional multi-planner), then one
 prompt plans, stages, and runs batches. Merge only if chat-to-land / explicit merge opt-in;
 otherwise landable PR only.
@@ -251,7 +253,19 @@ native overnight run:
   optional `--model fast|deep`, `--check`) and OpenCode via `--adapter opencode-cli` / labor
   profiles. The host owns packets, protected refs, final gates, PR, and merge. In trusted full-run,
   the worker owns internal batch execution and feature-branch progress while the host stays parked;
-  in the legacy bounded path, the host gates between worker turns. Launch recipe:
+  in the legacy bounded path, the host gates between worker turns. A real Grok launch requires
+  exactly one explicit noninteractive credential path: `--grant-env XAI_API_KEY`, or trusted-Lane-A
+  `--grant-grok-auth`, which keeps isolated per-run Grok state while sharing only the validated
+  canonical owner-private OAuth `auth.json` through Grok's native `GROK_AUTH_PATH`. Shared OAuth
+  probes and binds one exact native Mach-O/ELF Grok executable plus its full ancestor chain in a
+  credential-free environment and rejects unsafe
+  auth ancestors or supported-platform ACLs before spawn. Hard external
+  routes require a recursive boundary acquired atomically with the child. The current Python
+  runtime cannot prove that boundary on Linux or macOS, so optional routes fall back host-native
+  and required routes block before snapshot creation or spawn. Legacy
+  bounded `--exec` has no qualified boundary on either supported OS and fails before spawn; its
+  default print-only argv workflow and the separate trusted full-run same-user lane remain
+  available. Launch recipe:
   `references/grok-implementer-launch-prompt.md`.
 - **Math domain tools** — OpenRouter math role presets; Google **AlphaEvolve** as optional
   `evolutionary_search` when a project runner + deterministic local evaluator exist
@@ -1037,7 +1051,12 @@ The **Completion Contract** governs individual batches. The **Readiness Gate** g
 3. **Preview proof is green on the current tip** (if deployed behavior was touched).
 4. **Artifact inspection done** for any export/download behavior changes.
 5. **Plan Acceptance with proof.** Every planned batch has `status: complete` and non-empty `acceptance` with `met: true` + evidence. Walk plan Acceptance checkboxes; god-file batches need LOC/facade proof, not structure locks alone.
-6. **Landing check clean.** Run `python3 scripts/elves_landing_check.py` when available; failures block review-ready and merge-on-green / reviewed-PR landing.
+6. **Landing check clean.** Resolve `ELVES_SKILL_ROOT` to the active installed Claude Code or Codex
+   Elves bundle and run `python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session
+   <session-path> --repo-root .`. The session's tracked `plan_path` is authoritative; an explicit
+   `--plan <plan-path>` is only an equality assertion and must match exactly. Failures block
+   review-ready and merge-on-green / reviewed-PR landing. A repo-relative source-checkout shorthand
+   is not the installed-run contract.
 7. **Final cumulative review is clean.** A fresh review subagent, if supported, has reviewed `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, and every PR comment and check (resolved and unresolved), and has run every test that makes sense. If subagents are unavailable, do this review directly. Fix blockers, push, and repeat until clean.
 8. **PR comments and checks have been polled.** No unresolved threads, no failing checks.
 9. **Legality check is clean.** If a constitution exists, no unresolved FAIL verdicts.

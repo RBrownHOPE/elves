@@ -56,7 +56,7 @@ python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --effort medium --max-turns 80
 
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
-  --session-id <exact-uuid>
+  --session-id <exact-uuid> --grant-grok-auth
 
 python3 scripts/cobbler_agents.py implement full-run-monitor --json \
   --session-id <exact-uuid>
@@ -75,14 +75,34 @@ points. Grok never creates, moves, or pushes refs other than its assigned featur
 `full-run-stop` explicitly cancels or recovers a live/wedged worker. It is not a normal close step,
 does not prove completion, and must not be used after a successful worker exit.
 
+Choose exactly one noninteractive auth strategy at launch. `--grant-grok-auth` is the explicit
+trusted-Lane-A subscription/OAuth path: Elves keeps private per-run `HOME`/`GROK_HOME` state and
+exposes only the validated canonical owner-private host `auth.json` through Grok's native
+`GROK_AUTH_PATH`. One canonical file preserves Grok's lock and refresh-token rotation semantics;
+raw transcript tails are disabled for this route. For API-key use, replace that flag with
+`--grant-env XAI_API_KEY`, which is preferred for CI or untrusted lanes. Never combine the routes,
+grant `GROK_HOME`, or inherit the host HOME; a launch without either supported strategy fails before
+Grok can enter an unattended device-login wait. Shared OAuth requires Grok Build 0.2.93+ with its
+native capability marker; unsupported binaries fail before spawn and must upgrade or use the
+API-key route.
+
+Before spawn, Elves probes and binds an exact native Mach-O/ELF Grok executable plus its full safe
+ancestor chain in an isolated credential-free environment, then validates the auth file plus its
+full owner/mode/link/ACL
+ancestor chain. Replacement or permissive ACLs fail closed.
+
+The stop capability hardens the runtime artifact channel against malformed/forged leaves inside a
+trusted branch-progress route. It is not a same-user security boundary against a malicious worker;
+the worker remains constrained by the trusted-lane contract and final host audit.
+
 After `full-run-launch` returns healthy, the driver parks. Prefer a host wait/monitor primitive;
 otherwise use the monitor response's `poll_after_seconds` (half the stale window, bounded to 60–300
 seconds). `chat_update_recommended: false` with `unchanged_healthy_poll_silent: true` means exactly
 that: emit no chat, do not read raw output, and do not re-enter reasoning. The response exposes
 `user_heartbeat_seconds` (default 900); the host owns coalescing nonterminal progress into at most one
 1–3 sentence update in that window. Wake immediately only for blocked/stale/failed state, a safety
-tripwire, explicit user input, or actual worker exit. Raw transcripts remain private unless
-explicitly requested.
+tripwire, an explicitly planned high-risk checkpoint, explicit user input, or actual worker exit.
+Raw transcripts remain private unless explicitly requested.
 
 Legacy bounded-batch path (use only when the user selected a bounded task or legacy batch resume):
 
@@ -92,7 +112,8 @@ python3 scripts/cobbler_agents.py implement prepare \
 
 python3 scripts/cobbler_agents.py implement launch \
   --session-id <uuid> --packet .elves/runtime/packets/batch-1.md --cwd <worktree>
-# prints exact grok argv (default). Add --exec only when the host should spawn.
+# Prints exact Grok argv. Current supported OSes have no qualified recursive
+# boundary for legacy --exec, so that option fails closed before spawn.
 
 python3 scripts/cobbler_agents.py implement gate --batch 1
 
@@ -199,8 +220,12 @@ A full-run packet must stand alone after compaction and include:
 7. **validation commands** — focused + full suite the implementer must run
 8. **commit subject prefix** — e.g. `[feat/… · Batch N/M · Implement] …`
 9. **stop conditions** — when to stop and what to write back
-10. **events/report identity and paths** — the versioned `ELVES_FULL_RUN_EVENTS`,
-    `ELVES_FULL_RUN_REPORT`, `ELVES_FULL_RUN_RUN_ID`, and `ELVES_FULL_RUN_ATTEMPT` contract below
+10. **events/report identity, paths, and exact schema** — the versioned `ELVES_FULL_RUN_EVENTS`,
+    `ELVES_FULL_RUN_REPORT`, `ELVES_FULL_RUN_RUN_ID`, and `ELVES_FULL_RUN_ATTEMPT` contract below.
+    Embed the required event fields/types and report row shapes in the self-contained packet (or a
+    machine-equivalent schema); shorthand such as “write valid events/report” is not sufficient for
+    unattended completion and can force an otherwise healthy parked driver to wake on malformed
+    evidence.
 
 Store packets under `.elves/runtime/packets/` (ignored runtime tree). Prefer absolute `--prompt-file`
 paths when the process CWD is not the host runtime directory.
@@ -342,6 +367,7 @@ described above. Host still owns protected refs, merge, and final readiness.
 | Staging | plan, PR, worktree, host-created `b0` rollback ref, prepare metadata, write packet |
 | During run | park; wait or poll at `poll_after_seconds`; stay silent on unchanged health; host-coalesce nonterminal updates using `user_heartbeat_seconds` |
 | Safety wake | handle blocked/stale/failed state or a safety tripwire |
+| Planned high-risk checkpoint | wake only when the staged behavior policy explicitly names the checkpoint; evaluate it once, then re-park if healthy |
 | Worker exit | verify report, feature-branch ancestry, actual exit, and protected refs |
 | Final | independent cumulative readiness; merge only if authorized |
 

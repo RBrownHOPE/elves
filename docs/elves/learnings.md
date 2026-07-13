@@ -136,6 +136,24 @@ silently deleting it.
   `full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`. `full-run-stop` is cancellation
   or recovery only. Keep `prepare|launch|gate|resume-batch|status` as the legacy bounded route and
   use `untrusted` host-import leases only when the hard writer boundary is required.
+- [2026-07-13] An isolated headless Grok process cannot inherit an interactive subscription login
+  accidentally. Require exactly one explicit strategy before spawn: grant `XAI_API_KEY` by name, or
+  for trusted Lane A keep the run's private `GROK_HOME` while exposing only the validated canonical
+  owner-private `auth.json` through native `GROK_AUTH_PATH`. Never copy OAuth state: Grok may rotate
+  the refresh token, invalidating the host copy and deleting the only fresh authority on cleanup.
+  Shared OAuth remains credential minimization for a trusted same-user lane, not a privilege
+  boundary; disable raw tails because historical token values may rotate. Probe and bind an exact
+  native Mach-O/ELF executable plus every safe ancestor without host credentials, and validate every
+  open auth-path ancestor including native
+  ACLs; mode bits alone do not prove owner-private access on macOS.
+- [2026-07-13] Do not claim hard recursive subprocess cleanup from process groups, pidfds, ancestry
+  polling, or environment markers. A child can double-fork, call `setsid`, scrub its environment,
+  and escape between scans. A pidfd opened only after an asyncio child is returned is not an atomic
+  generation binding either. Until a boundary is acquired atomically with spawn, hard external
+  council lanes fail before snapshot creation or spawn on Linux and Darwin; optional routes fall
+  back native and required routes block. Legacy bounded
+  `--exec` has no qualified boundary on either supported OS and must fail before spawn. Keep the
+  trusted same-user full-run lane separate and describe its cleanup boundary honestly.
 - [2026-04-11] Elves is intentionally lightweight. Borrow architectural ideas from richer systems,
   but avoid pulling in hydration, skeleton generation, or opaque automation unless the repo
   genuinely needs them.

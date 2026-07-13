@@ -94,9 +94,12 @@ Then set `requested_model` on each profile to the high-quality vs volume model y
 exposes. Same idea works when the **host** is Claude Code (`host-native` implement) and only
 review uses an external high model.
 
-## Recipe: Grok-only (experimental write; verified isolation rules)
+## Recipe: Advanced untrusted Grok writer lease
 
-- implement: `grok-build` under a **writer lease** with detached registered worktree
+- Use this only when the run explicitly selects the stricter host-import lease. For ordinary
+  optional Grok labor, prefer the trusted full-run / parked-driver recipe later in this guide.
+- implement: `grok-build` under an **untrusted writer lease** with a detached registered worktree;
+  the host audits and imports exact retained patch bytes, then owns validation, commit, and push
 - review/planning: `host-native` or other independent lens
 - Never use headless `--worktree --resume` as isolation on Grok Build `0.2.93`
 - Sandbox: prefer `devbox` for detached commit handoff; `workspace` is not assumed commit-capable
@@ -287,7 +290,7 @@ python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --worktree <path> --packet <packet.json> --adapter grok-build
 
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
-  --session-id <exact-uuid>
+  --session-id <exact-uuid> --grant-grok-auth
 
 python3 scripts/cobbler_agents.py implement full-run-monitor --json \
   --session-id <exact-uuid>
@@ -305,6 +308,29 @@ The host creates no per-batch refs while parked; worker commit SHAs are internal
 Wake for terminal/safety conditions or actual exit, then perform one cumulative review.
 `full-run-stop` is only for explicit cancellation or recovery of a live/wedged worker; it is not a
 normal completion or close command.
+
+`--grant-grok-auth` explicitly reuses a local Grok subscription login in trusted Lane A. The run
+keeps isolated `HOME`/`GROK_HOME` state and exposes only the validated canonical owner-private
+`auth.json` through Grok's native `GROK_AUTH_PATH`, so native locking and refresh-token rotation
+operate on one file. Raw transcript tails are disabled for this route. API-key users should replace
+it with `--grant-env XAI_API_KEY`; prefer that route for CI or untrusted lanes. Shared OAuth
+requires Grok Build 0.2.93+ with the native capability marker; older or unsupported binaries fail
+before spawn and must upgrade or use the API-key route. The strategies are mutually exclusive, and
+no supported auth means launch fails before any provider process starts.
+
+The capability probe requires an exact native Mach-O/ELF Grok executable, runs it in an isolated
+credential-free environment, binds its full safe ancestor chain through child pre-spawn, and
+rejects replacement or scripts. The canonical
+auth file and every ancestor must also pass owner, mode, link, and supported-platform ACL checks.
+
+Hard external subprocess lanes require a recursive boundary acquired atomically with the child.
+The current Python runtime cannot prove that boundary on Linux or macOS—even with bubblewrap—so
+optional external routes fall back to the host-native lane and required routes block before
+snapshot creation or spawn. Legacy bounded `launch --exec` and
+`resume-batch --exec` have no qualified boundary on either supported OS and fail before spawn; use
+their default print-only argv workflow or the separate trusted full-run route. Trusted full-run
+remains an explicit same-user policy boundary and does not claim malicious-worker recursive
+containment.
 
 ### Legacy bounded lifecycle (Grok or OpenCode)
 
@@ -329,7 +355,8 @@ python3 scripts/cobbler_agents.py implement prepare --json \
   --model openrouter/qwen/qwen3-max \
   --executable opencode
 
-# Host prints argv (add --exec to spawn from Claude Code / Codex):
+# Host prints argv. Legacy --exec currently fails closed before spawn because
+# neither supported OS has a qualified recursive boundary for this direct path:
 python3 scripts/cobbler_agents.py implement launch --json \
   --packet .elves/runtime/packets/batch-N.md \
   --session-id <exact-id-if-known>

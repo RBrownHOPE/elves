@@ -47,6 +47,11 @@
   Repo-only maintenance helpers stay in the checkout.
 - Local `.elves/models.toml` is ignored checkout preference; track only
   `references/models.toml.example` as the schema. Never stage credentials or personal paths.
+- Trusted Grok full-run assigns private HOME/XDG/temp and `GROK_HOME`. Require exactly one explicit
+  auth route at launch: named `XAI_API_KEY`, or `--grant-grok-auth`, which exposes only the
+  validated canonical owner-private `auth.json` through Grok's native `GROK_AUTH_PATH`. Never
+  inherit or copy the whole host Grok home. Shared OAuth is trusted-Lane-A-only and disables raw
+  transcript tails because historical values may rotate.
 - Startup installation/update checks must stay advisory-only. They may alert the user, but they
   must never block a run or auto-update the installed skill.
 - When you add a cross-file behavioral concept, pin it with a `*_PHRASES` map in

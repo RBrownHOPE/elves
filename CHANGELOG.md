@@ -29,8 +29,20 @@ Grok Build stays optional and explicit.
   terminal review while the Claude Code or Codex driver remains quietly parked: unchanged health is
   silent and nonterminal updates are host-coalesced
 - Digest-keyed private session/lease storage, locks, write qualification fail-closed
-- Disposable tracked-source isolation, minimal implement env grants, process-group cleanup
-- Export only from `AUDITED_PASS` with hashed manifests and cumulative apply-check
+- Disposable tracked-source isolation, minimal implement env grants, generation-bound signaling,
+  pre-snapshot/pre-spawn fallback or blocking for hard external routes on Linux and Darwin where
+  the runtime cannot acquire recursive authority atomically, plus fail-closed legacy bounded
+  `--exec` where recursive absence cannot be proven
+- Explicit headless Grok authentication: named `XAI_API_KEY` grants or trusted-Lane-A
+  `--grant-grok-auth`, which combines isolated per-run Grok state with one validated canonical
+  owner-private OAuth file through native `GROK_AUTH_PATH`, preserving rotating refresh tokens;
+  the exact native Mach-O/ELF Grok artifact and its safe ancestor chain are probed credential-free
+  and bound through spawn, while full-ancestor owner/mode/link/ACL validation fails closed
+- Export only from `AUDITED_PASS`, with bound Git config/ref/index/object authority, sealed
+  per-commit patch transport digests, and post-audit refs/remotes/config/hooks revalidation;
+  public `worker import` descriptor-reads the retained bundle, proves its final tree in a disposable
+  checkout, and applies those same bytes to the clean host before host-owned validation,
+  commit, and push, while exact prepare/audit HMACs protect named credential grants
 - Delegated feature-branch Git contract with a narrow verified descendant-progress collision
   exception; host-owned `bN` refs for bounded routes and one `b0` launch ref plus worker commit SHAs
   for trusted parked full-run rollback
@@ -42,7 +54,8 @@ Grok Build stays optional and explicit.
 - Preflight evidence reuse keyed by HEAD/config; final readiness never cache-only
 - Evidence-aware focused review selection with high-risk escalation
 - Public-API snapshot compatibility gate with cycle-safe literal-helper exit resolution and a
-  tracked, release-scoped approval manifest for intentional contract changes
+  tracked, release-scoped approval manifest for intentional contract changes; CI path filters
+  include that approval manifest on both pull requests and pushes to `main`
 
 ### Documentation and release
 

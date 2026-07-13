@@ -44,8 +44,11 @@ managed inside the Elves run, not a separate Council or Cobbler memory system.
   wake classification
 - `delegated_git.py` / `isolation.py`: trusted feature-branch reconciliation and shared
   environment/process/path isolation rules
-- `leases.py`: exclusive one-writer lease, worker preflight, write packets, refresh-after-import
-- `audit.py`: pre/post refs/path/process audit, binary format-patch export, host `git apply --check`
+- `leases.py`: exclusive one-writer lease, worker preflight, host-issued write packets, and
+  refresh-after-import
+- `audit.py`: descriptor-bound Git config/ref/index/object audit, sealed binary format-patch export,
+  descriptor-verified retained-byte import, disposable final-tree proof, and clean-host
+  `git apply --check --index`
 - `evidence_review.py` / `public_api_snapshot.py`: independent evidence assessment and versioned
   public-contract regression snapshots
 - `onboard.py` / `setup.py` / `executables.py`: model onboarding, effective setup, and executable
@@ -55,13 +58,29 @@ managed inside the Elves run, not a separate Council or Cobbler memory system.
 The thin CLI is `scripts/cobbler_agents.py` (`validate-config`, `doctor`, `council`,
 `lightweight-review`, `session …`, trusted
 `implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop`, and untrusted
-`worker prepare|audit|export|refresh`). Private runtime state belongs under ignored
+`worker prepare|packet|audit|export|import|refresh`). Private runtime state belongs under ignored
 `.elves/runtime/` (`council/`, `sessions/`, `leases/`, `implement/full-run/`). A trusted Grok
 full-run may create and push feature-branch progress while the host retains protected refs, PR,
 run-memory, cumulative review, and merge. Its host creates one `b0` rollback ref before handoff,
 then parks until a terminal/safety wake; worker commit SHAs are internal rollback points.
+Real Grok launch always uses a private per-run `GROK_HOME` and exactly one explicit auth route:
+named `XAI_API_KEY`, or the validated canonical owner-private OAuth file through Grok's native
+`GROK_AUTH_PATH`. Keeping one canonical file lets Grok's own lock and atomic refresh preserve
+rotating tokens. The OAuth route is trusted-Lane-A-only; the worker and host share an OS user, so
+this is credential minimization and artifact hardening, not malicious-worker privilege separation.
+The launcher resolves and probes one exact native Mach-O/ELF Grok artifact plus its full safe
+ancestor chain in a credential-free environment, carries those identities into the child pre-spawn
+check, and validates the canonical file through a bound
+full-ancestor descriptor walk including supported-platform ACLs.
 Detached worker commits belong to the separate untrusted lease path: the host creates branch
 commits and pushes only after binary patch audit/import.
+Hard external subprocess lanes require a recursive boundary acquired atomically with the child.
+The current Python runtime cannot prove that boundary on Linux or Darwin—even when Linux has a
+bubblewrap PID namespace—so optional routes fall back host-native and required routes block before
+snapshot creation or spawn. The legacy bounded `--exec` convenience has no
+qualified boundary on either supported OS and fails before spawn. Its print-only argv workflow and
+the separate trusted full-run route remain available; the latter operates under an explicit
+same-user policy boundary and does not claim malicious-worker recursive containment.
 
 The survival guide remains the home for live run control, checkpoint semantics, active compute, next exact batch, and operator constraints; the Cobbler session state extends that live layer.
 

@@ -25,7 +25,8 @@ final readiness review passes, never a squash.**
 
 **This skill is scaffolding.** It gives you a framework: the loop, the documents, the gates. But every project is different. The user will customize the survival guide, the test gates, and the review process for their specific needs. Follow the framework, but adapt to what the project actually requires.
 
-**Default user path (v2.1+): one kickoff. Trusted Grok full-run uses one packet, one exact session, feature-branch `branch_progress`, and a `parked_monitor` driver.** Prefer **chat-to-work** or **chat-to-land**
+**Default user path (v2.0+): one kickoff. v2.1 adds trusted Grok full-run: one packet, one exact
+session, feature-branch `branch_progress`, and a `parked_monitor` driver.** Prefer **chat-to-work** or **chat-to-land**
 ([`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md)): the user chats to conceptual
 agreement (optionally with multi-planner lenses), then one prompt covers plan + stage + full batch
 loop. Merge only if they chose chat-to-land / merge opt-in; otherwise leave a landable PR.
@@ -283,7 +284,19 @@ native overnight run:
   optional `--model fast|deep`, `--check`) and OpenCode via `--adapter opencode-cli` / labor
   profiles. The host owns packets, protected refs, final gates, PR, and merge. In trusted full-run,
   the worker owns internal batch execution and feature-branch progress while the host stays parked;
-  in the legacy bounded path, the host gates between worker turns. Launch recipe:
+  in the legacy bounded path, the host gates between worker turns. A real Grok launch requires
+  exactly one explicit noninteractive credential path: `--grant-env XAI_API_KEY`, or trusted-Lane-A
+  `--grant-grok-auth`, which keeps isolated per-run Grok state while sharing only the validated
+  canonical owner-private OAuth `auth.json` through Grok's native `GROK_AUTH_PATH`. Shared OAuth
+  probes and binds one exact native Mach-O/ELF Grok executable plus its full ancestor chain in a
+  credential-free environment and rejects unsafe
+  auth ancestors or supported-platform ACLs before spawn. Hard external
+  routes require a recursive boundary acquired atomically with the child. The current Python
+  runtime cannot prove that boundary on Linux or macOS, so optional routes fall back host-native
+  and required routes block before snapshot creation or spawn. Legacy
+  bounded `--exec` has no qualified boundary on either supported OS and fails before spawn; its
+  default print-only argv workflow and the separate trusted full-run same-user lane remain
+  available. Launch recipe:
   `references/grok-implementer-launch-prompt.md`.
 - **Math domain tools** — OpenRouter math role presets; Google **AlphaEvolve** as optional
   `evolutionary_search` when a project runner + deterministic local evaluator exist
@@ -1378,7 +1391,12 @@ Rules:
   `M-An`) and persist the mapping before claiming completion.
 - Evidence must speak to the plan Acceptance criterion (LOC, facade, behavior), not only "tests green."
 - Gate transcripts (typecheck/lint/test/build) should be captured under the run's evidence/SCRATCH dir when configured: `{evidence-root}/batch-N/{typecheck|lint|test|build}` (or `.log` / `.txt` suffixes).
-- Run `python3 scripts/elves_landing_check.py` before Final Readiness / landing when the script is available. Treat failures as blockers.
+- Resolve `ELVES_SKILL_ROOT` to the active installed Claude Code or Codex Elves bundle, then run
+  `python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session <session-path> --repo-root .`
+  before Final Readiness / landing. The session's tracked `plan_path` is authoritative; an explicit
+  `--plan <plan-path>` is only an equality assertion and must match exactly. Treat failures as
+  blockers. A source-checkout shorthand is for Elves development only, never the installed-run
+  contract.
 
 Every batch must be tight before you move on. The next batch builds on this one. If this one is shaky, everything after it is shaky. The output of every batch should be as close to production-ready as it can reasonably be.
 
@@ -1467,7 +1485,13 @@ Do not call a branch review-ready unless ALL of the following are true:
 3. **Preview proof is green on the current tip** (if deployed behavior was touched). Re-verify after every push that changes deployed code.
 4. **Artifact inspection done** for any export/download behavior changes. The actual output was inspected, not just the success status.
 5. **Plan Acceptance with proof.** Every planned batch 1–N has `status: complete` **and** a non-empty `acceptance` array with each item `met: true` and non-empty `evidence`. Walk plan Acceptance checkboxes; none may remain open unless a hard-stop note documents the miss. God-file / split batches must not be completed on structure/regex locks alone.
-6. **Landing check clean.** When available, run `python3 scripts/elves_landing_check.py` (optionally with `--plan`, `--execution-log`, and `--evidence-root`). Failures are blockers for review-ready and for merge-on-green / reviewed-PR landing.
+6. **Landing check clean.** Resolve `ELVES_SKILL_ROOT` to the active installed Claude Code or Codex
+   Elves bundle and run `python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session
+   <session-path> --repo-root .` (optionally with an exact matching `--plan <plan-path>` and the
+   session's evidence options). The session's tracked `plan_path` is authoritative; `--plan` is an
+   equality assertion, not a substitute. Failures block review-ready and merge-on-green /
+   reviewed-PR landing. A repo-relative source-checkout shorthand is not the installed-run
+   contract.
 7. **Final cumulative review is clean.** A fresh review subagent, if supported by the platform, has reviewed `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, and every PR comment and check (resolved and unresolved), and has run every test that makes sense. If subagents are unavailable, do this review directly. Fix blockers, push, and repeat until the cumulative review is clean.
 8. **PR comments and checks have been polled.** No unresolved threads, no unreplied bot comments, no failing checks.
 9. **Legality check is clean.** If a constitution exists, the judge has run on the final tip with no unresolved FAIL verdicts. WARN findings are documented with reasoning.
