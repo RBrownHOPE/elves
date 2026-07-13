@@ -20,6 +20,7 @@ if str(SCRIPTS) not in sys.path:
 from cobbler_runtime.public_api_snapshot import (  # noqa: E402
     ApiSnapshot,
     DEFAULT_BASELINE,
+    DEFAULT_CURRENT,
     SurfaceEntry,
     _snapshot_completeness_issues,
     capture_snapshot,
@@ -266,6 +267,78 @@ class PublicApiSnapshotRegressionTests(unittest.TestCase):
             self.assertNotIn("Bearer abcdefghijklmnop", rendered)
             self.assertIn("[REDACTED:exact_grant]", rendered)
             self.assertIn("[REDACTED:bearer_token]", rendered)
+
+    def test_secret_shaped_openapi_route_name_is_redacted_before_persistence(self) -> None:
+        secret = "xai-" + ("A" * 20)
+        contract = {
+            "openapi": "3.1.0",
+            "info": {"title": "Fixture", "version": "1"},
+            "paths": {
+                f"/runs/{secret}": {
+                    "get": {"responses": {"200": {"description": "ok"}}}
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "openapi.json").write_text(
+                json.dumps(contract),
+                encoding="utf-8",
+            )
+
+            snapshot = capture_snapshot(root)
+            rendered = json.dumps(snapshot.to_dict(), sort_keys=True)
+            current = write_snapshot(root / DEFAULT_CURRENT, snapshot)
+            persisted = current.read_text(encoding="utf-8")
+
+            self.assertEqual(snapshot.status, "captured", snapshot.reason)
+            self.assertNotIn(secret, rendered)
+            self.assertNotIn(secret, persisted)
+            self.assertIn("[REDACTED:xai_token]", rendered)
+            self.assertIn("[REDACTED:xai_token]", persisted)
+
+    def test_redacted_entry_identity_collision_degrades_and_omits_colliders(self) -> None:
+        first_secret = "xai-" + ("A" * 20)
+        second_secret = "xai-" + ("B" * 20)
+        paths = {
+            f"/runs/{first_secret}": {
+                "get": {"responses": {"200": {"description": "first"}}}
+            },
+            f"/runs/{second_secret}": {
+                "get": {"responses": {"200": {"description": "second"}}}
+            },
+        }
+        contract = {
+            "openapi": "3.1.0",
+            "info": {"title": "Fixture", "version": "1"},
+            "paths": paths,
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            path = root / "openapi.json"
+            path.write_text(json.dumps(contract), encoding="utf-8")
+
+            snapshot = capture_snapshot(root)
+            rendered = json.dumps(snapshot.to_dict(), sort_keys=True)
+
+            self.assertEqual(snapshot.status, "degraded")
+            self.assertIn(
+                "public surface identity collision after redaction",
+                snapshot.reason or "",
+            )
+            self.assertEqual(snapshot.entries, [])
+            self.assertNotIn(first_secret, rendered)
+            self.assertNotIn(second_secret, rendered)
+            self.assertIn("[REDACTED:xai_token]", rendered)
+
+            contract["paths"] = dict(reversed(list(paths.items())))
+            path.write_text(json.dumps(contract), encoding="utf-8")
+            repeated = capture_snapshot(root)
+            self.assertEqual(repeated.reason, snapshot.reason)
+            self.assertEqual(
+                [entry.to_dict() for entry in repeated.entries],
+                [entry.to_dict() for entry in snapshot.entries],
+            )
 
     def test_cli_snapshot_includes_hierarchy_options_defaults_output_and_exit(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

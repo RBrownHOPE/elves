@@ -9,6 +9,7 @@ skipped and required routes block.
 
 from __future__ import annotations
 
+import errno
 import fnmatch
 import hashlib
 import os
@@ -24,6 +25,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterator, Mapping, Sequence
 
+from .context import validate_credential_grant_names
 from .schema import ValidationIssue
 
 
@@ -375,7 +377,11 @@ def _remove_tree_strict(root: Path) -> None:
         )
 
 
-def _tracked_regular_file(repo_root: Path, rel: str) -> Path | None:
+def _open_tracked_regular_fd(
+    repo_root: Path,
+    rel: str,
+) -> tuple[int, os.stat_result] | None:
+    """Open a tracked file beneath a repo fd without following any component."""
     posix = PurePosixPath(rel)
     if not rel or posix.is_absolute() or ".." in posix.parts:
         raise ValidationIssue(
@@ -384,45 +390,83 @@ def _tracked_regular_file(repo_root: Path, rel: str) -> Path | None:
             path=str(repo_root),
         )
     src = repo_root.joinpath(*posix.parts)
-    cursor = repo_root
-    for part in posix.parts:
-        cursor = cursor / part
-        if cursor.is_symlink():
-            raise ValidationIssue(
-                "isolation_tracked_symlink",
-                f"Tracked symlinks are not admitted to external snapshots: {rel}",
-                path=str(src),
-            )
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptors: list[int] = []
+    source_fd: int | None = None
     try:
-        resolved = src.resolve(strict=True)
+        current = os.open(repo_root, directory_flags)
+        descriptors.append(current)
+        for part in posix.parts[:-1]:
+            current = os.open(part, directory_flags, dir_fd=current)
+            descriptors.append(current)
+        source_fd = os.open(posix.parts[-1], file_flags, dir_fd=current)
+        info = os.fstat(source_fd)
     except FileNotFoundError:
-        # A tracked deletion is omitted; it cannot introduce host access.
+        if source_fd is not None:
+            os.close(source_fd)
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
         return None
-    resolved_root = repo_root.resolve()
-    if resolved != resolved_root and resolved_root not in resolved.parents:
-        raise ValidationIssue(
-            "isolation_tracked_path_escape",
-            f"Tracked path resolves outside repository: {rel}",
-            path=str(src),
-        )
-    try:
-        mode = src.stat().st_mode
     except OSError as exc:
+        if source_fd is not None:
+            os.close(source_fd)
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+        code = (
+            "isolation_tracked_symlink"
+            if exc.errno in {errno.ELOOP, errno.EMLINK}
+            else "isolation_tracked_open_failed"
+        )
         raise ValidationIssue(
-            "isolation_tracked_stat_failed",
-            f"Cannot inspect tracked path {rel}: {exc}",
+            code,
+            f"Cannot safely open tracked path {rel}: {exc}",
             path=str(src),
         ) from exc
-    if stat.S_ISDIR(mode):
+    for descriptor in reversed(descriptors):
+        os.close(descriptor)
+    assert source_fd is not None
+    if stat.S_ISDIR(info.st_mode):
+        os.close(source_fd)
         # Gitlinks/submodules have no file body in the parent index.
         return None
-    if not stat.S_ISREG(mode):
+    if not stat.S_ISREG(info.st_mode):
+        os.close(source_fd)
         raise ValidationIssue(
             "isolation_tracked_nonregular",
             f"Tracked path is not a regular file: {rel}",
             path=str(src),
         )
-    return src
+    if info.st_nlink != 1:
+        os.close(source_fd)
+        raise ValidationIssue(
+            "isolation_tracked_hardlink",
+            f"Tracked path must have exactly one hard link: {rel}",
+            path=str(src),
+        )
+    return source_fd, info
+
+
+def _copy_tracked_regular_file(repo_root: Path, rel: str, destination: Path) -> bool:
+    opened = _open_tracked_regular_fd(repo_root, rel)
+    if opened is None:
+        return False
+    source_fd, source_info = opened
+    try:
+        with os.fdopen(source_fd, "rb", closefd=True) as source, destination.open("xb") as target:
+            shutil.copyfileobj(source, target, length=1024 * 1024)
+            os.fchmod(target.fileno(), stat.S_IMODE(source_info.st_mode) & 0o777)
+    except OSError as exc:
+        try:
+            destination.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ValidationIssue(
+            "isolation_tracked_copy_failed",
+            f"Cannot copy tracked path {rel} into the isolated snapshot: {exc}",
+            path=str(destination),
+        ) from exc
+    return True
 
 
 def build_isolated_env(
@@ -431,6 +475,8 @@ def build_isolated_env(
     credential_grants: Mapping[str, str] | None = None,
     base_env: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
+    grants = dict(credential_grants or {})
+    validate_credential_grant_names(grants, path="credential_grants")
     env: dict[str, str] = {
         "HOME": str(lane.home.resolve()),
         "TMPDIR": str(lane.tmp.resolve()),
@@ -445,7 +491,7 @@ def build_isolated_env(
         "LANG": (base_env or {}).get("LANG") or "C.UTF-8",
         "ELVES_ISOLATED_SNAPSHOT": str(lane.snapshot.resolve()),
     }
-    for key, value in (credential_grants or {}).items():
+    for key, value in grants.items():
         env[str(key)] = str(value)
     if lane.supervision_token:
         # Reserved host marker: credential grants may never replace it.
@@ -454,6 +500,10 @@ def build_isolated_env(
 
 
 def create_tracked_snapshot(spec: IsolationSpec) -> IsolatedLane:
+    validate_credential_grant_names(
+        spec.credential_grants,
+        path="IsolationSpec.credential_grants",
+    )
     repo_root = Path(spec.repo_root).resolve()
     lane_digest = hashlib.sha256(str(spec.lane_id).encode("utf-8")).hexdigest()[:12]
     parent = Path(tempfile.mkdtemp(prefix=f"elves-iso-{lane_digest}-")).resolve()
@@ -482,9 +532,6 @@ def create_tracked_snapshot(spec: IsolationSpec) -> IsolatedLane:
         for rel in tracked:
             if _should_exclude(rel, extra_globs=extra_globs):
                 continue
-            src = _tracked_regular_file(repo_root, rel)
-            if src is None:
-                continue
             if _is_executable_agent_config(rel):
                 continue
             if _is_instruction_surface(rel):
@@ -492,7 +539,8 @@ def create_tracked_snapshot(spec: IsolationSpec) -> IsolatedLane:
                     continue
                 inert = snapshot / "_instruction_evidence" / f"{rel.replace('/', '__')}.txt"
                 inert.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, inert, follow_symlinks=False)
+                if not _copy_tracked_regular_file(repo_root, rel, inert):
+                    continue
                 try:
                     inert.chmod(0o600)
                 except OSError:
@@ -501,7 +549,8 @@ def create_tracked_snapshot(spec: IsolationSpec) -> IsolatedLane:
                 continue
             dest = snapshot.joinpath(*PurePosixPath(rel).parts)
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest, follow_symlinks=False)
+            if not _copy_tracked_regular_file(repo_root, rel, dest):
+                continue
             count += 1
 
         lane = IsolatedLane(
@@ -1137,7 +1186,7 @@ def _prepend_executable_dirs(lane: IsolatedLane, executables: Sequence[Path]) ->
 
 @lru_cache(maxsize=64)
 def _macos_dynamic_dependencies(executables: tuple[Path, ...]) -> tuple[Path, ...]:
-    """Resolve non-system Mach-O dependencies to their narrow runtime files."""
+    """Resolve only system or recognized package-runtime Mach-O dependencies."""
     otool = _qualified_system_executable(
         Path("/usr/bin/otool"),
         exact_path_required=True,
@@ -1165,12 +1214,28 @@ def _macos_dynamic_dependencies(executables: tuple[Path, ...]) -> tuple[Path, ..
             if not raw.startswith("/"):
                 continue
             literal_dependency = Path(raw)
-            if literal_dependency not in dependencies:
-                dependencies.append(literal_dependency)
             try:
                 dependency = literal_dependency.resolve(strict=True)
             except (OSError, RuntimeError):
                 continue
+            system_roots = tuple(
+                Path(path) for path in ("/System", "/usr", "/bin", "/sbin", "/Library")
+            )
+            is_system = any(
+                dependency == root or root in dependency.parents for root in system_roots
+            )
+            if not is_system:
+                inferred = _narrow_runtime_root(dependency)
+                if inferred is None:
+                    # A Mach-O load command is attacker-controlled input. Never
+                    # turn an arbitrary absolute path into a sandbox read grant.
+                    continue
+                try:
+                    _validated_runtime_mount(inferred, executable=dependency)
+                except ValidationIssue:
+                    continue
+            if literal_dependency != dependency and literal_dependency not in dependencies:
+                dependencies.append(literal_dependency)
             if dependency not in dependencies:
                 dependencies.append(dependency)
                 pending.append(dependency)
@@ -1250,6 +1315,18 @@ def _macos_executable_access(
     ]
     for qualified in all_runtime_files:
         if qualified == lane.snapshot or lane.snapshot in qualified.parents:
+            continue
+        try:
+            canonical = qualified.resolve(strict=True)
+        except (OSError, RuntimeError):
+            continue
+        if canonical != qualified:
+            # A load-command alias is needed only as an exact traversal/file
+            # allowance. Never infer a broad runtime root from attacker-chosen
+            # lexical components such as `.../Cellar/...` in that alias.
+            for alias in (qualified, *_symlink_path_components(qualified)):
+                if alias not in exact_files:
+                    exact_files.append(alias)
             continue
         if any(qualified == root or root in qualified.parents for root in system_roots):
             continue
@@ -1465,6 +1542,8 @@ def implement_min_env(
     home: Path | None = None,
     tmp: Path | None = None,
 ) -> dict[str, str]:
+    grants = dict(credential_grants or {})
+    validate_credential_grant_names(grants, path="credential_grants")
     home_path = home or Path(tempfile.mkdtemp(prefix="elves-impl-home-"))
     tmp_path = tmp or Path(tempfile.mkdtemp(prefix="elves-impl-tmp-"))
     for path in (home_path, tmp_path):
@@ -1485,7 +1564,7 @@ def implement_min_env(
         "ELVES_IMPLEMENT_ADAPTER": adapter,
         "ELVES_IMPLEMENT_WORKTREE": str(Path(worktree).resolve()),
     }
-    for key, value in (credential_grants or {}).items():
+    for key, value in grants.items():
         env[str(key)] = str(value)
     return env
 

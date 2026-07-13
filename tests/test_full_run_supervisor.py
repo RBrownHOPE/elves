@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import hashlib
 import json
 import os
+import shutil
 import signal
 import stat
 import subprocess
@@ -162,6 +164,12 @@ import os, subprocess, sys, time
 from pathlib import Path
 
 args = sys.argv[1:]
+if "--version" in args or (args and args[0] == "version"):
+    print("grok 0.2.93 (test) [stable]")
+    raise SystemExit(0)
+auth_path = Path(os.environ["GROK_AUTH_PATH"])
+if not auth_path.is_file() or Path(os.environ["GROK_HOME"]) == auth_path.parent:
+    raise SystemExit(92)
 cwd = Path(args[args.index("--cwd") + 1])
 if "--resume" not in args:
     (cwd / "resume-checkpoint.txt").write_text("checkpoint\n", encoding="utf-8")
@@ -173,6 +181,144 @@ if "--resume" not in args:
     )
 time.sleep(30)
 '''
+
+GROK_ROTATE_AUTH_AND_WAIT = r'''#!/usr/bin/env python3
+import json, os, sys, time
+from pathlib import Path
+
+args = sys.argv[1:]
+if "--version" in args or (args and args[0] == "version"):
+    print("grok 0.2.93 (test) [stable]")
+    raise SystemExit(0)
+auth = Path(os.environ["GROK_AUTH_PATH"])
+payload = json.loads(auth.read_text(encoding="utf-8"))
+record = next(value for value in payload.values() if isinstance(value, dict))
+record["key"] = "provider-rotated-access"
+record["refresh_token"] = "provider-rotated-refresh"
+temporary = auth.with_name("auth.provider-next")
+temporary.write_text(json.dumps(payload), encoding="utf-8")
+temporary.chmod(0o600)
+temporary.replace(auth)
+time.sleep(30)
+'''
+
+
+def _compile_native_grok_launcher(
+    root: Path,
+    script_source: str,
+    *,
+    name: str,
+) -> Path:
+    """Compile a native argv-forwarding test provider with the Grok marker."""
+    compiler = shutil.which("cc")
+    if compiler is None:
+        raise unittest.SkipTest("native C compiler unavailable")
+    script = root / f"{name}-worker.py"
+    script.write_text(script_source, encoding="utf-8")
+    source = root / f"{name}-launcher.c"
+    source.write_text(
+        "#include <stdlib.h>\n"
+        "#include <unistd.h>\n"
+        'static volatile const char marker[] = "GROK_AUTH_PATH";\n'
+        "int main(int argc, char **argv) {\n"
+        "  if (marker[0] == '\\0') return 126;\n"
+        '  setenv("ELVES_TEST_NATIVE_LAUNCHER", argv[0], 1);\n'
+        "  char **forwarded = calloc((size_t)argc + 2, sizeof(char *));\n"
+        "  if (forwarded == NULL) return 127;\n"
+        f"  forwarded[0] = {json.dumps(sys.executable)};\n"
+        f"  forwarded[1] = {json.dumps(str(script))};\n"
+        "  for (int i = 1; i < argc; i++) forwarded[i + 1] = argv[i];\n"
+        "  forwarded[argc + 1] = NULL;\n"
+        f"  execv({json.dumps(sys.executable)}, forwarded);\n"
+        "  return 127;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    binary = root / name
+    subprocess.run(
+        [compiler, "-std=c99", str(source), "-o", str(binary)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    binary.chmod(0o700)
+    return binary
+
+
+def _packet_binding_kwargs(packet: Path) -> dict[str, object]:
+    raw = packet.read_bytes()
+    packet.chmod(0o600)
+    return {
+        "staged_packet_path": str(packet),
+        "staged_packet_identity": full_run_module._private_staged_packet_identity(
+            packet
+        ),
+        "packet_sha256": hashlib.sha256(raw).hexdigest(),
+        "packet_size": len(raw),
+    }
+
+
+def _run_bound_supervisor_after_mutation(
+    root: Path,
+    provider: Path,
+    identity: dict[str, object],
+    mutation: Callable[[], None],
+) -> tuple[int, dict[str, object]]:
+    """Release the embedded supervisor only after a test mutates its binding."""
+    (root / "supervisor.fingerprint.json").write_text(
+        '{"pid":1}\n', encoding="utf-8"
+    )
+    backend = str(full_run_module._qualified_process_supervisor())
+    state = full_run_module.FullRunState(
+        session_id="provider-secure-binding-test",
+        branch="feat/x",
+        start_head="a" * 40,
+        worktree=str(root),
+        packet_path=str(root / "packet.md"),
+        attempt=1,
+        supervision_token="a" * 48,
+    )
+    packet = Path(state.packet_path)
+    packet.write_text("bound supervisor packet\n", encoding="utf-8")
+    supervisor_argv = full_run_module._provider_supervisor_argv(
+        root=root,
+        session_id=state.session_id,
+        provider_argv=[str(provider), str(packet)],
+        attempt=state.attempt,
+        supervisor_executable=backend,
+        provider_executable_identity=identity,
+        **_packet_binding_kwargs(packet),
+    )
+    env = {
+        "PATH": os.environ.get("PATH") or os.defpath,
+        "ELVES_FULL_RUN_SUPERVISION_MARKER": (
+            full_run_module._descendant_supervision_marker(state)
+        ),
+    }
+    proc = subprocess.Popen(
+        supervisor_argv,
+        cwd=root,
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        close_fds=True,
+    )
+    try:
+        mutation()
+        proc.communicate(
+            (str(state.supervision_token) + "\n").encode("ascii"),
+            timeout=5.0,
+        )
+    except BaseException:
+        proc.kill()
+        proc.communicate(timeout=2.0)
+        raise
+    record = json.loads(
+        (root / "exit_record.json").read_text(encoding="utf-8")
+    )
+    return int(proc.returncode), record
 
 
 def _init_feature_repo(path: Path, branch: str = "feat/x") -> str:
@@ -499,6 +645,115 @@ class FullRunReportValidationTests(unittest.TestCase):
             )
         )
 
+    def test_redacted_mapping_keys_cannot_overwrite_suffix_like_real_keys(self) -> None:
+        semantic = full_run_module._redact_full_run_structure(
+            {
+                "[REDACTED:secret_field_name]#1": "operator evidence",
+                "api_key": "first-secret-value-123456",
+                "refresh_token": "second-secret-value-123456",
+            }
+        )
+        self.assertEqual(len(semantic), 3)
+        self.assertEqual(
+            semantic["[REDACTED:secret_field_name]#1"], "operator evidence"
+        )
+        self.assertEqual(
+            semantic["[REDACTED:secret_field_name]"],
+            "[REDACTED:secret_field]",
+        )
+        self.assertEqual(
+            semantic["[REDACTED:secret_field_name]#2"],
+            "[REDACTED:secret_field]",
+        )
+
+        secret = "opaque-grant-for-key-collision-481516"
+        state = full_run_module.FullRunState(
+            session_id="redaction-collision",
+            branch="feat/x",
+            start_head="a" * 40,
+            worktree="/tmp",
+            packet_path="/tmp/packet.md",
+            supervision_token="b" * 48,
+            credential_granted_names=["XAI_API_KEY"],
+        )
+        state.credential_grant_lengths = {"XAI_API_KEY": len(secret)}
+        state.credential_grant_digests = {
+            "XAI_API_KEY": full_run_module._credential_grant_digest(
+                state, "XAI_API_KEY", secret
+            )
+        }
+        state.credential_grant_metadata_mac = (
+            full_run_module._credential_grant_metadata_mac(state)
+        )
+        opaque = full_run_module._redact_persisted_credential_grants(
+            {
+                "[REDACTED:credential_grant_key]#1": "operator evidence",
+                f"first-{secret}": "first leak",
+                f"second-{secret}": "second leak",
+            },
+            state,
+        )
+        self.assertEqual(len(opaque), 3)
+        self.assertEqual(
+            opaque["[REDACTED:credential_grant_key]#1"], "operator evidence"
+        )
+        self.assertEqual(
+            opaque["[REDACTED:credential_grant_key]"], "first leak"
+        )
+        self.assertEqual(
+            opaque["[REDACTED:credential_grant_key]#2"], "second leak"
+        )
+
+    def test_bounded_json_reader_rejects_numeric_and_structural_pathologies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "report.json"
+            payloads = {
+                "huge-integer": '{"value":' + ("9" * 1000) + "}",
+                "deep": json.dumps(
+                    {
+                        "value": "leaf",
+                    }
+                ).replace('"leaf"', "[" * 40 + '"leaf"' + "]" * 40),
+                "many-nodes": json.dumps(
+                    {"value": [0] * (full_run_module.MAX_JSON_NODES + 1)}
+                ),
+                "long-key": json.dumps(
+                    {"k" * (full_run_module.MAX_JSON_KEY_CHARS + 1): "value"}
+                ),
+                "long-string": json.dumps(
+                    {"value": "x" * (full_run_module.MAX_JSON_STRING_CHARS + 1)}
+                ),
+            }
+            for name, payload in payloads.items():
+                with self.subTest(name=name):
+                    path.write_text(payload, encoding="utf-8")
+                    with self.assertRaises(StorageError):
+                        full_run_module._read_bounded_json_object(
+                            path,
+                            label="test report",
+                        )
+
+            path.write_text('{"value":"ok"}', encoding="utf-8")
+            for parse_error in (ValueError("bounded parse"), RecursionError()):
+                with self.subTest(parse_error=type(parse_error).__name__):
+                    with mock.patch.object(
+                        full_run_module.json,
+                        "loads",
+                        side_effect=parse_error,
+                    ):
+                        with self.assertRaises(StorageError):
+                            full_run_module._read_bounded_json_object(
+                                path,
+                                label="test report",
+                            )
+
+        nested: object = "leaf"
+        for _ in range(full_run_module.MAX_JSON_DEPTH + 5):
+            nested = [nested]
+        errors = validate_run_report({"nested": nested})
+        self.assertTrue(any("depth budget" in error for error in errors), errors)
+
 
 class FullRunGrokArgvTests(unittest.TestCase):
     def test_full_run_runtime_rejects_symlinked_store_root_without_outside_writes(self) -> None:
@@ -579,6 +834,13 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 full_run_module._staged_acceptance_ids(markdown),
                 ["B1-A1", "M-A2"],
             )
+            self.assertEqual(
+                full_run_module._staged_acceptance_criteria(markdown),
+                [
+                    ("B1-A1", "first observable criterion"),
+                    ("M-A2", "second observable criterion"),
+                ],
+            )
             json_packet = root / "packet.json"
             json_packet.write_text(
                 json.dumps(
@@ -595,9 +857,302 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 full_run_module._staged_acceptance_ids(json_packet),
                 ["B2-A1", "B2-A2"],
             )
+            self.assertEqual(
+                full_run_module._staged_acceptance_criteria(json_packet),
+                [
+                    ("B2-A1", "JSON criterion"),
+                    ("B2-A2", "another criterion"),
+                ],
+            )
             inline_only = root / "inline.md"
             inline_only.write_text("Report B3-A1 when complete.\n", encoding="utf-8")
             self.assertEqual(full_run_module._staged_acceptance_ids(inline_only), [])
+
+    def test_prepare_binds_private_packet_copy_and_launch_rejects_source_or_copy_drift(
+        self,
+    ) -> None:
+        for mutation in ("source", "copy"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                repo = root / "repo"
+                repo.mkdir()
+                packet = root / "packet.md"
+                packet.write_text("- B1-A1 — exact criterion\n", encoding="utf-8")
+                worker = root / "worker.py"
+                worker.write_text("print('should not run')\n", encoding="utf-8")
+                head = _init_feature_repo(repo)
+                session = f"packet-drift-{mutation}"
+                prepare_full_run(
+                    repo,
+                    session_id=session,
+                    branch="feat/x",
+                    start_head=head,
+                    worktree=repo,
+                    packet_path=packet,
+                    adapter="fixture",
+                    fixture_script=worker,
+                )
+                state = load_state(repo, session)
+                self.assertEqual(
+                    state.acceptance_criteria,
+                    {"B1-A1": "exact criterion"},
+                )
+                self.assertEqual(
+                    Path(state.staged_packet_path or "").read_bytes(),
+                    packet.read_bytes(),
+                )
+                self.assertEqual(
+                    state.packet_sha256,
+                    hashlib.sha256(packet.read_bytes()).hexdigest(),
+                )
+                target = (
+                    packet
+                    if mutation == "source"
+                    else Path(state.staged_packet_path or "")
+                )
+                target.write_text("- B1-A1 — changed criterion\n", encoding="utf-8")
+                with mock.patch("cobbler_runtime.full_run.subprocess.Popen") as popen:
+                    with self.assertRaises(ValidationIssue) as ctx:
+                        launch_full_run(repo, session_id=session)
+                self.assertEqual(
+                    ctx.exception.code,
+                    (
+                        "full_run_packet_source_changed"
+                        if mutation == "source"
+                        else "full_run_staged_packet_changed"
+                    ),
+                )
+                popen.assert_not_called()
+
+    def test_provider_reads_supervisor_snapshot_after_staged_path_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = root / "packet.md"
+            original = b"- B1-A1 -- exact delayed-read criterion\n"
+            packet.write_bytes(original)
+            worker = root / "delayed-packet-reader.py"
+            worker.write_text(
+                "import os, sys, time\n"
+                "from pathlib import Path\n"
+                "worktree = Path(os.environ['ELVES_FULL_RUN_WORKTREE'])\n"
+                "packet = Path(sys.argv[-1])\n"
+                "(worktree / 'packet-reader-started').write_text(str(packet), encoding='utf-8')\n"
+                "time.sleep(0.35)\n"
+                "(worktree / 'packet-reader-observed').write_bytes(packet.read_bytes())\n",
+                encoding="utf-8",
+            )
+            head = _init_feature_repo(repo)
+            session = "packet-post-launch-mutation"
+            prepare_full_run(
+                repo,
+                session_id=session,
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                adapter="fixture",
+                fixture_script=worker,
+            )
+            state = load_state(repo, session)
+            launch_full_run(repo, session_id=session)
+            started = repo / "packet-reader-started"
+            observed = repo / "packet-reader-observed"
+            deadline = time.time() + 5
+            while not started.exists() and time.time() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(started.exists())
+            self.assertTrue(started.read_text(encoding="utf-8").startswith("/dev/fd/"))
+
+            # Same-user in-place mutation after launch cannot affect the
+            # provider's inherited, anonymous read-only packet snapshot.
+            Path(state.staged_packet_path or "").write_bytes(
+                b"- B1-A1 -- attacker-controlled changed criterion\n"
+            )
+            while not observed.exists() and time.time() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(observed.exists())
+            self.assertEqual(observed.read_bytes(), original)
+
+            for _ in range(100):
+                status = monitor_full_run(repo, session_id=session)
+                if status["state"] != "healthy":
+                    break
+                time.sleep(0.01)
+            self.assertNotEqual(status["state"], "healthy")
+
+    def test_supervisor_rejects_staged_packet_mutation_before_provider_spawn(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            packet = root / "staged-packet.md"
+            packet.write_text("original bound packet\n", encoding="utf-8")
+            provider_ran = root / "provider-ran"
+            provider = root / "provider.py"
+            provider.write_text(
+                "#!/usr/bin/env python3\n"
+                "from pathlib import Path\n"
+                f"Path({str(provider_ran)!r}).touch()\n",
+                encoding="utf-8",
+            )
+            provider.chmod(0o700)
+            (root / "supervisor.fingerprint.json").write_text(
+                '{"pid":1}\n', encoding="utf-8"
+            )
+            state = full_run_module.FullRunState(
+                session_id="packet-supervisor-recheck",
+                branch="feat/x",
+                start_head="a" * 40,
+                worktree=str(root),
+                packet_path=str(packet),
+                supervision_token="c" * 48,
+            )
+            supervisor_argv = full_run_module._provider_supervisor_argv(
+                root=root,
+                session_id=state.session_id,
+                provider_argv=[str(provider), str(packet)],
+                attempt=state.attempt,
+                supervisor_executable=str(
+                    full_run_module._qualified_process_supervisor()
+                ),
+                **_packet_binding_kwargs(packet),
+            )
+            proc = subprocess.Popen(
+                supervisor_argv,
+                cwd=root,
+                env={
+                    "PATH": os.environ.get("PATH") or os.defpath,
+                    "ELVES_FULL_RUN_SUPERVISION_MARKER": (
+                        full_run_module._descendant_supervision_marker(state)
+                    ),
+                },
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                close_fds=True,
+            )
+            packet.write_text("changed after supervisor spawn\n", encoding="utf-8")
+            proc.communicate(
+                (str(state.supervision_token) + "\n").encode("ascii"), timeout=5
+            )
+            record = json.loads(
+                (root / "exit_record.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(proc.returncode, 125)
+            self.assertFalse(provider_ran.exists())
+            self.assertIsNone(record["provider_pid"])
+            self.assertEqual(
+                record["supervision_error"], "staged_packet_binding_mismatch"
+            )
+
+    def test_complete_report_criterion_text_is_bound_for_markdown_and_json_packets(
+        self,
+    ) -> None:
+        for packet_format in ("markdown", "json"):
+            with self.subTest(packet_format=packet_format), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                repo = root / "repo"
+                repo.mkdir()
+                head = _init_feature_repo(repo)
+                _attach_origin(repo, root / "origin.git", "feat/x")
+                packet = root / ("packet.json" if packet_format == "json" else "packet.md")
+                if packet_format == "json":
+                    packet.write_text(
+                        json.dumps(
+                            {
+                                "acceptance": [
+                                    {"id": "B1-A1", "criterion": "exact criterion"}
+                                ]
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                else:
+                    packet.write_text(
+                        "- B1-A1 — exact criterion\n",
+                        encoding="utf-8",
+                    )
+                session = f"criterion-binding-{packet_format}"
+                prepare_full_run(
+                    repo,
+                    session_id=session,
+                    branch="feat/x",
+                    start_head=head,
+                    worktree=repo,
+                    packet_path=packet,
+                    adapter="grok-build",
+                    executable="grok",
+                )
+                baseline = json.loads(
+                    (full_run_root(repo, session) / "report.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                report = {
+                    **baseline,
+                    "final_head": head,
+                    "status": "complete",
+                    "batches": [
+                        {"id": "batch-1", "status": "complete", "evidence": head}
+                    ],
+                    "acceptance": [
+                        {
+                            "id": "B1-A1",
+                            "criterion": "altered criterion",
+                            "met": True,
+                            "evidence": head,
+                        }
+                    ],
+                    "commits": [head],
+                }
+                with self.assertRaises(ValidationIssue) as ctx:
+                    write_report(repo, session, report)
+                self.assertEqual(ctx.exception.code, "full_run_report_invalid")
+                self.assertIn("criterion text mismatch", ctx.exception.message)
+
+                report["acceptance"][0]["criterion"] = "exact criterion"
+                self.assertTrue(write_report(repo, session, report).is_file())
+
+    def test_pre_binding_state_remains_readable_but_launch_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = root / "packet.md"
+            packet.write_text("fixture packet\n", encoding="utf-8")
+            worker = root / "worker.py"
+            worker.write_text("print('should not run')\n", encoding="utf-8")
+            head = _init_feature_repo(repo)
+            session = "legacy-packet-state"
+            prepare_full_run(
+                repo,
+                session_id=session,
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                adapter="fixture",
+                fixture_script=worker,
+            )
+            state_path = full_run_root(repo, session) / "state.json"
+            legacy = json.loads(state_path.read_text(encoding="utf-8"))
+            for key in (
+                "staged_packet_path",
+                "staged_packet_identity",
+                "packet_sha256",
+                "packet_size",
+                "packet_contract_sha256",
+                "acceptance_criteria",
+            ):
+                legacy.pop(key, None)
+            state_path.write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+            self.assertEqual(load_state(repo, session).session_id, session)
+            with mock.patch("cobbler_runtime.full_run.subprocess.Popen") as popen:
+                with self.assertRaises(ValidationIssue) as ctx:
+                    launch_full_run(repo, session_id=session)
+            self.assertEqual(ctx.exception.code, "full_run_packet_binding_missing")
+            popen.assert_not_called()
 
     def test_acceptance_packet_reader_rejects_unsafe_or_oversized_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -766,6 +1321,8 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertIn("--session-id", argv)
             self.assertIn("11111111-1111-1111-1111-111111111111", argv)
             self.assertIn("--prompt-file", argv)
+            self.assertIn(str(state.staged_packet_path), argv)
+            self.assertNotIn(str(packet), argv)
             self.assertIn("--cwd", argv)
             self.assertIn("--model", argv)
             self.assertIn("grok-4.5", argv)
@@ -778,11 +1335,462 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertIn("json", argv)
             self.assertIn("--check", argv)
             self.assertNotIn("--resume", argv)
-
             state.create_session = False
             resume_argv = build_full_run_argv(state)
             self.assertIn("--resume", resume_argv)
             self.assertNotIn("--session-id", resume_argv)
+
+    def test_production_grok_launch_fails_before_spawn_without_explicit_auth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = root / "packet.md"
+            _write_production_packet(packet)
+            head = _init_feature_repo(repo)
+            _attach_origin(repo, root / "origin.git", "feat/x")
+            prepare_full_run(
+                repo,
+                session_id="auth-required-before-spawn",
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                adapter="grok-build",
+                executable=sys.executable,
+            )
+            with mock.patch.dict(os.environ, {}, clear=False):
+                for name in ("XAI_API_KEY", "GROK_API_KEY", "OPENAI_API_KEY"):
+                    os.environ.pop(name, None)
+                with mock.patch.object(
+                    full_run_module, "open_repo_text", wraps=full_run_module.open_repo_text
+                ) as open_mock:
+                    with self.assertRaises(ValidationIssue) as ctx:
+                        launch_full_run(
+                            repo, session_id="auth-required-before-spawn"
+                        )
+            self.assertEqual(ctx.exception.code, "full_run_grok_auth_required")
+            self.assertFalse(open_mock.called)
+
+    def test_failed_oauth_launch_preserves_canonical_auth_without_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = root / "packet.md"
+            _write_production_packet(packet)
+            head = _init_feature_repo(repo)
+            _attach_origin(repo, root / "origin.git", "feat/x")
+            native_grok = _compile_native_grok_launcher(
+                root,
+                "print('grok 0.2.93 (test)')\n",
+                name="failed-launch-native-grok",
+            )
+            session = "oauth-shared-preserved-on-launch-failure"
+            prepare_full_run(
+                repo,
+                session_id=session,
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                adapter="grok-build",
+                executable=str(native_grok),
+            )
+            host_home = root / "host-home"
+            auth = host_home / ".grok" / "auth.json"
+            auth.parent.mkdir(parents=True)
+            auth.write_text(
+                json.dumps({"account": {"key": "test-access"}}), encoding="utf-8"
+            )
+            auth.chmod(0o600)
+            original = auth.read_bytes()
+            with mock.patch.dict(os.environ, {"HOME": str(host_home)}, clear=False):
+                with mock.patch.object(
+                    full_run_module,
+                    "_assert_grok_auth_path_capability",
+                    return_value=(0, 2, 93),
+                ), mock.patch.object(
+                    full_run_module,
+                    "open_repo_text",
+                    side_effect=OSError("synthetic transcript failure"),
+                ):
+                    with self.assertRaises(OSError):
+                        launch_full_run(
+                            repo,
+                            session_id=session,
+                            grant_grok_auth=True,
+                        )
+            self.assertEqual(auth.read_bytes(), original)
+            self.assertFalse(
+                (full_run_root(repo, session) / full_run_module.GROK_HOME_REL / "auth.json").exists()
+            )
+
+    def test_refused_oauth_launch_never_strands_auth_across_boundaries(self) -> None:
+        failure_points = ("stale_artifact", "directory_setup", "state_save")
+        for failure_point in failure_points:
+            with self.subTest(failure_point=failure_point), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                repo = root / "repo"
+                repo.mkdir()
+                packet = root / "packet.md"
+                _write_production_packet(packet)
+                head = _init_feature_repo(repo)
+                _attach_origin(repo, root / "origin.git", "feat/x")
+                native_grok = _compile_native_grok_launcher(
+                    root,
+                    "print('grok 0.2.93 (test)')\n",
+                    name="refused-launch-native-grok",
+                )
+                session = f"oauth-cleanup-{failure_point}"
+                prepare_full_run(
+                    repo,
+                    session_id=session,
+                    branch="feat/x",
+                    start_head=head,
+                    worktree=repo,
+                    packet_path=packet,
+                    adapter="grok-build",
+                    executable=str(native_grok),
+                )
+                run_root = full_run_root(repo, session)
+                host_home = root / "host-home"
+                auth = host_home / ".grok" / "auth.json"
+                auth.parent.mkdir(parents=True)
+                auth.write_text(
+                    json.dumps({"account": {"key": "test-access"}}),
+                    encoding="utf-8",
+                )
+                auth.chmod(0o600)
+
+                patches: list[mock._patch] = []
+                if failure_point == "stale_artifact":
+                    stale = run_root / "exit_record.json"
+                    stale.write_text("{}\n", encoding="utf-8")
+                    stale.chmod(0o600)
+                elif failure_point == "directory_setup":
+                    original_ensure = full_run_module.ensure_private_dir
+
+                    def fail_directory(path: Path, **kwargs: object) -> Path:
+                        if Path(path).name == ".cache":
+                            raise OSError("synthetic directory failure")
+                        return original_ensure(path, **kwargs)
+
+                    patches.append(
+                        mock.patch.object(
+                            full_run_module,
+                            "ensure_private_dir",
+                            side_effect=fail_directory,
+                        )
+                    )
+                else:
+                    patches.append(
+                        mock.patch.object(
+                            full_run_module,
+                            "save_state",
+                            side_effect=OSError("synthetic state failure"),
+                        )
+                    )
+
+                original = auth.read_bytes()
+                with mock.patch.dict(os.environ, {"HOME": str(host_home)}, clear=False), mock.patch.object(
+                    full_run_module,
+                    "_assert_grok_auth_path_capability",
+                    return_value=(0, 2, 93),
+                ):
+                    for patcher in patches:
+                        patcher.start()
+                    try:
+                        with self.assertRaises((OSError, ValidationIssue)):
+                            launch_full_run(
+                                repo,
+                                session_id=session,
+                                grant_grok_auth=True,
+                            )
+                    finally:
+                        for patcher in reversed(patches):
+                            patcher.stop()
+                self.assertEqual(auth.read_bytes(), original)
+                self.assertFalse((run_root / full_run_module.GROK_HOME_REL / "auth.json").exists())
+
+    def test_live_shared_oauth_rotation_survives_monitor_report_and_stop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = root / "packet.md"
+            _write_production_packet(packet)
+            head = _init_feature_repo(repo)
+            _attach_origin(repo, root / "origin.git", "feat/x")
+            grok = _compile_native_grok_launcher(
+                root,
+                GROK_ROTATE_AUTH_AND_WAIT,
+                name="fake-grok",
+            )
+            session = "oauth-live-rotation"
+            prepare_full_run(
+                repo,
+                session_id=session,
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                adapter="grok-build",
+                executable=str(grok),
+            )
+            host_home = root / "host-home"
+            auth = host_home / ".grok" / "auth.json"
+            auth.parent.mkdir(parents=True)
+            auth.write_text(
+                json.dumps(
+                    {
+                        "account": {
+                            "key": "initial-access",
+                            "refresh_token": "initial-refresh",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            auth.chmod(0o600)
+            with mock.patch.dict(os.environ, {"HOME": str(host_home)}, clear=False):
+                launched = launch_full_run(
+                    repo, session_id=session, grant_grok_auth=True
+                )
+            try:
+                deadline = time.time() + 4
+                payload: dict[str, object] = {}
+                while time.time() < deadline:
+                    payload = json.loads(auth.read_text(encoding="utf-8"))
+                    if "provider-rotated-refresh" in json.dumps(payload):
+                        break
+                    time.sleep(0.02)
+                self.assertIn("provider-rotated-refresh", json.dumps(payload))
+                state = load_state(repo, session)
+                self.assertEqual(
+                    state.grok_executable_identity["security_profile"],
+                    "shared_oauth_native",
+                )
+                self.assertTrue(state.grok_executable_identity["parent_chain"])
+                report = full_run_module._running_report(state, final_head=head)
+                self.assertTrue(write_report(repo, session, report).is_file())
+                observed = monitor_full_run(repo, session_id=session)
+                self.assertEqual(observed["state"], "healthy", observed)
+                self.assertNotIn(str(auth), json.dumps(launched, sort_keys=True))
+                self.assertNotIn(str(auth), json.dumps(observed, sort_keys=True))
+                self.assertFalse(
+                    (
+                        full_run_root(repo, session)
+                        / full_run_module.GROK_HOME_REL
+                        / "auth.json"
+                    ).exists()
+                )
+            finally:
+                stopped = stop_full_run(repo, session_id=session, grace_seconds=1.0)
+                self.assertTrue(stopped["ok"], stopped)
+            self.assertIn(
+                "provider-rotated-refresh", auth.read_text(encoding="utf-8")
+            )
+
+    def test_post_handoff_interrupt_preserves_durable_stop_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = repo / "packet.md"
+            packet.write_text("fixture packet\n", encoding="utf-8")
+            marker = root / "provider.pid"
+            worker = root / "provider.py"
+            worker.write_text(
+                "import os,time\n"
+                f"open({str(marker)!r}, 'w').write(str(os.getpid()))\n"
+                "time.sleep(30)\n",
+                encoding="utf-8",
+            )
+            head = _init_feature_repo(repo)
+            session = "post-handoff-interrupt"
+            prepare_full_run(
+                repo,
+                session_id=session,
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                adapter="fixture",
+                fixture_script=worker,
+            )
+            real_handoff = full_run_module._handoff_supervision_secret
+
+            def handoff_then_interrupt(proc: object, state: object) -> None:
+                real_handoff(proc, state)
+                deadline = time.time() + 3
+                while not marker.exists() and time.time() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(marker.exists())
+                raise KeyboardInterrupt("synthetic post-transfer interrupt")
+
+            with mock.patch.object(
+                full_run_module,
+                "_handoff_supervision_secret",
+                side_effect=handoff_then_interrupt,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    launch_full_run(repo, session_id=session)
+
+            durable = load_state(repo, session)
+            self.assertEqual(durable.status, "healthy")
+            self.assertIsNotNone(durable.pid)
+            self.assertIsNotNone(durable.fingerprint)
+            provider_pid = int(marker.read_text(encoding="utf-8"))
+            self.assertTrue(full_run_module._pid_alive(provider_pid))
+            stopped = stop_full_run(repo, session_id=session, grace_seconds=1.0)
+            self.assertTrue(stopped["ok"], stopped)
+            deadline = time.time() + 2
+            while full_run_module._pid_alive(provider_pid) and time.time() < deadline:
+                time.sleep(0.02)
+            self.assertFalse(full_run_module._pid_alive(provider_pid))
+
+    def test_pretransfer_handoff_failures_roll_back_to_relaunchable_state(self) -> None:
+        for failure_point in (
+            "before_payload",
+            "dead_before_write",
+            "partial_keyboard_interrupt",
+        ):
+            with self.subTest(failure_point=failure_point), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                repo = root / "repo"
+                repo.mkdir()
+                packet = repo / "packet.md"
+                packet.write_text("fixture packet\n", encoding="utf-8")
+                worker = root / "provider.py"
+                worker.write_text("print('should not start')\n", encoding="utf-8")
+                head = _init_feature_repo(repo)
+                session = f"pretransfer-{failure_point}"
+                prepare_full_run(
+                    repo,
+                    session_id=session,
+                    branch="feat/x",
+                    start_head=head,
+                    worktree=repo,
+                    packet_path=packet,
+                    adapter="fixture",
+                    fixture_script=worker,
+                )
+                real_handoff = full_run_module._handoff_supervision_secret
+
+                def fail_before_transfer(proc: object, state: object) -> None:
+                    if failure_point == "before_payload":
+                        with mock.patch.object(
+                            full_run_module,
+                            "_supervision_secret",
+                            side_effect=KeyboardInterrupt(
+                                "synthetic pre-payload interrupt"
+                            ),
+                        ):
+                            real_handoff(proc, state)
+                        return
+                    if failure_point == "dead_before_write":
+                        proc.kill()
+                        proc.wait(timeout=1.0)
+                        real_handoff(proc, state)
+                        return
+                    real_write = os.write
+                    calls = 0
+
+                    def partial_then_interrupt(fd: int, data: bytes) -> int:
+                        nonlocal calls
+                        calls += 1
+                        if calls == 1:
+                            return real_write(fd, data[:5])
+                        raise KeyboardInterrupt("synthetic partial handoff")
+
+                    with mock.patch.object(
+                        full_run_module.os,
+                        "write",
+                        side_effect=partial_then_interrupt,
+                    ):
+                        real_handoff(proc, state)
+
+                with mock.patch.object(
+                    full_run_module,
+                    "_handoff_supervision_secret",
+                    side_effect=fail_before_transfer,
+                ):
+                    with self.assertRaises(full_run_module._PreTransferHandoffError):
+                        launch_full_run(repo, session_id=session)
+
+                durable = load_state(repo, session)
+                self.assertEqual(durable.status, "pending")
+                self.assertEqual(durable.next_action, "launch")
+                self.assertIsNone(durable.pid)
+                self.assertIsNone(durable.pgid)
+                self.assertIsNone(durable.fingerprint)
+                self.assertIsNone(durable.launched_at)
+                run_root = full_run_root(repo, session)
+                self.assertFalse((run_root / "supervisor.fingerprint.json").exists())
+                self.assertFalse((run_root / "worker.fingerprint.json").exists())
+
+    def test_monitor_reaps_dead_child_without_deleting_shared_oauth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = repo / "packet.md"
+            packet.write_text("fixture packet\n", encoding="utf-8")
+            marker = root / "provider.pid"
+            worker = root / "provider.py"
+            worker.write_text(
+                "import os,time\n"
+                f"open({str(marker)!r}, 'w').write(str(os.getpid()))\n"
+                "time.sleep(30)\n",
+                encoding="utf-8",
+            )
+            head = _init_feature_repo(repo)
+            session = "abnormal-oauth-zombie-cleanup"
+            prepare_full_run(
+                repo,
+                session_id=session,
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                adapter="fixture",
+                fixture_script=worker,
+            )
+            host_home = root / "host-home"
+            auth = host_home / ".grok" / "auth.json"
+            auth.parent.mkdir(parents=True)
+            auth.write_text(
+                json.dumps({"account": {"refresh_token": "test-refresh"}}),
+                encoding="utf-8",
+            )
+            auth.chmod(0o600)
+            state = load_state(repo, session)
+            _raw, identity = full_run_module._read_host_grok_auth(
+                {"HOME": str(host_home)}
+            )
+            state.grok_auth_strategy = "oauth_shared_file"
+            state.grok_auth_path_identity = identity
+            full_run_module.save_state(repo, state)
+            original = auth.read_bytes()
+
+            with mock.patch.dict(os.environ, {"HOME": str(host_home)}, clear=False):
+                launched = launch_full_run(repo, session_id=session)
+                deadline = time.time() + 3
+                while not marker.exists() and time.time() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(marker.exists())
+                provider_pid = int(marker.read_text(encoding="utf-8"))
+                supervisor_pid = int(launched["pid"])
+                os.kill(provider_pid, signal.SIGKILL)
+                os.kill(supervisor_pid, signal.SIGKILL)
+                time.sleep(0.05)
+                observed = monitor_full_run(repo, session_id=session)
+
+            self.assertEqual(auth.read_bytes(), original)
+            self.assertEqual(observed["state"], "failed")
+            self.assertEqual(observed["next_action"], "driver_wake_error")
+            self.assertFalse(observed["check_summary"]["group_alive"])
 
     def test_env_grants_by_name_not_values_on_argv(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -810,6 +1818,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 "OPENAI_API_KEY": "other-secret",
                 "UNRELATED_SENTINEL": "should-not-appear",
                 "HOME": "/host-home",
+                "GROK_AUTH_PATH": "/host-home/.grok/auth.json",
                 "TMPDIR": "/host-tmp",
                 "XDG_CONFIG_HOME": "/host-config",
                 "HTTPS_PROXY": "https://proxy-user:proxy-secret@example.invalid",
@@ -826,6 +1835,8 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertEqual(env["HOME"], str(root / "worker-home"))
             self.assertEqual(env["TMPDIR"], str(root / "worker-tmp"))
             self.assertEqual(env["XDG_CONFIG_HOME"], str(root / "worker-home" / ".config"))
+            self.assertEqual(env["GROK_HOME"], str(root / "worker-grok-home"))
+            self.assertNotIn("GROK_AUTH_PATH", env)
             self.assertNotIn("HTTPS_PROXY", env)
             stop_secret = str(state.supervision_token)
             descendant_marker = env["ELVES_FULL_RUN_SUPERVISION_MARKER"]
@@ -847,6 +1858,10 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 provider_argv=argv,
                 attempt=state.attempt,
                 supervisor_executable=state.supervisor_executable or "/proc",
+                staged_packet_path=str(state.staged_packet_path),
+                staged_packet_identity=dict(state.staged_packet_identity or {}),
+                packet_sha256=str(state.packet_sha256),
+                packet_size=int(state.packet_size or 0),
             )
             self.assertNotIn(stop_secret, json.dumps(supervisor_argv))
             with self.assertRaises(ValidationIssue) as ctx:
@@ -860,6 +1875,1339 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 ctx.exception.code,
                 "full_run_isolation_control_grant_forbidden",
             )
+            with self.assertRaises(ValidationIssue) as ctx:
+                build_full_run_env(
+                    state=state,
+                    root=root,
+                    parent_env=parent,
+                    credential_grant_names=["GROK_AUTH_PATH"],
+                )
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_isolation_control_grant_forbidden",
+            )
+            for reserved_name in (
+                "PATH",
+                "XDG_STATE_HOME",
+                "ELVES_FULL_RUN_EVENTS",
+            ):
+                with self.subTest(reserved_name=reserved_name):
+                    with self.assertRaises(ValidationIssue) as ctx:
+                        build_full_run_env(
+                            state=state,
+                            root=root,
+                            parent_env={
+                                **parent,
+                                reserved_name: "synthetic-control-value",
+                            },
+                            credential_grant_names=[reserved_name],
+                        )
+                    self.assertEqual(
+                        ctx.exception.code,
+                        "full_run_isolation_control_grant_forbidden",
+                    )
+            invalid = "XAI_API_KEY=literal-secret"
+            with self.assertRaises(ValidationIssue) as ctx:
+                build_full_run_env(
+                    state=state,
+                    root=root,
+                    parent_env=parent,
+                    credential_grant_names=[invalid],
+                )
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_credential_grant_name_invalid",
+            )
+            self.assertNotIn("literal-secret", str(ctx.exception))
+            invalid_session = "invalid-grant-is-never-persisted"
+            with self.assertRaises(ValidationIssue) as ctx:
+                prepare_full_run(
+                    repo,
+                    session_id=invalid_session,
+                    branch="feat/x",
+                    start_head=start_head,
+                    worktree=wt,
+                    packet_path=packet,
+                    adapter="fixture",
+                    fixture_script=repo / "noop.py",
+                    credential_grant_names=[invalid],
+                )
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_credential_grant_name_invalid",
+            )
+            self.assertNotIn("literal-secret", str(ctx.exception))
+            self.assertFalse(
+                (full_run_root(repo, invalid_session) / "state.json").exists()
+            )
+            reserved_session = "reserved-grant-is-never-persisted"
+            with self.assertRaises(ValidationIssue) as ctx:
+                prepare_full_run(
+                    repo,
+                    session_id=reserved_session,
+                    branch="feat/x",
+                    start_head=start_head,
+                    worktree=wt,
+                    packet_path=packet,
+                    adapter="fixture",
+                    fixture_script=repo / "noop.py",
+                    credential_grant_names=["ELVES_FULL_RUN_EVENTS"],
+                )
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_isolation_control_grant_forbidden",
+            )
+            self.assertFalse(
+                (full_run_root(repo, reserved_session) / "state.json").exists()
+            )
+            with self.assertRaises(ValidationIssue) as ctx:
+                build_full_run_env(
+                    state=state,
+                    root=root,
+                    parent_env=parent,
+                    credential_grant_names="XAI_API_KEY",
+                )
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_credential_grant_name_invalid",
+            )
+            with self.assertRaises(ValidationIssue) as ctx:
+                build_full_run_env(
+                    state=state,
+                    root=root,
+                    parent_env={**parent, "GROK_HOME": "/host-grok"},
+                    credential_grant_names=["GROK_HOME"],
+                )
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_isolation_control_grant_forbidden",
+            )
+
+    def test_grok_credentials_are_never_implicitly_granted(self) -> None:
+        state = full_run_module.FullRunState(
+            session_id="explicit-auth-only",
+            branch="feat/x",
+            start_head="a" * 40,
+            worktree="/tmp/worktree",
+            packet_path="/tmp/packet",
+            supervision_token="b" * 48,
+        )
+        env = build_full_run_env(
+            state=state,
+            root=Path("/tmp/full-run-explicit-auth"),
+            parent_env={
+                "PATH": "/bin",
+                "XAI_API_KEY": "xai-secret",
+                "GROK_API_KEY": "grok-secret",
+                "OPENAI_API_KEY": "openai-secret",
+                "GROK_AUTH_PATH": "/host/.grok/auth.json",
+            },
+        )
+        self.assertNotIn("XAI_API_KEY", env)
+        self.assertNotIn("GROK_API_KEY", env)
+        self.assertNotIn("OPENAI_API_KEY", env)
+        self.assertNotIn("GROK_AUTH_PATH", env)
+
+    def test_shared_grok_oauth_path_is_private_bounded_and_rotation_tolerant(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            host_home = root / "host-home"
+            source = host_home / ".grok" / "auth.json"
+            source.parent.mkdir(parents=True)
+            payload = {
+                "issuer::account": {
+                    "auth_mode": "oauth",
+                    "key": "access-token-value",
+                    "refresh_token": "refresh-token-value",
+                }
+            }
+            source.write_text(json.dumps(payload), encoding="utf-8")
+            source.chmod(0o600)
+            run_root = repo / ".elves" / "runtime" / "implement" / "auth-test"
+            native_grok = _compile_native_grok_launcher(
+                root,
+                "print('grok 0.2.93 (test)')\n",
+                name="oauth-path-native-grok",
+            )
+            state = full_run_module.FullRunState(
+                session_id="oauth-shared",
+                branch="feat/x",
+                start_head="a" * 40,
+                worktree=str(repo),
+                packet_path=str(repo / "packet"),
+                supervision_token="c" * 48,
+                executable=str(native_grok),
+            )
+            parent = {"HOME": str(host_home)}
+            raw, identity = full_run_module._read_host_grok_auth(parent)
+            self.assertEqual(
+                full_run_module._oauth_secret_values(raw),
+                {"access-token-value", "refresh-token-value"},
+            )
+            with mock.patch.dict(os.environ, parent, clear=False), mock.patch.object(
+                full_run_module,
+                "_assert_grok_auth_path_capability",
+                return_value=(0, 2, 93),
+            ):
+                launch_env = {"GROK_HOME": str(run_root / "worker-grok-home")}
+                full_run_module._configure_grok_auth(
+                    repo,
+                    run_root,
+                    state,
+                    launch_env,
+                    grant_grok_auth=True,
+                )
+            self.assertEqual(state.grok_auth_strategy, "oauth_shared_file")
+            self.assertEqual(state.grok_auth_path_identity, identity)
+            self.assertEqual(launch_env["GROK_AUTH_PATH"], str(source.resolve()))
+            self.assertFalse(
+                (run_root / full_run_module.GROK_HOME_REL / "auth.json").exists()
+            )
+
+            rotated_payload = {
+                "issuer::account": {
+                    "auth_mode": "oauth",
+                    "key": "rotated-access-token",
+                    "refresh_token": "rotated-refresh-token",
+                }
+            }
+            replacement = source.with_name("auth.next")
+            replacement.write_text(json.dumps(rotated_payload), encoding="utf-8")
+            replacement.chmod(0o600)
+            replacement.replace(source)
+            rotated_raw = full_run_module._revalidate_shared_grok_auth(state)
+            self.assertEqual(
+                full_run_module._oauth_secret_values(rotated_raw),
+                {"rotated-access-token", "rotated-refresh-token"},
+            )
+            self.assertEqual(state.grok_auth_path_identity, identity)
+
+    def test_shared_oauth_evidence_context_reads_one_token_generation(self) -> None:
+        canonical_path = "/private/owner/.grok/auth.json"
+        state = full_run_module.FullRunState(
+            session_id="oauth-single-snapshot",
+            branch="feat/x",
+            start_head="a" * 40,
+            worktree="/private/worktree",
+            packet_path="/private/packet",
+            grok_auth_strategy="oauth_shared_file",
+            grok_auth_path_identity={"path": canonical_path},
+        )
+        raw = json.dumps(
+            {"account": {"refresh_token": "single-generation-value"}}
+        ).encode("utf-8")
+        with mock.patch.object(
+            full_run_module,
+            "_revalidate_shared_grok_auth",
+            return_value=raw,
+        ) as revalidate:
+            verified, exact_values = full_run_module._launch_evidence_context(state)
+        self.assertTrue(verified)
+        revalidate.assert_called_once_with(state)
+        self.assertIn(canonical_path, exact_values)
+        self.assertIn("single-generation-value", exact_values)
+
+    def test_grok_auth_path_capability_probe_is_version_gated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            native_grok = _compile_native_grok_launcher(
+                Path(tmp),
+                "raise SystemExit(0)\n",
+                name="version-gated-grok",
+            )
+            supported = subprocess.CompletedProcess(
+                [str(native_grok), "version", "--json"],
+                0,
+                '{"currentVersion":"0.2.93 (test)"}\n',
+                "",
+            )
+            with mock.patch.object(
+                full_run_module.subprocess, "run", return_value=supported
+            ) as run_mock, mock.patch.object(
+                full_run_module,
+                "_executable_advertises_grok_auth_path",
+                return_value=True,
+            ):
+                self.assertEqual(
+                    full_run_module._assert_grok_auth_path_capability(
+                        str(native_grok)
+                    ),
+                    (0, 2, 93),
+                )
+            run_mock.assert_called_once()
+
+            with mock.patch.object(
+                full_run_module.subprocess, "run", return_value=supported
+            ), mock.patch.object(
+                full_run_module,
+                "_executable_advertises_grok_auth_path",
+                return_value=False,
+            ):
+                with self.assertRaises(ValidationIssue) as ctx:
+                    full_run_module._assert_grok_auth_path_capability(
+                        str(native_grok)
+                    )
+            self.assertEqual(
+                ctx.exception.code, "full_run_grok_auth_path_unsupported"
+            )
+
+            unsupported = subprocess.CompletedProcess(
+                [str(native_grok), "version", "--json"],
+                0,
+                '{"currentVersion":"0.2.92"}\n',
+                "",
+            )
+            with mock.patch.object(
+                full_run_module.subprocess, "run", return_value=unsupported
+            ):
+                with self.assertRaises(ValidationIssue) as ctx:
+                    full_run_module._assert_grok_auth_path_capability(
+                        str(native_grok)
+                    )
+            self.assertEqual(
+                ctx.exception.code, "full_run_grok_auth_path_unsupported"
+            )
+
+    def test_grok_capability_probe_isolated_and_launch_binding_is_exact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            observation = root / "probe-observation.json"
+            grok = _compile_native_grok_launcher(
+                root,
+                "#!/usr/bin/env python3\n"
+                "# Native capability marker: GROK_AUTH_PATH\n"
+                "import json, os, sys\n"
+                "from pathlib import Path\n"
+                f"observation = Path({str(observation)!r})\n"
+                "observation.write_text(json.dumps({\n"
+                "    'argv0': str(Path(sys.argv[0]).resolve()),\n"
+                "    'native_launcher': os.environ.get('ELVES_TEST_NATIVE_LAUNCHER'),\n"
+                "    'home': os.environ.get('HOME'),\n"
+                "    'keys': sorted(os.environ),\n"
+                "}), encoding='utf-8')\n"
+                "print(json.dumps({'currentVersion': '0.2.93'}))\n",
+                name="fake-grok-0.2.93",
+            )
+            alias = root / "grok"
+            alias.symlink_to(grok)
+            host_controls = {
+                "HOME": str(root / "host-home-with-auth"),
+                "GROK_HOME": str(root / "host-grok-home"),
+                "GROK_AUTH_PATH": str(root / "host-grok-home" / "auth.json"),
+                "XAI_API_KEY": "host-api-key-must-not-cross-probe",
+                "UNRELATED_SENTINEL": "must-not-cross-probe",
+            }
+            with mock.patch.dict(os.environ, host_controls, clear=False):
+                self.assertEqual(
+                    full_run_module._assert_grok_auth_path_capability(str(alias)),
+                    (0, 2, 93),
+                )
+            observed = json.loads(observation.read_text(encoding="utf-8"))
+            self.assertEqual(observed["native_launcher"], str(grok.resolve()))
+            self.assertNotEqual(observed["home"], host_controls["HOME"])
+            self.assertFalse(Path(observed["home"]).exists())
+            for forbidden in (
+                "GROK_HOME",
+                "GROK_AUTH_PATH",
+                "XAI_API_KEY",
+                "UNRELATED_SENTINEL",
+            ):
+                self.assertNotIn(forbidden, observed["keys"])
+
+            state = full_run_module.FullRunState(
+                session_id="exact-grok-binding",
+                branch="feat/x",
+                start_head="a" * 40,
+                worktree=str(root),
+                packet_path=str(root / "packet.md"),
+                executable=str(alias),
+            )
+            Path(state.packet_path).write_text("test packet\n", encoding="utf-8")
+            full_run_module._configure_grok_auth(
+                root,
+                root / "runtime",
+                state,
+                {"XAI_API_KEY": "explicit-test-key"},
+                grant_grok_auth=False,
+            )
+            self.assertEqual(state.executable, str(grok.resolve()))
+            self.assertEqual(
+                state.grok_executable_identity["path"], str(grok.resolve())
+            )
+            provider_argv = build_full_run_argv(state)
+            self.assertEqual(provider_argv[0], str(grok.resolve()))
+            supervisor_argv = full_run_module._provider_supervisor_argv(
+                root=root,
+                session_id=state.session_id,
+                provider_argv=provider_argv,
+                attempt=state.attempt,
+                supervisor_executable="/proc",
+                provider_executable_identity=state.grok_executable_identity,
+                **_packet_binding_kwargs(Path(state.packet_path)),
+            )
+            self.assertIn(
+                json.dumps(state.grok_executable_identity, sort_keys=True),
+                supervisor_argv,
+            )
+
+    def test_shared_oauth_executable_rejects_scripts_and_writable_surfaces(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            safe_parent = root / "safe-provider-home"
+            safe_parent.mkdir(mode=0o700)
+            native = _compile_native_grok_launcher(
+                safe_parent,
+                "print('grok 0.2.93 (test)')\n",
+                name="native-grok",
+            )
+            script = safe_parent / "script-grok"
+            script.write_text(
+                "#!/bin/sh\necho 'grok 0.2.93 (test)'\n", encoding="utf-8"
+            )
+            script.chmod(0o700)
+
+            resolved, identity = (
+                full_run_module._resolve_shared_oauth_grok_executable(str(native))
+            )
+            self.assertEqual(resolved, native.resolve())
+            self.assertEqual(identity["security_profile"], "shared_oauth_native")
+            self.assertIn(identity["native_format"], {"mach-o", "elf"})
+
+            with mock.patch.object(full_run_module.subprocess, "run") as probe:
+                with self.assertRaises(ValidationIssue) as ctx:
+                    full_run_module._assert_grok_auth_path_capability(str(script))
+            probe.assert_not_called()
+            self.assertEqual(ctx.exception.code, "full_run_grok_executable_not_native")
+
+            native.chmod(0o777)
+            try:
+                with mock.patch.object(full_run_module.subprocess, "run") as probe:
+                    with self.assertRaises(ValidationIssue) as ctx:
+                        full_run_module._assert_grok_auth_path_capability(str(native))
+                probe.assert_not_called()
+                self.assertEqual(ctx.exception.code, "full_run_grok_executable_unsafe")
+            finally:
+                native.chmod(0o700)
+
+            safe_parent.chmod(0o777)
+            try:
+                with mock.patch.object(full_run_module.subprocess, "run") as probe:
+                    with self.assertRaises(ValidationIssue) as ctx:
+                        full_run_module._assert_grok_auth_path_capability(str(native))
+                probe.assert_not_called()
+                self.assertEqual(
+                    ctx.exception.code,
+                    "full_run_grok_executable_parent_unsafe",
+                )
+            finally:
+                safe_parent.chmod(0o700)
+
+    def test_shared_oauth_executable_binding_closes_every_descriptor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            native = _compile_native_grok_launcher(
+                root,
+                "print('grok 0.2.93 (test)')\n",
+                name="fd-safe-native-grok",
+            )
+            script = root / "fd-rejected-script-grok"
+            script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            script.chmod(0o700)
+            real_open = full_run_module.os.open
+            real_close = full_run_module.os.close
+
+            for candidate, expected_code in (
+                (native, None),
+                (script, "full_run_grok_executable_not_native"),
+            ):
+                with self.subTest(candidate=candidate.name):
+                    opened: list[int] = []
+                    closed: list[int] = []
+
+                    def tracked_open(*args: object, **kwargs: object) -> int:
+                        descriptor = real_open(*args, **kwargs)
+                        opened.append(descriptor)
+                        return descriptor
+
+                    def tracked_close(descriptor: int) -> None:
+                        closed.append(descriptor)
+                        real_close(descriptor)
+
+                    with mock.patch.object(
+                        full_run_module.os, "open", side_effect=tracked_open
+                    ), mock.patch.object(
+                        full_run_module.os, "close", side_effect=tracked_close
+                    ):
+                        if expected_code is None:
+                            full_run_module._resolve_shared_oauth_grok_executable(
+                                str(candidate)
+                            )
+                        else:
+                            with self.assertRaises(ValidationIssue) as ctx:
+                                full_run_module._resolve_shared_oauth_grok_executable(
+                                    str(candidate)
+                                )
+                            self.assertEqual(ctx.exception.code, expected_code)
+                    self.assertTrue(opened)
+                    self.assertCountEqual(opened, closed)
+
+    def test_installed_grok_satisfies_shared_oauth_native_binding(self) -> None:
+        installed = shutil.which("grok")
+        if installed is None:
+            self.skipTest("installed Grok unavailable")
+        resolved, identity = (
+            full_run_module._resolve_shared_oauth_grok_executable(installed)
+        )
+        self.assertEqual(str(resolved), identity["path"])
+        self.assertEqual(identity["security_profile"], "shared_oauth_native")
+        self.assertTrue(identity["parent_chain"])
+        self.assertGreaterEqual(
+            full_run_module._assert_grok_auth_path_capability(installed),
+            full_run_module.GROK_AUTH_PATH_MIN_VERSION,
+        )
+
+    def test_shared_oauth_executable_rejects_real_darwin_allow_acls(self) -> None:
+        if sys.platform != "darwin":
+            self.skipTest("Darwin extended ACL semantics only")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            safe_parent = root / "safe-provider-home"
+            safe_parent.mkdir(mode=0o700)
+            native = _compile_native_grok_launcher(
+                safe_parent,
+                "print('grok 0.2.93 (test)')\n",
+                name="acl-native-grok",
+            )
+            for target, rule in (
+                (native, "everyone allow execute"),
+                (safe_parent, "everyone allow search"),
+            ):
+                with self.subTest(target=target.name):
+                    result = subprocess.run(
+                        ["chmod", "+a", rule, str(target)],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if result.returncode != 0:
+                        self.skipTest(
+                            "temporary filesystem does not support extended ACLs"
+                        )
+                    try:
+                        with mock.patch.object(
+                            full_run_module.subprocess, "run"
+                        ) as probe:
+                            with self.assertRaises(ValidationIssue) as ctx:
+                                full_run_module._assert_grok_auth_path_capability(
+                                    str(native)
+                                )
+                        probe.assert_not_called()
+                        self.assertEqual(
+                            ctx.exception.code,
+                            "full_run_grok_executable_acl_unsafe",
+                        )
+                    finally:
+                        subprocess.run(
+                            ["chmod", "-N", str(target)],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            check=False,
+                        )
+
+    def test_provider_supervisor_rejects_executable_replacement_before_spawn(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider = root / "provider.py"
+            executed = root / "provider-executed"
+            provider.write_text(
+                "#!/usr/bin/env python3\n"
+                f"from pathlib import Path; Path({str(executed)!r}).touch()\n",
+                encoding="utf-8",
+            )
+            provider.chmod(0o700)
+            _resolved, identity = full_run_module._resolve_grok_executable(
+                str(provider)
+            )
+            replacement = root / "replacement.py"
+            replacement.write_text(
+                "#!/usr/bin/env python3\nraise SystemExit(0)\n",
+                encoding="utf-8",
+            )
+            replacement.chmod(0o700)
+            fingerprint = root / "supervisor.fingerprint.json"
+            fingerprint.write_text('{"pid":1}\n', encoding="utf-8")
+            backend = str(full_run_module._qualified_process_supervisor())
+            session_id = "provider-executable-toctou"
+            state = full_run_module.FullRunState(
+                session_id=session_id,
+                branch="feat/x",
+                start_head="a" * 40,
+                worktree=str(root),
+                packet_path=str(root / "packet.md"),
+                attempt=1,
+                supervision_token="a" * 48,
+            )
+            packet = Path(state.packet_path)
+            packet.write_text("executable replacement packet\n", encoding="utf-8")
+            supervisor_argv = full_run_module._provider_supervisor_argv(
+                root=root,
+                session_id=session_id,
+                provider_argv=[str(provider), str(packet)],
+                attempt=state.attempt,
+                supervisor_executable=backend,
+                provider_executable_identity=identity,
+                **_packet_binding_kwargs(packet),
+            )
+            env = {
+                "PATH": os.environ.get("PATH") or os.defpath,
+                "ELVES_FULL_RUN_SUPERVISION_MARKER": (
+                    full_run_module._descendant_supervision_marker(state)
+                ),
+            }
+            proc = subprocess.Popen(
+                supervisor_argv,
+                cwd=root,
+                env=env,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                close_fds=True,
+            )
+            replacement.replace(provider)
+            stdout, stderr = proc.communicate(
+                (str(state.supervision_token) + "\n").encode("ascii"),
+                timeout=5.0,
+            )
+            self.assertIsNone(stdout)
+            self.assertIsNone(stderr)
+            self.assertEqual(proc.returncode, 125)
+            self.assertFalse(executed.exists())
+            exit_record = json.loads(
+                (root / "exit_record.json").read_text(encoding="utf-8")
+            )
+            self.assertIsNone(exit_record["provider_pid"])
+            self.assertEqual(
+                exit_record["supervision_error"],
+                "provider_executable_identity_mismatch",
+            )
+
+    def test_provider_supervisor_rejects_shared_oauth_ancestor_replacement(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = root / "controlled"
+            intermediate = base / "intermediate"
+            provider_home = intermediate / "bin"
+            provider_home.mkdir(parents=True)
+            for directory in (base, intermediate, provider_home):
+                directory.chmod(0o700)
+            executed = root / "provider-executed"
+            provider = _compile_native_grok_launcher(
+                provider_home,
+                f"from pathlib import Path; Path({str(executed)!r}).touch()\n",
+                name="native-grok",
+            )
+            _resolved, identity = (
+                full_run_module._resolve_shared_oauth_grok_executable(
+                    str(provider)
+                )
+            )
+
+            def replace_intermediate_ancestor() -> None:
+                moved = base / "old-intermediate"
+                intermediate.replace(moved)
+                intermediate.mkdir(mode=0o700)
+                (moved / "bin").replace(intermediate / "bin")
+
+            returncode, record = _run_bound_supervisor_after_mutation(
+                root,
+                provider,
+                identity,
+                replace_intermediate_ancestor,
+            )
+            self.assertEqual(returncode, 125)
+            self.assertFalse(executed.exists())
+            self.assertIsNone(record["provider_pid"])
+            self.assertEqual(
+                record["supervision_error"],
+                "provider_executable_identity_mismatch",
+            )
+
+    def test_provider_supervisor_rechecks_shared_oauth_darwin_allow_acls(
+        self,
+    ) -> None:
+        if sys.platform != "darwin":
+            self.skipTest("Darwin extended ACL semantics only")
+        for target_kind, rule in (
+            ("executable", "everyone allow execute"),
+            ("ancestor", "everyone allow search"),
+        ):
+            with self.subTest(target_kind=target_kind), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                provider_home = root / "safe-provider-home"
+                provider_home.mkdir(mode=0o700)
+                executed = root / "provider-executed"
+                provider = _compile_native_grok_launcher(
+                    provider_home,
+                    f"from pathlib import Path; Path({str(executed)!r}).touch()\n",
+                    name="native-grok",
+                )
+                _resolved, identity = (
+                    full_run_module._resolve_shared_oauth_grok_executable(
+                        str(provider)
+                    )
+                )
+                target = provider if target_kind == "executable" else provider_home
+
+                def add_allow_acl() -> None:
+                    result = subprocess.run(
+                        ["chmod", "+a", rule, str(target)],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if result.returncode != 0:
+                        raise unittest.SkipTest(
+                            "temporary filesystem does not support extended ACLs"
+                        )
+
+                try:
+                    returncode, record = _run_bound_supervisor_after_mutation(
+                        root,
+                        provider,
+                        identity,
+                        add_allow_acl,
+                    )
+                    self.assertEqual(returncode, 125)
+                    self.assertFalse(executed.exists())
+                    self.assertIsNone(record["provider_pid"])
+                    self.assertEqual(
+                        record["supervision_error"],
+                        "provider_executable_identity_mismatch",
+                    )
+                finally:
+                    subprocess.run(
+                        ["chmod", "-N", str(target)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+
+    def test_grok_oauth_import_rejects_unsafe_or_unrecognized_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host_home = root / "home"
+            auth_dir = host_home / ".grok"
+            auth_dir.mkdir(parents=True)
+            source = auth_dir / "auth.json"
+            parent = {"HOME": str(host_home)}
+
+            source.write_text("{}", encoding="utf-8")
+            source.chmod(0o600)
+            with self.assertRaises(ValidationIssue) as ctx:
+                full_run_module._read_host_grok_auth(parent)
+            self.assertEqual(ctx.exception.code, "full_run_grok_auth_source_invalid")
+
+            source.write_text(
+                json.dumps({"account": {"key": "secret"}}), encoding="utf-8"
+            )
+            source.chmod(0o644)
+            with self.assertRaises(ValidationIssue) as ctx:
+                full_run_module._read_host_grok_auth(parent)
+            self.assertEqual(ctx.exception.code, "full_run_grok_auth_source_unsafe")
+
+            source.unlink()
+            target = root / "target-auth.json"
+            target.write_text(
+                json.dumps({"account": {"key": "secret"}}), encoding="utf-8"
+            )
+            target.chmod(0o600)
+            source.symlink_to(target)
+            with self.assertRaises(ValidationIssue) as ctx:
+                full_run_module._read_host_grok_auth(parent)
+            self.assertEqual(ctx.exception.code, "full_run_grok_auth_source_unsafe")
+
+            unsafe_parent = root / "unsafe-parent"
+            unsafe_parent.mkdir()
+            unsafe_parent.chmod(0o777)
+            unsafe_auth = unsafe_parent / "auth.json"
+            unsafe_auth.write_text(
+                json.dumps({"account": {"key": "secret"}}), encoding="utf-8"
+            )
+            unsafe_auth.chmod(0o600)
+            try:
+                with self.assertRaises(ValidationIssue) as ctx:
+                    full_run_module._read_host_grok_auth(
+                        {"GROK_AUTH_PATH": str(unsafe_auth)}
+                    )
+                self.assertEqual(
+                    ctx.exception.code, "full_run_grok_auth_parent_unsafe"
+                )
+            finally:
+                unsafe_parent.chmod(0o700)
+
+    def test_grok_oauth_rejects_real_darwin_allow_acl_on_leaf(self) -> None:
+        if sys.platform != "darwin":
+            self.skipTest("Darwin extended ACL semantics only")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            auth_dir = root / "home" / ".grok"
+            auth_dir.mkdir(parents=True)
+            auth = auth_dir / "auth.json"
+            auth.write_text(
+                json.dumps({"account": {"refresh_token": "test-refresh"}}),
+                encoding="utf-8",
+            )
+            auth.chmod(0o600)
+            result = subprocess.run(
+                ["chmod", "+a", "everyone allow read", str(auth)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                self.skipTest("temporary filesystem does not support extended ACLs")
+            try:
+                with self.assertRaises(ValidationIssue) as ctx:
+                    full_run_module._read_host_grok_auth(
+                        {"GROK_AUTH_PATH": str(auth)}
+                    )
+                self.assertEqual(ctx.exception.code, "full_run_grok_auth_acl_unsafe")
+            finally:
+                subprocess.run(
+                    ["chmod", "-N", str(auth)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+
+    def test_grok_oauth_rejects_real_darwin_allow_acl_on_every_ancestor_right(
+        self,
+    ) -> None:
+        if sys.platform != "darwin":
+            self.skipTest("Darwin extended ACL semantics only")
+        for permission in ("list", "search", "add_file", "delete_child"):
+            with self.subTest(permission=permission), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                ancestor = root / "controlled-ancestor"
+                auth_dir = ancestor / "home" / ".grok"
+                auth_dir.mkdir(parents=True)
+                auth = auth_dir / "auth.json"
+                auth.write_text(
+                    json.dumps({"account": {"refresh_token": "test-refresh"}}),
+                    encoding="utf-8",
+                )
+                auth.chmod(0o600)
+                result = subprocess.run(
+                    [
+                        "chmod",
+                        "+a",
+                        f"everyone allow {permission}",
+                        str(ancestor),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    self.skipTest(
+                        "temporary filesystem does not support extended ACLs"
+                    )
+                try:
+                    with self.assertRaises(ValidationIssue) as ctx:
+                        full_run_module._read_host_grok_auth(
+                            {"GROK_AUTH_PATH": str(auth)}
+                        )
+                    self.assertEqual(
+                        ctx.exception.code, "full_run_grok_auth_acl_unsafe"
+                    )
+                finally:
+                    subprocess.run(
+                        ["chmod", "-N", str(ancestor)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+
+    def test_grok_oauth_accepts_real_darwin_deny_only_acls(self) -> None:
+        if sys.platform != "darwin":
+            self.skipTest("Darwin extended ACL semantics only")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ancestor = root / "controlled-ancestor"
+            auth_dir = ancestor / "home" / ".grok"
+            auth_dir.mkdir(parents=True)
+            auth = auth_dir / "auth.json"
+            auth.write_text(
+                json.dumps({"account": {"refresh_token": "test-refresh"}}),
+                encoding="utf-8",
+            )
+            auth.chmod(0o600)
+            acl_paths = (ancestor, auth)
+            for path in acl_paths:
+                result = subprocess.run(
+                    ["chmod", "+a", "everyone deny delete", str(path)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    for cleanup in reversed(acl_paths):
+                        subprocess.run(
+                            ["chmod", "-N", str(cleanup)],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            check=False,
+                        )
+                    self.skipTest(
+                        "temporary filesystem does not support extended ACLs"
+                    )
+            try:
+                raw, identity = full_run_module._read_host_grok_auth(
+                    {"GROK_AUTH_PATH": str(auth)}
+                )
+                self.assertIn(b"test-refresh", raw)
+                self.assertEqual(identity["path"], str(auth.resolve()))
+            finally:
+                for path in reversed(acl_paths):
+                    subprocess.run(
+                        ["chmod", "-N", str(path)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+
+    def test_grok_oauth_rejects_writable_ancestor_and_fifo_without_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            unsafe_ancestor = root / "unsafe-ancestor"
+            auth_dir = unsafe_ancestor / "private-leaf"
+            auth_dir.mkdir(parents=True)
+            unsafe_ancestor.chmod(0o777)
+            auth_dir.chmod(0o700)
+            auth = auth_dir / "auth.json"
+            auth.write_text(
+                json.dumps({"account": {"refresh_token": "test-refresh"}}),
+                encoding="utf-8",
+            )
+            auth.chmod(0o600)
+            with self.assertRaises(ValidationIssue) as ctx:
+                full_run_module._read_host_grok_auth(
+                    {"GROK_AUTH_PATH": str(auth)}
+                )
+            self.assertEqual(ctx.exception.code, "full_run_grok_auth_parent_unsafe")
+
+            fifo_dir = root / "fifo-leaf"
+            fifo_dir.mkdir()
+            fifo_dir.chmod(0o700)
+            fifo = fifo_dir / "auth.json"
+            os.mkfifo(fifo, 0o600)
+            probe = (
+                "from cobbler_runtime import full_run; import sys; "
+                "from cobbler_runtime.schema import ValidationIssue; "
+                "\ntry: full_run._read_host_grok_auth({'GROK_AUTH_PATH': sys.argv[1]})"
+                "\nexcept ValidationIssue as exc: raise SystemExit(0 if exc.code == "
+                "'full_run_grok_auth_source_unsafe' else 2)"
+                "\nraise SystemExit(3)"
+            )
+            child = subprocess.Popen(
+                [sys.executable, "-c", probe, str(fifo)],
+                cwd=str(SCRIPTS),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                child.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
+                self.fail("owner-only FIFO auth leaf blocked instead of failing closed")
+            self.assertEqual(child.returncode, 0)
+
+    def test_grok_oauth_revalidation_binds_intermediate_parent_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = root / "base"
+            intermediate = base / "intermediate"
+            auth_dir = intermediate / "auth-home"
+            auth_dir.mkdir(parents=True)
+            for directory in (base, intermediate, auth_dir):
+                directory.chmod(0o700)
+            auth = auth_dir / "auth.json"
+            auth.write_text(
+                json.dumps({"account": {"refresh_token": "test-refresh"}}),
+                encoding="utf-8",
+            )
+            auth.chmod(0o600)
+            _raw, identity = full_run_module._read_host_grok_auth(
+                {"GROK_AUTH_PATH": str(auth)}
+            )
+
+            moved = base / "old-intermediate"
+            intermediate.replace(moved)
+            intermediate.mkdir(mode=0o700)
+            (moved / "auth-home").replace(intermediate / "auth-home")
+            _raw, observed = full_run_module._read_host_grok_auth(
+                {"GROK_AUTH_PATH": str(auth)}
+            )
+            self.assertEqual(identity["parent_ino"], observed["parent_ino"])
+            self.assertNotEqual(identity["parent_chain"], observed["parent_chain"])
+
+            state = full_run_module.FullRunState(
+                session_id="oauth-chain-binding",
+                branch="feat/x",
+                start_head="a" * 40,
+                worktree=str(root),
+                packet_path=str(root / "packet"),
+                grok_auth_strategy="oauth_shared_file",
+                grok_auth_path_identity=identity,
+            )
+            with self.assertRaises(ValidationIssue) as ctx:
+                full_run_module._revalidate_shared_grok_auth(state)
+            self.assertEqual(ctx.exception.code, "full_run_grok_auth_identity_changed")
+
+    def test_grok_oauth_source_swap_cannot_bypass_private_fd_checks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host_home = root / "home"
+            auth_dir = host_home / ".grok"
+            auth_dir.mkdir(parents=True)
+            source = auth_dir / "auth.json"
+            source.write_text(
+                json.dumps({"account": {"key": "original-secret"}}),
+                encoding="utf-8",
+            )
+            source.chmod(0o600)
+            replacement = auth_dir / "replacement.json"
+            replacement.write_text(
+                json.dumps({"account": {"key": "replacement-secret"}}),
+                encoding="utf-8",
+            )
+            replacement.chmod(0o644)
+            real_open = os.open
+            swapped = False
+
+            def swap_before_open(path: object, flags: int, *args: object, **kwargs: object) -> int:
+                nonlocal swapped
+                if (
+                    not swapped
+                    and Path(path).name == "auth.json"
+                    and kwargs.get("dir_fd") is not None
+                ):
+                    swapped = True
+                    source.unlink()
+                    replacement.replace(source)
+                return real_open(path, flags, *args, **kwargs)
+
+            with mock.patch.object(full_run_module.os, "open", side_effect=swap_before_open):
+                with self.assertRaises(ValidationIssue) as ctx:
+                    full_run_module._read_host_grok_auth({"HOME": str(host_home)})
+            self.assertTrue(swapped)
+            self.assertEqual(ctx.exception.code, "full_run_grok_auth_source_unsafe")
+
+    def test_shared_oauth_rotation_preserves_structured_evidence_but_disables_raw_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = repo / "packet.md"
+            packet.write_text("fixture\n", encoding="utf-8")
+            worker = repo / "noop.py"
+            worker.write_text("print('unused')\n", encoding="utf-8")
+            head = _init_feature_repo(repo)
+            session = "oauth-evidence-context"
+            prepare_full_run(
+                repo,
+                session_id=session,
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                adapter="fixture",
+                fixture_script=worker,
+            )
+            host_home = root / "host-home"
+            auth = host_home / ".grok" / "auth.json"
+            auth.parent.mkdir(parents=True)
+            opaque_secret = "opaque-refresh-value-9f3c2a"
+            auth.write_text(
+                json.dumps({"account": {"refresh_token": opaque_secret}}),
+                encoding="utf-8",
+            )
+            auth.chmod(0o600)
+            state = load_state(repo, session)
+            _raw, identity = full_run_module._read_host_grok_auth(
+                {"HOME": str(host_home)}
+            )
+            state.grok_auth_strategy = "oauth_shared_file"
+            state.grok_auth_path_identity = identity
+            full_run_module.save_state(repo, state)
+            canonical_auth = str(identity["path"])
+            transcript = full_run_root(repo, session) / "transcript.log"
+            transcript.write_text(opaque_secret + "\n", encoding="utf-8")
+            transcript.chmod(0o600)
+
+            matching = logs_full_run(
+                repo, session_id=session, raw_tail=True, tail_lines=5
+            )
+            self.assertTrue(matching["ok"], matching)
+            self.assertFalse(matching["transcript_included"])
+            self.assertIn("shared OAuth", matching["transcript_error"])
+            self.assertNotIn(str(auth), json.dumps(matching, sort_keys=True))
+
+            event_path = full_run_root(repo, session) / "events.jsonl"
+            full_run_module._append_event(
+                event_path,
+                {
+                    "timestamp": full_run_module._utc_now(),
+                    "session_id": session,
+                    "branch": "feat/x",
+                    "head": head,
+                    "batch": 1,
+                    "type": "heartbeat",
+                    "summary": f"historical {opaque_secret} from {canonical_auth}",
+                },
+                expected_session_id=session,
+                expected_branch="feat/x",
+                repo_root=repo,
+            )
+            full_run_module._append_event(
+                event_path,
+                {
+                    "timestamp": full_run_module._utc_now(),
+                    "session_id": session,
+                    "branch": "feat/x",
+                    "head": head,
+                    "batch": 1,
+                    "type": "blocked",
+                    "summary": f"blocked with {opaque_secret} at {canonical_auth}",
+                },
+                expected_session_id=session,
+                expected_branch="feat/x",
+                repo_root=repo,
+            )
+
+            rotated_secret = "rotated-value-5e7d3a"
+            replacement = auth.with_name("auth.next")
+            replacement.write_text(
+                json.dumps({"account": {"refresh_token": rotated_secret}}),
+                encoding="utf-8",
+            )
+            replacement.chmod(0o600)
+            replacement.replace(auth)
+            rotated = logs_full_run(repo, session_id=session, raw_tail=False)
+            self.assertTrue(rotated["ok"], rotated)
+            rotated_json = json.dumps(rotated, sort_keys=True)
+            self.assertNotIn(str(auth), rotated_json)
+            self.assertNotIn(canonical_auth, rotated_json)
+            self.assertNotIn(opaque_secret, rotated_json)
+            self.assertNotIn(rotated_secret, rotated_json)
+            self.assertTrue(rotated["events_tail"])
+            self.assertTrue(
+                all("summary" not in item for item in rotated["events_tail"])
+            )
+            self.assertEqual(rotated["events_tail"][-1]["type"], "blocked")
+            self.assertTrue(full_run_module._launch_grants_verified(load_state(repo, session)))
+            redacted = full_run_module._redact_full_run_structure(
+                {"summary": rotated_secret},
+                exact_values=full_run_module._state_secret_values(load_state(repo, session)),
+            )
+            self.assertNotIn(rotated_secret, json.dumps(redacted, sort_keys=True))
+            observed = monitor_full_run(repo, session_id=session)
+            self.assertNotEqual(observed["state"], "failed", observed)
+            observed_json = json.dumps(observed, sort_keys=True)
+            self.assertNotIn(str(auth), observed_json)
+            self.assertNotIn(canonical_auth, observed_json)
+            self.assertNotIn(opaque_secret, observed_json)
+            self.assertNotIn(rotated_secret, observed_json)
+            self.assertEqual(
+                observed["blocker"], "shared OAuth worker reported a blocked state"
+            )
+            report = full_run_module._running_report(
+                load_state(repo, session), final_head=head
+            )
+            report_with_path = dict(report)
+            report_with_path["security_notes"] = [
+                f"historical {opaque_secret} at {canonical_auth}"
+            ]
+            with self.assertRaises(ValidationIssue) as ctx:
+                write_report(repo, session, report_with_path)
+            self.assertEqual(ctx.exception.code, "full_run_report_invalid")
+            self.assertNotIn(str(auth), str(ctx.exception))
+            self.assertNotIn(canonical_auth, str(ctx.exception))
+            self.assertNotIn(opaque_secret, str(ctx.exception))
+
+            report["security_notes"] = [f"historical {opaque_secret}"]
+            report_path = write_report(repo, session, report)
+            self.assertTrue(report_path.is_file())
+            self.assertNotIn(str(auth), str(report_path))
+            self.assertNotIn(canonical_auth, str(report_path))
+            self.assertNotIn(opaque_secret, str(report_path))
+            observed_after_report = monitor_full_run(repo, session_id=session)
+            observed_after_json = json.dumps(observed_after_report, sort_keys=True)
+            self.assertNotIn(str(auth), observed_after_json)
+            self.assertNotIn(canonical_auth, observed_after_json)
+            self.assertNotIn(opaque_secret, observed_after_json)
+
+            auth.unlink()
+            missing = logs_full_run(repo, session_id=session, raw_tail=False)
+            self.assertFalse(missing["ok"])
+            self.assertFalse(missing["transcript_included"])
+
+    def test_shared_oauth_reconcile_returns_only_structured_rotation_safe_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = root / "packet.md"
+            _write_production_packet(packet, "B1-A1")
+            head = _init_feature_repo(repo)
+            _attach_origin(repo, root / "origin.git", "feat/x")
+            session = "oauth-reconcile-projection"
+            prepare_full_run(
+                repo,
+                session_id=session,
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                adapter="grok-build",
+                executable="grok",
+            )
+            auth_dir = root / "host-home" / ".grok"
+            auth_dir.mkdir(parents=True)
+            old_secret = "opaque-historical-reconcile-value"
+            current_secret = "opaque-current-reconcile-value"
+            auth = auth_dir / "auth.json"
+            auth.write_text(
+                json.dumps({"account": {"refresh_token": old_secret}}),
+                encoding="utf-8",
+            )
+            auth.chmod(0o600)
+            _raw, identity = full_run_module._read_host_grok_auth(
+                {"GROK_AUTH_PATH": str(auth)}
+            )
+            state = load_state(repo, session)
+            state.grok_auth_strategy = "oauth_shared_file"
+            state.grok_auth_path_identity = identity
+            full_run_module.save_state(repo, state)
+
+            (repo / "tracked.txt").write_text("delegated progress\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "tracked.txt"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-q", "-m", "delegated progress"],
+                check=True,
+            )
+            tip = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            subprocess.run(
+                ["git", "-C", str(repo), "push", "-q", "origin", "feat/x"],
+                check=True,
+            )
+            events = full_run_root(repo, session) / "events.jsonl"
+            for event_type in ("commit_pushed", "run_complete"):
+                full_run_module._append_event(
+                    events,
+                    {
+                        "timestamp": full_run_module._utc_now(),
+                        "session_id": session,
+                        "branch": "feat/x",
+                        "head": tip,
+                        "batch": 1,
+                        "type": event_type,
+                        "summary": f"{old_secret} used through {auth}",
+                    },
+                    expected_session_id=session,
+                    expected_branch="feat/x",
+                    repo_root=repo,
+                )
+
+            replacement = auth.with_name("auth.next")
+            replacement.write_text(
+                json.dumps({"account": {"refresh_token": current_secret}}),
+                encoding="utf-8",
+            )
+            replacement.chmod(0o600)
+            replacement.replace(auth)
+            report = {
+                "run_id": full_run_module._expected_run_id(session),
+                "attempt": 1,
+                "session_id": session,
+                "branch": "feat/x",
+                "start_head": head,
+                "final_head": tip,
+                "status": "complete",
+                "batches": [
+                    {"id": "batch-1", "status": "complete", "evidence": old_secret}
+                ],
+                "acceptance": [
+                    {
+                        "id": "B1-A1",
+                        "criterion": "criterion for B1-A1",
+                        "met": True,
+                        "evidence": old_secret,
+                    }
+                ],
+                "commits": [{"sha": tip, "subject": old_secret}],
+                "blockers": [],
+                "remaining_risks": [],
+                "tests": {"result": old_secret},
+            }
+            report_path = write_report(repo, session, report)
+            self.assertTrue(report_path.is_file())
+            reconciled = reconcile_full_run_with_git(repo, session_id=session)
+            encoded = json.dumps(reconciled, sort_keys=True)
+            self.assertTrue(reconciled["ok"], reconciled)
+            self.assertNotIn(str(auth), encoded)
+            self.assertNotIn(old_secret, encoded)
+            self.assertNotIn(current_secret, encoded)
+            self.assertEqual(reconciled["final_head"], tip)
+
+    def test_grok_auth_selection_requires_one_explicit_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            run_root = repo / ".elves" / "runtime" / "implement" / "auth-select"
+            state = full_run_module.FullRunState(
+                session_id="auth-select",
+                branch="feat/x",
+                start_head="a" * 40,
+                worktree=str(repo),
+                packet_path=str(repo / "packet"),
+                supervision_token="d" * 48,
+                executable=sys.executable,
+            )
+            with self.assertRaises(ValidationIssue) as ctx:
+                full_run_module._configure_grok_auth(
+                    repo, run_root, state, {}, grant_grok_auth=False
+                )
+            self.assertEqual(ctx.exception.code, "full_run_grok_auth_required")
+
+            api_env = {"XAI_API_KEY": "explicit-secret"}
+            full_run_module._configure_grok_auth(
+                repo, run_root, state, api_env, grant_grok_auth=False
+            )
+            self.assertEqual(state.grok_auth_strategy, "xai_api_key")
+            self.assertNotIn("GROK_AUTH_PATH", api_env)
+            self.assertIsNone(state.grok_auth_path_identity)
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                full_run_module._configure_grok_auth(
+                    repo, run_root, state, api_env, grant_grok_auth=True
+                )
+            self.assertEqual(ctx.exception.code, "full_run_grok_auth_ambiguous")
 
     def test_digest_keyed_dirs_and_collision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -997,6 +3345,50 @@ class FullRunLifecycleTests(unittest.TestCase):
         self.assertLessEqual(len(bounded["transcript_tail"]), 100)
         self.assertTrue(all(len(line) <= 1000 for line in bounded["transcript_tail"]))
 
+    def test_monitor_wakes_on_pathological_event_and_report_json(self) -> None:
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=self.worker,
+        )
+        root = full_run_root(self.repo, self.session)
+        base_event = {
+            "timestamp": datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat(),
+            "session_id": self.session,
+            "branch": self.branch,
+            "head": self.start_head,
+            "batch": 0,
+            "type": "heartbeat",
+            "summary": "bounded ingestion fixture",
+        }
+        huge_integer = json.dumps(base_event)[:-1] + ',"counter":' + ("9" * 1000) + "}"
+        many_nodes = dict(base_event)
+        many_nodes["extra"] = [0] * (full_run_module.MAX_JSON_NODES + 1)
+        (root / "events.jsonl").write_text(
+            huge_integer + "\n" + json.dumps(many_nodes) + "\n",
+            encoding="utf-8",
+        )
+        nested: object = "leaf"
+        for _ in range(full_run_module.MAX_JSON_DEPTH + 5):
+            nested = [nested]
+        (root / "report.json").write_text(
+            json.dumps({"nested": nested}) + "\n",
+            encoding="utf-8",
+        )
+
+        observed = monitor_full_run(self.repo, session_id=self.session)
+        self.assertEqual(observed["state"], "failed", observed)
+        self.assertEqual(observed["next_action"], "driver_wake_error")
+        self.assertGreaterEqual(observed["check_summary"]["event_errors"], 2)
+        self.assertGreaterEqual(observed["check_summary"]["report_errors"], 1)
+
     def test_launch_grant_override_is_persisted_and_exact_value_is_redacted(self) -> None:
         worker = Path(self.tmp.name) / "secret_worker.py"
         worker.write_text(
@@ -1037,13 +3429,138 @@ class FullRunLifecycleTests(unittest.TestCase):
             serialized = json.dumps(logs, sort_keys=True)
             self.assertNotIn(secret, serialized)
             self.assertIn("REDACTED", serialized)
+        # A parked monitor normally runs in a fresh host process where the
+        # launch credential is intentionally absent. Persisted keyed digest +
+        # length metadata must keep evidence validation available without
+        # storing or reloading the raw value.
+        state = load_state(self.repo, self.session)
+        original_supervision_token = state.supervision_token
+        self.assertEqual(
+            state.credential_grant_lengths,
+            {"CUSTOM_OPAQUE_TOKEN": len(secret)},
+        )
+        self.assertNotIn(secret, json.dumps(state.to_dict(), sort_keys=True))
+        verified, absent_values = full_run_module._launch_evidence_context(state)
+        self.assertTrue(verified)
+        self.assertNotIn(secret, absent_values)
+        available = logs_full_run(
+            self.repo, session_id=self.session, raw_tail=True, tail_lines=10
+        )
+        available_serialized = json.dumps(available, sort_keys=True)
+        self.assertTrue(available["transcript_included"])
+        self.assertEqual(
+            available["transcript_tail"],
+            ["[REDACTED:credential_grant]"],
+        )
+        self.assertNotIn("cannot be verified", available_serialized)
+        self.assertNotIn(secret, available_serialized)
+
+        # Corrupting the private HMAC authority must fail closed.  A public
+        # session id is never an acceptable fallback key, and bounded logs must
+        # remain unavailable rather than leaking a now-undetectable grant.
+        state.supervision_token = None
+        with mock.patch.dict(
+            os.environ,
+            {"CUSTOM_OPAQUE_TOKEN": secret},
+            clear=False,
+        ):
+            verified, still_redacted_values = (
+                full_run_module._launch_evidence_context(state)
+            )
+        self.assertFalse(verified)
+        self.assertIn(secret, still_redacted_values)
+        full_run_module.save_state(self.repo, state)
         unavailable = logs_full_run(
             self.repo, session_id=self.session, raw_tail=True, tail_lines=10
         )
         unavailable_serialized = json.dumps(unavailable, sort_keys=True)
         self.assertFalse(unavailable["transcript_included"])
-        self.assertIn("cannot be verified", unavailable["transcript_error"])
+        self.assertIn("cannot be verified", unavailable_serialized)
         self.assertNotIn(secret, unavailable_serialized)
+
+        state.supervision_token = "b" * 48
+        full_run_module.save_state(self.repo, state)
+        wrong_key = logs_full_run(
+            self.repo, session_id=self.session, raw_tail=True, tail_lines=10
+        )
+        wrong_key_serialized = json.dumps(wrong_key, sort_keys=True)
+        self.assertFalse(wrong_key["transcript_included"])
+        self.assertIn("cannot be verified", wrong_key_serialized)
+        self.assertNotIn(secret, wrong_key_serialized)
+
+        state.supervision_token = original_supervision_token
+        full_run_module.save_state(self.repo, state)
+
+        # Persisted JSON field types are untrusted input to later CLI processes.
+        # Scalar corruption must make public evidence unavailable without a raw
+        # TypeError, even while the exact launch credential remains exported.
+        for field_name in (
+            "credential_grant_names",
+            "credential_granted_names",
+        ):
+            with self.subTest(corrupt_field=field_name):
+                corrupt = load_state(self.repo, self.session)
+                original_value = getattr(corrupt, field_name)
+                setattr(corrupt, field_name, 42)
+                full_run_module.save_state(self.repo, corrupt)
+                with mock.patch.dict(
+                    os.environ,
+                    {"CUSTOM_OPAQUE_TOKEN": secret},
+                    clear=False,
+                ):
+                    unavailable = logs_full_run(
+                        self.repo,
+                        session_id=self.session,
+                        raw_tail=True,
+                        tail_lines=10,
+                    )
+                unavailable_serialized = json.dumps(unavailable, sort_keys=True)
+                self.assertFalse(unavailable["transcript_included"])
+                self.assertIn("cannot be verified", unavailable_serialized)
+                self.assertNotIn(secret, unavailable_serialized)
+                setattr(corrupt, field_name, original_value)
+                full_run_module.save_state(self.repo, corrupt)
+
+        # Exact leaks are found in event values and report keys even without
+        # the environment value. Diagnostics remain bounded and secret-free.
+        run_root = full_run_root(self.repo, self.session)
+        with (run_root / "events.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "timestamp": datetime.now(timezone.utc)
+                        .replace(microsecond=0)
+                        .isoformat(),
+                        "session_id": self.session,
+                        "branch": self.branch,
+                        "head": self.start_head,
+                        "batch": 0,
+                        "type": "heartbeat",
+                        "summary": f"worker leaked {secret} here",
+                    }
+                )
+                + "\n"
+            )
+        leaked_report = json.loads(
+            (run_root / "report.json").read_text(encoding="utf-8")
+        )
+        leaked_report[f"worker-{secret}-field"] = "unsafe key"
+        (run_root / "report.json").write_text(
+            json.dumps(leaked_report) + "\n",
+            encoding="utf-8",
+        )
+        status = monitor_full_run(self.repo, session_id=self.session)
+        leaked_logs = logs_full_run(
+            self.repo, session_id=self.session, raw_tail=False, tail_lines=10
+        )
+        combined = json.dumps({"status": status, "logs": leaked_logs}, sort_keys=True)
+        self.assertNotIn(secret, combined)
+        self.assertGreater(status["check_summary"]["event_errors"], 0)
+        self.assertGreater(status["check_summary"]["report_errors"], 0)
+        self.assertTrue(any("secret-shaped" in row for row in leaked_logs["event_errors"]))
+        sanitized_report = (run_root / "report.json").read_text(encoding="utf-8")
+        self.assertNotIn(secret, sanitized_report)
+        self.assertIn("REDACTED:credential_grant_key", sanitized_report)
 
     def test_raw_transcript_redacts_json_credentials_and_multiline_pem(self) -> None:
         prepare_full_run(
@@ -1154,9 +3671,11 @@ class FullRunLifecycleTests(unittest.TestCase):
     def test_real_resume_archives_attempt_after_committed_pushed_checkpoint(self) -> None:
         remote = Path(self.tmp.name) / "resume-origin.git"
         _attach_origin(self.repo, remote, self.branch)
-        grok = Path(self.tmp.name) / "fake_grok.py"
-        grok.write_text(GROK_COMMIT_AND_WAIT, encoding="utf-8")
-        grok.chmod(grok.stat().st_mode | stat.S_IXUSR)
+        grok = _compile_native_grok_launcher(
+            Path(self.tmp.name),
+            GROK_COMMIT_AND_WAIT,
+            name="fake-grok",
+        )
         _write_production_packet(self.packet)
         prepare_full_run(
             self.repo,
@@ -1168,31 +3687,68 @@ class FullRunLifecycleTests(unittest.TestCase):
             adapter="grok-build",
             executable=str(grok),
         )
-        launch_full_run(self.repo, session_id=self.session)
-        deadline = time.time() + 8
-        checkpoint = self.start_head
-        while checkpoint == self.start_head and time.time() < deadline:
-            time.sleep(0.05)
-            checkpoint = subprocess.run(
-                ["git", "-C", str(self.repo), "rev-parse", "HEAD"],
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
-        self.assertNotEqual(checkpoint, self.start_head)
-        stopped = stop_full_run(self.repo, session_id=self.session, grace_seconds=1.0)
-        self.assertTrue(stopped["ok"], stopped)
-        closed = load_state(self.repo, self.session)
-        self.assertIsNone(closed.pid)
-        self.assertIsNone(closed.pgid)
-        self.assertIsNone(closed.fingerprint)
-        self.assertIsNotNone(closed.interruption_evidence)
+        host_home = Path(self.tmp.name) / "host-home"
+        host_auth = host_home / ".grok" / "auth.json"
+        host_auth.parent.mkdir(parents=True)
+        host_auth.write_text(
+            json.dumps({"account": {"key": "test-access", "refresh_token": "test-refresh"}}),
+            encoding="utf-8",
+        )
+        host_auth.chmod(0o600)
+        with mock.patch.dict(os.environ, {"HOME": str(host_home)}, clear=False):
+            launched = launch_full_run(
+                self.repo, session_id=self.session, grant_grok_auth=True
+            )
+            self.assertEqual(launched["grok_auth_strategy"], "oauth_shared_file")
+            self.assertNotIn(str(host_auth), json.dumps(launched, sort_keys=True))
+            self.assertFalse(
+                (
+                    full_run_root(self.repo, self.session)
+                    / full_run_module.GROK_HOME_REL
+                    / "auth.json"
+                ).exists()
+            )
+            deadline = time.time() + 8
+            checkpoint = self.start_head
+            while checkpoint == self.start_head and time.time() < deadline:
+                time.sleep(0.05)
+                checkpoint = subprocess.run(
+                    ["git", "-C", str(self.repo), "rev-parse", "HEAD"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+            self.assertNotEqual(checkpoint, self.start_head)
+            stopped = stop_full_run(self.repo, session_id=self.session, grace_seconds=1.0)
+            self.assertTrue(stopped["ok"], stopped)
+            self.assertTrue(host_auth.is_file())
+            closed = load_state(self.repo, self.session)
+            self.assertIsNone(closed.pid)
+            self.assertIsNone(closed.pgid)
+            self.assertIsNone(closed.fingerprint)
+            self.assertIsNotNone(closed.interruption_evidence)
 
-        resumed = launch_full_run(self.repo, session_id=self.session, resume=True)
-        self.assertIn("--resume", resumed["argv"])
-        index = resumed["argv"].index("--resume")
-        self.assertEqual(resumed["argv"][index + 1], self.session)
-        self.assertNotIn("--session-id", resumed["argv"])
+            rotated = host_auth.with_name("auth.next")
+            rotated.write_text(
+                json.dumps(
+                    {
+                        "account": {
+                            "key": "rotated-access",
+                            "refresh_token": "rotated-refresh",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rotated.chmod(0o600)
+            rotated.replace(host_auth)
+            rotated_bytes = host_auth.read_bytes()
+            resumed = launch_full_run(self.repo, session_id=self.session, resume=True)
+            self.assertIn("--resume", resumed["argv"])
+            index = resumed["argv"].index("--resume")
+            self.assertEqual(resumed["argv"][index + 1], self.session)
+            self.assertNotIn("--session-id", resumed["argv"])
+            self.assertNotIn(str(host_auth), json.dumps(resumed, sort_keys=True))
         state = load_state(self.repo, self.session)
         self.assertEqual(state.attempt, 2)
         self.assertEqual(state.start_head, self.start_head)
@@ -1209,6 +3765,7 @@ class FullRunLifecycleTests(unittest.TestCase):
             self.assertTrue((archive / name).is_file(), name)
         second_stop = stop_full_run(self.repo, session_id=self.session, grace_seconds=1.0)
         self.assertTrue(second_stop["ok"], second_stop)
+        self.assertEqual(host_auth.read_bytes(), rotated_bytes)
 
     def test_attempt_archive_fails_closed_without_atomic_noreplace(self) -> None:
         prepare_full_run(
@@ -1588,7 +4145,7 @@ class FullRunLifecycleTests(unittest.TestCase):
                 "acceptance": [
                     {
                         "id": "B1-A1",
-                        "criterion": "local change",
+                        "criterion": "criterion for B1-A1",
                         "met": True,
                         "evidence": tip,
                     }
@@ -1644,7 +4201,13 @@ class FullRunLifecycleTests(unittest.TestCase):
                 "status": "complete",
                 "batches": [{"id": "batch-1", "status": "complete", "evidence": tip}],
                 "acceptance": [
-                    {"id": "B1-A1", "criterion": "first", "met": True, "evidence": tip}
+                    {
+                        "id": acceptance_id,
+                        "criterion": f"criterion for {acceptance_id}",
+                        "met": True,
+                        "evidence": tip,
+                    }
+                    for acceptance_id in ("B1-A1", "B1-A2")
                 ],
                 # Exact SHA shape, but intentionally not the start..final chain.
                 "commits": [self.start_head],
@@ -1683,7 +4246,6 @@ class FullRunLifecycleTests(unittest.TestCase):
             reconcile_full_run_with_git(self.repo, session_id=self.session)
         self.assertEqual(ctx.exception.code, "full_run_git_evidence_mismatch")
         self.assertIn("commit", ctx.exception.message)
-        self.assertIn("acceptance", ctx.exception.message)
         self.assertIn("event", ctx.exception.message)
 
     def test_stopped_terminal_state_does_not_regress_on_monitor(self) -> None:
@@ -1777,7 +4339,7 @@ class FullRunLifecycleTests(unittest.TestCase):
             json.dumps(stop_request, sort_keys=True),
         )
 
-    def test_provider_receives_only_derived_marker_and_no_secret_fd(self) -> None:
+    def test_provider_receives_only_derived_marker_and_read_only_packet_fd(self) -> None:
         observer = Path(self.tmp.name) / "supervision-boundary-observer.py"
         observer.write_text(
             "import hashlib, json, os, sys, time\n"
@@ -1789,12 +4351,21 @@ class FullRunLifecycleTests(unittest.TestCase):
             "    except OSError:\n"
             "        continue\n"
             "    open_fds.append(fd)\n"
+            "packet_arg = next(value for value in sys.argv if value.startswith('/dev/fd/'))\n"
+            "packet_fd = int(packet_arg.rsplit('/', 1)[1])\n"
+            "try:\n"
+            "    os.write(packet_fd, b'x')\n"
+            "    packet_fd_read_only = False\n"
+            "except OSError:\n"
+            "    packet_fd_read_only = True\n"
             "snapshot = {\n"
             "    'argv': sys.argv,\n"
             "    'marker': os.environ.get('ELVES_FULL_RUN_SUPERVISION_MARKER'),\n"
             "    'env_value_hashes': sorted(hashlib.sha256(value.encode()).hexdigest() "
             "for value in os.environ.values()),\n"
             "    'open_fds_above_stderr': open_fds,\n"
+            "    'packet_fd': packet_fd,\n"
+            "    'packet_fd_read_only': packet_fd_read_only,\n"
             "    'stdin_eof': os.read(0, 1) == b'',\n"
             "}\n"
             "Path(os.environ['ELVES_FULL_RUN_TRANSCRIPT']).write_text("
@@ -1834,7 +4405,10 @@ class FullRunLifecycleTests(unittest.TestCase):
             hashlib.sha256(stop_secret.encode()).hexdigest(),
             snapshot["env_value_hashes"],
         )
-        self.assertEqual(snapshot["open_fds_above_stderr"], [])
+        self.assertEqual(
+            snapshot["open_fds_above_stderr"], [snapshot["packet_fd"]]
+        )
+        self.assertTrue(snapshot["packet_fd_read_only"])
         self.assertTrue(snapshot["stdin_eof"])
         self.assertNotIn(stop_secret, json.dumps(launch, sort_keys=True))
 
@@ -1853,7 +4427,7 @@ class FullRunLifecycleTests(unittest.TestCase):
         self.assertNotIn("supervision_token", exit_record)
         self.assertNotIn(stop_secret, json.dumps(exit_record, sort_keys=True))
 
-    def test_worker_stop_forgery_malformed_json_and_fifo_are_ignored(self) -> None:
+    def test_descendant_marker_cannot_forge_stop_and_malformed_fifo_are_ignored(self) -> None:
         ready = Path(self.tmp.name) / "stop-artifact-attacks-complete"
         attacker = Path(self.tmp.name) / "stop-artifact-attacker.py"
         attacker.write_text(
@@ -1964,6 +4538,53 @@ class FullRunLifecycleTests(unittest.TestCase):
                 )
         self.assertEqual(ctx.exception.code, "full_run_atomic_signal_unavailable")
         kill.assert_not_called()
+
+    def test_supervision_canary_uses_minimal_credential_free_environment(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeProcess:
+            pid = 4242
+
+            def poll(self):
+                return None
+
+            def kill(self):
+                captured["killed"] = True
+
+            def wait(self, timeout=None):
+                captured["wait_timeout"] = timeout
+                return -signal.SIGKILL
+
+        def fake_popen(*args, **kwargs):
+            captured["env"] = dict(kwargs["env"])
+            return FakeProcess()
+
+        parent = {
+            "PATH": "/usr/bin:/bin",
+            "LANG": "C.UTF-8",
+            "OPENAI_API_KEY": "synthetic-canary-secret",
+            "UNRELATED_SENTINEL": "must-not-enter-canary",
+            "HOME": "/host-home",
+        }
+        with (
+            mock.patch.dict(os.environ, parent, clear=True),
+            mock.patch.object(full_run_module.subprocess, "Popen", side_effect=fake_popen),
+            mock.patch.object(
+                full_run_module,
+                "_scan_supervision_pids",
+                return_value={FakeProcess.pid},
+            ),
+        ):
+            self.assertTrue(full_run_module._run_supervision_canary(Path("/usr/bin/ps")))
+
+        env = captured["env"]
+        self.assertIsInstance(env, dict)
+        self.assertEqual(env["PATH"], parent["PATH"])
+        self.assertEqual(env["LANG"], parent["LANG"])
+        self.assertRegex(env["ELVES_FULL_RUN_SUPERVISION_MARKER"], r"^[0-9a-f]{64}$")
+        self.assertNotIn("OPENAI_API_KEY", env)
+        self.assertNotIn("UNRELATED_SENTINEL", env)
+        self.assertNotIn("HOME", env)
 
     def test_embedded_supervisor_tracks_start_identity_and_uses_pidfd_on_linux(self) -> None:
         source = full_run_module._PROVIDER_SUPERVISOR_SCRIPT

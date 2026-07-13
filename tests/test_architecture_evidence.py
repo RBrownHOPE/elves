@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import os
 import subprocess
 import sys
 import tempfile
@@ -283,6 +284,88 @@ class PreflightCacheTests(unittest.TestCase):
             decision3 = reuse_preflight(repo, head=head)
             self.assertFalse(decision3["reuse"])
 
+    def test_tool_replacement_at_same_path_invalidates_cache_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            tools = Path(tmp) / "tools"
+            repo.mkdir()
+            tools.mkdir()
+            (repo / "SKILL.md").write_text("v\n", encoding="utf-8")
+            (repo / "AGENTS.md").write_text("v\n", encoding="utf-8")
+            (repo / "config.json.example").write_text("{}\n", encoding="utf-8")
+            (repo / "scripts").mkdir()
+            (repo / "scripts" / "verify_repo.py").write_text("x\n", encoding="utf-8")
+            (repo / "scripts" / "check_repo_consistency.py").write_text(
+                "x\n",
+                encoding="utf-8",
+            )
+            for name in ("python3", "git", "gh", "bash"):
+                path = tools / name
+                path.write_text(f"{name}-version-one\n", encoding="utf-8")
+                path.chmod(0o755)
+
+            with mock.patch.dict(os.environ, {"PATH": str(tools)}, clear=False):
+                first = compute_preflight_key(repo, head="same-head")
+                (tools / "git").write_text("git-version-two\n", encoding="utf-8")
+                (tools / "git").chmod(0o755)
+                second = compute_preflight_key(repo, head="same-head")
+
+            self.assertNotEqual(first, second)
+
+    def test_arbitrary_tracked_source_change_invalidates_cache_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            source = repo / "scripts" / "cobbler_runtime" / "new_surface.py"
+            source.parent.mkdir(parents=True)
+            source.write_text("VALUE = 1\n", encoding="utf-8")
+            subprocess.run(["git", "add", "scripts/cobbler_runtime/new_surface.py"], cwd=repo, check=True)
+
+            first = compute_preflight_key(repo, head="same-head")
+            source.write_text("VALUE = 2\n", encoding="utf-8")
+            second = compute_preflight_key(repo, head="same-head")
+
+            self.assertNotEqual(first, second)
+
+    def test_untracked_source_and_tracked_fixture_changes_invalidate_reuse(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "tests@example.invalid"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Elves Tests"],
+                cwd=repo,
+                check=True,
+            )
+            fixture = repo / "tests" / "fixture.txt"
+            fixture.parent.mkdir()
+            fixture.write_text("passing fixture\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tests/fixture.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+            record_passing_preflight(repo, head=head)
+            (repo / "new_untracked_test.py").write_text(
+                "raise AssertionError('must invalidate')\n",
+                encoding="utf-8",
+            )
+            self.assertFalse(reuse_preflight(repo, head=head)["reuse"])
+
+            (repo / "new_untracked_test.py").unlink()
+            record_passing_preflight(repo, head=head)
+            fixture.write_text("changed fixture without a source suffix\n", encoding="utf-8")
+            self.assertFalse(reuse_preflight(repo, head=head)["reuse"])
+
     def test_symlinked_elves_ancestor_fails_before_outside_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -328,6 +411,7 @@ class EvidenceReviewTests(unittest.TestCase):
             changed_paths=["scripts/cobbler_runtime/leases.py", "tests/test_x.py"]
         )
         self.assertIn("unit:runtime", plan.focused_checks)
+        self.assertTrue(plan.broad_gate_required)
         self.assertTrue(plan.reasons)
         self.assertIn(plan.risk_level, {"medium", "high"})
 
@@ -343,6 +427,20 @@ class EvidenceReviewTests(unittest.TestCase):
         a = plan_review(changed_paths=["a.py", "b.py"]).to_dict()
         b = plan_review(changed_paths=["a.py", "b.py"]).to_dict()
         self.assertEqual(a, b)
+
+    def test_unmappable_test_fixture_and_unknown_source_require_broad_gate(self) -> None:
+        fixture = plan_review(changed_paths=["tests/fixture.txt"])
+        self.assertTrue(fixture.broad_gate_required)
+        self.assertIn("tests_changed", fixture.reasons)
+        self.assertIn("full_unittest", fixture.focused_checks)
+
+        unknown = plan_review(changed_paths=["new_untracked_test.py"])
+        self.assertTrue(unknown.broad_gate_required)
+        self.assertIn("unmapped_or_nondoc_surface_changed", unknown.reasons)
+        self.assertIn("full_unittest", unknown.focused_checks)
+
+        docs = plan_review(changed_paths=["README.md"])
+        self.assertFalse(docs.broad_gate_required)
 
 
 class PublicApiSnapshotTests(unittest.TestCase):

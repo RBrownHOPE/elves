@@ -604,7 +604,16 @@ class SessionRegistry:
                 if "session_id" in data:
                     assert_embedded_id(data, record.session_id, id_field="session_id")
                 records.append(record)
-            except (OSError, KeyError, TypeError, ValueError, StorageError) as exc:
+            except (
+                OSError,
+                AttributeError,
+                KeyError,
+                OverflowError,
+                RecursionError,
+                TypeError,
+                ValueError,
+                StorageError,
+            ) as exc:
                 # Fail closed for callers that inspect malformed_records; do not silently drop.
                 self.malformed_records.append(
                     {

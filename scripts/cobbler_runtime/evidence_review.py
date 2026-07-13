@@ -64,6 +64,10 @@ def plan_review(
     skipped: list[str] = []
     risk = "low"
     hints = [h.lower() for h in (risk_hints or [])]
+    test_surface_hit = any(p.startswith("tests/") for p in paths)
+    docs_only = bool(paths) and all(
+        p.lower().endswith((".md", ".rst", ".adoc")) for p in paths
+    )
 
     if is_final_readiness:
         reasons.append("final_readiness_requires_broad_gate")
@@ -93,9 +97,11 @@ def plan_review(
             risk = "medium"
         focused.extend(["unit:runtime", "compileall_scripts", "installed_bundle_smoke"])
         reasons.append("runtime_or_scripts_changed")
-    if any(p.startswith("tests/") for p in paths):
+    if test_surface_hit:
         focused.append("unit:focused")
         reasons.append("tests_changed")
+        if risk == "low":
+            risk = "medium"
     if any(p.endswith(".md") for p in paths) and not runtime_hit:
         focused.append("docs_consistency")
         reasons.append("docs_only_or_docs_touched")
@@ -108,6 +114,15 @@ def plan_review(
         risk = "high"
         reasons.append("high_risk_path_marker")
 
+    # A cache miss is useful only if the replacement evidence covers the
+    # changed surface. Unknown code/config/assets and test fixtures cannot be
+    # safely mapped to one focused module, so require the broad cumulative gate.
+    unmapped_nondoc_hit = bool(paths) and not docs_only and not runtime_hit
+    if unmapped_nondoc_hit:
+        if risk == "low":
+            risk = "medium"
+        reasons.append("unmapped_or_nondoc_surface_changed")
+
     # Deduplicate focused checks preserving order.
     seen: set[str] = set()
     ordered: list[str] = []
@@ -116,7 +131,14 @@ def plan_review(
             seen.add(item)
             ordered.append(item)
 
-    broad = risk == "high" or security_hit or is_final_readiness
+    broad = (
+        risk == "high"
+        or security_hit
+        or runtime_hit
+        or test_surface_hit
+        or unmapped_nondoc_hit
+        or is_final_readiness
+    )
     if broad:
         reasons.append("escalate_to_broad_gate")
         if "full_unittest" not in ordered:

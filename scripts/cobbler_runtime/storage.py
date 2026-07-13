@@ -403,10 +403,11 @@ def atomic_write_json(
         )
         del parent
         leaf = candidate.name
-        _assert_safe_regular_leaf(parent_fd, leaf, display_path=candidate)
         temporary_name = f".{leaf}.{secrets.token_hex(12)}.tmp"
         temporary_fd: int | None = None
         try:
+            _assert_safe_regular_leaf(parent_fd, leaf, display_path=candidate)
+            _assert_directory_fd_identity(repo_root, candidate.parent, parent_fd)
             temporary_fd = os.open(
                 temporary_name,
                 os.O_WRONLY
@@ -426,6 +427,7 @@ def atomic_write_json(
             # Recheck immediately before replacement. Replacing a raced symlink is
             # outside-safe, but a symlink observed here is still a fail-closed error.
             _assert_safe_regular_leaf(parent_fd, leaf, display_path=candidate)
+            _assert_directory_fd_identity(repo_root, candidate.parent, parent_fd)
             os.replace(
                 temporary_name,
                 leaf,
@@ -1032,6 +1034,7 @@ def open_repo_text(
             flags |= os.O_WRONLY | os.O_CREAT
             if mode == "a":
                 flags |= os.O_APPEND
+        _assert_directory_fd_identity(repo_root, candidate.parent, parent_fd)
         try:
             file_fd = os.open(candidate.name, flags, permissions, dir_fd=parent_fd)
         except FileNotFoundError as exc:
@@ -1065,8 +1068,10 @@ def open_repo_text(
                 f"Store text identity changed while opening: {candidate}",
             )
         if mode != "r":
+            _assert_directory_fd_identity(repo_root, candidate.parent, parent_fd)
             os.fchmod(file_fd, permissions)
         if mode == "w":
+            _assert_directory_fd_identity(repo_root, candidate.parent, parent_fd)
             os.ftruncate(file_fd, 0)
             os.lseek(file_fd, 0, os.SEEK_SET)
         handle = os.fdopen(file_fd, mode, encoding="utf-8")
@@ -1170,6 +1175,7 @@ def directory_lock(
     if not name or Path(name).name != name or name in {".", ".."}:
         raise StorageError("invalid_lock_name", f"Lock name must be one path component: {name!r}")
     directory_fd: int | None = None
+    guarded_root: Path | None = None
     if repo_root is not None:
         guarded_root, directory_fd = _open_repo_directory(
             repo_root,
@@ -1186,10 +1192,12 @@ def directory_lock(
                 | getattr(os, "O_NOFOLLOW", 0)
             )
             for _attempt in range(16):
+                _assert_directory_fd_identity(repo_root, guarded_root, directory_fd)
                 try:
                     lock_fd = os.open(name, base_flags, dir_fd=directory_fd)
                     break
                 except FileNotFoundError:
+                    _assert_directory_fd_identity(repo_root, guarded_root, directory_fd)
                     try:
                         lock_fd = os.open(
                             name,
@@ -1231,6 +1239,16 @@ def directory_lock(
     try:
         while True:
             try:
+                if (
+                    repo_root is not None
+                    and guarded_root is not None
+                    and directory_fd is not None
+                ):
+                    _assert_directory_fd_identity(
+                        repo_root,
+                        guarded_root,
+                        directory_fd,
+                    )
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 locked = True
                 break

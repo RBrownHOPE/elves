@@ -10,7 +10,11 @@ committed as product artifacts.
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
+import os
+import shutil
 import stat
 import subprocess
 from dataclasses import asdict, dataclass, field
@@ -19,6 +23,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .context import redact_structure, redact_text
 from .schema import ValidationIssue
 from .storage import (
     StorageError,
@@ -34,6 +39,9 @@ from .storage import (
     repo_regular_file_exists,
     snapshot_path as storage_snapshot_path,
 )
+
+
+_GIT_EXECUTABLE = shutil.which("git", path=os.defpath) or "/usr/bin/git"
 
 
 def host_qualification_evidence(
@@ -206,21 +214,87 @@ def ensure_leases_dir(repo_root: Path) -> Path:
     )
 
 
+def hardened_git_env(
+    *,
+    work_tree: Path | None = None,
+    git_dir: Path | None = None,
+    common_dir: Path | None = None,
+) -> dict[str, str]:
+    """Return the minimal non-interactive Git environment used after workers.
+
+    Callers that already hold descriptor-validated repository authority pass all
+    three paths.  Doing so prevents Git from rediscovering a swapped ``.git``
+    locator from ``cwd``.  Replacement refs and optional index refreshes are
+    disabled for both bound and host-only calls.
+    """
+    if any(value is not None for value in (work_tree, git_dir, common_dir)) and (
+        work_tree is None or git_dir is None or common_dir is None
+    ):
+        raise ValueError(
+            "work_tree, git_dir, and common_dir must be supplied together"
+        )
+    env = {
+        "PATH": os.defpath,
+        "LANG": "C",
+        "LC_ALL": "C",
+        "HOME": "/nonexistent",
+        "XDG_CONFIG_HOME": "/nonexistent",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": "/usr/bin/false",
+        "SSH_ASKPASS": "/usr/bin/false",
+        "GIT_PAGER": "cat",
+        "PAGER": "cat",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_NO_LAZY_FETCH": "1",
+        "GIT_LITERAL_PATHSPECS": "1",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_ATTR_NOSYSTEM": "1",
+    }
+    overrides = {
+        "core.hooksPath": os.devnull,
+        "core.fsmonitor": "false",
+        "core.askPass": "/usr/bin/false",
+        "credential.helper": "",
+        "diff.external": "",
+        "core.attributesFile": os.devnull,
+        "core.excludesFile": os.devnull,
+        "interactive.diffFilter": "",
+    }
+    env["GIT_CONFIG_COUNT"] = str(len(overrides))
+    for index, (key, value) in enumerate(overrides.items()):
+        env[f"GIT_CONFIG_KEY_{index}"] = key
+        env[f"GIT_CONFIG_VALUE_{index}"] = value
+    if work_tree is not None and git_dir is not None and common_dir is not None:
+        env.update(
+            {
+                "GIT_WORK_TREE": str(Path(work_tree)),
+                "GIT_DIR": str(Path(git_dir)),
+                "GIT_COMMON_DIR": str(Path(common_dir)),
+            }
+        )
+    return env
+
+
 def run_git(
     cwd: Path,
     args: Sequence[str],
     *,
     check: bool = True,
     text: bool = True,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run git with argv only (shell=False)."""
-    cmd = ["git", *args]
+    cmd = [_GIT_EXECUTABLE, *args]
     result = subprocess.run(
         cmd,
         cwd=str(cwd),
         check=False,
         capture_output=True,
         text=text,
+        env=dict(env) if env is not None else None,
     )
     if check and result.returncode != 0:
         raise ValidationIssue(
@@ -247,6 +321,9 @@ class WriterLease:
     sandbox_profile: str = "devbox"
     qualification_digest: str | None = None
     audit_evidence_digest: str | None = None
+    apply_check_evidence_digest: str | None = None
+    credential_grant_names: list[str] = field(default_factory=list)
+    credential_grant_context_digest: str | None = None
     allowed_paths: list[str] = field(default_factory=list)
     forbidden_path_prefixes: list[str] = field(
         default_factory=lambda: list(DEFAULT_FORBIDDEN_PATH_PREFIXES)
@@ -291,6 +368,11 @@ class WriterLease:
             sandbox_profile=str(data.get("sandbox_profile") or "devbox"),
             qualification_digest=data.get("qualification_digest"),
             audit_evidence_digest=data.get("audit_evidence_digest"),
+            apply_check_evidence_digest=data.get("apply_check_evidence_digest"),
+            credential_grant_names=list(data.get("credential_grant_names") or []),
+            credential_grant_context_digest=data.get(
+                "credential_grant_context_digest"
+            ),
             allowed_paths=list(data.get("allowed_paths") or []),
             forbidden_path_prefixes=list(
                 data.get("forbidden_path_prefixes") or DEFAULT_FORBIDDEN_PATH_PREFIXES
@@ -321,7 +403,7 @@ class WriterLease:
 
 def build_write_task_packet(lease: WriterLease, *, task: str, contract: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Coordinator packet for a bounded worker turn (host-owned synthesis later)."""
-    return {
+    packet = {
         "lease_id": lease.lease_id,
         "session_id": lease.session_id,
         "task": task,
@@ -351,6 +433,8 @@ def build_write_task_packet(lease: WriterLease, *, task: str, contract: Mapping[
             "Never bare-cherry-pick worker commits onto the owned branch",
         ],
     }
+    redacted = redact_structure(packet)
+    return dict(redacted) if isinstance(redacted, Mapping) else packet
 
 
 def normalize_repo_rel_path(rel_path: str) -> str:
@@ -452,26 +536,65 @@ def is_path_allowed(rel_path: str, lease: WriterLease) -> bool:
 
 
 def _git_symbolic_head(cwd: Path) -> str | None:
-    result = run_git(cwd, ["symbolic-ref", "-q", "HEAD"], check=False)
+    result = run_git(
+        cwd,
+        ["symbolic-ref", "-q", "HEAD"],
+        check=False,
+        env=hardened_git_env(),
+    )
     if result.returncode != 0:
         return None
     return (result.stdout or "").strip() or None
 
 
-def _git_head(cwd: Path) -> str:
-    return run_git(cwd, ["rev-parse", "HEAD"]).stdout.strip()
+def _git_head(
+    cwd: Path,
+    *,
+    git_dir: Path | None = None,
+    common_dir: Path | None = None,
+) -> str:
+    return run_git(
+        cwd,
+        ["rev-parse", "HEAD"],
+        env=hardened_git_env(
+            work_tree=cwd if git_dir is not None else None,
+            git_dir=git_dir,
+            common_dir=common_dir,
+        ),
+    ).stdout.strip()
 
 
-def _git_status_porcelain(cwd: Path) -> str:
-    return run_git(cwd, ["status", "--porcelain"]).stdout
+def _git_status_porcelain(
+    cwd: Path,
+    *,
+    git_dir: Path | None = None,
+    common_dir: Path | None = None,
+) -> str:
+    return run_git(
+        cwd,
+        ["status", "--porcelain", "--ignore-submodules=all"],
+        env=hardened_git_env(
+            work_tree=cwd if git_dir is not None else None,
+            git_dir=git_dir,
+            common_dir=common_dir,
+        ),
+    ).stdout
 
 
 def _worktree_list_porcelain(cwd: Path) -> str:
-    return run_git(cwd, ["worktree", "list", "--porcelain"]).stdout
+    return run_git(
+        cwd,
+        ["worktree", "list", "--porcelain"],
+        env=hardened_git_env(),
+    ).stdout
 
 
 def _git_common_dir(cwd: Path) -> Path:
-    raw = run_git(cwd, ["rev-parse", "--git-common-dir"]).stdout.strip()
+    raw = run_git(
+        cwd,
+        ["rev-parse", "--git-common-dir"],
+        env=hardened_git_env(),
+    ).stdout.strip()
     path = Path(raw)
     if not path.is_absolute():
         path = Path(cwd) / path
@@ -562,7 +685,11 @@ def refs_digest(cwd: Path) -> str:
     """Stable digest of refs for pre/post comparison (no network)."""
     import hashlib
 
-    result = run_git(cwd, ["for-each-ref", "--format=%(refname) %(objectname)"])
+    result = run_git(
+        cwd,
+        ["for-each-ref", "--format=%(refname) %(objectname)"],
+        env=hardened_git_env(),
+    )
     material = "\n".join(sorted((result.stdout or "").splitlines()))
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
@@ -757,6 +884,8 @@ class LeaseStore:
         grok_version: str | None = None,
         notes: str = "",
         qualification_evidence: Mapping[str, Any] | None = None,
+        credential_grant_names: Sequence[str] | None = None,
+        credential_grant_context_digest: str | None = None,
     ) -> WriterLease:
         """Create the sole live lease after worker preflight and profile checks."""
         host_path = Path(host_checkout).resolve()
@@ -935,6 +1064,29 @@ class LeaseStore:
             ) from exc
         import hashlib
 
+        from .audit import normalize_worker_credential_grant_names  # noqa: PLC0415
+
+        normalized_grant_names = normalize_worker_credential_grant_names(
+            credential_grant_names
+        )
+        if credential_grant_context_digest is not None and (
+            len(credential_grant_context_digest) != 64
+            or credential_grant_context_digest.lower() != credential_grant_context_digest
+            or any(
+                char not in "0123456789abcdef"
+                for char in credential_grant_context_digest
+            )
+        ):
+            raise ValidationIssue(
+                "worker_credential_context_digest_invalid",
+                "Worker credential context digest must be canonical SHA-256",
+            )
+        if normalized_grant_names and credential_grant_context_digest is None:
+            raise ValidationIssue(
+                "worker_credential_context_required",
+                "Named worker credential grants require private prepare-time authority",
+            )
+
         qual_digest = hashlib.sha256(
             json.dumps(dict(qualification_evidence), sort_keys=True).encode("utf-8")
         ).hexdigest()
@@ -1019,6 +1171,8 @@ class LeaseStore:
                 worker_tip=pre["head"],
                 workspace_sandbox_commit_capable=workspace_capable,
                 qualification_digest=qual_digest,
+                credential_grant_names=normalized_grant_names,
+                credential_grant_context_digest=credential_grant_context_digest,
             )
             if sandbox_profile == "workspace":
                 lease.notes = (
@@ -1060,6 +1214,296 @@ class LeaseStore:
         lease.state = transition_lease_state(lease.state, LeaseState.AUDITING)
         return self.save(lease)
 
+    @staticmethod
+    def _canonical_evidence_digest(evidence: Mapping[str, Any]) -> str:
+        canonical = {
+            key: value
+            for key, value in evidence.items()
+            if key != "evidence_digest"
+        }
+        try:
+            payload = json.dumps(
+                canonical,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValidationIssue(
+                "audit_evidence_malformed",
+                "Audit evidence must be canonical JSON data",
+            ) from exc
+        return hashlib.sha256(payload).hexdigest()
+
+    def _validate_audit_evidence(
+        self,
+        lease: WriterLease,
+        evidence: Mapping[str, Any],
+        *,
+        require_live_authority: bool = False,
+        allow_shared_refs_changed: bool = False,
+        allow_refreshed_tip: str | None = None,
+    ) -> tuple[dict[str, Any], str]:
+        """Bind audit evidence to the live, clean detached commit chain."""
+        if require_live_authority:
+            # Runtime import avoids the leases <-> audit module import cycle.
+            from .audit import _is_verified_audit_evidence  # noqa: PLC0415
+
+            if not _is_verified_audit_evidence(evidence):
+                raise ValidationIssue(
+                    "audit_evidence_unverified",
+                    "Audit promotion requires the live result of audit_lease_turn",
+                )
+        required_fields = {
+            "ok",
+            "lease_id",
+            "worker_tip",
+            "base_head",
+            "commit_chain",
+            "audited_git_surfaces",
+            "patch_transport_digests",
+            "evidence_digest",
+        }
+        missing = sorted(required_fields - set(evidence))
+        if missing:
+            raise ValidationIssue(
+                "audit_evidence_incomplete",
+                "Audit evidence missing fields: " + ", ".join(missing),
+            )
+        if evidence.get("ok") is not True:
+            raise ValidationIssue(
+                "audit_evidence_not_ok",
+                "Cannot trust audit evidence when evidence.ok is not exactly true",
+            )
+        if str(evidence.get("lease_id") or "") != lease.lease_id:
+            raise ValidationIssue(
+                "audit_evidence_lease_mismatch",
+                "Audit evidence lease_id does not match store lease",
+            )
+        if str(evidence.get("base_head") or "") != lease.base_head:
+            raise ValidationIssue(
+                "audit_evidence_base_mismatch",
+                "Audit evidence base_head does not match store lease",
+            )
+
+        supplied_digest = str(evidence.get("evidence_digest") or "")
+        if (
+            len(supplied_digest) != 64
+            or supplied_digest.lower() != supplied_digest
+            or any(char not in "0123456789abcdef" for char in supplied_digest)
+        ):
+            raise ValidationIssue(
+                "audit_evidence_digest_missing",
+                "Audit evidence requires a canonical lowercase SHA-256 digest",
+            )
+        expected_digest = self._canonical_evidence_digest(evidence)
+        if supplied_digest != expected_digest:
+            raise ValidationIssue(
+                "audit_evidence_digest_mismatch",
+                "Audit evidence digest does not match its canonical payload",
+            )
+
+        # Runtime import avoids the leases <-> audit module import cycle.  The
+        # descriptor-only assertion must run before *any* post-worker Git
+        # command so a swapped locator or executable config cannot observe the
+        # host environment before rejection.
+        from .audit import (  # noqa: PLC0415
+            assert_audited_git_surfaces,
+            list_commit_chain,
+            snapshot_git_authority,
+            snapshot_ref_storage,
+            validated_patch_transport_digests,
+        )
+
+        worker = Path(lease.worker_checkout)
+        recovered_ref_delta = False
+        strict_surface_issue: ValidationIssue | None = None
+        try:
+            live_surfaces = assert_audited_git_surfaces(
+                worker,
+                evidence,
+                allow_shared_refs_changed=allow_shared_refs_changed,
+            )
+        except ValidationIssue as issue:
+            if allow_refreshed_tip is None or not allow_shared_refs_changed:
+                raise
+            strict_surface_issue = issue
+
+            # A process may die after the detached HEAD update succeeds but
+            # before the caller closes the already-INTEGRATED lease.  Permit
+            # exactly that descriptor delta for recovery: all worktree ref
+            # storage other than HEAD must still match the sealed snapshot.
+            expected_surfaces = evidence["audited_git_surfaces"]
+            current_authority = snapshot_git_authority(worker)
+            if current_authority != expected_surfaces["authority"]:
+                raise issue
+            trusted_worker = Path(str(current_authority["worker_checkout"]))
+            trusted_git_dir = Path(str(current_authority["git_dir"]))
+            trusted_common_dir = Path(str(current_authority["common_dir"]))
+            current_refs = snapshot_ref_storage(
+                trusted_git_dir,
+                trusted_common_dir,
+            )
+            expected_refs = expected_surfaces["ref_storage"]
+            try:
+                current_worktree_refs = current_refs["worktree"]
+                expected_worktree_refs = expected_refs["worktree"]
+                current_head_descriptor = current_worktree_refs["pseudorefs"]["HEAD"]
+                expected_head_descriptor = expected_worktree_refs["pseudorefs"]["HEAD"]
+            except (KeyError, TypeError) as exc:
+                raise ValidationIssue(
+                    "audit_evidence_git_surfaces_malformed",
+                    "Audit worktree ref authority is not canonical",
+                ) from exc
+            normalized_worktree_refs = copy.deepcopy(current_worktree_refs)
+            normalized_worktree_refs["pseudorefs"]["HEAD"] = copy.deepcopy(
+                expected_head_descriptor
+            )
+            if (
+                current_head_descriptor == expected_head_descriptor
+                or normalized_worktree_refs != expected_worktree_refs
+            ):
+                raise issue
+
+            recovery_evidence = copy.deepcopy(dict(evidence))
+            recovery_surfaces = recovery_evidence["audited_git_surfaces"]
+            recovery_refs = recovery_surfaces["ref_storage"]
+            recovery_refs["worktree"] = copy.deepcopy(current_worktree_refs)
+            live_surfaces = assert_audited_git_surfaces(
+                worker,
+                recovery_evidence,
+                allow_shared_refs_changed=True,
+            )
+            recovered_ref_delta = True
+        authority = live_surfaces["authority"]
+        trusted_worker = Path(str(authority["worker_checkout"]))
+        trusted_git_dir = Path(str(authority["git_dir"]))
+        trusted_common_dir = Path(str(authority["common_dir"]))
+        live_tip = _git_head(
+            trusted_worker,
+            git_dir=trusted_git_dir,
+            common_dir=trusted_common_dir,
+        )
+        audited_tip = str(evidence.get("worker_tip") or "")
+        recovered_refresh = (
+            recovered_ref_delta
+            and allow_refreshed_tip is not None
+            and live_tip == allow_refreshed_tip
+        )
+        if live_tip != audited_tip and not recovered_refresh:
+            raise ValidationIssue(
+                "audit_evidence_tip_mismatch",
+                "Worker HEAD matches neither the audited tip nor the recorded refresh tip",
+            )
+        if recovered_ref_delta and not recovered_refresh:
+            # A rewritten HEAD that still names the old audit tip is not a
+            # crash-recovery condition; preserve the original strict failure.
+            assert strict_surface_issue is not None
+            raise strict_surface_issue
+        status = _git_status_porcelain(
+            trusted_worker,
+            git_dir=trusted_git_dir,
+            common_dir=trusted_common_dir,
+        )
+        if status.strip():
+            raise ValidationIssue(
+                "audit_evidence_worker_dirty",
+                "Worker checkout changed after audit; refuse proof promotion",
+                hint=redact_text(status.strip()).text[:400],
+            )
+
+        live_commit_chain = list_commit_chain(
+            trusted_worker,
+            lease.base_head,
+            audited_tip,
+            git_dir=trusted_git_dir,
+            common_dir=trusted_common_dir,
+        )
+        live_chain = [commit.to_dict() for commit in live_commit_chain]
+        supplied_chain = evidence.get("commit_chain")
+        if not isinstance(supplied_chain, list) or supplied_chain != live_chain:
+            raise ValidationIssue(
+                "audit_evidence_commit_chain_mismatch",
+                "Audit evidence commit_chain does not match the live worker history",
+            )
+        validated_patch_transport_digests(evidence, live_commit_chain)
+        if recovered_refresh:
+            if (
+                not supplied_chain
+                or not isinstance(supplied_chain[-1], dict)
+                or not isinstance(supplied_chain[-1].get("tree"), str)
+            ):
+                raise ValidationIssue(
+                    "integration_audited_tree_missing",
+                    "Persisted audit evidence lacks a final candidate tree",
+                )
+            refresh_env = hardened_git_env(
+                work_tree=trusted_worker,
+                git_dir=trusted_git_dir,
+                common_dir=trusted_common_dir,
+            )
+            ancestry = run_git(
+                trusted_worker,
+                ["merge-base", "--is-ancestor", lease.base_head, live_tip],
+                check=False,
+                env=refresh_env,
+            )
+            if ancestry.returncode != 0:
+                raise ValidationIssue(
+                    "refresh_not_descendant",
+                    "Recorded refresh tip is no longer a descendant of the audited base",
+                )
+            refreshed_tree = run_git(
+                trusted_worker,
+                ["rev-parse", f"{live_tip}^{{tree}}"],
+                env=refresh_env,
+            ).stdout.strip()
+            if refreshed_tree != supplied_chain[-1]["tree"]:
+                raise ValidationIssue(
+                    "refresh_tree_mismatch",
+                    "Recorded refresh tip no longer matches the sealed audited tree",
+                )
+            assert_audited_git_surfaces(
+                trusted_worker,
+                recovery_evidence,
+                allow_shared_refs_changed=True,
+            )
+        else:
+            assert_audited_git_surfaces(
+                trusted_worker,
+                evidence,
+                allow_shared_refs_changed=allow_shared_refs_changed,
+            )
+        return dict(evidence), supplied_digest
+
+    def _read_verified_audit_evidence(
+        self,
+        lease: WriterLease,
+        *,
+        allow_shared_refs_changed: bool = False,
+        allow_refreshed_tip: str | None = None,
+    ) -> dict[str, Any]:
+        evidence_path = self.snapshot_dir(lease.lease_id) / "audit_evidence.json"
+        try:
+            evidence = read_json(evidence_path, repo_root=self.repo_root)
+        except StorageError as exc:
+            raise ValidationIssue(
+                "audit_evidence_unavailable",
+                "Persisted audit evidence is missing or unsafe",
+                path=str(evidence_path),
+            ) from exc
+        verified, digest = self._validate_audit_evidence(
+            lease,
+            evidence,
+            allow_shared_refs_changed=allow_shared_refs_changed,
+            allow_refreshed_tip=allow_refreshed_tip,
+        )
+        if digest != str(lease.audit_evidence_digest or ""):
+            raise ValidationIssue(
+                "audit_evidence_lease_digest_mismatch",
+                "Persisted audit evidence digest does not match the lease authority",
+            )
+        return verified
+
     def mark_audited_pass(
         self,
         lease_id: str,
@@ -1073,39 +1517,21 @@ class LeaseStore:
                 "mark_audited_pass requires a complete audit evidence object",
                 path=f"leases.{lease_id}",
             )
-        if not evidence.get("ok"):
-            raise ValidationIssue(
-                "audit_evidence_not_ok",
-                "Cannot promote to audited_pass when evidence.ok is not true",
-            )
-        required_fields = (
-            "lease_id",
-            "worker_tip",
-            "base_head",
-            "commit_chain",
-            "evidence_digest",
-        )
-        missing = [f for f in required_fields if f not in evidence]
-        if missing:
-            raise ValidationIssue(
-                "audit_evidence_incomplete",
-                "Audit evidence missing fields: " + ", ".join(missing),
-            )
         lease = self.get(lease_id)
-        if str(evidence.get("lease_id")) != lease.lease_id:
-            raise ValidationIssue(
-                "audit_evidence_lease_mismatch",
-                "Audit evidence lease_id does not match store lease",
-            )
+        verified, evidence_digest = self._validate_audit_evidence(
+            lease,
+            evidence,
+            require_live_authority=True,
+        )
         lease.state = transition_lease_state(lease.state, LeaseState.AUDITED_PASS)
-        lease.worker_tip = str(evidence.get("worker_tip") or lease.worker_tip)
-        lease.audit_evidence_digest = str(evidence.get("evidence_digest"))
+        lease.worker_tip = str(verified["worker_tip"])
+        lease.audit_evidence_digest = evidence_digest
         # Persist evidence under store-owned snapshot path.
         evidence_dir = self.snapshot_dir(lease_id)
         ensure_private_dir(evidence_dir, repo_root=self.repo_root)
         atomic_write_json(
             evidence_dir / "audit_evidence.json",
-            dict(evidence),
+            verified,
             repo_root=self.repo_root,
         )
         return self.save(lease)
@@ -1119,13 +1545,154 @@ class LeaseStore:
                 f"Export refused from state `{lease.state.value}`; require audited_pass",
                 path=f"leases.{lease_id}.state",
             )
+        self._read_verified_audit_evidence(lease)
+        candidate = Path(patch_dir).expanduser()
+        # Verify the caller-visible path first so a symlink leaf is rejected,
+        # then persist only the canonical real directory identity.
+        from .audit import verify_patch_manifest  # noqa: PLC0415
+
+        verify_patch_manifest(lease, output_dir=candidate)
+        try:
+            canonical_patch_dir = candidate.resolve(strict=True)
+        except OSError as exc:
+            raise ValidationIssue(
+                "patch_manifest_dir_missing",
+                "Patch export directory cannot be resolved",
+                path=str(candidate),
+            ) from exc
+        if (
+            lease.state == LeaseState.EXPORTED
+            and lease.exported_patch_dir
+            and Path(lease.exported_patch_dir) != canonical_patch_dir
+        ):
+            raise ValidationIssue(
+                "export_path_immutable",
+                "An exported lease cannot be rebound to a different patch directory",
+            )
         lease.state = transition_lease_state(lease.state, LeaseState.EXPORTED)
-        lease.exported_patch_dir = patch_dir
+        lease.exported_patch_dir = str(canonical_patch_dir)
         return self.save(lease)
 
-    def mark_apply_checked(self, lease_id: str) -> WriterLease:
+    def mark_apply_checked(
+        self,
+        lease_id: str,
+        *,
+        evidence: Mapping[str, Any] | None = None,
+    ) -> WriterLease:
         lease = self.get(lease_id)
+        if lease.state != LeaseState.EXPORTED:
+            raise ValidationIssue(
+                "apply_check_requires_exported",
+                f"Apply-check refused from state `{lease.state.value}`; require exported",
+            )
+        from .audit import (  # noqa: PLC0415
+            _read_verified_patch_bundle,
+            _is_verified_host_apply_evidence,
+        )
+
+        if evidence is None or not isinstance(evidence, Mapping):
+            raise ValidationIssue(
+                "apply_check_evidence_required",
+                "Apply-check promotion requires immutable host evidence",
+            )
+        if not _is_verified_host_apply_evidence(evidence):
+            raise ValidationIssue(
+                "apply_check_evidence_unverified",
+                "Apply-check promotion requires the live result of host_apply_check",
+            )
+        audited_evidence = self._read_verified_audit_evidence(lease)
+        if not lease.exported_patch_dir:
+            raise ValidationIssue(
+                "apply_check_export_path_missing",
+                "Apply-check promotion requires the persisted export path",
+            )
+        try:
+            manifest_dir = Path(lease.exported_patch_dir).resolve(strict=True)
+        except OSError as exc:
+            raise ValidationIssue(
+                "patch_manifest_dir_missing",
+                "Persisted patch export directory is unavailable",
+                path=str(lease.exported_patch_dir),
+            ) from exc
+        bundle = _read_verified_patch_bundle(lease, output_dir=manifest_dir)
+        manifest = bundle.manifest
+        expected = {
+            "ok": True,
+            "manifest_verified": True,
+            "lease_id": lease.lease_id,
+            "base_head": lease.base_head,
+            "worker_tip": lease.worker_tip,
+            "audit_evidence_digest": lease.audit_evidence_digest,
+            "host_head": lease.base_head,
+            "cumulative": True,
+            "disposable": True,
+        }
+        for field_name, expected_value in expected.items():
+            if evidence.get(field_name) != expected_value:
+                raise ValidationIssue(
+                    "apply_check_evidence_mismatch",
+                    f"Apply-check evidence `{field_name}` does not match the lease",
+                )
+        audited_chain = audited_evidence.get("commit_chain")
+        if (
+            not isinstance(audited_chain, list)
+            or not audited_chain
+            or not isinstance(audited_chain[-1], dict)
+        ):
+            raise ValidationIssue(
+                "apply_check_evidence_mismatch",
+                "Persisted audit evidence lacks the final candidate tree",
+            )
+        expected_worker_tree = str(audited_chain[-1].get("tree") or "")
+        if (
+            not expected_worker_tree
+            or evidence.get("expected_worker_tree") != expected_worker_tree
+            or evidence.get("resulting_tree") != expected_worker_tree
+        ):
+            raise ValidationIssue(
+                "apply_check_evidence_mismatch",
+                "Apply-check result is not bound to the audited candidate tree",
+            )
+        expected_transport_authority_digest = hashlib.sha256(
+            json.dumps(
+                audited_evidence.get("patch_transport_digests"),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        if evidence.get(
+            "patch_transport_authority_digest"
+        ) != expected_transport_authority_digest:
+            raise ValidationIssue(
+                "apply_check_evidence_mismatch",
+                "Apply-check result is not bound to audited patch transports",
+            )
+        checked = evidence.get("checked")
+        manifest_digest = str(evidence.get("manifest_digest") or "")
+        expected_checked = [name for name, _data in bundle.patches]
+        if not isinstance(checked, list) or checked != expected_checked or not checked:
+            raise ValidationIssue(
+                "apply_check_evidence_mismatch",
+                "Apply-check evidence does not match the verified ordered patch list",
+            )
+        if manifest_digest != str(manifest.get("manifest_digest") or ""):
+            raise ValidationIssue(
+                "apply_check_evidence_mismatch",
+                "Apply-check evidence manifest digest does not match persisted proof",
+            )
+        canonical = dict(evidence)
+        evidence_digest = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        evidence_dir = self.snapshot_dir(lease_id)
+        ensure_private_dir(evidence_dir, repo_root=self.repo_root)
+        atomic_write_json(
+            evidence_dir / "apply_check_evidence.json",
+            canonical,
+            repo_root=self.repo_root,
+        )
         lease.state = transition_lease_state(lease.state, LeaseState.APPLY_CHECKED)
+        lease.apply_check_evidence_digest = evidence_digest
         return self.save(lease)
 
     def mark_integrated(self, lease_id: str, *, new_tip: str) -> WriterLease:
@@ -1137,10 +1704,43 @@ class LeaseStore:
                 f"Integration refused from `{lease.state.value}`; require apply_checked",
                 path=f"leases.{lease_id}.state",
             )
-        host = Path(lease.host_checkout)
-        worker = Path(lease.worker_checkout)
-        host_status = _git_status_porcelain(host)
-        worker_status = _git_status_porcelain(worker)
+        from .audit import snapshot_git_authority  # noqa: PLC0415
+
+        audited_evidence = self._read_verified_audit_evidence(
+            lease,
+            allow_shared_refs_changed=True,
+        )
+        audited_chain = audited_evidence.get("commit_chain")
+        if (
+            not isinstance(audited_chain, list)
+            or not audited_chain
+            or not isinstance(audited_chain[-1], dict)
+            or not isinstance(audited_chain[-1].get("tree"), str)
+        ):
+            raise ValidationIssue(
+                "integration_audited_tree_missing",
+                "Persisted audit evidence lacks a final candidate tree",
+            )
+        expected_tree = str(audited_chain[-1]["tree"])
+        host_authority = snapshot_git_authority(Path(lease.host_checkout))
+        host = Path(str(host_authority["worker_checkout"]))
+        host_git_dir = Path(str(host_authority["git_dir"]))
+        host_common_dir = Path(str(host_authority["common_dir"]))
+        worker_surfaces = audited_evidence["audited_git_surfaces"]
+        worker_authority = worker_surfaces["authority"]
+        worker = Path(str(worker_authority["worker_checkout"]))
+        worker_git_dir = Path(str(worker_authority["git_dir"]))
+        worker_common_dir = Path(str(worker_authority["common_dir"]))
+        host_status = _git_status_porcelain(
+            host,
+            git_dir=host_git_dir,
+            common_dir=host_common_dir,
+        )
+        worker_status = _git_status_porcelain(
+            worker,
+            git_dir=worker_git_dir,
+            common_dir=worker_common_dir,
+        )
         if host_status.strip():
             raise ValidationIssue(
                 "host_dirty_on_integrate",
@@ -1153,7 +1753,11 @@ class LeaseStore:
                 "Worker checkout must be clean before integration can be recorded",
                 hint=worker_status.strip()[:400],
             )
-        host_head = _git_head(host)
+        host_head = _git_head(
+            host,
+            git_dir=host_git_dir,
+            common_dir=host_common_dir,
+        )
         if host_head != new_tip:
             raise ValidationIssue(
                 "integration_host_tip_mismatch",
@@ -1163,6 +1767,11 @@ class LeaseStore:
             host,
             ["merge-base", "--is-ancestor", lease.base_head, new_tip],
             check=False,
+            env=hardened_git_env(
+                work_tree=host,
+                git_dir=host_git_dir,
+                common_dir=host_common_dir,
+            ),
         )
         if ancestry.returncode != 0:
             raise ValidationIssue(
@@ -1175,19 +1784,29 @@ class LeaseStore:
                 "integration_audited_tip_missing",
                 "Lease has no audited worker tip to compare with host integration",
             )
-        if _git_head(worker) != audited_tip:
+        if _git_head(
+            worker,
+            git_dir=worker_git_dir,
+            common_dir=worker_common_dir,
+        ) != audited_tip:
             raise ValidationIssue(
                 "integration_worker_tip_mismatch",
                 "Worker HEAD no longer matches the audited worker tip",
             )
-        host_tree = run_git(host, ["rev-parse", f"{new_tip}^{{tree}}"], check=True).stdout.strip()
-        worker_tree = run_git(
-            worker, ["rev-parse", f"{audited_tip}^{{tree}}"], check=True
+        host_tree = run_git(
+            host,
+            ["rev-parse", f"{new_tip}^{{tree}}"],
+            check=True,
+            env=hardened_git_env(
+                work_tree=host,
+                git_dir=host_git_dir,
+                common_dir=host_common_dir,
+            ),
         ).stdout.strip()
-        if host_tree != worker_tree:
+        if host_tree != expected_tree:
             raise ValidationIssue(
                 "integration_tree_mismatch",
-                "Host integrated tree does not match the audited worker tree",
+                "Host integrated tree does not match the sealed audited tree",
             )
         lease.state = transition_lease_state(lease.state, LeaseState.INTEGRATED)
         lease.integrated_tip = new_tip
@@ -1196,7 +1815,7 @@ class LeaseStore:
     def reject(self, lease_id: str, reason: str) -> WriterLease:
         lease = self.get(lease_id)
         lease.state = transition_lease_state(lease.state, LeaseState.REJECTED)
-        lease.rejection_reason = reason
+        lease.rejection_reason = redact_text(str(reason)).text
         return self.save(lease)
 
     def close(self, lease_id: str) -> WriterLease:
@@ -1221,39 +1840,76 @@ class LeaseStore:
         lease_id: str,
         *,
         new_tip: str,
-        allow_if_states: Sequence[LeaseState] | None = None,
     ) -> dict[str, Any]:
         """After export+integration, move clean detached worker HEAD to new tip.
 
         Refuses dirty/ambiguous state. Does not delete worktrees or sessions.
         """
         lease = self.get(lease_id)
-        allowed = set(
-            allow_if_states or (LeaseState.APPLY_CHECKED, LeaseState.INTEGRATED)
-        )
-        if lease.state not in allowed:
+        if lease.state != LeaseState.INTEGRATED:
             raise ValidationIssue(
                 "invalid_lease_state",
-                f"Worker refresh requires state in {[s.value for s in allowed]} "
+                "Worker refresh requires the integrated state "
                 f"(have {lease.state.value})",
             )
-        worker = Path(lease.worker_checkout)
-        status = _git_status_porcelain(worker)
+        if not lease.integrated_tip or new_tip != lease.integrated_tip:
+            raise ValidationIssue(
+                "refresh_tip_mismatch",
+                "Worker refresh tip must match the recorded integrated host tip",
+            )
+        audited_evidence = self._read_verified_audit_evidence(
+            lease,
+            allow_shared_refs_changed=True,
+            allow_refreshed_tip=new_tip,
+        )
+        authority = audited_evidence["audited_git_surfaces"]["authority"]
+        worker = Path(str(authority["worker_checkout"]))
+        git_dir = Path(str(authority["git_dir"]))
+        common_dir = Path(str(authority["common_dir"]))
+        status = _git_status_porcelain(
+            worker,
+            git_dir=git_dir,
+            common_dir=common_dir,
+        )
         if status.strip():
             raise ValidationIssue(
                 "worker_dirty_on_refresh",
                 "Refuse refresh: worker checkout is dirty or ambiguous",
                 hint=status.strip()[:400],
             )
-        run_git(worker, ["update-ref", "HEAD", new_tip])
+        before_head = _git_head(
+            worker,
+            git_dir=git_dir,
+            common_dir=common_dir,
+        )
+        if before_head != new_tip:
+            run_git(
+                worker,
+                ["update-ref", "HEAD", new_tip],
+                env=hardened_git_env(
+                    work_tree=worker,
+                    git_dir=git_dir,
+                    common_dir=common_dir,
+                ),
+            )
         # Detached HEAD stays detached; verify.
-        head = _git_head(worker)
+        head = _git_head(worker, git_dir=git_dir, common_dir=common_dir)
         if head != new_tip:
             raise ValidationIssue(
                 "refresh_head_mismatch",
                 f"After refresh HEAD `{head}` != requested tip `{new_tip}`",
             )
-        lease.worker_tip = head
-        lease.base_head = head
-        self.save(lease)
-        return {"lease_id": lease.lease_id, "worker_tip": head, "clean": True}
+        self._read_verified_audit_evidence(
+            lease,
+            allow_shared_refs_changed=True,
+            allow_refreshed_tip=new_tip,
+        )
+        # base_head and worker_tip remain the immutable audit-proof binding.
+        # The durable INTEGRATED state + integrated_tip are enough to recover
+        # if the caller dies after update-ref and before close succeeds.
+        return {
+            "lease_id": lease.lease_id,
+            "worker_tip": head,
+            "clean": True,
+            "already_current": before_head == new_tip,
+        }

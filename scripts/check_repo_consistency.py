@@ -164,6 +164,47 @@ def main() -> int:
             if phrase not in text:
                 errors.append(f"{label}: missing acceptance-evidence phrase `{phrase}`")
 
+    landing_check_texts = {
+        label: read_text(REPO_ROOT / label) for label in LANDING_CHECK_CONTRACT_PHRASES
+    }
+    errors.extend(
+        find_missing_phrases(
+            landing_check_texts,
+            LANDING_CHECK_CONTRACT_PHRASES,
+            "landing-check contract",
+        )
+    )
+    errors.extend(
+        find_forbidden_patterns(
+            landing_check_texts,
+            LANDING_CHECK_BARE_FORBIDDEN_PATTERNS,
+            "bare landing-check path",
+        )
+    )
+
+    codex_goal_texts = {
+        label: read_text(REPO_ROOT / label) for label in CODEX_GOALS_SECTION_HEADINGS
+    }
+    errors.extend(
+        find_missing_section_phrases(
+            codex_goal_texts,
+            CODEX_GOALS_SECTION_PHRASES,
+            CODEX_GOALS_SECTION_HEADINGS,
+            "Codex Goals exact-path",
+        )
+    )
+    codex_goal_sections = {
+        label: extract_markdown_section(text, CODEX_GOALS_SECTION_HEADINGS[label])
+        for label, text in codex_goal_texts.items()
+    }
+    errors.extend(
+        find_forbidden_phrases(
+            codex_goal_sections,
+            CODEX_GOALS_SECTION_FORBIDDEN_PHRASES,
+            "Codex Goals generic-path",
+        )
+    )
+
     for label, phrases in REPO_CONSISTENCY_WORKFLOW_PHRASES.items():
         path = REPO_ROOT / label
         text = read_text(path)

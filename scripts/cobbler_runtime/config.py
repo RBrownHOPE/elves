@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .adapters import default_profiles, get_adapter
+from .context import validate_credential_grant_names
 from .schema import (
     DEFAULT_ROLES,
     NATIVE_PROFILE_NAME,
@@ -302,12 +303,17 @@ def _parse_profiles(
             body_map.get("extra_args") or body_map.get("args") or body_map.get("extra-args"),
             path=f"{profile_path}.extra_args",
         )
+        env_grants_path = f"{profile_path}.env_grants"
         env_grants = _parse_str_tuple(
             body_map.get("env_grants")
             or body_map.get("env")
             or body_map.get("environment")
             or body_map.get("named_env"),
-            path=f"{profile_path}.env_grants",
+            path=env_grants_path,
+        )
+        env_grants = validate_credential_grant_names(
+            env_grants,
+            path=env_grants_path,
         )
         capabilities = _parse_str_tuple(
             body_map.get("capabilities"),

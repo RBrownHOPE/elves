@@ -263,6 +263,74 @@ def check_unit_tests(repo_root: Path) -> tuple[bool, str]:
     return True, f"unit tests ok ({summary or 'OK'})"
 
 
+def check_unit_test_modules(
+    repo_root: Path,
+    modules: list[str],
+) -> tuple[bool, str]:
+    """Run one deterministic focused unittest set, never full discovery by alias."""
+    ordered = list(dict.fromkeys(module for module in modules if module))
+    if not ordered:
+        return True, "focused unit tests skipped (no mapped modules)"
+    proc = _run([sys.executable, "-m", "unittest", *ordered], cwd=repo_root)
+    output = (proc.stderr or "") + "\n" + (proc.stdout or "")
+    summary = next(
+        (
+            line.strip()
+            for line in reversed(output.splitlines())
+            if line.startswith("Ran ") or line.strip() in {"OK", "FAILED"}
+        ),
+        "",
+    )
+    if proc.returncode != 0:
+        tail = _bounded_failure_tail(output)
+        detail = f"\n--- bounded focused unittest failure tail ---\n{tail}" if tail else ""
+        return False, f"focused unit tests failed ({summary or 'see output'}){detail}"
+    return True, f"focused unit tests ok ({len(ordered)} modules; {summary or 'OK'})"
+
+
+def _focused_unit_modules(changed_paths: list[str]) -> list[str]:
+    """Map changed evidence to concrete test modules without broad discovery."""
+    normalized = [path.replace("\\", "/") for path in changed_paths]
+    modules: list[str] = []
+    for path in normalized:
+        if path.startswith("tests/test_") and path.endswith(".py"):
+            modules.append(path[:-3].replace("/", "."))
+        if not path.startswith("scripts/"):
+            continue
+        name = Path(path).stem
+        if name in {"audit", "leases"}:
+            modules.extend(
+                ["tests.test_cobbler_agents_leases", "tests.test_worker_cli_lifecycle"]
+            )
+        if name in {"dispatch", "dispatch_external", "dispatch_lane_attempt", "isolation"}:
+            modules.extend(
+                ["tests.test_dispatch_isolation", "tests.test_cobbler_agents_dispatch"]
+            )
+        if name == "full_run":
+            modules.append("tests.test_full_run_supervisor")
+        if name == "implement":
+            modules.append("tests.test_cobbler_agents_implement")
+        if name == "storage":
+            modules.append("tests.test_storage_isolation_git")
+        if name in {"preflight_cache", "evidence_review", "verify_repo"}:
+            modules.extend(["tests.test_architecture_evidence", "tests.test_verify_repo"])
+        if name == "cobbler_agents":
+            modules.extend(
+                [
+                    "tests.test_cobbler_agents_dispatch",
+                    "tests.test_cobbler_agents_implement",
+                    "tests.test_cobbler_agents_leases",
+                    "tests.test_cobbler_agents_sessions",
+                    "tests.test_worker_cli_lifecycle",
+                ]
+            )
+        if name in {"context", "config"}:
+            modules.append("tests.test_dispatch_isolation")
+    if not modules:
+        modules.append("tests.test_architecture_evidence")
+    return list(dict.fromkeys(modules))
+
+
 def check_installed_smokes(repo_root: Path) -> tuple[bool, str]:
     proc = _run(
         [sys.executable, "scripts/installed_bundle_smoke.py", "--host", "all"],
@@ -509,8 +577,31 @@ def check_git_diff(
     return True, f"git diff --check ok ({cumulative}index + working tree)"
 
 
+def probe_preflight_reuse(repo_root: Path) -> dict[str, object]:
+    """Read the exact-key cache before broad gates so a real reuse saves work."""
+    try:
+        scripts = str(repo_root / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        from cobbler_runtime.preflight_cache import reuse_preflight  # noqa: PLC0415
+
+        head_proc = _run(["git", "rev-parse", "HEAD"], cwd=repo_root)
+        head = (head_proc.stdout or "").strip() or "unknown"
+        return dict(reuse_preflight(repo_root, head=head))
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "reuse": False,
+            "reason": "probe_failed",
+            "detail": _redact_message(exc),
+            "final_readiness_accepts_cache_alone": False,
+        }
+
+
 def check_preflight_cache(
-    repo_root: Path, *, final_readiness: bool = False
+    repo_root: Path,
+    *,
+    final_readiness: bool = False,
+    record_live: bool = True,
 ) -> tuple[bool, str]:
     """Record or reuse HEAD/config-keyed preflight evidence.
 
@@ -532,6 +623,11 @@ def check_preflight_cache(
             decision = reuse_preflight(repo_root, head=head)
             if decision.get("reuse"):
                 return True, "preflight cache reuse ok (final_readiness_accepts_cache_alone=false)"
+            if not record_live:
+                return True, (
+                    "preflight evidence not recorded: focused-only or operator-skipped "
+                    "verification did not prove the broad gate"
+                )
         # Fresh capture after successful structural/broad gates (caller order).
         record_passing_preflight(
             repo_root,
@@ -923,6 +1019,11 @@ def _secret_placeholder(value: str) -> bool:
     quoted = len(raw) >= 2 and raw[0] in "`\"'" and raw[-1] == raw[0]
     token = raw.strip("`\"'").strip()
     upper = token.upper()
+    if token.startswith("<") and token.endswith(">") and any(
+        marker in upper
+        for marker in ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "AUTH")
+    ):
+        return True
     if not token or token in {"...", "=", "(", "[", "{"} or token.startswith(
         ("(", "[", "{")
     ) or upper in {
@@ -930,6 +1031,18 @@ def _secret_placeholder(value: str) -> bool:
         "NULL",
         "FALSE",
         "TRUE",
+    }:
+        return True
+    if upper in {
+        "ADC",
+        "API-KEY",
+        "ENV",
+        "ENVIRONMENT",
+        "GCLOUD-IMPERSONATION",
+        "OAUTH",
+        "OAUTH2",
+        "SHORT-LIVED",
+        "WORKLOAD-IDENTITY",
     }:
         return True
     if upper.startswith(
@@ -988,7 +1101,15 @@ def _secret_placeholder(value: str) -> bool:
 def _secret_value_placeholder(pattern_name: str, value: str) -> bool:
     """Recognize documented/example sentinels inside provider token wrappers."""
     candidate = value
-    if pattern_name == "bearer_token":
+    if pattern_name == "secret_assignment":
+        assignment = re.search(r"[:=]\s*(?:bearer\s+)?(.+)$", value, re.IGNORECASE)
+        candidate = assignment.group(1) if assignment else value
+        if re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_.]*",
+            candidate.strip().strip("`\"'"),
+        ):
+            return True
+    elif pattern_name == "bearer_token":
         parts = value.split(None, 1)
         candidate = parts[1] if len(parts) == 2 else value
     elif pattern_name == "sk_token":
@@ -1016,10 +1137,16 @@ def _secret_assignment_name(name: str) -> bool:
     return bool(
         re.search(
             r"(?:^|_)(?:API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|PRIVATE_?KEY|"
-            r"ACCESS_?KEY|AUTHORIZATION)(?:_|$)",
+            r"ACCESS_?KEY|AUTHORIZATION|AUTH|BEARER|CREDENTIAL|COOKIE|JWT)(?:_|$)",
             normalized,
         )
     )
+
+
+def _shared_secret_assignment_name(value: str) -> str | None:
+    lhs = re.split(r"[:=]", value, maxsplit=1)[0]
+    match = re.search(r"([A-Za-z0-9_-]+)[\"']?[ \t]*$", lhs)
+    return match.group(1) if match else None
 
 
 def _assignment_is_pattern_literal(text: str, match: re.Match[str]) -> bool:
@@ -1129,6 +1256,12 @@ def check_secret_patterns(repo_root: Path) -> tuple[bool, str]:
             for pattern_name, pattern in SECRET_VALUE_PATTERNS:
                 for match in pattern.finditer(text):
                     value = match.group(0)
+                    if pattern_name == "secret_assignment":
+                        assignment_name = _shared_secret_assignment_name(value)
+                        if not assignment_name or not _secret_assignment_name(
+                            assignment_name
+                        ):
+                            continue
                     if _secret_value_placeholder(pattern_name, value):
                         continue
                     line_number = text.count("\n", 0, match.start()) + 1
@@ -1183,6 +1316,8 @@ def check_evidence_review_plan(
     release_version: str | None = None,
     base_ref: str | None = None,
     result_cache: dict[str, tuple[bool, str]] | None = None,
+    skip_tests: bool = False,
+    skip_smokes: bool = False,
 ) -> tuple[bool, str]:
     try:
         scripts = str(repo_root / "scripts")
@@ -1199,6 +1334,11 @@ def check_evidence_review_plan(
             changed_paths=paths or ["scripts/verify_repo.py"],
             is_final_readiness=final_readiness,
         )
+        if result_cache is not None:
+            result_cache["__review_broad__"] = (
+                bool(plan.broad_gate_required),
+                ",".join(plan.reasons),
+            )
         executed: list[str] = []
         if execute_focused:
             concrete_checks = {
@@ -1216,10 +1356,30 @@ def check_evidence_review_plan(
                     "secret-patterns",
                     lambda: check_secret_patterns(repo_root),
                 ),
-                "isolation_smoke": ("unit-tests", lambda: check_unit_tests(repo_root)),
-                "unit:security": ("unit-tests", lambda: check_unit_tests(repo_root)),
-                "unit:runtime": ("unit-tests", lambda: check_unit_tests(repo_root)),
-                "unit:focused": ("unit-tests", lambda: check_unit_tests(repo_root)),
+                "isolation_smoke": (
+                    "unit-focused",
+                    lambda: check_unit_test_modules(
+                        repo_root, _focused_unit_modules(paths)
+                    ),
+                ),
+                "unit:security": (
+                    "unit-focused",
+                    lambda: check_unit_test_modules(
+                        repo_root, _focused_unit_modules(paths)
+                    ),
+                ),
+                "unit:runtime": (
+                    "unit-focused",
+                    lambda: check_unit_test_modules(
+                        repo_root, _focused_unit_modules(paths)
+                    ),
+                ),
+                "unit:focused": (
+                    "unit-focused",
+                    lambda: check_unit_test_modules(
+                        repo_root, _focused_unit_modules(paths)
+                    ),
+                ),
                 "compileall_scripts": ("compileall", lambda: compile_scripts(repo_root)),
                 "installed_bundle_smoke": (
                     "installed-smokes",
@@ -1238,6 +1398,12 @@ def check_evidence_review_plan(
                 if mapped is None:
                     return False, f"evidence-review check has no concrete runner: {name}"
                 gate_name, runner = mapped
+                if skip_tests and gate_name in {"unit-tests", "unit-focused"}:
+                    executed.append(f"{name}:operator-skip-tests")
+                    continue
+                if skip_smokes and gate_name == "installed-smokes":
+                    executed.append(f"{name}:operator-skip-smokes")
+                    continue
                 if gate_name in completed_gates:
                     executed.append(f"{name}:deduplicated-as-{gate_name}")
                     continue
@@ -1252,8 +1418,10 @@ def check_evidence_review_plan(
                     )
         return True, (
             f"evidence-review risk={plan.risk_level} broad={plan.broad_gate_required} "
-            f"focused={len(plan.focused_checks)} executed={len(executed)} "
-            f"diff={diff_context}"
+            f"selected={','.join(plan.focused_checks)} "
+            f"reasons={','.join(plan.reasons) or 'none'} "
+            f"skipped={','.join(plan.skipped) or 'none'} "
+            f"executed={';'.join(executed) or 'none'} diff={diff_context}"
         )
     except Exception as exc:  # noqa: BLE001
         return False, _redact_message(f"evidence-review plan failed: {exc}")
@@ -1356,13 +1524,47 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--final-readiness requires --session")
 
     evidence_results: dict[str, tuple[bool, str]] = {}
+    preflight_probe = (
+        {"reuse": False, "reason": "strict_live_verification"}
+        if strict
+        else probe_preflight_reuse(repo_root)
+    )
+    preflight_reused = bool(preflight_probe.get("reuse"))
 
     def cached(name: str, runner: Callable[[], tuple[bool, str]]) -> tuple[bool, str]:
         return evidence_results.get(name) or runner()
 
+    def review_broad_required() -> bool:
+        if strict:
+            return True
+        marker = evidence_results.get("__review_broad__")
+        return True if marker is None else bool(marker[0])
+
+    def maybe_live_unit_tests() -> tuple[bool, str]:
+        if preflight_reused and not strict:
+            return True, "unit-test broad gate reused from exact preflight evidence"
+        if not review_broad_required():
+            return True, "unit-test broad gate skipped by evidence-aware focused plan"
+        return cached("unit-tests", lambda: check_unit_tests(repo_root))
+
+    def maybe_live_installed_smokes() -> tuple[bool, str]:
+        if preflight_reused and not strict:
+            return True, "installed-smoke broad gate reused from exact preflight evidence"
+        if not review_broad_required():
+            return True, "installed smokes skipped by evidence-aware focused plan"
+        return cached("installed-smokes", lambda: check_installed_smokes(repo_root))
+
     # Strict CI/final readiness never accepts preflight cache alone and runs
     # broad + structural gates live. Only final readiness performs landing.
     gates: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
+        (
+            "preflight-reuse",
+            lambda: (
+                True,
+                "preflight cache "
+                + ("reused before broad gates" if preflight_reused else "miss: " + str(preflight_probe.get("reason") or "unknown")),
+            ),
+        ),
         ("compileall", lambda: compile_scripts(repo_root)),
         ("shell", lambda: check_shell(repo_root)),
         ("json", lambda: check_json(repo_root)),
@@ -1370,11 +1572,13 @@ def main(argv: list[str] | None = None) -> int:
             "evidence-review",
             lambda: check_evidence_review_plan(
                 repo_root,
-                execute_focused=strict,
+                execute_focused=not preflight_reused,
                 final_readiness=strict,
                 release_version=args.version,
                 base_ref=args.base_ref,
                 result_cache=evidence_results,
+                skip_tests=bool(args.skip_tests),
+                skip_smokes=bool(args.skip_smokes),
             ),
         ),
         ("consistency", lambda: cached("consistency", lambda: check_consistency(repo_root))),
@@ -1407,18 +1611,9 @@ def main(argv: list[str] | None = None) -> int:
         gates.append(("markdown-links", lambda: check_markdown_links(repo_root)))
         gates.append(("secret-patterns", lambda: check_secret_patterns(repo_root)))
     if not args.skip_tests:
-        gates.append(
-            ("unit-tests", lambda: cached("unit-tests", lambda: check_unit_tests(repo_root)))
-        )
+        gates.append(("unit-tests", maybe_live_unit_tests))
     if not args.skip_smokes:
-        gates.append(
-            (
-                "installed-smokes",
-                lambda: cached(
-                    "installed-smokes", lambda: check_installed_smokes(repo_root)
-                ),
-            )
-        )
+        gates.append(("installed-smokes", maybe_live_installed_smokes))
     gates.append(
         (
             "git-diff-check",
@@ -1431,12 +1626,28 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     # Preflight cache may only be recorded after all included gates pass (append last).
-    gates.append(
-        (
-            "preflight-cache",
-            lambda: check_preflight_cache(repo_root, final_readiness=strict),
+    if strict:
+        gates.append(
+            (
+                "preflight-cache",
+                lambda: check_preflight_cache(repo_root, final_readiness=True),
+            )
         )
-    )
+    else:
+        gates.append(
+            (
+                "preflight-cache",
+                lambda: check_preflight_cache(
+                    repo_root,
+                    final_readiness=False,
+                    record_live=(
+                        review_broad_required()
+                        and not args.skip_tests
+                        and not args.skip_smokes
+                    ),
+                ),
+            )
+        )
 
     results: list[dict[str, object]] = []
     overall_ok = True

@@ -470,9 +470,239 @@ class VerifyRepoUnitTests(unittest.TestCase):
         release.assert_called_once_with(REPO_ROOT, "2.0.0")
         smokes.assert_called_once_with(REPO_ROOT)
         self.assertEqual(
-            set(cache), {"unit-tests", "consistency", "release", "installed-smokes"}
+            set(cache),
+            {
+                "__review_broad__",
+                "unit-tests",
+                "consistency",
+                "release",
+                "installed-smokes",
+            },
         )
-        self.assertIn("executed=4", message)
+        self.assertIn("full_unittest->unit-tests:ok", message)
+        self.assertIn("installed_smokes->installed-smokes:ok", message)
+
+    def test_runtime_review_runs_focused_modules_before_required_broad_gate(self) -> None:
+        cache: dict[str, tuple[bool, str]] = {}
+        success = (True, "ok")
+        with (
+            mock.patch.object(
+                self.verify,
+                "_cumulative_changed_paths",
+                return_value=(
+                    True,
+                    ["scripts/cobbler_runtime/audit.py"],
+                    "origin/main...HEAD",
+                ),
+            ),
+            mock.patch.object(
+                self.verify, "check_unit_test_modules", return_value=success
+            ) as focused,
+            mock.patch.object(
+                self.verify, "check_unit_tests", return_value=success
+            ) as broad,
+            mock.patch.object(self.verify, "compile_scripts", return_value=success),
+            mock.patch.object(
+                self.verify, "check_installed_smokes", return_value=success
+            ),
+        ):
+            ok, message = self.verify.check_evidence_review_plan(
+                REPO_ROOT,
+                execute_focused=True,
+                final_readiness=False,
+                result_cache=cache,
+            )
+
+        self.assertTrue(ok, message)
+        focused.assert_called_once()
+        self.assertIn("tests.test_cobbler_agents_leases", focused.call_args.args[1])
+        broad.assert_called_once_with(REPO_ROOT)
+        self.assertIn("reasons=", message)
+        self.assertIn("selected=", message)
+        self.assertIn("skipped=", message)
+
+    def test_cobbler_agents_entrypoint_maps_to_relevant_suites_and_broad_gate(self) -> None:
+        modules = self.verify._focused_unit_modules(["scripts/cobbler_agents.py"])
+        self.assertIn("tests.test_cobbler_agents_dispatch", modules)
+        self.assertIn("tests.test_cobbler_agents_implement", modules)
+        self.assertIn("tests.test_cobbler_agents_leases", modules)
+        self.assertNotEqual(modules, ["tests.test_architecture_evidence"])
+
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from cobbler_runtime.evidence_review import plan_review
+
+        plan = plan_review(changed_paths=["scripts/cobbler_agents.py"])
+        self.assertTrue(plan.broad_gate_required)
+        self.assertIn("unit:runtime", plan.focused_checks)
+
+    def test_docs_only_review_executes_links_without_full_unittest_alias(self) -> None:
+        success = (True, "ok")
+        with (
+            mock.patch.object(
+                self.verify,
+                "_cumulative_changed_paths",
+                return_value=(True, ["README.md"], "origin/main...HEAD"),
+            ),
+            mock.patch.object(
+                self.verify, "check_markdown_links", return_value=success
+            ) as links,
+            mock.patch.object(
+                self.verify, "check_unit_tests", return_value=success
+            ) as broad,
+            mock.patch.object(
+                self.verify, "check_installed_smokes", return_value=success
+            ) as smokes,
+        ):
+            ok, message = self.verify.check_evidence_review_plan(
+                REPO_ROOT,
+                execute_focused=True,
+                final_readiness=False,
+            )
+
+        self.assertTrue(ok, message)
+        links.assert_called_once_with(REPO_ROOT)
+        broad.assert_not_called()
+        smokes.assert_not_called()
+        self.assertIn("broad=False", message)
+
+    def test_exact_preflight_reuse_skips_live_broad_gates_early(self) -> None:
+        success = (True, "ok")
+        with (
+            mock.patch.object(
+                self.verify,
+                "probe_preflight_reuse",
+                return_value={"reuse": True, "reason": "identical_head_and_config"},
+            ),
+            mock.patch.object(self.verify, "compile_scripts", return_value=success),
+            mock.patch.object(self.verify, "check_shell", return_value=success),
+            mock.patch.object(self.verify, "check_json", return_value=success),
+            mock.patch.object(
+                self.verify, "check_evidence_review_plan", return_value=success
+            ) as review,
+            mock.patch.object(self.verify, "check_consistency", return_value=success),
+            mock.patch.object(self.verify, "check_release", return_value=success),
+            mock.patch.object(self.verify, "check_public_api", return_value=success),
+            mock.patch.object(
+                self.verify, "check_unit_tests", return_value=success
+            ) as unit,
+            mock.patch.object(
+                self.verify, "check_installed_smokes", return_value=success
+            ) as smokes,
+            mock.patch.object(self.verify, "check_git_diff", return_value=success),
+            mock.patch.object(self.verify, "check_preflight_cache", return_value=success),
+        ):
+            code = self.verify.main(
+                ["--repo-root", str(REPO_ROOT), "--json"]
+            )
+
+        self.assertEqual(code, 0)
+        self.assertFalse(review.call_args.kwargs["execute_focused"])
+        unit.assert_not_called()
+        smokes.assert_not_called()
+
+    def test_untracked_change_invalidates_reuse_and_main_runs_live_broad_gates(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "tests@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Elves Tests"],
+                cwd=root,
+                check=True,
+            )
+            source = root / "runtime.py"
+            source.write_text("VALUE = 1\n", encoding="utf-8")
+            subprocess.run(["git", "add", "runtime.py"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+            ok, message = self.verify.check_preflight_cache(root)
+            self.assertTrue(ok, message)
+
+            (root / "new_untracked_test.py").write_text(
+                "raise AssertionError('must run live gates')\n",
+                encoding="utf-8",
+            )
+            self.assertFalse(self.verify.probe_preflight_reuse(root)["reuse"])
+
+            success = (True, "ok")
+
+            with (
+                mock.patch.object(self.verify, "compile_scripts", return_value=success),
+                mock.patch.object(self.verify, "check_shell", return_value=success),
+                mock.patch.object(self.verify, "check_json", return_value=success),
+                mock.patch.object(
+                    self.verify,
+                    "_cumulative_changed_paths",
+                    return_value=(
+                        True,
+                        ["new_untracked_test.py"],
+                        "main...HEAD + untracked",
+                    ),
+                ),
+                mock.patch.object(self.verify, "check_consistency", return_value=success),
+                mock.patch.object(self.verify, "check_release", return_value=success),
+                mock.patch.object(self.verify, "check_public_api", return_value=success),
+                mock.patch.object(
+                    self.verify, "check_unit_tests", return_value=success
+                ) as unit,
+                mock.patch.object(
+                    self.verify, "check_installed_smokes", return_value=success
+                ) as smokes,
+                mock.patch.object(self.verify, "check_git_diff", return_value=success),
+                mock.patch.object(
+                    self.verify, "check_preflight_cache", return_value=success
+                ),
+            ):
+                code = self.verify.main(["--repo-root", str(root), "--json"])
+
+            self.assertEqual(code, 0)
+            unit.assert_called_once_with(root.resolve())
+            smokes.assert_called_once_with(root.resolve())
+
+    def test_non_broad_plan_keeps_default_verify_focused(self) -> None:
+        success = (True, "ok")
+
+        def focused_plan(*_args, **kwargs):
+            kwargs["result_cache"]["__review_broad__"] = (False, "docs_only")
+            return success
+
+        with (
+            mock.patch.object(
+                self.verify,
+                "probe_preflight_reuse",
+                return_value={"reuse": False, "reason": "no_cache"},
+            ),
+            mock.patch.object(self.verify, "compile_scripts", return_value=success),
+            mock.patch.object(self.verify, "check_shell", return_value=success),
+            mock.patch.object(self.verify, "check_json", return_value=success),
+            mock.patch.object(
+                self.verify,
+                "check_evidence_review_plan",
+                side_effect=focused_plan,
+            ),
+            mock.patch.object(self.verify, "check_consistency", return_value=success),
+            mock.patch.object(self.verify, "check_release", return_value=success),
+            mock.patch.object(self.verify, "check_public_api", return_value=success),
+            mock.patch.object(
+                self.verify, "check_unit_tests", return_value=success
+            ) as unit,
+            mock.patch.object(
+                self.verify, "check_installed_smokes", return_value=success
+            ) as smokes,
+            mock.patch.object(self.verify, "check_git_diff", return_value=success),
+            mock.patch.object(
+                self.verify, "check_preflight_cache", return_value=success
+            ) as cache,
+        ):
+            code = self.verify.main(["--repo-root", str(REPO_ROOT), "--json"])
+
+        self.assertEqual(code, 0)
+        unit.assert_not_called()
+        smokes.assert_not_called()
+        self.assertFalse(cache.call_args.kwargs["record_live"])
 
     def test_final_diff_check_uses_default_branch_merge_base_range(self) -> None:
         proc = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
@@ -602,6 +832,8 @@ class VerifyRepoUnitTests(unittest.TestCase):
         cases = {
             "spaced assignment": 'OPENROUTER_API_KEY = "real-secret-value"\n',
             "yaml list assignment": "- API_KEY: real-secret-value\n",
+            "generic auth assignment": "auth: real-secret-value\n",
+            "credential assignment": "credential: real-secret-value\n",
             "hyphenated assignment": "API-KEY = real-secret-value\n",
             "sk project": "sk-proj-abcdefghijklmnopqrstuvwxyz\n",
             "sk service": "sk-svcacct-abcdefghijklmnopqrstuvwxyz\n",
@@ -642,7 +874,13 @@ class VerifyRepoUnitTests(unittest.TestCase):
                 "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"
                 "github_pat_xxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"
                 "sk-proj-YOUR_API_KEY_PLACEHOLDER\n"
+                "auth: gcloud-impersonation\n"
+                "Authorization: Bearer <token>\n"
                 "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+                encoding="utf-8",
+            )
+            (scripts / "safe.py").write_text(
+                "darwin_audit_token=native.darwin_audit_token\n",
                 encoding="utf-8",
             )
             ok, message = self.verify.check_secret_patterns(root)

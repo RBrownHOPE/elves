@@ -44,9 +44,17 @@ from cobbler_runtime.adapters import (  # noqa: E402
 )
 from cobbler_runtime.audit import (  # noqa: E402
     audit_lease_turn,
+    build_audit_evidence,
+    build_worker_pre_snapshot,
+    build_worker_credential_grant_context,
     export_binary_patches,
     host_apply_check,
-    pre_turn_snapshots,
+    host_import_patches,
+    normalize_worker_credential_grant_names,
+    validate_worker_pre_snapshot,
+    verify_patch_manifest,
+    verify_worker_credential_grant_context,
+    worker_credential_grant_context_digest,
 )
 from cobbler_runtime.capabilities import (  # noqa: E402
     doctor_inventory,
@@ -64,9 +72,14 @@ from cobbler_runtime.dispatch import (  # noqa: E402
 )
 from cobbler_runtime.context import (  # noqa: E402
     is_secret_env_name,
+    redact_structure,
     redact_text,
 )
-from cobbler_runtime.leases import LeaseStore, build_write_task_packet  # noqa: E402
+from cobbler_runtime.leases import (  # noqa: E402
+    LIVE_LEASE_STATES,
+    LeaseStore,
+    build_write_task_packet,
+)
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.sessions import SessionRegistry  # noqa: E402
 from cobbler_runtime.implement import (  # noqa: E402
@@ -77,6 +90,8 @@ from cobbler_runtime.implement import (  # noqa: E402
     status_payload,
 )
 from cobbler_runtime.full_run import (  # noqa: E402
+    _assert_bounded_json_structure,
+    _loads_bounded_json,
     launch_full_run,
     logs_full_run,
     monitor_full_run,
@@ -154,11 +169,15 @@ def _read_worker_snapshot(repo_root: Path, path: Path) -> dict[str, Any]:
         max_bytes=WORKER_SNAPSHOT_MAX_BYTES,
     )
     try:
-        payload = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        payload = _loads_bounded_json(
+            raw.decode("utf-8"),
+            label="worker snapshot",
+        )
+        _assert_bounded_json_structure(payload, label="worker_snapshot")
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError, StorageError) as exc:
         raise StorageError(
             "malformed_json",
-            f"Malformed worker snapshot at {path}: {exc}",
+            f"Worker snapshot at {path} exceeds canonical JSON resource limits or is malformed",
         ) from exc
     if not isinstance(payload, dict):
         raise StorageError(
@@ -183,10 +202,51 @@ def _repo_root_from_args(args: argparse.Namespace) -> Path:
     return Path.cwd().resolve()
 
 
-def _emit_json(payload: dict[str, Any], *, exit_code: int) -> int:
-    json.dump(payload, sys.stdout, indent=2, sort_keys=True)
+def _emit_json(
+    payload: dict[str, Any],
+    *,
+    exit_code: int,
+    exact_secret_values: frozenset[str] | None = None,
+) -> int:
+    safe = redact_structure(
+        payload,
+        exact_values=(
+            exact_secret_values
+            if exact_secret_values is not None
+            else _secret_env_values()
+        ),
+    )
+    json.dump(safe, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
     return exit_code
+
+
+def _redacted_validation_issue(issue: ValidationIssue) -> dict[str, Any]:
+    payload = redact_structure(
+        issue.to_dict(),
+        exact_values=_secret_env_values(),
+    )
+    return dict(payload) if isinstance(payload, dict) else issue.to_dict()
+
+
+def _reject_live_worker_lease(
+    store: LeaseStore,
+    lease_id: str,
+    reason: object,
+) -> None:
+    """Best-effort terminalization after a partially published worker transition."""
+    safe_reason = redact_text(
+        str(reason),
+        exact_values=_secret_env_values(),
+    ).text
+    try:
+        lease = store.get(lease_id)
+        if lease.state in LIVE_LEASE_STATES:
+            store.reject(lease_id, safe_reason or "worker lifecycle transition failed")
+    except Exception:
+        # Preserve the primary exception. A secondary storage failure is surfaced
+        # by subsequent strict store reads and must not replace the root cause.
+        pass
 
 
 def _emit_text_validate(payload: dict[str, Any]) -> int:
@@ -312,7 +372,27 @@ def cmd_session(args: argparse.Namespace) -> int:
             return _emit_storage_error(args, error, command=f"session {action}")
 
     if action == "list":
-        records = [rec.to_dict() for rec in registry.list_sessions()]
+        try:
+            records = [rec.to_dict() for rec in registry.list_sessions_strict()]
+        except ValidationIssue as issue:
+            safe_issue = _redacted_validation_issue(issue)
+            payload = {
+                "ok": False,
+                "repo_root": str(repo_root),
+                "sessions": [],
+                "count": 0,
+                "issues": [safe_issue],
+                "mutated_repo": False,
+                "read_only": True,
+            }
+            if args.json:
+                return _emit_json(payload, exit_code=1)
+            print(
+                f"session list: FAILED [{safe_issue['code']}] "
+                f"{safe_issue['message']}",
+                file=sys.stderr,
+            )
+            return 1
         payload = {
             "ok": True,
             "repo_root": str(repo_root),
@@ -767,6 +847,16 @@ def cmd_worker(args: argparse.Namespace) -> int:
     try:
         store = LeaseStore(repo_root)
         if action == "prepare":
+            grant_names = normalize_worker_credential_grant_names(
+                list(getattr(args, "grant_env", None) or [])
+            )
+            grant_context = build_worker_credential_grant_context(
+                args.lease_id,
+                grant_names,
+            )
+            grant_context_digest = worker_credential_grant_context_digest(
+                grant_context
+            )
             profile = grok_write_profile(args.grok_version)
             if args.sandbox_profile == "workspace":
                 profile = workspace_sandbox_write_profile()
@@ -804,21 +894,31 @@ def cmd_worker(args: argparse.Namespace) -> int:
                 write_profile_qualified=profile.qualified and not args.unqualified,
                 grok_version=args.grok_version,
                 qualification_evidence=qualification,
+                credential_grant_names=grant_names,
+                credential_grant_context_digest=grant_context_digest,
             )
-            store.activate(lease.lease_id)
-            # Capture pre-turn snapshots under store-owned digest path (not raw lease id).
-            snaps = pre_turn_snapshots(Path(lease.worker_checkout))
-            snap_dir = store.snapshot_dir(lease.lease_id)
-            snap_path = snap_dir / "pre.json"
-            _write_worker_snapshot(repo_root, snap_path, snaps)
-            inv = None
-            if args.adapter == "grok-build":
-                inv = build_write_resume_invocation(
-                    adapter="grok-build",
-                    session_id=args.session_id,
-                    cwd=args.worker_checkout,
-                    version=args.grok_version,
-                ).to_dict()
+            try:
+                # Publish all prepare-time evidence before ACTIVE authority. Any
+                # failure terminalizes the already-published PREPARED record so
+                # exclusivity cannot deadlock future work.
+                snaps = build_worker_pre_snapshot(lease)
+                snap_dir = store.snapshot_dir(lease.lease_id)
+                grant_context_path = snap_dir / "credential_grants.json"
+                _write_worker_snapshot(repo_root, grant_context_path, grant_context)
+                snap_path = snap_dir / "pre.json"
+                _write_worker_snapshot(repo_root, snap_path, snaps)
+                inv = None
+                if args.adapter == "grok-build":
+                    inv = build_write_resume_invocation(
+                        adapter="grok-build",
+                        session_id=args.session_id,
+                        cwd=args.worker_checkout,
+                        version=args.grok_version,
+                    ).to_dict()
+                store.activate(lease.lease_id)
+            except BaseException as exc:
+                _reject_live_worker_lease(store, lease.lease_id, exc)
+                raise
             payload = {
                 "ok": True,
                 "lease": store.get(lease.lease_id).to_dict(),
@@ -833,48 +933,97 @@ def cmd_worker(args: argparse.Namespace) -> int:
 
         if action == "audit":
             lease = store.get(args.lease_id)
-            pre_path = store.snapshot_dir(args.lease_id) / "pre.json"
-            # Missing pre.json is a hard audit error (not a soft empty snapshot).
+            # Capture once so the same exact grant set protects the live audit,
+            # immutable evidence (including pre-snapshots), and CLI response.
+            supplied_grant_names = normalize_worker_credential_grant_names(
+                list(getattr(args, "grant_env", None) or [])
+            )
             try:
-                pre = _read_worker_snapshot(repo_root, pre_path)
-            except StorageError as exc:
-                if exc.code != "not_found":
+                if lease.credential_grant_context_digest is None:
+                    if supplied_grant_names or lease.credential_grant_names:
+                        raise ValidationIssue(
+                            "worker_credential_context_missing",
+                            "Lease has no prepare-time credential grant authority",
+                        )
+                    verified_grant_values = frozenset()
+                else:
+                    grant_context_path = (
+                        store.snapshot_dir(args.lease_id) / "credential_grants.json"
+                    )
+                    grant_context = _read_worker_snapshot(
+                        repo_root,
+                        grant_context_path,
+                    )
+                    verified_grant_values = verify_worker_credential_grant_context(
+                        lease,
+                        grant_context,
+                        supplied_grant_names,
+                    )
+            except BaseException as exc:
+                _reject_live_worker_lease(store, lease.lease_id, exc)
+                raise
+            exact_secret_values = frozenset(
+                set(_secret_env_values()) | set(verified_grant_values)
+            )
+            pre_path = store.snapshot_dir(args.lease_id) / "pre.json"
+            try:
+                # Missing or unsafe pre.json is terminal for this lease: audit
+                # cannot be retried honestly without prepare-time evidence.
+                pre = validate_worker_pre_snapshot(
+                    lease,
+                    _read_worker_snapshot(repo_root, pre_path),
+                )
+            except BaseException as exc:
+                _reject_live_worker_lease(store, lease.lease_id, exc)
+                if not isinstance(exc, StorageError) or exc.code != "not_found":
                     raise
                 raise ValidationIssue(
                     "audit_missing_pre_snapshot",
                     "Missing pre.json snapshot; refuse audit without prepare-time evidence",
                     path=str(pre_path),
                 ) from exc
-            store.mark_auditing(lease.lease_id)
-            result = audit_lease_turn(
-                store.get(args.lease_id),
-                pre_refs_digest=pre.get("refs_digest"),
-                pre_remotes=pre.get("remotes"),
-                pre_config=pre.get("config"),
-                pre_hooks=pre.get("hooks"),
-                pre_common_config=pre.get("common_config"),
-                pre_common_hooks=pre.get("common_hooks"),
-                observed_commands=list(args.observed_command or []),
-            )
-            if not result.ok:
-                store.reject(args.lease_id, "; ".join(result.reasons))
-            else:
-                # Persist immutable evidence + atomic audited_pass transition.
-                # Digest is over canonical payload excluding the digest field itself.
-                import hashlib
-
-                evidence = result.to_dict()
-                evidence["pre_snapshots"] = pre
-                canonical = {k: v for k, v in evidence.items() if k != "evidence_digest"}
-                evidence["evidence_digest"] = hashlib.sha256(
-                    json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode(
-                        "utf-8"
+            try:
+                store.mark_auditing(lease.lease_id)
+                result = audit_lease_turn(
+                    store.get(args.lease_id),
+                    pre_refs_digest=pre.get("refs_digest"),
+                    pre_remotes=pre.get("remotes"),
+                    pre_config=pre.get("config"),
+                    pre_hooks=pre.get("hooks"),
+                    pre_common_config=pre.get("common_config"),
+                    pre_common_hooks=pre.get("common_hooks"),
+                    pre_ref_storage=pre.get("ref_storage"),
+                    pre_git_dir=pre.get("git_dir"),
+                    pre_git_common_dir=pre.get("git_common_dir"),
+                    pre_authority=pre.get("authority"),
+                    pre_static_control=pre.get("static_control"),
+                    observed_commands=list(args.observed_command or []),
+                    exact_secret_values=exact_secret_values,
+                )
+                if not result.ok:
+                    store.reject(args.lease_id, "; ".join(result.reasons))
+                else:
+                    # Persist immutable evidence + atomic audited_pass transition.
+                    evidence = build_audit_evidence(
+                        result,
+                        pre_snapshots=pre,
+                        exact_secret_values=exact_secret_values,
                     )
-                ).hexdigest()
-                store.mark_audited_pass(args.lease_id, evidence=evidence)
-            payload = {"ok": result.ok, "audit": result.to_dict(), "mutated_repo": False}
+                    store.mark_audited_pass(args.lease_id, evidence=evidence)
+            except BaseException as exc:
+                _reject_live_worker_lease(store, lease.lease_id, exc)
+                raise
+            payload = {
+                "ok": result.ok,
+                "audit": result.to_dict(exact_secret_values=exact_secret_values),
+                "mutated_repo": False,
+            }
             if args.json:
-                return _emit_json(payload, exit_code=0 if result.ok else 1)
+                return _emit_json(
+                    payload,
+                    exit_code=0 if result.ok else 1,
+                    exact_secret_values=exact_secret_values,
+                )
             print(f"worker audit: {'OK' if result.ok else 'FAILED'}")
             for reason in result.reasons:
                 print(f"  - {reason}")
@@ -901,6 +1050,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
                 "worker_tip",
                 "base_head",
                 "commit_chain",
+                "audited_git_surfaces",
+                "patch_transport_digests",
                 "evidence_digest",
             }
             missing_evidence = sorted(required_evidence_fields - set(evidence))
@@ -982,6 +1133,10 @@ def cmd_worker(args: argparse.Namespace) -> int:
                 chain=commit_objs,
                 audit_evidence=evidence,
             )
+            # Re-open and verify the complete directory immediately before any
+            # host apply-check. Producer-side hashes are not authority until a
+            # separate consumer rejects tampering, extras, and reorderings.
+            patches = verify_patch_manifest(lease, output_dir=out)
             apply_result = None
             if args.host_apply_check:
                 apply_result = host_apply_check(
@@ -990,6 +1145,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
                     base_head=lease.base_head,
                     cumulative=True,
                     disposable=True,
+                    lease=lease,
+                    manifest_dir=out,
                 )
                 if not apply_result.get("ok"):
                     raise ValidationIssue(
@@ -1001,7 +1158,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
             if apply_result is not None and apply_result.get("ok"):
                 lease2 = store.get(args.lease_id)
                 if lease2.state.value == "exported":
-                    store.mark_apply_checked(args.lease_id)
+                    store.mark_apply_checked(args.lease_id, evidence=apply_result)
             payload = {
                 "ok": True,
                 "patches": [str(p) for p in patches],
@@ -1015,6 +1172,30 @@ def cmd_worker(args: argparse.Namespace) -> int:
             print(f"worker export: {len(patches)} patch(es) -> {out}")
             return 0
 
+        if action == "import":
+            lease = store.get(args.lease_id)
+            if not lease.exported_patch_dir:
+                raise ValidationIssue(
+                    "host_import_export_path_missing",
+                    "Worker import requires the store-owned exported patch directory",
+                )
+            result = host_import_patches(
+                lease,
+                manifest_dir=Path(lease.exported_patch_dir),
+            )
+            payload = {
+                "ok": True,
+                "import": result,
+                "mutated_repo": True,
+            }
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(
+                f"worker import: {len(result['checked'])} patch(es) staged; "
+                f"tree={result['resulting_tree']}"
+            )
+            return 0
+
         if action == "refresh":
             lease = store.get(args.lease_id)
             if lease.state.value != "apply_checked" and lease.state.value != "integrated":
@@ -1024,7 +1205,13 @@ def cmd_worker(args: argparse.Namespace) -> int:
                     "never synthesize from EXPORTED alone",
                     path=f"leases.{args.lease_id}.state",
                 )
-            store.mark_integrated(args.lease_id, new_tip=args.new_tip)
+            if lease.state.value == "apply_checked":
+                store.mark_integrated(args.lease_id, new_tip=args.new_tip)
+            elif not lease.integrated_tip or lease.integrated_tip != args.new_tip:
+                raise ValidationIssue(
+                    "refresh_tip_mismatch",
+                    "Worker refresh tip must match the recorded integrated host tip",
+                )
             result = store.refresh_worker_to_tip(args.lease_id, new_tip=args.new_tip)
             store.close(args.lease_id)
             payload = {"ok": True, "refresh": result, "mutated_repo": True}
@@ -1038,16 +1225,24 @@ def cmd_worker(args: argparse.Namespace) -> int:
             packet = build_write_task_packet(lease, task=args.task)
             if args.json:
                 return _emit_json({"ok": True, "packet": packet}, exit_code=0)
-            print(json.dumps(packet, indent=2, sort_keys=True))
+            safe_packet = redact_structure(
+                packet,
+                exact_values=_secret_env_values(),
+            )
+            print(json.dumps(safe_packet, indent=2, sort_keys=True))
             return 0
 
     except StorageError as error:
         return _emit_storage_error(args, error, command=f"worker {action}")
     except ValidationIssue as issue:
-        payload = {"ok": False, "issues": [issue.to_dict()]}
+        safe_issue = _redacted_validation_issue(issue)
+        payload = {"ok": False, "issues": [safe_issue]}
         if args.json:
             return _emit_json(payload, exit_code=1)
-        print(f"worker {action}: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+        print(
+            f"worker {action}: FAILED [{safe_issue['code']}] {safe_issue['message']}",
+            file=sys.stderr,
+        )
         return 1
 
     print(f"unknown worker action: {action}", file=sys.stderr)
@@ -1113,6 +1308,7 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 session_id=args.session_id,
                 resume=bool(getattr(args, "resume", False)),
                 credential_grant_names=list(getattr(args, "grant_env", None) or []) or None,
+                grant_grok_auth=bool(getattr(args, "grant_grok_auth", False)),
             )
             if args.json:
                 return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
@@ -1673,6 +1869,15 @@ def build_parser() -> argparse.ArgumentParser:
     w_prepare.add_argument("--profile", default="grok-build-write")
     w_prepare.add_argument("--sandbox-profile", default="devbox")
     w_prepare.add_argument("--allowed-path", action="append", default=[])
+    w_prepare.add_argument(
+        "--grant-env",
+        action="append",
+        default=[],
+        help=(
+            "Launch-scoped credential grant by NAME only; repeat the exact names "
+            "and values for worker audit (never KEY=VALUE)"
+        ),
+    )
     w_prepare.add_argument("--grok-version", default="0.2.93")
     w_prepare.add_argument(
         "--unqualified",
@@ -1695,6 +1900,15 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_flags(w_audit)
     w_audit.add_argument("--lease-id", required=True)
     w_audit.add_argument(
+        "--grant-env",
+        action="append",
+        default=[],
+        help=(
+            "Exact prepare-time credential grant NAME set; current values must "
+            "match private prepare authority (never KEY=VALUE)"
+        ),
+    )
+    w_audit.add_argument(
         "--observed-command",
         action="append",
         default=[],
@@ -1715,6 +1929,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run git apply --check --index on host checkout",
     )
     w_export.set_defaults(func=cmd_worker)
+
+    w_import = worker_sub.add_parser(
+        "import",
+        help="Apply the descriptor-verified audited bundle to the clean host",
+    )
+    _add_common_flags(w_import)
+    w_import.add_argument("--lease-id", required=True)
+    w_import.set_defaults(func=cmd_worker)
 
     w_refresh = worker_sub.add_parser(
         "refresh",
@@ -1802,6 +2024,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="Credential grant by NAME only (never KEY=VALUE on argv)",
+    )
+    i_fr_launch.add_argument(
+        "--grant-grok-auth",
+        action="store_true",
+        help=(
+            "Trusted Lane A only: isolated credential-free Grok probe plus one "
+            "exact bound native executable + ancestor chain and validated host auth.json "
+            "(owner/mode/ancestor/ACL) through native GROK_AUTH_PATH"
+        ),
     )
     i_fr_launch.set_defaults(func=cmd_implement)
 
@@ -1966,7 +2197,10 @@ def build_parser() -> argparse.ArgumentParser:
     i_launch.add_argument(
         "--exec",
         action="store_true",
-        help="Actually spawn the process (default: print argv only)",
+        help=(
+            "Request bounded spawn; fails closed unless a qualified recursive "
+            "boundary exists (default: print argv only)"
+        ),
     )
     i_launch.set_defaults(func=cmd_implement)
 
@@ -2026,7 +2260,10 @@ def build_parser() -> argparse.ArgumentParser:
     i_resume.add_argument(
         "--exec",
         action="store_true",
-        help="Actually spawn the process (default: print argv only)",
+        help=(
+            "Request bounded spawn; fails closed unless a qualified recursive "
+            "boundary exists (default: print argv only)"
+        ),
     )
     i_resume.set_defaults(func=cmd_implement)
 

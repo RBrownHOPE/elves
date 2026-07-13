@@ -11,6 +11,11 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "elves_landing_check.py"
+SCRIPTS = REPO_ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+from cobbler_runtime.delegated_git import parse_plan_acceptance  # noqa: E402
 
 
 def load_module():
@@ -120,6 +125,117 @@ class ElvesLandingCheckTests(unittest.TestCase):
         matches = list(self.mod.BATCH_HEADING.finditer(text))
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0].group(1), "3")
+
+    def test_batch_ids_accept_canonical_and_legacy_positive_integers(self) -> None:
+        for raw, expected in (("B1", 1), ("B42", 42), (1, 1), (42, 42), ("1", 1)):
+            with self.subTest(raw=raw):
+                self.assertEqual(self.mod.numeric_batch_id({"id": raw}), expected)
+
+    def test_batch_ids_reject_malformed_zero_or_ambiguous_forms(self) -> None:
+        invalid = (
+            None,
+            True,
+            False,
+            0,
+            -1,
+            1.0,
+            "",
+            "0",
+            "00",
+            "01",
+            "B0",
+            "B01",
+            "b1",
+            " B1",
+            "B1 ",
+            "B-1",
+            "B1x",
+            "B1١",
+            "+1",
+        )
+        for raw in invalid:
+            with self.subTest(raw=raw):
+                self.assertIsNone(self.mod.numeric_batch_id({"id": raw}))
+
+    def test_canonical_batch_ids_map_exactly_to_plan_and_acceptance(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": "B1",
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B1-A1",
+                                "criterion": "First contract",
+                                "met": True,
+                                "evidence": "first proof",
+                            }
+                        ],
+                    },
+                    {
+                        "id": "B2",
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B2-A1",
+                                "criterion": "Second contract",
+                                "met": True,
+                                "evidence": "second proof",
+                            }
+                        ],
+                    },
+                ],
+                "master_acceptance": [
+                    {
+                        "id": "M-A1",
+                        "criterion": "Master contract",
+                        "met": True,
+                        "evidence": "cumulative proof",
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: First\n\n**Acceptance criteria:**\n"
+                "- [x] B1-A1 — First contract\n\n"
+                "### Batch 2: Second\n\n**Acceptance criteria:**\n"
+                "- [x] B2-A1 — Second contract\n\n"
+                "## Master Acceptance\n\n- [x] M-A1 — Master contract\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.mod.main(["--session", str(session_path)]), 0)
+
+    def test_canonical_and_legacy_alias_collision_is_duplicate_batch(self) -> None:
+        session = {
+            "batches": [
+                {
+                    "id": "B1",
+                    "status": "complete",
+                    "acceptance": [
+                        {"criterion": "first", "met": True, "evidence": "proof"}
+                    ],
+                },
+                {
+                    "id": 1,
+                    "status": "complete",
+                    "acceptance": [
+                        {"criterion": "duplicate", "met": True, "evidence": "proof"}
+                    ],
+                },
+            ]
+        }
+        report = self.mod.Report()
+
+        self.mod.check_session_batches(session, report)
+
+        self.assertIn(
+            "batch_id_duplicate",
+            {finding.code for finding in report.errors},
+        )
 
     def test_acceptance_missing_evidence_fails(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -459,14 +575,16 @@ class ElvesLandingCheckTests(unittest.TestCase):
                                 "criterion": "Batch contract",
                                 "met": True,
                                 "evidence": "batch proof",
-                            },
-                            {
-                                "id": "M-A1",
-                                "criterion": "Master contract",
-                                "met": True,
-                                "evidence": "cumulative proof",
-                            },
+                            }
                         ],
+                    }
+                ],
+                "master_acceptance": [
+                    {
+                        "id": "M-A1",
+                        "criterion": "Master contract",
+                        "met": True,
+                        "evidence": "cumulative proof",
                     }
                 ],
             }
@@ -483,6 +601,166 @@ class ElvesLandingCheckTests(unittest.TestCase):
             code = self.mod.main(["--session", str(session_path)])
 
             self.assertEqual(code, 0)
+
+    def test_legacy_batch_embedded_master_acceptance_remains_compatible(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B1-A1",
+                                "criterion": "Batch contract",
+                                "met": True,
+                                "evidence": "batch proof",
+                            },
+                            {
+                                "id": "M-A1",
+                                "criterion": "Master contract",
+                                "met": True,
+                                "evidence": "legacy cumulative proof",
+                            },
+                        ],
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Contract\n\n**Acceptance criteria:**\n"
+                "- [x] B1-A1 — Batch contract\n\n"
+                "## Master Acceptance\n\n- [x] M-A1 — Master contract\n",
+                encoding="utf-8",
+            )
+
+            report = self.mod.run_checks(
+                self.mod.parse_args(["--session", str(session_path)])
+            )
+
+            self.assertEqual(report.errors, [])
+            self.assertIn(
+                "legacy_master_acceptance_location",
+                {finding.code for finding in report.warnings},
+            )
+
+    def test_duplicate_or_wrong_scope_top_level_acceptance_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B1-A1",
+                                "criterion": "Batch contract",
+                                "met": True,
+                                "evidence": "batch proof",
+                            },
+                            {
+                                "id": "M-A1",
+                                "criterion": "Master contract",
+                                "met": True,
+                                "evidence": "duplicate legacy proof",
+                            },
+                        ],
+                    }
+                ],
+                "master_acceptance": [
+                    {
+                        "id": "M-A1",
+                        "criterion": "Master contract",
+                        "met": True,
+                        "evidence": "canonical proof",
+                    },
+                    {
+                        "id": "B1-A2",
+                        "criterion": "Wrong scope",
+                        "met": True,
+                        "evidence": "wrong scope proof",
+                    },
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 1: Contract\n\n**Acceptance criteria:**\n"
+                "- [x] B1-A1 — Batch contract\n\n"
+                "## Master Acceptance\n\n- [x] M-A1 — Master contract\n",
+                encoding="utf-8",
+            )
+
+            report = self.mod.run_checks(
+                self.mod.parse_args(["--session", str(session_path)])
+            )
+            codes = {finding.code for finding in report.errors}
+            self.assertIn("acceptance_id_wrong_scope", codes)
+            self.assertIn("acceptance_evidence_duplicate_id", codes)
+            self.assertIn("acceptance_evidence_unrelated", codes)
+
+    def test_top_level_master_acceptance_requires_met_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "batches": [
+                    {
+                        "id": 1,
+                        "status": "complete",
+                        "acceptance": [
+                            {"criterion": "done", "met": True, "evidence": "proof"}
+                        ],
+                    }
+                ],
+                "master_acceptance": [
+                    {"id": "M-A1", "criterion": "Master", "met": False, "evidence": ""}
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+
+            report = self.mod.run_checks(
+                self.mod.parse_args(["--session", str(session_path)])
+            )
+            codes = {finding.code for finding in report.errors}
+            self.assertIn("master_acceptance_not_met", codes)
+            self.assertIn("master_acceptance_no_evidence", codes)
+
+    def test_delegated_and_landing_parsers_join_wrapped_criteria_identically(self) -> None:
+        plan = (
+            "### Batch 1: Contract\n\n**Acceptance criteria:**\n"
+            "- [ ] B1-A1 — Batch contract continues\n"
+            "  on the next line with `code` and punctuation.\n\n"
+            "## Master Acceptance\n\n"
+            "* [x] M-A1: Master contract continues\n"
+            "  across a wrapped line.\n"
+        )
+
+        delegated = parse_plan_acceptance(plan)
+        landing = [
+            {"id": item["id"], "criterion": item["criterion"]}
+            for item in self.mod._parse_stable_checkboxes(plan)
+        ]
+
+        self.assertEqual(delegated, landing)
+        self.assertEqual(
+            delegated,
+            [
+                {
+                    "id": "B1-A1",
+                    "criterion": (
+                        "Batch contract continues on the next line with `code` "
+                        "and punctuation."
+                    ),
+                },
+                {
+                    "id": "M-A1",
+                    "criterion": "Master contract continues across a wrapped line.",
+                },
+            ],
+        )
 
     def test_stable_mode_rejects_unidentified_batch_or_master_checkboxes(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

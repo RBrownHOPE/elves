@@ -33,7 +33,9 @@ from cobbler_runtime.delegated_git import (  # noqa: E402
 )
 from cobbler_runtime.isolation import (  # noqa: E402
     IsolationSpec,
+    IsolatedLane,
     assert_no_host_secrets,
+    build_isolated_env,
     create_tracked_snapshot,
     implement_min_env,
     isolated_lane,
@@ -534,6 +536,126 @@ class StoragePrimitiveTests(unittest.TestCase):
                 )
                 self.assertFalse(destination.exists())
 
+    def test_atomic_json_parent_swap_before_publish_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo = base / "repo"
+            outside = base / "outside"
+            repo.mkdir()
+            outside.mkdir()
+            store = ensure_private_dir(repo / "runtime" / "records", repo_root=repo)
+            record = store / "state.json"
+            displaced = outside / "displaced-records"
+            original_assert = storage_module._assert_safe_regular_leaf
+            record_checks = 0
+
+            def swap_after_final_leaf_check(parent_fd, name, *, display_path):
+                nonlocal record_checks
+                result = original_assert(parent_fd, name, display_path=display_path)
+                if Path(display_path) == record:
+                    record_checks += 1
+                    if record_checks == 2:
+                        store.rename(displaced)
+                        store.mkdir(mode=0o700)
+                return result
+
+            with mock.patch.object(
+                storage_module,
+                "_assert_safe_regular_leaf",
+                side_effect=swap_after_final_leaf_check,
+            ), self.assertRaises(StorageError) as ctx:
+                atomic_write_json(record, {"must_not_publish": True}, repo_root=repo)
+
+            self.assertEqual(ctx.exception.code, "directory_identity_changed")
+            self.assertFalse(record.exists())
+            self.assertFalse((displaced / record.name).exists())
+
+    def test_repo_text_parent_swap_before_truncate_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo = base / "repo"
+            outside = base / "outside"
+            repo.mkdir()
+            outside.mkdir()
+            store = ensure_private_dir(repo / "runtime" / "events", repo_root=repo)
+            events = store / "events.jsonl"
+            original = "preserve-original\n"
+            events.write_text(original, encoding="utf-8")
+            displaced = outside / "displaced-events"
+            original_assert = storage_module._assert_safe_regular_leaf
+            event_checks = 0
+
+            def swap_after_opened_leaf_check(parent_fd, name, *, display_path):
+                nonlocal event_checks
+                result = original_assert(parent_fd, name, display_path=display_path)
+                if Path(display_path) == events:
+                    event_checks += 1
+                    if event_checks == 2:
+                        store.rename(displaced)
+                        store.mkdir(mode=0o700)
+                return result
+
+            with mock.patch.object(
+                storage_module,
+                "_assert_safe_regular_leaf",
+                side_effect=swap_after_opened_leaf_check,
+            ), self.assertRaises(StorageError) as ctx:
+                with open_repo_text(repo, events, mode="w") as handle:
+                    handle.write("must-not-write\n")
+
+            self.assertEqual(ctx.exception.code, "directory_identity_changed")
+            self.assertFalse(events.exists())
+            self.assertEqual(
+                (displaced / events.name).read_text(encoding="utf-8"),
+                original,
+            )
+
+    def test_directory_lock_parent_swap_before_flock_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo = base / "repo"
+            outside = base / "outside"
+            repo.mkdir()
+            outside.mkdir()
+            store = ensure_private_dir(repo / "runtime" / "locks", repo_root=repo)
+            lock_path = store / "store.lock"
+            sentinel = "lock-sentinel\n"
+            lock_path.write_text(sentinel, encoding="utf-8")
+            displaced = outside / "displaced-locks"
+            original_assert = storage_module._assert_safe_regular_leaf
+            lock_checks = 0
+
+            def swap_after_opened_lock_check(parent_fd, name, *, display_path):
+                nonlocal lock_checks
+                result = original_assert(parent_fd, name, display_path=display_path)
+                if Path(display_path) == lock_path:
+                    lock_checks += 1
+                    if lock_checks == 2:
+                        store.rename(displaced)
+                        store.mkdir(mode=0o700)
+                return result
+
+            flock = mock.Mock()
+            with mock.patch.object(
+                storage_module,
+                "_assert_safe_regular_leaf",
+                side_effect=swap_after_opened_lock_check,
+            ), mock.patch.object(
+                storage_module.fcntl,
+                "flock",
+                flock,
+            ), self.assertRaises(StorageError) as ctx:
+                with directory_lock(store, repo_root=repo):
+                    pass
+
+            self.assertEqual(ctx.exception.code, "directory_identity_changed")
+            flock.assert_not_called()
+            self.assertFalse(lock_path.exists())
+            self.assertEqual(
+                (displaced / lock_path.name).read_text(encoding="utf-8"),
+                sentinel,
+            )
+
     def test_repo_text_open_supports_private_write_append_read_and_rejects_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -819,6 +941,71 @@ class IsolationAndRedactionTests(unittest.TestCase):
             self.assertEqual(env.get("XAI_API_KEY"), "grant-only")
             self.assertNotIn("OPENAI_API_KEY", env)
             self.assertNotIn("ANTHROPIC_API_KEY", env)
+
+    def test_launch_env_assembly_rejects_reserved_grant(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lane_root = root / "lane"
+            snapshot = lane_root / "snapshot"
+            home = lane_root / "home"
+            scratch = lane_root / "tmp"
+            xdg_config = lane_root / "xdg-config"
+            xdg_cache = lane_root / "xdg-cache"
+            xdg_data = lane_root / "xdg-data"
+            for path in (
+                lane_root,
+                snapshot,
+                home,
+                scratch,
+                xdg_config,
+                xdg_cache,
+                xdg_data,
+            ):
+                path.mkdir(exist_ok=True)
+            lane = IsolatedLane(
+                lane_id="reserved-grant",
+                root=lane_root,
+                snapshot=snapshot,
+                home=home,
+                tmp=scratch,
+                xdg_config=xdg_config,
+                xdg_cache=xdg_cache,
+                xdg_data=xdg_data,
+                env={},
+                tracked_file_count=0,
+            )
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                build_isolated_env(
+                    lane,
+                    credential_grants={
+                        "ELVES_ISOLATED_SNAPSHOT": "synthetic-control-value"
+                    },
+                )
+
+            self.assertEqual(
+                ctx.exception.code,
+                "isolation_control_grant_forbidden",
+            )
+
+            implement_home = root / "implement-home"
+            implement_tmp = root / "implement-tmp"
+            with self.assertRaises(ValidationIssue) as ctx:
+                implement_min_env(
+                    adapter="grok-build",
+                    worktree=snapshot,
+                    credential_grants={
+                        "GROK_HOME": "synthetic-control-value"
+                    },
+                    home=implement_home,
+                    tmp=implement_tmp,
+                )
+            self.assertEqual(
+                ctx.exception.code,
+                "isolation_control_grant_forbidden",
+            )
+            self.assertFalse(implement_home.exists())
+            self.assertFalse(implement_tmp.exists())
 
     def test_managed_implement_env_preserves_caller_owned_directories(self) -> None:
         from cobbler_runtime.isolation import _managed_implement_env

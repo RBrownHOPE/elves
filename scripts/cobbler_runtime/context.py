@@ -15,7 +15,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from .schema import ValidationIssue
 
@@ -77,9 +77,39 @@ DEFAULT_ENV_ALLOWLIST: frozenset[str] = frozenset(
     }
 )
 
+# Host-owned controls that credential grants may never replace. Prefix matching
+# covers current and future XDG/Elves isolation markers without blocking normal
+# provider credentials such as XAI_API_KEY or OPENROUTER_API_KEY.
+ISOLATION_CONTROL_ENV_NAMES: frozenset[str] = frozenset(
+    {
+        "HOME",
+        "PATH",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "GROK_HOME",
+        "GROK_AUTH_PATH",
+    }
+)
+ISOLATION_CONTROL_ENV_PREFIXES: tuple[str, ...] = ("XDG_", "ELVES_")
+_CREDENTIAL_GRANT_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
 # Patterns that look like secret values in free text. Matched spans are redacted;
 # only the pattern *name* is reported, never the captured value.
 SECRET_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "uri_userinfo",
+        re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@"),
+    ),
+    (
+        "secret_assignment",
+        re.compile(
+            r"(?i)(?<![A-Za-z0-9])"
+            r"(?:api[_-]?key|[A-Za-z0-9_-]*token|jwt|bearer|authorization|auth|"
+            r"password|passwd|secret|credential|cookie|private[_-]?key)"
+            r"[\"']?[ \t]*[:=][ \t]*(?:bearer[ \t]+)?[\"']?[^\s,;\"'}]{8,}[\"']?"
+        ),
+    ),
     ("bearer_token", re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-+=/]{8,}")),
     (
         "sk_token",
@@ -189,6 +219,46 @@ def is_secret_env_name(name: str) -> bool:
     return False
 
 
+def is_isolation_control_env_name(name: str) -> bool:
+    """Return whether an environment name is owned by the isolation boundary."""
+    if not isinstance(name, str):
+        return False
+    upper = name.upper()
+    return upper in ISOLATION_CONTROL_ENV_NAMES or upper.startswith(
+        ISOLATION_CONTROL_ENV_PREFIXES
+    )
+
+
+def validate_credential_grant_names(
+    names: Iterable[str],
+    *,
+    code: str = "isolation_control_grant_forbidden",
+    path: str | None = None,
+) -> tuple[str, ...]:
+    """Reject grants that could replace host-owned isolation controls."""
+    validated: list[str] = []
+    for name in names:
+        if not isinstance(name, str) or not _CREDENTIAL_GRANT_NAME_RE.fullmatch(name):
+            raise ValidationIssue(
+                "credential_grant_name_invalid",
+                "Credential grants must be environment variable names only",
+                path=path,
+                hint="Use --grant-env XAI_API_KEY, never KEY=VALUE",
+            )
+        if is_isolation_control_env_name(name):
+            raise ValidationIssue(
+                code,
+                "Credential grants cannot override host-owned isolation controls",
+                path=path,
+                hint=(
+                    "Grant provider credential names only; isolation paths and "
+                    "markers are reserved"
+                ),
+            )
+        validated.append(name)
+    return tuple(validated)
+
+
 def redact_text(
     text: str,
     *,
@@ -225,13 +295,38 @@ def redact_structure(
     *,
     exact_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
 ) -> Any:
-    """Recursively redact strings inside mappings/lists; leave non-strings intact."""
+    """Recursively redact JSON-like values, including mapping keys.
+
+    Mapping keys are observable in every persisted JSON artifact just like
+    values, so both secret-shaped and exact granted values must be removed from
+    them.  Redaction can collapse two distinct source keys to the same public
+    key.  Silently retaining either value would make the result depend on input
+    order, while suffixing with source material could disclose the credential;
+    fail closed with a categorical issue instead.
+    """
     if isinstance(value, str):
         return redact_text(value, exact_values=exact_values).text
     if isinstance(value, Mapping):
-        return {
-            str(k): redact_structure(v, exact_values=exact_values) for k, v in value.items()
-        }
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            safe_key = redact_text(
+                str(key),
+                exact_values=exact_values,
+            ).text
+            if safe_key in redacted:
+                raise ValidationIssue(
+                    "redaction_key_collision",
+                    "Distinct mapping keys collide after secret redaction",
+                    hint=(
+                        "Rename the colliding fields before persisting or emitting "
+                        "the payload"
+                    ),
+                )
+            redacted[safe_key] = redact_structure(
+                item,
+                exact_values=exact_values,
+            )
+        return redacted
     if isinstance(value, list):
         return [redact_structure(item, exact_values=exact_values) for item in value]
     if isinstance(value, tuple):
@@ -257,7 +352,12 @@ def scrub_environment(
     allowed = set(allowlist if allowlist is not None else DEFAULT_ENV_ALLOWLIST)
     if extra_allowlist:
         allowed |= {name for name in extra_allowlist}
-    grants = {name for name in (secret_grants or ()) if name}
+    grants = set(
+        validate_credential_grant_names(
+            (name for name in (secret_grants or ()) if name),
+            path="secret_grants",
+        )
+    )
 
     kept: dict[str, str] = {}
     stripped: list[str] = []

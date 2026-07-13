@@ -237,7 +237,16 @@ _CLI_INSPECTOR = textwrap.dedent(
                     left[2] + right[2],
                 )
             if isinstance(value, ast.Call):
+                if (
+                    isinstance(value.func, ast.Name)
+                    and value.func.id == "redact_structure"
+                    and value.args
+                ):
+                    # Recursive redaction preserves the public mapping shape.
+                    return expression_contract(value.args[0])
                 if isinstance(value.func, ast.Name) and value.func.id == "dict":
+                    if len(value.args) == 1 and not value.keywords:
+                        return expression_contract(value.args[0])
                     keys = {kw.arg for kw in value.keywords if kw.arg}
                     complete = not value.args and all(kw.arg for kw in value.keywords)
                     reasons = [] if complete else ["dict() includes an unknown mapping"]
@@ -676,6 +685,12 @@ _CLI_INSPECTOR = textwrap.dedent(
             if isinstance(value, ast.Call):
                 # Serialization/execution wrappers preserve the wrapped payload.
                 if (
+                    isinstance(value.func, ast.Name)
+                    and value.func.id == "redact_structure"
+                    and value.args
+                ):
+                    return resolve_output(value.args[0], json_required=json_required)
+                if (
                     isinstance(value.func, ast.Attribute)
                     and value.func.attr == "dumps"
                     and value.args
@@ -692,6 +707,8 @@ _CLI_INSPECTOR = textwrap.dedent(
                     )
                 if isinstance(value.func, ast.Name) and value.func.id in {"dict", "asdict"}:
                     if value.func.id == "dict":
+                        if len(value.args) == 1 and not value.keywords:
+                            return resolve_output(value.args[0], json_required=True)
                         keys = {kw.arg for kw in value.keywords if kw.arg}
                         complete = not value.args and all(kw.arg for kw in value.keywords)
                         reasons = [] if complete else ["dict() output includes unknown mapping"]
@@ -1381,6 +1398,52 @@ def _snapshot_cli_help(repo_root: Path) -> list[SurfaceEntry]:
     ]
 
 
+def _redact_surface_entries(
+    entries: Sequence[SurfaceEntry],
+    *,
+    exact_values: frozenset[str],
+) -> tuple[list[SurfaceEntry], list[str]]:
+    """Redact persisted entry content and fail closed on identity collapse.
+
+    Entry names are part of the snapshot payload, just like signatures and
+    metadata.  Two distinct names can become the same public identity after
+    redaction (for example, routes containing different provider tokens).  In
+    that case retaining either contract would make the result order-dependent,
+    so omit the entire collided identity and degrade the capture.
+    """
+    cleaned: list[tuple[str, SurfaceEntry]] = []
+    original_names: dict[tuple[str, str], set[str]] = {}
+    for entry in entries:
+        name = redact_text(entry.name, exact_values=exact_values).text
+        meta = redact_structure(entry.meta, exact_values=exact_values)
+        signature = redact_text(entry.signature, exact_values=exact_values).text
+        redacted_entry = SurfaceEntry(
+            kind=entry.kind,
+            name=name,
+            signature=signature,
+            meta=dict(meta),
+        )
+        identity = (redacted_entry.kind, redacted_entry.name)
+        original_names.setdefault(identity, set()).add(entry.name)
+        cleaned.append((entry.name, redacted_entry))
+
+    collisions = {
+        identity
+        for identity, names in original_names.items()
+        if len(names) > 1
+    }
+    safe_entries = [
+        entry
+        for _original_name, entry in cleaned
+        if (entry.kind, entry.name) not in collisions
+    ]
+    issues = [
+        f"public surface identity collision after redaction: {kind}:{name}"
+        for kind, name in sorted(collisions)
+    ]
+    return safe_entries, issues
+
+
 def capture_snapshot(repo_root: Path) -> ApiSnapshot:
     root = Path(repo_root).resolve()
     entries: list[SurfaceEntry] = []
@@ -1438,15 +1501,13 @@ def capture_snapshot(repo_root: Path) -> ApiSnapshot:
                 else "no structured public surface sources found"
             ),
         )
-    # Redact any accidental secret-shaped values in signatures/meta.
+    # Redact any accidental secret-shaped values in names/signatures/meta.
     exact_values = _secret_env_values()
-    cleaned: list[SurfaceEntry] = []
-    for entry in entries:
-        meta = redact_structure(entry.meta, exact_values=exact_values)
-        sig = redact_text(entry.signature, exact_values=exact_values).text
-        cleaned.append(
-            SurfaceEntry(kind=entry.kind, name=entry.name, signature=sig, meta=dict(meta))
-        )
+    cleaned, collision_issues = _redact_surface_entries(
+        entries,
+        exact_values=exact_values,
+    )
+    safe_issues.extend(_redact_message(issue) for issue in collision_issues)
     return ApiSnapshot(
         status="degraded" if safe_issues else "captured",
         captured_at=_utc_now(),

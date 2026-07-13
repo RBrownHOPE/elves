@@ -7,6 +7,7 @@ import argparse
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,7 +41,9 @@ HUMAN_FACING_EXACT_PATHS = {
     "README.md",
     "CHANGELOG.md",
     "TODO.md",
+    "api-break-approvals.json",
     "config.json.example",
+    "docs/cobbler.md",
     "docs/elves/learnings.md",
     "docs/elves-report-proof-of-concept.html",
 }
@@ -258,10 +261,19 @@ def build_release_checklist(
             import py_compile
 
             try:
-                for helper in runtime_helpers:
-                    py_compile.compile(str(helper), doraise=True)
-                for path in py_modules:
-                    py_compile.compile(str(path), doraise=True)
+                compile_inputs = [*runtime_helpers, *py_modules]
+                # Keep this maintainer check read-only with respect to the
+                # checkout.  py_compile's default cfile lives in a source-tree
+                # __pycache__, so send every artifact to disposable storage.
+                with tempfile.TemporaryDirectory(
+                    prefix="elves-release-compile-"
+                ) as compile_dir:
+                    for index, path in enumerate(compile_inputs):
+                        py_compile.compile(
+                            str(path),
+                            cfile=str(Path(compile_dir) / f"{index}.pyc"),
+                            doraise=True,
+                        )
                 result.notes.append(
                     "Alias inventory (7) + required runtime helpers "
                     "(openrouter_lens.py, workspace_guard.py) + recursive compile smoke: OK"

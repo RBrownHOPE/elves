@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
 import stat
 import subprocess
 import sys
@@ -77,6 +78,24 @@ def _run_cli(repo_root: Path, *args: str, check: bool = False) -> subprocess.Com
         text=True,
         cwd=str(REPO_ROOT),
     )
+
+
+def _pid_is_executable(pid: int) -> bool:
+    """Treat Linux zombies as inert while waiting for recursive cleanup."""
+    try:
+        raw = Path(f"/proc/{int(pid)}/stat").read_text(encoding="utf-8")
+    except OSError:
+        raw = ""
+    if raw:
+        close_paren = raw.rfind(")")
+        fields = raw[close_paren + 2 :].split() if close_paren >= 0 else []
+        if fields and fields[0] in {"Z", "X", "x"}:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
 
 
 class BuildLaunchArgvTests(unittest.TestCase):
@@ -1042,6 +1061,233 @@ class CliIntegrationTests(unittest.TestCase):
 
 
 class LaunchExecOptionalTests(unittest.TestCase):
+    def test_linux_same_uid_unreadable_environment_fails_closed(self) -> None:
+        stat_fields = ["S", "1", "4242", *("0" for _ in range(16)), "99"]
+        raw_stat = f"4242 (fixture) {' '.join(stat_fields)}"
+        with mock.patch.object(
+            implement_module.Path,
+            "read_text",
+            return_value=raw_stat,
+        ), mock.patch.object(
+            implement_module.Path,
+            "read_bytes",
+            side_effect=PermissionError("fixture non-dumpable"),
+        ), mock.patch.object(
+            implement_module.Path,
+            "stat",
+            return_value=mock.Mock(st_uid=os.geteuid()),
+        ):
+            with self.assertRaisesRegex(ValidationIssue, "same-UID Linux"):
+                implement_module._linux_process_record(4242, marker="fixture")
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin audit-token API required")
+    def test_darwin_generation_signal_preflight_is_real(self) -> None:
+        identity = implement_module._darwin_process_record(os.getpid())
+        self.assertIsNotNone(identity)
+        assert identity is not None
+        self.assertTrue(
+            implement_module._darwin_signal_audit_token(
+                identity.darwin_audit_token,
+                signal.SIGCONT,
+            )
+        )
+
+    def test_darwin_process_scan_never_requests_environment(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+        with mock.patch.object(
+            implement_module.sys,
+            "platform",
+            "darwin",
+        ), mock.patch.object(
+            implement_module.subprocess,
+            "run",
+            return_value=completed,
+        ) as run:
+            records = implement_module._scan_implement_processes("fixture")
+
+        self.assertEqual(records, {})
+        argv = run.call_args.args[0]
+        self.assertEqual(
+            argv,
+            ["/bin/ps", "-axo", "pid=,ppid=,pgid=,command="],
+        )
+        self.assertNotIn("e", argv)
+        self.assertNotIn("-E", argv)
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin boundary required")
+    def test_darwin_bounded_executor_fails_before_popen(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            implement_module.subprocess,
+            "Popen",
+        ) as popen:
+            with self.assertRaises(ValidationIssue) as caught:
+                implement_module._execute_bounded_process(
+                    [sys.executable, "-c", "raise SystemExit(99)"],
+                    cwd=Path(tmp),
+                    env={"PATH": "/usr/bin:/bin"},
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            "implement_recursive_containment_unavailable",
+        )
+        popen.assert_not_called()
+
+    def test_bounded_executor_preflights_cleanup_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            implement_module,
+            "_require_implement_supervision_capability",
+            side_effect=ValidationIssue(
+                "implement_pidfd_unavailable",
+                "pidfd denied by fixture",
+            ),
+        ), mock.patch.object(implement_module.subprocess, "Popen") as popen:
+            with self.assertRaisesRegex(ValidationIssue, "pidfd denied"):
+                implement_module._execute_bounded_process(
+                    [sys.executable, "-c", "raise SystemExit(99)"],
+                    cwd=Path(tmp),
+                    env={"PATH": os.environ.get("PATH", "")},
+                )
+
+        popen.assert_not_called()
+
+    def test_linux_clean_env_escape_fails_before_popen(self) -> None:
+        escape_script = (
+            "import os; "
+            "pid = os.fork(); "
+            "pid and os._exit(0); "
+            "os.setsid(); "
+            "pid = os.fork(); "
+            "pid and os._exit(0); "
+            "os.execve('/bin/sleep', ['sleep', '30'], {})"
+        )
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            implement_module.sys,
+            "platform",
+            "linux",
+        ), mock.patch.object(implement_module.subprocess, "Popen") as popen:
+            with self.assertRaises(ValidationIssue) as caught:
+                implement_module._execute_bounded_process(
+                    [sys.executable, "-c", escape_script],
+                    cwd=Path(tmp),
+                    env={"PATH": os.environ.get("PATH", "")},
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            "implement_recursive_containment_unavailable",
+        )
+        popen.assert_not_called()
+
+    def test_selector_setup_failure_happens_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            implement_module,
+            "_require_implement_supervision_capability",
+            return_value=None,
+        ), mock.patch.object(
+            implement_module.selectors,
+            "DefaultSelector",
+            side_effect=OSError("fixture selector exhaustion"),
+        ), mock.patch.object(implement_module.subprocess, "Popen") as popen:
+            with self.assertRaisesRegex(OSError, "selector exhaustion"):
+                implement_module._execute_bounded_process(
+                    [sys.executable, "-c", "raise SystemExit(99)"],
+                    cwd=Path(tmp),
+                    env={"PATH": os.environ.get("PATH", "")},
+                )
+
+        popen.assert_not_called()
+
+    def test_post_launch_attach_failure_reaps_worker_and_closes_pipes(self) -> None:
+        real_popen = subprocess.Popen
+        processes: list[subprocess.Popen[bytes]] = []
+
+        def capture_launch(*args, **kwargs):
+            proc = real_popen(*args, **kwargs)
+            argv = args[0] if args else kwargs.get("args", ())
+            if argv and argv[0] == sys.executable:
+                processes.append(proc)
+            return proc
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            implement_module,
+            "_require_implement_supervision_capability",
+            return_value=None,
+        ), mock.patch.object(
+            implement_module.subprocess,
+            "Popen",
+            side_effect=capture_launch,
+        ), mock.patch.object(
+            implement_module._ImplementDescendantSupervisor,
+            "attach",
+            side_effect=RuntimeError("fixture attach failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "attach failure"):
+                implement_module._execute_bounded_process(
+                    [sys.executable, "-c", "import time; time.sleep(30)"],
+                    cwd=Path(tmp),
+                    env={"PATH": os.environ.get("PATH", "")},
+                    term_grace_seconds=0.05,
+                    kill_grace_seconds=0.5,
+                )
+
+        self.assertEqual(len(processes), 1)
+        self.assertIsNotNone(processes[0].returncode)
+        assert processes[0].stdout is not None
+        assert processes[0].stderr is not None
+        self.assertTrue(processes[0].stdout.closed)
+        self.assertTrue(processes[0].stderr.closed)
+
+    def test_cleanup_failure_retries_and_best_effort_reaps_live_worker(self) -> None:
+        real_popen = subprocess.Popen
+        processes: list[subprocess.Popen[bytes]] = []
+
+        def capture_launch(*args, **kwargs):
+            proc = real_popen(*args, **kwargs)
+            argv = args[0] if args else kwargs.get("args", ())
+            if argv and argv[0] == sys.executable:
+                proc.poll = mock.Mock(
+                    side_effect=AssertionError("cleanup must not poll before killpg")
+                )
+                processes.append(proc)
+            return proc
+
+        cleanup_failure = ValidationIssue(
+            "fixture_cleanup_failed",
+            "fixture cleanup proof failed",
+        )
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            implement_module,
+            "_require_implement_supervision_capability",
+            return_value=None,
+        ), mock.patch.object(
+            implement_module.subprocess,
+            "Popen",
+            side_effect=capture_launch,
+        ), mock.patch.object(
+            implement_module,
+            "_terminate_and_reap_process_group",
+            side_effect=cleanup_failure,
+        ) as cleanup:
+            with self.assertRaises(ValidationIssue) as caught:
+                implement_module._execute_bounded_process(
+                    [sys.executable, "-c", "import time; time.sleep(30)"],
+                    cwd=Path(tmp),
+                    env={"PATH": os.environ.get("PATH", "")},
+                    timeout_seconds=0.05,
+                    kill_grace_seconds=0.5,
+                )
+
+        self.assertEqual(caught.exception.code, "implement_cleanup_failed")
+        self.assertEqual(cleanup.call_count, 2)
+        self.assertEqual(len(processes), 1)
+        self.assertIsNotNone(processes[0].returncode)
+
     def test_exec_invokes_subprocess(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1197,15 +1443,20 @@ class LaunchExecOptionalTests(unittest.TestCase):
                 f"[(os.write(1, chunk_out), os.write(2, chunk_err)) for _ in range({chunk_count})]"
             )
 
-            result = implement_module._execute_bounded_process(
-                [sys.executable, "-c", script],
-                cwd=root,
-                env={"PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8"},
-                timeout_seconds=10,
-                term_grace_seconds=0.1,
-                kill_grace_seconds=0.5,
-                capture_window_bytes=capture_bytes,
-            )
+            with mock.patch.object(
+                implement_module,
+                "_require_implement_supervision_capability",
+                return_value=None,
+            ):
+                result = implement_module._execute_bounded_process(
+                    [sys.executable, "-c", script],
+                    cwd=root,
+                    env={"PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8"},
+                    timeout_seconds=10,
+                    term_grace_seconds=0.1,
+                    kill_grace_seconds=0.5,
+                    capture_window_bytes=capture_bytes,
+                )
 
             expected_bytes = chunk_bytes * chunk_count
             self.assertFalse(result.timed_out)
@@ -1225,6 +1476,9 @@ class LaunchExecOptionalTests(unittest.TestCase):
                 hashlib.sha256(b"y" * expected_bytes).hexdigest()[:16],
             )
 
+    @unittest.skip(
+        "legacy bounded implementer fails closed without a qualified PID namespace"
+    )
     def test_bounded_executor_times_out_descendant_that_holds_pipes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1237,9 +1491,12 @@ class LaunchExecOptionalTests(unittest.TestCase):
                 "time.sleep(30)"
             )
             script = (
-                "import subprocess, sys; "
-                f"subprocess.Popen([sys.executable, '-c', {child_script!r}, sys.argv[1]]); "
-                "print('parent-exited', flush=True)"
+                "import subprocess, sys, time; "
+                "subprocess.Popen("
+                f"[sys.executable, '-c', {child_script!r}, sys.argv[1]], "
+                "start_new_session=True); "
+                "print('parent-running', flush=True); "
+                "time.sleep(30)"
             )
             descendant_pid: int | None = None
             started = time.monotonic()
@@ -1258,23 +1515,128 @@ class LaunchExecOptionalTests(unittest.TestCase):
 
                 self.assertTrue(result.timed_out)
                 self.assertEqual(result.exit_code, 124)
-                self.assertIn("parent-exited", result.stdout_window)
+                self.assertIn("parent-running", result.stdout_window)
                 self.assertIn("descendant-ready", result.stdout_window)
                 self.assertLess(elapsed, 3.0)
 
                 deadline = time.monotonic() + 2.0
                 while time.monotonic() < deadline:
-                    try:
-                        os.kill(descendant_pid, 0)
-                    except ProcessLookupError:
+                    if not _pid_is_executable(descendant_pid):
                         break
                     time.sleep(0.02)
                 else:
-                    self.fail("pipe-holding descendant survived timeout cleanup")
+                    self.fail("setsid pipe-holding descendant survived timeout cleanup")
             finally:
                 if descendant_pid is not None:
                     try:
                         os.kill(descendant_pid, 9)
+                    except ProcessLookupError:
+                        pass
+
+    @unittest.skip(
+        "legacy bounded implementer fails closed without a qualified PID namespace"
+    )
+    def test_bounded_executor_success_cleans_setsid_pipe_holder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pid_path = root / "success-descendant.pid"
+            child_script = (
+                "import os, pathlib, signal, sys, time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()), encoding='utf-8'); "
+                "print('success-descendant-ready', flush=True); "
+                "time.sleep(30)"
+            )
+            script = (
+                "import subprocess, sys; "
+                "subprocess.Popen("
+                f"[sys.executable, '-c', {child_script!r}, sys.argv[1]], "
+                "start_new_session=True); "
+                "print('leader-success', flush=True)"
+            )
+            descendant_pid: int | None = None
+            started = time.monotonic()
+            try:
+                result = implement_module._execute_bounded_process(
+                    [sys.executable, "-c", script, str(pid_path)],
+                    cwd=root,
+                    env={"PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8"},
+                    timeout_seconds=5.0,
+                    term_grace_seconds=0.1,
+                    kill_grace_seconds=0.5,
+                    capture_window_bytes=4096,
+                )
+                elapsed = time.monotonic() - started
+                self.assertTrue(pid_path.exists(), "pipe-holder fixture did not start")
+                descendant_pid = int(pid_path.read_text(encoding="utf-8"))
+                self.assertFalse(result.timed_out)
+                self.assertEqual(result.exit_code, 0)
+                self.assertIn("leader-success", result.stdout_window)
+                self.assertIn("success-descendant-ready", result.stdout_window)
+                self.assertLess(elapsed, 3.0)
+                self.assertFalse(_pid_is_executable(descendant_pid))
+            finally:
+                if descendant_pid is not None:
+                    try:
+                        os.kill(descendant_pid, 9)
+                    except ProcessLookupError:
+                        pass
+
+    @unittest.skip(
+        "legacy bounded implementer fails closed without a qualified PID namespace"
+    )
+    def test_bounded_executor_cleans_double_fork_after_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pid_path = root / "double-fork.pid"
+            script = r'''
+import os, pathlib, signal, sys, time
+pid_path = pathlib.Path(sys.argv[1])
+if os.fork() == 0:
+    os.setsid()
+    if os.fork():
+        os._exit(0)
+    devnull = os.open(os.devnull, os.O_RDWR)
+    os.dup2(devnull, 1)
+    os.dup2(devnull, 2)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    pid_path.write_text(str(os.getpid()), encoding='utf-8')
+    time.sleep(30)
+    os._exit(0)
+for _ in range(200):
+    if pid_path.exists():
+        break
+    time.sleep(0.01)
+print('leader-complete', flush=True)
+'''
+            daemon_pid: int | None = None
+            try:
+                result = implement_module._execute_bounded_process(
+                    [sys.executable, "-c", script, str(pid_path)],
+                    cwd=root,
+                    env={"PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8"},
+                    timeout_seconds=5.0,
+                    term_grace_seconds=0.1,
+                    kill_grace_seconds=0.5,
+                    capture_window_bytes=4096,
+                )
+                self.assertTrue(pid_path.exists(), "double-fork fixture did not start")
+                daemon_pid = int(pid_path.read_text(encoding="utf-8"))
+                self.assertFalse(result.timed_out)
+                self.assertEqual(result.exit_code, 0)
+                self.assertIn("leader-complete", result.stdout_window)
+
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    if not _pid_is_executable(daemon_pid):
+                        break
+                    time.sleep(0.02)
+                else:
+                    self.fail("double-fork descendant survived successful cleanup")
+            finally:
+                if daemon_pid is not None:
+                    try:
+                        os.kill(daemon_pid, 9)
                     except ProcessLookupError:
                         pass
 

@@ -213,6 +213,22 @@ class ReleaseChecklistTests(unittest.TestCase):
             result.notes,
         )
 
+    def test_release_checklist_compile_smoke_leaves_no_source_bytecode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = self.configure_temp_repo(tmpdir)
+            self.configure_full_runtime_tree(repo)
+
+            result = self.release_checklist.build_release_checklist(repo, base_ref=None)
+
+            self.assertTrue(result.ok, result.failures)
+            self.assertEqual(list(repo.rglob("__pycache__")), [])
+            self.assertEqual(list(repo.rglob("*.pyc")), [])
+
+    def test_release_sweep_classifies_release_contract_and_operator_docs(self) -> None:
+        for path in ("api-break-approvals.json", "docs/cobbler.md"):
+            with self.subTest(path=path):
+                self.assertTrue(self.release_checklist.is_human_facing_surface(path))
+
     def test_parse_name_status_uses_new_path_for_renames(self) -> None:
         changes = self.release_checklist.parse_name_status(
             "M\tREADME.md\n"

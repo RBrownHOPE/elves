@@ -1,9 +1,9 @@
 """Compatibility facade and orchestration for parallel read-only dispatch.
 
 Lanes launch concurrently. Inside each lane, primary then fallback attempts run
-sequentially after every material failure class. Focused ``dispatch_*`` modules
-own contracts, attempt policy, external processes, and result assembly. Host
-synthesis remains the only fitted-answer step.
+sequentially after recoverable failures; a failed required attempt is terminal.
+Focused ``dispatch_*`` modules own contracts, attempt policy, external processes,
+and result assembly. Host synthesis remains the only fitted-answer step.
 """
 
 from __future__ import annotations
@@ -382,12 +382,31 @@ async def _run_lane_with_fallbacks(
         write_json_artifact(contract_path, attempt_result.effective_contract)
         attempt_results.append(attempt_result)
         last_lane = lane
+        containment_terminal = bool(
+            lane.failure_class == "isolation_failure" and lane.process_launched
+        )
+        if containment_terminal:
+            # Once an external process launched, unproved containment is a
+            # run-level safety failure, not a recoverable provider miss. Never
+            # start another attempt (including host-native) in that state.
+            attempt_result.effective_contract["fallback_terminal"] = True
+            write_json_artifact(contract_path, attempt_result.effective_contract)
         if lane.ok:
             lane.attempts = attempt_results
             lane.launch_time = launch_time
             if index > 0:
                 lane.fallback_used = attempt.profile
             return lane
+        if (
+            attempt.required
+            or bool(attempt_result.effective_contract.get("fallback_terminal"))
+            or (spec.required and lane.failure_class == "isolation_failure")
+            or containment_terminal
+        ):
+            # A required attempt is a contract, not a preference. In
+            # particular, required-isolation failure must block rather than
+            # silently changing the execution route to host-native.
+            break
 
     assert last_lane is not None
     last_lane.attempts = attempt_results
@@ -558,6 +577,7 @@ async def run_council(
     successful_reports: list[dict[str, Any]] = []
     successful_execution_ids: list[str] = []
     required_failures: list[str] = []
+    containment_failures: list[str] = []
     model_calls = False
     for lane, spec in zip(results, lane_list):
         # Explicit per-lane/per-attempt call truth (host executor + subprocess).
@@ -575,6 +595,8 @@ async def run_council(
                 successful_reports.append(lane.report)
         elif spec.required:
             required_failures.append(spec.lane_id)
+        if lane.failure_class == "isolation_failure" and lane.process_launched:
+            containment_failures.append(spec.lane_id)
 
     ok, verified, blocked, confidence, notes = evaluate_quorum(
         successful_count=len(successful_execution_ids),
@@ -584,6 +606,15 @@ async def run_council(
         required_lane_failures=required_failures,
         lane_count=lane_count,
     )
+    if containment_failures:
+        ok = False
+        verified = False
+        blocked = True
+        confidence = "blocked"
+        notes.append(
+            "post-launch containment unproved: "
+            + ", ".join(sorted(containment_failures))
+        )
     notes.append("lanes_independent=true; host_synthesis_only=true")
     notes.append("host_native_requires_host_executor_callback=true")
     notes.append("quorum_counts_distinct_execution_ids=true")

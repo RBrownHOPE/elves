@@ -9,6 +9,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
+import shutil
+import stat
+import subprocess
+import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,15 +48,68 @@ def _file_digest(path: Path) -> str | None:
     return digest.hexdigest()
 
 
+def _source_tree_digest(root: Path) -> str:
+    """Digest tracked/fallback source surfaces without retaining their contents."""
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            cwd=str(root),
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        listed = None
+    if listed is not None and listed.returncode == 0:
+        relatives = [
+            Path(raw.decode("utf-8", errors="surrogateescape"))
+            for raw in listed.stdout.split(b"\0")
+            if raw
+        ]
+    else:
+        relatives = [
+            path.relative_to(root)
+            for path in root.rglob("*")
+            if not any(part in {".git", ".elves", "__pycache__"} for part in path.parts)
+        ]
+    digest = hashlib.sha256()
+    for relative in sorted(relatives, key=lambda value: value.as_posix()):
+        if any(part in {".git", ".elves", "__pycache__"} for part in relative.parts):
+            continue
+        path = root / relative
+        try:
+            info = path.lstat()
+        except OSError:
+            digest.update(f"missing:{relative.as_posix()}\0".encode("utf-8"))
+            continue
+        digest.update(relative.as_posix().encode("utf-8", errors="surrogateescape"))
+        digest.update(b"\0")
+        digest.update(str(stat.S_IMODE(info.st_mode)).encode("ascii"))
+        digest.update(b"\0")
+        if stat.S_ISLNK(info.st_mode):
+            try:
+                digest.update(os.readlink(path).encode("utf-8", errors="surrogateescape"))
+            except OSError:
+                digest.update(b"unreadable-symlink")
+        elif stat.S_ISREG(info.st_mode):
+            content_digest = _file_digest(path)
+            digest.update((content_digest or "unreadable").encode("ascii"))
+        else:
+            digest.update(f"non-regular:{info.st_mode}".encode("ascii"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def compute_preflight_key(
     repo_root: Path,
     *,
     head: str,
     config_paths: Sequence[str] | None = None,
     env_names: Sequence[str] | None = None,
+    tool_names: Sequence[str] | None = None,
 ) -> str:
     root = Path(repo_root).resolve()
     components: dict[str, str] = {"head": head}
+    components["source_tree"] = _source_tree_digest(root)
     for rel in config_paths or (
         "SKILL.md",
         "AGENTS.md",
@@ -67,6 +125,42 @@ def compute_preflight_key(
         components[f"env:{name}"] = hashlib.sha256(
             (env.get(name) or "").encode("utf-8")
         ).hexdigest()[:16]
+    components["runtime"] = hashlib.sha256(
+        json.dumps(
+            {
+                "python_executable": str(Path(sys.executable).resolve()),
+                "python_version": platform.python_version(),
+                "python_implementation": platform.python_implementation(),
+                "platform_system": platform.system(),
+                "platform_release": platform.release(),
+                "platform_machine": platform.machine(),
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    search_path = env.get("PATH") or os.defpath
+    for name in tool_names or ("python3", "git", "gh", "bash"):
+        found = shutil.which(name, path=search_path)
+        if found is None:
+            components[f"tool:{name}"] = "missing"
+            continue
+        resolved = Path(found).resolve()
+        try:
+            info = resolved.stat()
+        except OSError as exc:
+            components[f"tool:{name}"] = f"unreadable:{type(exc).__name__}"
+            continue
+        components[f"tool:{name}"] = hashlib.sha256(
+            json.dumps(
+                {
+                    "resolved": str(resolved),
+                    "mode": stat.S_IMODE(info.st_mode),
+                    "size": info.st_size,
+                    "content": _file_digest(resolved),
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
     material = json.dumps(components, sort_keys=True)
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 

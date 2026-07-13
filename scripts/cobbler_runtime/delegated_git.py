@@ -308,19 +308,36 @@ def reconcile_worker_report(
 
 
 def parse_plan_acceptance(plan_text: str) -> list[dict[str, str]]:
-    """Parse stable acceptance IDs from a plan (B#-A# and M-A#). Fail closed if none."""
+    """Parse stable acceptance IDs and wrapped criterion text from a plan."""
     if not plan_text or not plan_text.strip():
         raise ValidationIssue(
             "plan_unparseable",
             "Plan text is empty; cannot parse acceptance criteria",
         )
     pattern = re.compile(
-        r"^\s*-\s*\[\s*[ xX]?\s*\]\s*((?:B\d+-A\d+|M-A\d+))\s*[—–:-]\s*(.+?)\s*$",
+        r"^[ ]{0,3}[-*]\s+\[[ xX]\]\s+"
+        r"((?:B\d+-A\d+|M-A\d+))\s*[—–:-]\s*(.+?)\s*$",
         re.MULTILINE,
     )
+    matches = list(pattern.finditer(plan_text))
     items: list[dict[str, str]] = []
-    for match in pattern.finditer(plan_text):
-        items.append({"id": match.group(1), "criterion": match.group(2).strip()})
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(plan_text)
+        continuation: list[str] = []
+        for raw_line in plan_text[match.end() : end].splitlines():
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith(("#", "**")) or re.match(
+                r"^[-*]\s+\[[ xX]\]", stripped
+            ):
+                break
+            if raw_line[:1].isspace():
+                continuation.append(stripped)
+                continue
+            break
+        criterion = " ".join([match.group(2).strip(), *continuation]).strip()
+        items.append({"id": match.group(1), "criterion": criterion})
     if not items:
         raise ValidationIssue(
             "plan_unparseable",

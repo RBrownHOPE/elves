@@ -10,17 +10,23 @@ A worker report is evidence only — never merge authority.
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import errno
 import hashlib
 import hmac
 import json
+import math
+import mmap
 import os
 import re
 import secrets
+import shutil
 import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from contextlib import contextmanager
@@ -31,7 +37,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
-from .context import redact_text
+from .context import redact_text, validate_credential_grant_names
 from .implement import (
     DEFAULT_EFFORT,
     DEFAULT_EXECUTABLE,
@@ -75,12 +81,15 @@ TERMINAL_EVENT_TYPES = frozenset({"run_complete", "blocked"})
 DEFAULT_STALE_SECONDS = 300
 EXIT_RECORD_SETTLE_SECONDS = 0.25
 _SHA1_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 _REPORT_STATUSES = frozenset({"running", "complete", "blocked", "failed", "stopped"})
 _ACCEPTANCE_DEFINITION_RE = re.compile(
     r"(?m)^\s*[-*]\s+(?:\[[ xX]\]\s+)?"
-    r"(?P<id>B\d+-A\d+|M-A\d+)\s*(?:—|--?|:)\s*\S.*$"
+    r"(?P<id>B\d+-A\d+|M-A\d+)\s*(?:—|--?|:)\s*"
+    r"(?P<criterion>\S(?:.*\S)?)\s*$"
 )
 _ACCEPTANCE_ID_RE = re.compile(r"^(?:B\d+-A\d+|M-A\d+)$")
+_ENV_GRANT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _FULL_RUN_SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)(?<![A-Za-z0-9])"
     r"(?:api[_-]?key|[A-Za-z0-9_-]*token|jwt|bearer|authorization|auth|"
@@ -97,11 +106,46 @@ MAX_EVENT_FILE_BYTES = 1024 * 1024
 MAX_EVENT_LINES = 2000
 MAX_EVENT_LINE_BYTES = 64 * 1024
 MAX_REPORT_BYTES = 512 * 1024
+MAX_JSON_DEPTH = 32
+MAX_JSON_NODES = 20_000
+MAX_JSON_KEYS = 5_000
+MAX_JSON_STRING_CHARS = 64 * 1024
+MAX_JSON_KEY_CHARS = 512
+MAX_JSON_TOTAL_STRING_CHARS = MAX_REPORT_BYTES
+MAX_JSON_INTEGER_BITS = 256
+MAX_JSON_NUMBER_CHARS = 128
 MAX_TRANSCRIPT_TAIL_BYTES = 256 * 1024
 MAX_TRANSCRIPT_LINE_CHARS = 1000
+MAX_GROK_AUTH_BYTES = 64 * 1024
 MAX_EVENT_FUTURE_SKEW_SECONDS = 300
 MAX_STOP_REQUEST_BYTES = 4096
 STOP_REQUEST_NAME = "stop_request.json"
+GROK_HOME_REL = Path("worker-grok-home")
+GROK_AUTH_FILE_NAME = "auth.json"
+GROK_AUTH_PATH_MIN_VERSION = (0, 2, 93)
+MAX_GROK_EXECUTABLE_PROBE_BYTES = 512 * 1024 * 1024
+_GROK_VERSION_RE = re.compile(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)")
+_DARWIN_ACL_TYPE_EXTENDED = 0x00000100
+_DARWIN_ACL_FIRST_ENTRY = 0
+_DARWIN_ACL_NEXT_ENTRY = -1
+_DARWIN_ACL_EXTENDED_ALLOW = 1
+_DARWIN_ACL_EXTENDED_DENY = 2
+_DARWIN_ACL_API: tuple[Any, Any, Any, Any] | None = None
+_MACH_O_MAGICS = frozenset(
+    {
+        bytes.fromhex(value)
+        for value in (
+            "feedface",
+            "cefaedfe",
+            "feedfacf",
+            "cffaedfe",
+            "cafebabe",
+            "bebafeca",
+            "cafebabf",
+            "bfbafeca",
+        )
+    }
+)
 
 # Named non-secret essentials preserved for a usable Grok process. Home, temp,
 # XDG, and proxy controls are deliberately absent: they either cross the
@@ -124,27 +168,9 @@ NON_SECRET_ESSENTIALS: frozenset[str] = frozenset(
     }
 )
 
-ISOLATED_ENV_CONTROLS: frozenset[str] = frozenset(
-    {
-        "HOME",
-        "TMPDIR",
-        "TMP",
-        "TEMP",
-        "XDG_RUNTIME_DIR",
-        "XDG_CONFIG_HOME",
-        "XDG_CACHE_HOME",
-        "XDG_DATA_HOME",
-    }
-)
-
-# Credential grants by name only (values from parent env / private config — never argv KEY=VALUE).
-DEFAULT_CREDENTIAL_GRANT_NAMES: frozenset[str] = frozenset(
-    {
-        "XAI_API_KEY",
-        "GROK_API_KEY",
-        "OPENAI_API_KEY",  # some Grok builds share OpenAI-compatible paths
-    }
-)
+# Credential grants are explicit by name (values never appear as argv KEY=VALUE).
+# In particular, do not leak unrelated OPENAI/GROK variables into a Grok run.
+DEFAULT_CREDENTIAL_GRANT_NAMES: frozenset[str] = frozenset()
 
 STATUS_KEYS = frozenset(
     {
@@ -178,6 +204,66 @@ STATUS_KEYS = frozenset(
 )
 
 
+def _normalize_credential_grant_names(
+    names: Sequence[str] | None,
+) -> list[str]:
+    """Return deterministic environment-name grants without ever echoing bad input."""
+    if names is None:
+        return sorted(DEFAULT_CREDENTIAL_GRANT_NAMES)
+    if isinstance(names, (str, bytes)) or not isinstance(names, Sequence):
+        raise ValidationIssue(
+            "full_run_credential_grant_name_invalid",
+            "Credential grants must be supplied as a sequence of environment names",
+            hint="Use ['XAI_API_KEY'] in Python or --grant-env XAI_API_KEY in the CLI",
+        )
+    normalized: set[str] = set()
+    for name in names:
+        if not isinstance(name, str) or not _ENV_GRANT_NAME_RE.fullmatch(name):
+            raise ValidationIssue(
+                "full_run_credential_grant_name_invalid",
+                "Credential grants must be environment variable names only",
+                hint="Use --grant-env XAI_API_KEY, never KEY=VALUE",
+            )
+        normalized.add(name)
+    ordered = sorted(normalized)
+    validate_credential_grant_names(
+        ordered,
+        code="full_run_isolation_control_grant_forbidden",
+        path="credential_grant_names",
+    )
+    return ordered
+
+
+def _normalize_persisted_credential_grant_names(
+    value: Any,
+) -> tuple[bool, list[str]]:
+    """Parse one persisted grant-name field without trusting JSON field types.
+
+    Persisted launch evidence is canonical only as a sorted, duplicate-free JSON
+    array.  Corrupt scalar/string values must make evidence unavailable, never
+    escape as a raw iteration ``TypeError`` from a public monitor or log call.
+    """
+    if not isinstance(value, list):
+        return False, []
+    try:
+        normalized = _normalize_credential_grant_names(value)
+    except ValidationIssue:
+        return False, []
+    return value == normalized, normalized
+
+
+class _PreTransferHandoffError(ValidationIssue):
+    """The staged supervisor was killed before provider start became possible."""
+
+    def __init__(self, cause: BaseException) -> None:
+        super().__init__(
+            "full_run_supervision_secret_handoff_not_transferred",
+            "Supervisor start capability was not transferred",
+            hint="The staged child was killed and reaped before provider spawn",
+        )
+        self.cause_type = type(cause).__name__
+
+
 def _redact_full_run_text(
     value: str,
     *,
@@ -190,6 +276,30 @@ def _redact_full_run_text(
     )
 
 
+def _collision_safe_mapping_keys(desired_keys: Sequence[str]) -> list[str]:
+    """Allocate deterministic redacted keys without shadowing real key names.
+
+    The full set of primary names is reserved before suffixes are allocated.
+    Otherwise a generated ``#N`` name can overwrite a later, pre-existing key
+    with that exact suffix and silently discard evidence.
+    """
+    reserved = set(desired_keys)
+    used: set[str] = set()
+    allocated: list[str] = []
+    for desired in desired_keys:
+        candidate = desired
+        if candidate in used:
+            suffix = 1
+            while True:
+                candidate = f"{desired}#{suffix}"
+                if candidate not in used and candidate not in reserved:
+                    break
+                suffix += 1
+        used.add(candidate)
+        allocated.append(candidate)
+    return allocated
+
+
 def _redact_full_run_structure(
     value: Any,
     *,
@@ -199,8 +309,9 @@ def _redact_full_run_structure(
     if isinstance(value, str):
         return _redact_full_run_text(value, exact_values=exact_values)
     if isinstance(value, Mapping):
-        redacted_mapping: dict[str, Any] = {}
-        for index, (key, item) in enumerate(value.items()):
+        rows: list[tuple[str, Any, bool]] = []
+        desired_keys: list[str] = []
+        for key, item in value.items():
             raw_key = str(key)
             redacted_key = _redact_full_run_text(
                 raw_key,
@@ -209,9 +320,13 @@ def _redact_full_run_structure(
             secret_field = bool(_FULL_RUN_SECRET_KEY_RE.search(raw_key))
             if secret_field:
                 redacted_key = "[REDACTED:secret_field_name]"
-            if redacted_key in redacted_mapping:
-                # Never let multiple secret-shaped keys collapse and hide data.
-                redacted_key = f"{redacted_key}#{index}"
+            rows.append((redacted_key, item, secret_field))
+            desired_keys.append(redacted_key)
+        redacted_mapping: dict[str, Any] = {}
+        allocated_keys = _collision_safe_mapping_keys(desired_keys)
+        for redacted_key, (_desired, item, secret_field) in zip(
+            allocated_keys, rows
+        ):
             redacted_mapping[redacted_key] = (
                 "[REDACTED:secret_field]"
                 if secret_field
@@ -246,8 +361,14 @@ def _contains_full_run_secret(
     value: Any,
     *,
     exact_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+    credential_grant_state: "FullRunState | None" = None,
 ) -> bool:
-    return _redact_full_run_structure(value, exact_values=exact_values) != value
+    if _redact_full_run_structure(value, exact_values=exact_values) != value:
+        return True
+    return bool(
+        credential_grant_state
+        and _contains_persisted_credential_grant(value, credential_grant_state)
+    )
 
 
 def _read_bounded_regular_bytes(
@@ -314,6 +435,133 @@ def _read_bounded_regular_bytes(
         os.close(fd)
 
 
+def _bounded_json_int(raw: str) -> int:
+    digits = raw[1:] if raw.startswith("-") else raw
+    if len(digits) > MAX_JSON_NUMBER_CHARS:
+        raise ValueError("JSON integer token exceeds the numeric budget")
+    value = int(raw)
+    if value.bit_length() > MAX_JSON_INTEGER_BITS:
+        raise ValueError("JSON integer exceeds the numeric budget")
+    return value
+
+
+def _bounded_json_float(raw: str) -> float:
+    if len(raw) > MAX_JSON_NUMBER_CHARS:
+        raise ValueError("JSON number token exceeds the numeric budget")
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError("JSON number must be finite")
+    return value
+
+
+def _reject_json_constant(_raw: str) -> Any:
+    raise ValueError("non-standard JSON constants are forbidden")
+
+
+def _bounded_json_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    if len(pairs) > MAX_JSON_KEYS:
+        raise ValueError("JSON object exceeds the key budget")
+    value: dict[str, Any] = {}
+    for key, child in pairs:
+        if len(key) > MAX_JSON_KEY_CHARS:
+            raise ValueError("JSON key exceeds the character budget")
+        if key in value:
+            raise ValueError("duplicate JSON object keys are forbidden")
+        value[key] = child
+    return value
+
+
+def _loads_bounded_json(text: str, *, label: str) -> Any:
+    """Parse standard JSON while bounding numeric work before conversion."""
+    del label  # Kept in the signature so callers cannot forget the evidence surface.
+    return json.loads(
+        text,
+        parse_int=_bounded_json_int,
+        parse_float=_bounded_json_float,
+        parse_constant=_reject_json_constant,
+        object_pairs_hook=_bounded_json_object_pairs,
+    )
+
+
+def _assert_bounded_json_structure(value: Any, *, label: str) -> None:
+    """Iteratively bound JSON structure before recursive scans/redaction.
+
+    Byte ceilings alone do not bound parser recursion, node fan-out, or the
+    substring work performed by exact-secret detection. This validator runs
+    before any recursive evidence handling and deliberately avoids recursion.
+    """
+    stack: list[tuple[Any, int]] = [(value, 0)]
+    node_count = 0
+    key_count = 0
+    total_string_chars = 0
+    while stack:
+        item, depth = stack.pop()
+        node_count += 1
+        if node_count > MAX_JSON_NODES:
+            raise StorageError(
+                f"{label}_structure",
+                f"{label} exceeds the {MAX_JSON_NODES} node budget",
+            )
+        if depth > MAX_JSON_DEPTH:
+            raise StorageError(
+                f"{label}_structure",
+                f"{label} exceeds the {MAX_JSON_DEPTH} level depth budget",
+            )
+        if isinstance(item, str):
+            if len(item) > MAX_JSON_STRING_CHARS:
+                raise StorageError(
+                    f"{label}_structure",
+                    f"{label} contains a string exceeding the character budget",
+                )
+            total_string_chars += len(item)
+        elif isinstance(item, Mapping):
+            key_count += len(item)
+            if key_count > MAX_JSON_KEYS:
+                raise StorageError(
+                    f"{label}_structure",
+                    f"{label} exceeds the {MAX_JSON_KEYS} key budget",
+                )
+            for key, child in item.items():
+                if not isinstance(key, str):
+                    raise StorageError(
+                        f"{label}_structure",
+                        f"{label} contains a non-string object key",
+                    )
+                if len(key) > MAX_JSON_KEY_CHARS:
+                    raise StorageError(
+                        f"{label}_structure",
+                        f"{label} contains a key exceeding the character budget",
+                    )
+                total_string_chars += len(key)
+                stack.append((child, depth + 1))
+        elif isinstance(item, list):
+            stack.extend((child, depth + 1) for child in item)
+        elif isinstance(item, bool) or item is None:
+            pass
+        elif isinstance(item, int):
+            if item.bit_length() > MAX_JSON_INTEGER_BITS:
+                raise StorageError(
+                    f"{label}_structure",
+                    f"{label} contains an integer exceeding the numeric budget",
+                )
+        elif isinstance(item, float):
+            if not math.isfinite(item):
+                raise StorageError(
+                    f"{label}_structure",
+                    f"{label} contains a non-finite number",
+                )
+        else:
+            raise StorageError(
+                f"{label}_structure",
+                f"{label} contains a non-JSON value",
+            )
+        if total_string_chars > MAX_JSON_TOTAL_STRING_CHARS:
+            raise StorageError(
+                f"{label}_structure",
+                f"{label} exceeds the total string character budget",
+            )
+
+
 def _read_bounded_json_object(
     path: Path,
     *,
@@ -334,15 +582,17 @@ def _read_bounded_json_object(
             f"{label}_encoding", f"{label} must be valid UTF-8"
         ) from exc
     try:
-        value = json.loads(text)
-    except json.JSONDecodeError as exc:
+        value = _loads_bounded_json(text, label=label)
+    except (json.JSONDecodeError, ValueError, RecursionError) as exc:
         raise StorageError(
-            f"{label}_malformed", f"{label} must contain one valid JSON object"
+            f"{label}_malformed",
+            f"{label} must contain one bounded valid JSON object",
         ) from exc
     if not isinstance(value, dict):
         raise StorageError(
             f"{label}_malformed", f"{label} must contain one JSON object"
         )
+    _assert_bounded_json_structure(value, label=label)
     return value
 
 
@@ -449,10 +699,17 @@ def validate_event(
     expected_start_head: str | None = None,
     seen_terminal: bool = False,
     exact_secret_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+    credential_grant_state: "FullRunState | None" = None,
 ) -> list[str]:
     errors: list[str] = []
+    try:
+        _assert_bounded_json_structure(event, label="event")
+    except StorageError as exc:
+        return [exc.message]
     secret_detected = _contains_full_run_secret(
-        event, exact_values=exact_secret_values
+        event,
+        exact_values=exact_secret_values,
+        credential_grant_state=credential_grant_state,
     )
     if secret_detected:
         errors.append("event contains secret-shaped content")
@@ -512,10 +769,20 @@ def validate_run_report(
     require_complete_acceptance: bool = False,
     expected_run_id: str | None = None,
     expected_attempt: int | None = None,
+    expected_acceptance_criteria: Mapping[str, str] | None = None,
     exact_secret_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+    credential_grant_state: "FullRunState | None" = None,
 ) -> list[str]:
     errors: list[str] = []
-    if _contains_full_run_secret(report, exact_values=exact_secret_values):
+    try:
+        _assert_bounded_json_structure(report, label="run report")
+    except StorageError as exc:
+        return [exc.message]
+    if _contains_full_run_secret(
+        report,
+        exact_values=exact_secret_values,
+        credential_grant_state=credential_grant_state,
+    ):
         errors.append("report contains secret-shaped content")
     required = (
         "run_id",
@@ -659,6 +926,23 @@ def validate_run_report(
                 seen_ids.add(aid)
             if item.get("met") is True and not item.get("evidence"):
                 errors.append(f"acceptance[{i}] met without evidence")
+        if status == "complete" and expected_acceptance_criteria is not None:
+            observed_criteria = {
+                str(item.get("id")): item.get("criterion")
+                for item in acceptance
+                if isinstance(item, Mapping) and isinstance(item.get("id"), str)
+            }
+            if set(observed_criteria) != set(expected_acceptance_criteria):
+                errors.append(
+                    "report acceptance ids do not exactly match staged criteria"
+                )
+            for acceptance_id in sorted(
+                set(observed_criteria) & set(expected_acceptance_criteria)
+            ):
+                if observed_criteria[acceptance_id] != expected_acceptance_criteria[acceptance_id]:
+                    errors.append(
+                        f"report acceptance criterion text mismatch for {acceptance_id}"
+                    )
     return errors
 
 
@@ -690,7 +974,16 @@ class FullRunState:
     branch: str
     start_head: str
     worktree: str
+    # ``packet_path`` remains the immutable source location staged by the host.
+    # The provider consumes only ``staged_packet_path``, a private copy whose
+    # bytes and parsed acceptance contract are bound below at prepare time.
     packet_path: str
+    staged_packet_path: str | None = None
+    staged_packet_identity: dict[str, Any] | None = None
+    packet_sha256: str | None = None
+    packet_size: int | None = None
+    packet_contract_sha256: str | None = None
+    acceptance_criteria: dict[str, str] = field(default_factory=dict)
     adapter: str = "grok-build"
     model: str = DEFAULT_MODEL
     permission_mode: str = DEFAULT_PERMISSION_MODE
@@ -706,6 +999,16 @@ class FullRunState:
     )
     credential_granted_names: list[str] = field(default_factory=list)
     credential_grant_digests: dict[str, str] = field(default_factory=dict)
+    credential_grant_lengths: dict[str, int] = field(default_factory=dict)
+    credential_grant_metadata_mac: str | None = None
+    grok_auth_strategy: str | None = None
+    # Private state only. The leaf inode is deliberately excluded because Grok
+    # atomically replaces auth.json when rotating refresh tokens. Binding the
+    # canonical path and safe parent identity survives those legitimate writes.
+    grok_auth_path_identity: dict[str, Any] | None = None
+    # Exact resolved provider identity proven during auth/capability preflight
+    # and rechecked by the child supervisor immediately before process spawn.
+    grok_executable_identity: dict[str, Any] | None = None
     status: str = "pending"
     batch: int | None = None
     head: str | None = None
@@ -758,20 +1061,926 @@ class FullRunState:
         return state
 
 
-def _state_secret_values(state: FullRunState) -> frozenset[str]:
-    """Resolve current granted values in memory without serializing them."""
-    values = {
-        value
-        for name in state.credential_grant_names
-        if (value := os.environ.get(name))
+def _grok_auth_source(parent_env: Mapping[str, str] | None = None) -> Path:
+    parent = dict(parent_env if parent_env is not None else os.environ)
+    configured_auth = str(parent.get("GROK_AUTH_PATH") or "").strip()
+    configured_home = str(parent.get("GROK_HOME") or "").strip()
+    if configured_auth:
+        source = Path(configured_auth).expanduser()
+    elif configured_home:
+        source = Path(configured_home).expanduser() / GROK_AUTH_FILE_NAME
+    else:
+        host_home = str(parent.get("HOME") or "").strip()
+        if not host_home:
+            raise ValidationIssue(
+                "full_run_grok_auth_source_missing",
+                "Shared OAuth requires host HOME, GROK_HOME, or GROK_AUTH_PATH",
+            )
+        source = Path(host_home).expanduser() / ".grok" / GROK_AUTH_FILE_NAME
+    if not source.is_absolute() or source.name != GROK_AUTH_FILE_NAME:
+        raise ValidationIssue(
+            "full_run_grok_auth_source_invalid",
+            "Host Grok auth path must be an absolute auth.json path",
+        )
+    return source
+
+
+def _grok_auth_directory_identity(info: os.stat_result) -> dict[str, int]:
+    """Return only stable, non-path metadata for one canonical directory."""
+    return {
+        "dev": int(info.st_dev),
+        "ino": int(info.st_ino),
+        "uid": int(info.st_uid),
+        "mode": int(stat.S_IMODE(info.st_mode)),
     }
-    if state.supervision_token:
-        values.add(str(state.supervision_token))
-    return frozenset(values)
+
+
+def _darwin_acl_api() -> tuple[Any, Any, Any, Any]:
+    """Load the native descriptor-based macOS ACL API once."""
+    global _DARWIN_ACL_API
+    if _DARWIN_ACL_API is not None:
+        return _DARWIN_ACL_API
+    try:
+        library = ctypes.CDLL(
+            ctypes.util.find_library("System") or "/usr/lib/libSystem.B.dylib",
+            use_errno=True,
+        )
+        acl_get_fd_np = library.acl_get_fd_np
+        acl_get_fd_np.argtypes = [ctypes.c_int, ctypes.c_int]
+        acl_get_fd_np.restype = ctypes.c_void_p
+        acl_get_entry = library.acl_get_entry
+        acl_get_entry.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        acl_get_entry.restype = ctypes.c_int
+        acl_get_tag_type = library.acl_get_tag_type
+        acl_get_tag_type.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        acl_get_tag_type.restype = ctypes.c_int
+        acl_free = library.acl_free
+        acl_free.argtypes = [ctypes.c_void_p]
+        acl_free.restype = ctypes.c_int
+    except (AttributeError, OSError) as exc:
+        raise ValidationIssue(
+            "full_run_grok_auth_acl_inspection_failed",
+            "Cannot inspect host Grok auth extended ACLs",
+        ) from exc
+    _DARWIN_ACL_API = (
+        acl_get_fd_np,
+        acl_get_entry,
+        acl_get_tag_type,
+        acl_free,
+    )
+    return _DARWIN_ACL_API
+
+
+def _assert_no_darwin_extended_allow_acl(
+    descriptor: int,
+    *,
+    unsafe_code: str = "full_run_grok_auth_acl_unsafe",
+    inspection_code: str = "full_run_grok_auth_acl_inspection_failed",
+    subject: str = "Host Grok auth path",
+) -> None:
+    """Reject any macOS extended allow entry on an already-bound object."""
+    if sys.platform != "darwin":
+        return
+    try:
+        acl_get_fd_np, acl_get_entry, acl_get_tag_type, acl_free = _darwin_acl_api()
+    except ValidationIssue as exc:
+        raise ValidationIssue(
+            inspection_code,
+            f"Cannot inspect {subject} extended ACLs",
+        ) from exc
+    ctypes.set_errno(0)
+    acl = acl_get_fd_np(descriptor, _DARWIN_ACL_TYPE_EXTENDED)
+    if not acl:
+        # macOS reports ENOENT when an object has no extended ACL. Every other
+        # result is an inspection failure, including unsupported filesystems.
+        if ctypes.get_errno() == errno.ENOENT:
+            return
+        raise ValidationIssue(
+            inspection_code,
+            f"Cannot inspect {subject} extended ACLs",
+        )
+
+    issue: ValidationIssue | None = None
+    saw_entry = False
+    entry_id = _DARWIN_ACL_FIRST_ENTRY
+    try:
+        while True:
+            entry = ctypes.c_void_p()
+            ctypes.set_errno(0)
+            result = acl_get_entry(acl, entry_id, ctypes.byref(entry))
+            entry_errno = ctypes.get_errno()
+            if result == -1:
+                # acl_get_entry uses EINVAL as its documented end-of-list
+                # result after at least one successful entry retrieval.
+                if saw_entry and entry_errno == errno.EINVAL:
+                    break
+                issue = ValidationIssue(
+                    inspection_code,
+                    f"Cannot inspect {subject} extended ACLs",
+                )
+                break
+            if result != 0 or not entry.value:
+                issue = ValidationIssue(
+                    inspection_code,
+                    f"Cannot inspect {subject} extended ACLs",
+                )
+                break
+            tag = ctypes.c_int()
+            ctypes.set_errno(0)
+            if acl_get_tag_type(entry, ctypes.byref(tag)) != 0:
+                issue = ValidationIssue(
+                    inspection_code,
+                    f"Cannot inspect {subject} extended ACLs",
+                )
+                break
+            if tag.value == _DARWIN_ACL_EXTENDED_ALLOW:
+                issue = ValidationIssue(
+                    unsafe_code,
+                    f"{subject} must not grant access through an extended ACL",
+                )
+                break
+            if tag.value != _DARWIN_ACL_EXTENDED_DENY:
+                issue = ValidationIssue(
+                    inspection_code,
+                    f"Cannot inspect {subject} extended ACLs",
+                )
+                break
+            saw_entry = True
+            entry_id = _DARWIN_ACL_NEXT_ENTRY
+    finally:
+        ctypes.set_errno(0)
+        if acl_free(acl) != 0:
+            issue = ValidationIssue(
+                inspection_code,
+                f"Cannot inspect {subject} extended ACLs",
+            )
+    if issue is not None:
+        raise issue
+
+
+def _open_verified_owner_parent_chain_fds(
+    canonical_parent: Path,
+    *,
+    final_owner_uids: frozenset[int],
+    unsafe_code: str,
+    unsafe_message: str,
+    acl_unsafe_code: str,
+    acl_inspection_code: str,
+    acl_subject: str,
+) -> tuple[list[int], list[dict[str, int]]]:
+    """Bind a complete canonical owner-controlled directory chain."""
+    if not canonical_parent.is_absolute():
+        raise ValidationIssue(
+            unsafe_code,
+            unsafe_message,
+        )
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    anchor = Path(canonical_parent.anchor)
+    parts = canonical_parent.relative_to(anchor).parts
+    directory_fds: list[int] = []
+    identities: list[dict[str, int]] = []
+    try:
+        directory_fds.append(os.open(anchor, directory_flags))
+        for index, component in enumerate((None, *parts)):
+            if component is not None:
+                directory_fds.append(
+                    os.open(component, directory_flags, dir_fd=directory_fds[-1])
+                )
+            directory_fd = directory_fds[-1]
+            info = os.fstat(directory_fd)
+            _assert_no_darwin_extended_allow_acl(
+                directory_fd,
+                unsafe_code=acl_unsafe_code,
+                inspection_code=acl_inspection_code,
+                subject=acl_subject,
+            )
+            mode = stat.S_IMODE(info.st_mode)
+            is_final = index == len(parts)
+            safe_sticky_root = bool(
+                info.st_uid == 0
+                and mode & stat.S_ISVTX
+                and mode & (stat.S_IWGRP | stat.S_IWOTH)
+            )
+            if (
+                not stat.S_ISDIR(info.st_mode)
+                or info.st_uid not in {0, os.geteuid()}
+                or (
+                    mode & (stat.S_IWGRP | stat.S_IWOTH)
+                    and not safe_sticky_root
+                )
+                or (is_final and info.st_uid not in final_owner_uids)
+            ):
+                raise ValidationIssue(
+                    unsafe_code,
+                    unsafe_message,
+                )
+            identities.append(_grok_auth_directory_identity(info))
+        return directory_fds, identities
+    except BaseException:
+        for directory_fd in reversed(directory_fds):
+            os.close(directory_fd)
+        raise
+
+
+def _open_verified_grok_auth_parent_chain(
+    canonical_parent: Path,
+) -> tuple[int, list[dict[str, int]]]:
+    """Open every canonical auth ancestor with the full chain bound at once."""
+    directory_fds, identities = _open_verified_owner_parent_chain_fds(
+        canonical_parent,
+        final_owner_uids=frozenset({os.geteuid()}),
+        unsafe_code="full_run_grok_auth_parent_unsafe",
+        unsafe_message=(
+            "Host Grok auth path must traverse only bound "
+            "owner/root-controlled directories"
+        ),
+        acl_unsafe_code="full_run_grok_auth_acl_unsafe",
+        acl_inspection_code="full_run_grok_auth_acl_inspection_failed",
+        acl_subject="host Grok auth path",
+    )
+    final_fd = directory_fds.pop()
+    for directory_fd in reversed(directory_fds):
+        os.close(directory_fd)
+    return final_fd, identities
+
+
+def _grok_executable_identity(
+    candidate: Path,
+    info: os.stat_result,
+) -> dict[str, Any]:
+    """Return an exact executable binding suitable for child-side recheck."""
+    return {
+        "path": str(candidate),
+        "dev": int(info.st_dev),
+        "ino": int(info.st_ino),
+        "uid": int(info.st_uid),
+        "mode": int(stat.S_IMODE(info.st_mode)),
+        "nlink": int(info.st_nlink),
+        "size": int(info.st_size),
+        "mtime_ns": int(info.st_mtime_ns),
+        "ctime_ns": int(info.st_ctime_ns),
+        "security_profile": "exact_path",
+    }
+
+
+def _resolve_grok_executable(executable: str) -> tuple[Path, dict[str, Any]]:
+    """Resolve one provider path and bind the exact non-symlink executable."""
+    located = shutil.which(executable)
+    if not located:
+        raise ValidationIssue(
+            "full_run_grok_executable_unavailable",
+            "Configured Grok executable is unavailable",
+        )
+    try:
+        candidate = Path(located).resolve(strict=True)
+        info = os.stat(candidate, follow_symlinks=False)
+    except OSError as exc:
+        raise ValidationIssue(
+            "full_run_grok_executable_unavailable",
+            "Configured Grok executable is unavailable",
+        ) from exc
+    if (
+        not candidate.is_absolute()
+        or not stat.S_ISREG(info.st_mode)
+        or not (stat.S_IMODE(info.st_mode) & 0o111)
+        or info.st_size <= 0
+    ):
+        raise ValidationIssue(
+            "full_run_grok_executable_unsafe",
+            "Configured Grok executable is not one executable regular file",
+        )
+    return candidate, _grok_executable_identity(candidate, info)
+
+
+def _native_executable_format(descriptor: int) -> str | None:
+    """Identify only host-native executable formats from an already-open FD."""
+    try:
+        header = os.pread(descriptor, 4, 0)
+    except AttributeError:
+        offset = os.lseek(descriptor, 0, os.SEEK_CUR)
+        try:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            header = os.read(descriptor, 4)
+        finally:
+            os.lseek(descriptor, offset, os.SEEK_SET)
+    if sys.platform == "darwin" and header in _MACH_O_MAGICS:
+        return "mach-o"
+    if sys.platform.startswith("linux") and header == b"\x7fELF":
+        return "elf"
+    return None
+
+
+def _shared_oauth_grok_executable_identity(
+    candidate: Path,
+    info: os.stat_result,
+    *,
+    native_format: str,
+    parent_chain: Sequence[Mapping[str, int]],
+) -> dict[str, Any]:
+    identity = _grok_executable_identity(candidate, info)
+    identity["security_profile"] = "shared_oauth_native"
+    identity["native_format"] = native_format
+    identity["parent_chain"] = [dict(item) for item in parent_chain]
+    return identity
+
+
+def _resolve_shared_oauth_grok_executable(
+    executable: str,
+) -> tuple[Path, dict[str, Any]]:
+    """Bind a safe native Grok executable and its complete canonical chain."""
+    located = shutil.which(executable)
+    if not located:
+        raise ValidationIssue(
+            "full_run_grok_executable_unavailable",
+            "Configured Grok executable is unavailable",
+        )
+    try:
+        candidate = Path(located).resolve(strict=True)
+    except OSError as exc:
+        raise ValidationIssue(
+            "full_run_grok_executable_unavailable",
+            "Configured Grok executable is unavailable",
+        ) from exc
+    if not candidate.is_absolute():
+        raise ValidationIssue(
+            "full_run_grok_executable_unsafe",
+            "Shared OAuth requires an absolute native Grok executable",
+        )
+
+    directory_fds: list[int] = []
+    executable_fd = -1
+    try:
+        directory_fds, parent_chain = _open_verified_owner_parent_chain_fds(
+            candidate.parent,
+            final_owner_uids=frozenset({0, os.geteuid()}),
+            unsafe_code="full_run_grok_executable_parent_unsafe",
+            unsafe_message=(
+                "Shared OAuth Grok must traverse only bound "
+                "owner/root-controlled executable directories"
+            ),
+            acl_unsafe_code="full_run_grok_executable_acl_unsafe",
+            acl_inspection_code="full_run_grok_executable_acl_inspection_failed",
+            acl_subject="shared OAuth Grok executable path",
+        )
+        executable_fd = os.open(
+            candidate.name,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=directory_fds[-1],
+        )
+        before = os.fstat(executable_fd)
+        mode = stat.S_IMODE(before.st_mode)
+        _assert_no_darwin_extended_allow_acl(
+            executable_fd,
+            unsafe_code="full_run_grok_executable_acl_unsafe",
+            inspection_code="full_run_grok_executable_acl_inspection_failed",
+            subject="shared OAuth Grok executable",
+        )
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid not in {0, os.geteuid()}
+            or before.st_nlink != 1
+            or mode & (stat.S_IWGRP | stat.S_IWOTH)
+            or not (mode & 0o111)
+            or before.st_size <= 0
+            or before.st_size > MAX_GROK_EXECUTABLE_PROBE_BYTES
+        ):
+            raise ValidationIssue(
+                "full_run_grok_executable_unsafe",
+                "Shared OAuth requires one owner-controlled native Grok executable",
+            )
+        native_format = _native_executable_format(executable_fd)
+        if native_format is None:
+            raise ValidationIssue(
+                "full_run_grok_executable_not_native",
+                "Shared OAuth requires a native Grok binary, not a script wrapper",
+            )
+        after = os.fstat(executable_fd)
+        published = os.stat(
+            candidate.name,
+            dir_fd=directory_fds[-1],
+            follow_symlinks=False,
+        )
+        observed = _shared_oauth_grok_executable_identity(
+            candidate,
+            after,
+            native_format=native_format,
+            parent_chain=parent_chain,
+        )
+        if (
+            _shared_oauth_grok_executable_identity(
+                candidate,
+                before,
+                native_format=native_format,
+                parent_chain=parent_chain,
+            )
+            != observed
+            or (published.st_dev, published.st_ino)
+            != (after.st_dev, after.st_ino)
+        ):
+            raise ValidationIssue(
+                "full_run_grok_executable_changed",
+                "Shared OAuth Grok executable changed during secure binding",
+            )
+        return candidate, observed
+    except ValidationIssue:
+        raise
+    except OSError as exc:
+        raise ValidationIssue(
+            "full_run_grok_executable_unsafe",
+            "Shared OAuth Grok executable could not be bound safely",
+        ) from exc
+    finally:
+        if executable_fd >= 0:
+            os.close(executable_fd)
+        for directory_fd in reversed(directory_fds):
+            os.close(directory_fd)
+
+
+def _assert_stable_grok_executable(
+    executable: str,
+    expected_identity: Mapping[str, Any],
+) -> Path:
+    resolver = (
+        _resolve_shared_oauth_grok_executable
+        if expected_identity.get("security_profile") == "shared_oauth_native"
+        else _resolve_grok_executable
+    )
+    resolved, observed = resolver(executable)
+    if observed != dict(expected_identity):
+        raise ValidationIssue(
+            "full_run_grok_executable_changed",
+            "Configured Grok executable changed during launch preflight",
+        )
+    return resolved
+
+
+def _executable_advertises_grok_auth_path(
+    executable: str,
+    *,
+    expected_identity: Mapping[str, Any] | None = None,
+) -> bool:
+    """Check the exact bound artifact for the native auth-path marker."""
+    descriptor = -1
+    try:
+        resolver = (
+            _resolve_shared_oauth_grok_executable
+            if expected_identity is not None
+            and expected_identity.get("security_profile") == "shared_oauth_native"
+            else _resolve_grok_executable
+        )
+        candidate, identity = resolver(executable)
+        if expected_identity is not None and identity != dict(expected_identity):
+            return False
+        descriptor = os.open(
+            candidate,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        before = os.fstat(descriptor)
+        before_identity = _grok_executable_identity(candidate, before)
+        if (
+            any(
+                identity.get(key) != value
+                for key, value in before_identity.items()
+                if key != "security_profile"
+            )
+            or before.st_size > MAX_GROK_EXECUTABLE_PROBE_BYTES
+        ):
+            return False
+        with mmap.mmap(descriptor, 0, access=mmap.ACCESS_READ) as image:
+            advertised = image.find(b"GROK_AUTH_PATH") >= 0
+        after = os.fstat(descriptor)
+        _, published_identity = resolver(str(candidate))
+        return bool(
+            advertised
+            and _grok_executable_identity(candidate, after) == before_identity
+            and published_identity == identity
+        )
+    except (OSError, ValueError, ValidationIssue):
+        return False
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _isolated_grok_capability_probe_env(root: Path) -> dict[str, str]:
+    """Build a credential-free environment without inherited auth controls."""
+    home = root / "home"
+    temp_root = root / "tmp"
+    config = home / ".config"
+    cache = home / ".cache"
+    data = home / ".local" / "share"
+    for directory in (home, temp_root, config, cache, data):
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return {
+        # PATH is the sole inherited operational value: script launchers may
+        # require their declared interpreter, while every auth/config control
+        # is rebuilt under the private capability-probe root.
+        "PATH": os.environ.get("PATH") or os.defpath,
+        "HOME": str(home),
+        "TMPDIR": str(temp_root),
+        "TMP": str(temp_root),
+        "TEMP": str(temp_root),
+        "XDG_CONFIG_HOME": str(config),
+        "XDG_CACHE_HOME": str(cache),
+        "XDG_DATA_HOME": str(data),
+        "LANG": "C",
+        "LC_ALL": "C",
+    }
+
+
+def _assert_grok_auth_path_capability(
+    executable: str,
+    *,
+    expected_identity: Mapping[str, Any] | None = None,
+) -> tuple[int, int, int]:
+    """Probe only one exact Grok artifact in an isolated credential-free env."""
+    resolved, identity = _resolve_shared_oauth_grok_executable(executable)
+    if expected_identity is not None and identity != dict(expected_identity):
+        raise ValidationIssue(
+            "full_run_grok_executable_changed",
+            "Configured Grok executable changed during launch preflight",
+        )
+    version: tuple[int, int, int] | None = None
+    with tempfile.TemporaryDirectory(prefix="elves-grok-capability-") as tmp:
+        probe_root = Path(tmp)
+        probe_env = _isolated_grok_capability_probe_env(probe_root)
+        for argv in (
+            [str(resolved), "version", "--json"],
+            [str(resolved), "--version"],
+        ):
+            try:
+                result = subprocess.run(
+                    argv,
+                    cwd=str(probe_root / "home"),
+                    env=probe_env,
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=5.0,
+                    close_fds=True,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                _assert_stable_grok_executable(str(resolved), identity)
+                continue
+            _assert_stable_grok_executable(str(resolved), identity)
+            if result.returncode == 0:
+                output = (result.stdout or "") + "\n" + (result.stderr or "")
+                match = _GROK_VERSION_RE.search(output)
+                if match:
+                    version = tuple(int(part) for part in match.groups())
+                    break
+    if (
+        version is not None
+        and version >= GROK_AUTH_PATH_MIN_VERSION
+        and _executable_advertises_grok_auth_path(
+            str(resolved), expected_identity=identity
+        )
+    ):
+        _assert_stable_grok_executable(str(resolved), identity)
+        return version
+    raise ValidationIssue(
+        "full_run_grok_auth_path_unsupported",
+        "Installed Grok does not provide the required shared OAuth path capability",
+        hint="Upgrade Grok Build to 0.2.93 or newer, or grant XAI_API_KEY instead",
+    )
+
+
+def _read_grok_auth_path(source: Path) -> tuple[bytes, dict[str, Any]]:
+    """Read one canonical auth file while binding its safe parent directory."""
+    if not source.is_absolute() or source.name != GROK_AUTH_FILE_NAME:
+        raise ValidationIssue(
+            "full_run_grok_auth_source_invalid",
+            "Host Grok auth path must be an absolute auth.json path",
+        )
+    try:
+        canonical_parent = source.parent.resolve(strict=True)
+    except OSError as exc:
+        raise ValidationIssue(
+            "full_run_grok_auth_source_missing",
+            "Shared Grok OAuth parent directory is unavailable",
+        ) from exc
+    canonical = canonical_parent / GROK_AUTH_FILE_NAME
+    file_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    parent_fd = -1
+    source_fd = -1
+    parent_chain_before: list[dict[str, int]] = []
+
+    def close_opened_descriptors() -> None:
+        if source_fd >= 0:
+            os.close(source_fd)
+        if parent_fd >= 0:
+            os.close(parent_fd)
+
+    try:
+        parent_fd, parent_chain_before = _open_verified_grok_auth_parent_chain(
+            canonical_parent
+        )
+        parent_before = os.fstat(parent_fd)
+        source_fd = os.open(GROK_AUTH_FILE_NAME, file_flags, dir_fd=parent_fd)
+    except FileNotFoundError as exc:
+        close_opened_descriptors()
+        raise ValidationIssue(
+            "full_run_grok_auth_source_missing",
+            "Requested shared Grok OAuth auth.json is unavailable",
+        ) from exc
+    except ValidationIssue:
+        close_opened_descriptors()
+        raise
+    except OSError as exc:
+        close_opened_descriptors()
+        if exc.errno == getattr(errno, "ELOOP", None):
+            raise ValidationIssue(
+                "full_run_grok_auth_source_unsafe",
+                "Host Grok auth.json must not be a symlink",
+            ) from exc
+        raise ValidationIssue(
+            "full_run_grok_auth_source_unavailable",
+            f"Host Grok auth metadata is unavailable: {type(exc).__name__}",
+        ) from exc
+    try:
+        before = os.fstat(source_fd)
+        _assert_no_darwin_extended_allow_acl(source_fd)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.geteuid()
+            or before.st_nlink != 1
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_size <= 0
+            or before.st_size > MAX_GROK_AUTH_BYTES
+        ):
+            raise ValidationIssue(
+                "full_run_grok_auth_source_unsafe",
+                "Host Grok auth.json must be one owner-only regular file within the size limit",
+            )
+        with os.fdopen(source_fd, "rb", closefd=False) as handle:
+            raw = handle.read(MAX_GROK_AUTH_BYTES + 1)
+        after = os.fstat(source_fd)
+        published = os.stat(
+            GROK_AUTH_FILE_NAME,
+            dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+        parent_after = os.fstat(parent_fd)
+        parent_chain_after_fd, parent_chain_after = (
+            _open_verified_grok_auth_parent_chain(canonical_parent)
+        )
+        os.close(parent_chain_after_fd)
+        if len(raw) > MAX_GROK_AUTH_BYTES or (
+            before.st_dev,
+            before.st_ino,
+            before.st_uid,
+            before.st_nlink,
+            stat.S_IMODE(before.st_mode),
+            before.st_size,
+            getattr(before, "st_mtime_ns", None),
+            getattr(before, "st_ctime_ns", None),
+        ) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_uid,
+            after.st_nlink,
+            stat.S_IMODE(after.st_mode),
+            after.st_size,
+            getattr(after, "st_mtime_ns", None),
+            getattr(after, "st_ctime_ns", None),
+        ) or len(raw) != after.st_size or (
+            published.st_dev,
+            published.st_ino,
+        ) != (
+            after.st_dev,
+            after.st_ino,
+        ) or (
+            parent_before.st_dev,
+            parent_before.st_ino,
+            parent_before.st_uid,
+            stat.S_IMODE(parent_before.st_mode),
+        ) != (
+            parent_after.st_dev,
+            parent_after.st_ino,
+            parent_after.st_uid,
+            stat.S_IMODE(parent_after.st_mode),
+        ) or parent_chain_before != parent_chain_after:
+            raise ValidationIssue(
+                "full_run_grok_auth_source_changed",
+                "Host Grok auth.json changed while it was being read",
+            )
+        payload = json.loads(raw.decode("utf-8"))
+    except ValidationIssue:
+        raise
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValidationIssue(
+            "full_run_grok_auth_source_invalid",
+            "Host Grok auth.json is not bounded valid JSON",
+        ) from exc
+    except OSError as exc:
+        raise ValidationIssue(
+            "full_run_grok_auth_source_unavailable",
+            f"Host Grok auth data is unavailable: {type(exc).__name__}",
+        ) from exc
+    finally:
+        if source_fd >= 0:
+            os.close(source_fd)
+        if parent_fd >= 0:
+            os.close(parent_fd)
+    if not isinstance(payload, Mapping) or not any(
+        isinstance(record, Mapping)
+        and any(
+            isinstance(record.get(key), str) and bool(str(record.get(key)).strip())
+            for key in ("key", "access_token", "refresh_token")
+        )
+        for record in payload.values()
+    ):
+        raise ValidationIssue(
+            "full_run_grok_auth_source_invalid",
+            "Host Grok auth.json has no recognized authenticated record",
+        )
+    identity = {
+        "path": str(canonical),
+        "parent_dev": int(parent_before.st_dev),
+        "parent_ino": int(parent_before.st_ino),
+        "parent_uid": int(parent_before.st_uid),
+        "parent_mode": int(stat.S_IMODE(parent_before.st_mode)),
+        "parent_chain": parent_chain_before,
+    }
+    return raw, identity
+
+
+def _read_host_grok_auth(
+    parent_env: Mapping[str, str] | None = None,
+    *,
+    source_path: str | Path | None = None,
+) -> tuple[bytes, dict[str, Any]]:
+    """Read a rotating shared auth file, retrying only observed write races."""
+    source = Path(source_path) if source_path is not None else _grok_auth_source(parent_env)
+    last_change: ValidationIssue | None = None
+    for _attempt in range(3):
+        try:
+            return _read_grok_auth_path(source)
+        except ValidationIssue as exc:
+            if exc.code != "full_run_grok_auth_source_changed":
+                raise
+            last_change = exc
+    assert last_change is not None
+    raise last_change
+
+
+def _revalidate_shared_grok_auth(state: FullRunState) -> bytes:
+    expected = state.grok_auth_path_identity
+    if state.grok_auth_strategy != "oauth_shared_file" or not isinstance(expected, Mapping):
+        raise ValidationIssue(
+            "full_run_grok_auth_identity_missing",
+            "Shared Grok OAuth path identity is missing from private run state",
+        )
+    path = expected.get("path")
+    if not isinstance(path, str) or not path:
+        raise ValidationIssue(
+            "full_run_grok_auth_identity_missing",
+            "Shared Grok OAuth path identity is incomplete",
+        )
+    raw, observed = _read_host_grok_auth(source_path=path)
+    if dict(expected) != observed:
+        raise ValidationIssue(
+            "full_run_grok_auth_identity_changed",
+            "Shared Grok OAuth canonical path identity changed",
+        )
+    return raw
+
+
+def _remove_failed_launch_artifacts(repo_root: Path, root: Path) -> None:
+    """Remove only host launch metadata after a supervisor never received its start secret."""
+    guarded_root, directory_fd = _open_repo_directory(
+        Path(repo_root), root, create=False
+    )
+    try:
+        _assert_directory_fd_identity(Path(repo_root), guarded_root, directory_fd)
+        for leaf in (
+            "supervisor.fingerprint.json",
+            "worker.fingerprint.json",
+            "worker.pid",
+            "worker.pgid",
+        ):
+            try:
+                os.unlink(leaf, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+    except OSError as exc:
+        raise ValidationIssue(
+            "full_run_failed_launch_cleanup_failed",
+            f"Cannot remove failed-launch metadata: {type(exc).__name__}",
+        ) from exc
+    finally:
+        os.close(directory_fd)
+
+
+def _cleanup_refused_launch(
+    repo_root: Path,
+    root: Path,
+    state: FullRunState,
+    proc: subprocess.Popen[bytes] | None,
+    *,
+    cause: BaseException,
+) -> None:
+    """Roll back a launch only while provider start is attested impossible."""
+    if proc is not None:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        if proc.stdin is not None:
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
+            finally:
+                proc.stdin = None
+        try:
+            proc.wait(timeout=1.0)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    cleanup_errors: list[str] = []
+    try:
+        _remove_failed_launch_artifacts(repo_root, root)
+    except (StorageError, ValidationIssue) as exc:
+        cleanup_errors.append(type(exc).__name__)
+    state.pid = None
+    state.pgid = None
+    state.fingerprint = None
+    state.exit_sidecar_pid = None
+    state.status = "pending"
+    state.launched_at = None
+    state.heartbeat_at = None
+    state.next_action = "launch"
+    try:
+        save_state(repo_root, state)
+    except (OSError, StorageError, ValidationIssue):
+        pass
+    if cleanup_errors:
+        raise ValidationIssue(
+            "full_run_failed_launch_cleanup_failed",
+            "Refused launch could not remove all private transient artifacts",
+        ) from cause
+
+
+def _oauth_secret_values(raw: bytes) -> set[str]:
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return set()
+    values: set[str] = set()
+
+    def walk(value: Any, key: str | None = None) -> None:
+        if isinstance(value, Mapping):
+            for child_key, child in value.items():
+                walk(child, str(child_key))
+        elif isinstance(value, list):
+            for child in value:
+                walk(child, key)
+        elif isinstance(value, str) and key and (
+            key == "key" or _FULL_RUN_SECRET_KEY_RE.search(key)
+        ):
+            if value:
+                values.add(value)
+
+    walk(payload)
+    return values
+
+
+def _state_secret_values(state: FullRunState) -> frozenset[str]:
+    """Resolve one current launch-evidence snapshot for defensive redaction."""
+    _verified, values = _launch_evidence_context(state)
+    return values
 
 
 def _supervision_secret(state: FullRunState) -> str:
-    """Return the host-only stop secret after validating its persisted shape."""
+    """Return the private control-channel secret after validating its shape.
+
+    The trusted branch-progress worker shares the host user's filesystem, so this
+    capability rejects malformed/accidental runtime artifacts; it is not an OS
+    security boundary against a malicious worker that violates the lane contract.
+    """
     secret = str(state.supervision_token or "")
     if not re.fullmatch(r"[0-9a-f]{48}", secret):
         raise ValidationIssue(
@@ -790,13 +1999,161 @@ def _descendant_supervision_marker(state: FullRunState) -> str:
 
 def _credential_grant_digest(state: FullRunState, name: str, value: str) -> str:
     """Bind a launch credential value to this private supervisor attempt."""
-    key = str(state.supervision_token or state.session_id).encode("utf-8")
+    # The private supervision capability is the HMAC authority.  Falling back
+    # to a public identifier would let state corruption silently change the
+    # scanner key and turn exact-leak detection into a false negative.
+    key = _supervision_secret(state).encode("ascii")
     material = f"{name}\0{value}".encode("utf-8")
     return hmac.new(key, material, hashlib.sha256).hexdigest()
 
 
+def _credential_grant_metadata_mac(state: FullRunState) -> str:
+    """Authenticate the exact persisted grant scanner metadata and key domain."""
+    payload = {
+        "session_id": state.session_id,
+        "attempt": state.attempt,
+        "granted_names": state.credential_granted_names,
+        "digests": state.credential_grant_digests,
+        "lengths": state.credential_grant_lengths,
+    }
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hmac.new(
+        _supervision_secret(state).encode("ascii"),
+        b"credential-grant-metadata-v1\0" + canonical,
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _persisted_grant_metadata_valid(state: FullRunState) -> bool:
+    granted = state.credential_granted_names
+    digests = state.credential_grant_digests
+    lengths = state.credential_grant_lengths
+    if (
+        not isinstance(digests, dict)
+        or not isinstance(lengths, dict)
+    ):
+        return False
+    granted_valid, normalized = _normalize_persisted_credential_grant_names(granted)
+    if not granted_valid:
+        return False
+    if set(normalized) != set(digests) or set(normalized) != set(lengths):
+        return False
+    if normalized and not re.fullmatch(
+        r"[0-9a-f]{48}", str(state.supervision_token or "")
+    ):
+        return False
+    if not all(
+        isinstance(digests.get(name), str)
+        and bool(_SHA256_RE.fullmatch(str(digests[name])))
+        and not isinstance(lengths.get(name), bool)
+        and isinstance(lengths.get(name), int)
+        and int(lengths[name]) >= 0
+        for name in normalized
+    ):
+        return False
+    if not normalized:
+        return state.credential_grant_metadata_mac in {None, ""}
+    supplied_mac = state.credential_grant_metadata_mac
+    if not isinstance(supplied_mac, str) or not _SHA256_RE.fullmatch(supplied_mac):
+        return False
+    try:
+        expected_mac = _credential_grant_metadata_mac(state)
+    except ValidationIssue:
+        return False
+    return hmac.compare_digest(supplied_mac, expected_mac)
+
+
+def _contains_persisted_credential_grant(
+    value: Any,
+    state: FullRunState,
+) -> bool:
+    """Detect exact grant bytes without retaining the credential itself.
+
+    Event/report artifacts are bounded before this scan. For every persisted
+    grant length, candidate substrings are compared through the attempt-keyed
+    HMAC used at launch. Mapping keys are evidence surfaces too.
+    """
+    if not _persisted_grant_metadata_valid(state):
+        return False
+
+    def walk(item: Any) -> bool:
+        if isinstance(item, str):
+            return _text_contains_persisted_credential_grant(item, state)
+        if isinstance(item, Mapping):
+            return any(
+                _text_contains_persisted_credential_grant(str(key), state)
+                or walk(child)
+                for key, child in item.items()
+            )
+        if isinstance(item, (list, tuple)):
+            return any(walk(child) for child in item)
+        return False
+
+    return walk(value)
+
+
+def _text_contains_persisted_credential_grant(
+    text: str,
+    state: FullRunState,
+) -> bool:
+    if not _persisted_grant_metadata_valid(state):
+        return False
+    for name in state.credential_granted_names:
+        length = state.credential_grant_lengths[name]
+        if length <= 0 or len(text) < length:
+            continue
+        expected = state.credential_grant_digests[name]
+        for start in range(0, len(text) - length + 1):
+            candidate = text[start : start + length]
+            if hmac.compare_digest(
+                _credential_grant_digest(state, name, candidate),
+                expected,
+            ):
+                return True
+    return False
+
+
+def _redact_persisted_credential_grants(value: Any, state: FullRunState) -> Any:
+    """Redact a whole string/key when an absent launch grant is detected."""
+    if isinstance(value, str):
+        return (
+            "[REDACTED:credential_grant]"
+            if _text_contains_persisted_credential_grant(value, state)
+            else value
+        )
+    if isinstance(value, Mapping):
+        rows: list[tuple[str, Any]] = []
+        desired_keys: list[str] = []
+        for key, child in value.items():
+            key_text = str(key)
+            cleaned_key = (
+                "[REDACTED:credential_grant_key]"
+                if _text_contains_persisted_credential_grant(key_text, state)
+                else key_text
+            )
+            rows.append((cleaned_key, child))
+            desired_keys.append(cleaned_key)
+        cleaned: dict[str, Any] = {}
+        allocated_keys = _collision_safe_mapping_keys(desired_keys)
+        for cleaned_key, (_desired, child) in zip(allocated_keys, rows):
+            cleaned[cleaned_key] = _redact_persisted_credential_grants(child, state)
+        return cleaned
+    if isinstance(value, list):
+        return [_redact_persisted_credential_grants(child, state) for child in value]
+    if isinstance(value, tuple):
+        return tuple(
+            _redact_persisted_credential_grants(child, state) for child in value
+        )
+    return value
+
+
 def _stop_request_authority(state: FullRunState) -> str:
-    """Authenticate a private stop request without publishing the supervision token."""
+    """Authenticate a control request without placing the secret in provider env/argv."""
     token = _supervision_secret(state)
     message = f"stop\0{state.session_id}\0{state.attempt}".encode("utf-8")
     return hmac.new(token.encode("utf-8"), message, hashlib.sha256).hexdigest()
@@ -807,12 +2164,13 @@ def _write_supervisor_stop_request(
     root: Path,
     state: FullRunState,
 ) -> Path:
-    """Atomically publish a host-authenticated stop over an untrusted leaf.
+    """Atomically publish a capability-authenticated stop over an untrusted leaf.
 
     The worker can create artifacts in its runtime directory, including a FIFO
     or symlink at the request name. Publishing through a directory descriptor
     replaces that leaf without opening or following it, so a hostile FIFO
-    cannot block either the host or supervisor stop path.
+    cannot block either side of the stop path. This is artifact hardening inside
+    a trusted-worker route, not worker-resistant privilege separation.
     """
     repo_root = Path(repo_root)
     guarded_root = guard_repo_path(repo_root, root)
@@ -909,22 +2267,85 @@ def _write_supervisor_stop_request(
     return request_path
 
 
-def _launch_grants_verified(state: FullRunState) -> bool:
-    """True only when the current process can re-identify every launched grant."""
-    granted = list(state.credential_granted_names or [])
-    if not granted:
-        return True
-    if set(granted) != set(state.credential_grant_digests):
-        return False
-    for name in granted:
+def _launch_evidence_context(
+    state: FullRunState,
+) -> tuple[bool, frozenset[str]]:
+    """Atomically pair launch verification with its exact redaction values.
+
+    Shared OAuth rotates its leaf in place. Public evidence callers must not
+    validate one token generation and redact with another, so this function
+    reads that authority exactly once. The canonical path is also treated as an
+    exact redaction value even though it is metadata rather than a credential.
+    """
+    values: set[str] = set()
+    if state.supervision_token:
+        values.add(str(state.supervision_token))
+    identity = state.grok_auth_path_identity
+    if isinstance(identity, Mapping):
+        path = identity.get("path")
+        if isinstance(path, str) and path:
+            values.add(path)
+    if state.grok_auth_strategy not in {None, "xai_api_key", "oauth_shared_file"}:
+        return False, frozenset(values)
+    requested_valid, requested = _normalize_persisted_credential_grant_names(
+        state.credential_grant_names
+    )
+    granted_valid, normalized_granted = (
+        _normalize_persisted_credential_grant_names(
+            state.credential_granted_names
+        )
+    )
+    grants_valid = requested_valid and granted_valid
+    for name in set(requested) | set(normalized_granted):
+        value = os.environ.get(name)
+        if value:
+            values.add(value)
+    persisted_grants_valid = _persisted_grant_metadata_valid(state)
+    if not persisted_grants_valid:
+        # Current environment values were collected above so any driver-visible
+        # diagnostic can still redact them.  Do not attempt a keyed comparison
+        # after the private HMAC authority or its authenticated metadata failed
+        # validation: `_credential_grant_digest` deliberately rejects that
+        # downgrade, and evidence must become unavailable rather than crashing
+        # the parked monitor.
+        return False, frozenset(values)
+    for name in normalized_granted:
         value = os.environ.get(name)
         expected = state.credential_grant_digests.get(name)
-        if not value or not expected:
-            return False
-        observed = _credential_grant_digest(state, name, value)
-        if not hmac.compare_digest(observed, expected):
-            return False
-    return True
+        expected_length = state.credential_grant_lengths.get(name)
+        if value is None:
+            # Parked monitoring is a fresh host process and need not retain or
+            # reload launch credentials. The private keyed digest + length is
+            # sufficient to detect an exact leak in bounded worker evidence.
+            continue
+        if value:
+            values.add(value)
+        if (
+            not expected
+            or isinstance(expected_length, bool)
+            or not isinstance(expected_length, int)
+            or len(value) != expected_length
+        ):
+            grants_valid = False
+            continue
+        if not hmac.compare_digest(
+            _credential_grant_digest(state, name, value), expected
+        ):
+            grants_valid = False
+    if state.grok_auth_strategy == "oauth_shared_file":
+        try:
+            raw = _revalidate_shared_grok_auth(state)
+        except ValidationIssue:
+            grants_valid = False
+        else:
+            values.update(_oauth_secret_values(raw))
+    return grants_valid, frozenset(values)
+
+
+def _launch_grants_verified(state: FullRunState) -> bool:
+    """True only when one launch-evidence snapshot verifies every grant."""
+    verified, _values = _launch_evidence_context(state)
+    return verified
 
 
 def build_full_run_env(
@@ -951,15 +2372,15 @@ def build_full_run_env(
     env["XDG_CONFIG_HOME"] = str(worker_home / ".config")
     env["XDG_CACHE_HOME"] = str(worker_home / ".cache")
     env["XDG_DATA_HOME"] = str(worker_home / ".local" / "share")
+    env["GROK_HOME"] = str(root / GROK_HOME_REL)
     env.setdefault("PATH", parent.get("PATH", "/usr/bin:/bin"))
     env.setdefault("PYTHONUNBUFFERED", "1")
-    grants = list(credential_grant_names or state.credential_grant_names or [])
+    grants = _normalize_credential_grant_names(
+        state.credential_grant_names
+        if credential_grant_names is None
+        else credential_grant_names
+    )
     for name in grants:
-        if name in ISOLATED_ENV_CONTROLS:
-            raise ValidationIssue(
-                "full_run_isolation_control_grant_forbidden",
-                f"Credential grants cannot override isolated environment control `{name}`",
-            )
         if name in parent and parent[name]:
             env[name] = str(parent[name])
     # Non-secret full-run contract values for real adapters and fixtures.
@@ -977,6 +2398,87 @@ def build_full_run_env(
     if state.supervision_token:
         env["ELVES_FULL_RUN_SUPERVISION_MARKER"] = _descendant_supervision_marker(state)
     return env
+
+
+def _bind_state_grok_executable(
+    state: FullRunState,
+    *,
+    require_auth_path: bool,
+) -> None:
+    """Bind one exact provider artifact, preserving identity across resumes."""
+    resolver = (
+        _resolve_shared_oauth_grok_executable
+        if require_auth_path
+        else _resolve_grok_executable
+    )
+    resolved, executable_identity = resolver(state.executable)
+    if (
+        state.grok_executable_identity is not None
+        and state.grok_executable_identity != executable_identity
+    ):
+        raise ValidationIssue(
+            "full_run_grok_executable_changed",
+            "Configured Grok executable changed since the prior launch",
+        )
+    if require_auth_path:
+        _assert_grok_auth_path_capability(
+            str(resolved), expected_identity=executable_identity
+        )
+    state.executable = str(resolved)
+    state.grok_executable_identity = executable_identity
+
+
+def _configure_grok_auth(
+    repo_root: Path,
+    root: Path,
+    state: FullRunState,
+    launch_env: dict[str, str],
+    *,
+    grant_grok_auth: bool,
+) -> None:
+    """Select one explicit noninteractive Grok auth strategy before spawning."""
+    del repo_root, root
+    api_key_granted = bool(launch_env.get("XAI_API_KEY"))
+    oauth_requested = bool(
+        grant_grok_auth or state.grok_auth_strategy == "oauth_shared_file"
+    )
+    if api_key_granted and oauth_requested:
+        raise ValidationIssue(
+            "full_run_grok_auth_ambiguous",
+            "Choose either explicit XAI_API_KEY grant or --grant-grok-auth, not both",
+        )
+    if api_key_granted:
+        if state.grok_auth_strategy not in {None, "xai_api_key"}:
+            raise ValidationIssue(
+                "full_run_grok_auth_strategy_changed",
+                "Resume must preserve the originally selected Grok auth strategy",
+            )
+        _bind_state_grok_executable(state, require_auth_path=False)
+        state.grok_auth_strategy = "xai_api_key"
+        state.grok_auth_path_identity = None
+        launch_env.pop("GROK_AUTH_PATH", None)
+        return
+    if not oauth_requested:
+        raise ValidationIssue(
+            "full_run_grok_auth_required",
+            "Headless Grok requires explicit --grant-env XAI_API_KEY or --grant-grok-auth",
+            hint="The OAuth option shares one validated host auth.json through Grok's native GROK_AUTH_PATH in trusted Lane A",
+        )
+    if state.grok_auth_strategy not in {None, "oauth_shared_file"}:
+        raise ValidationIssue(
+            "full_run_grok_auth_strategy_changed",
+            "Resume must preserve the originally selected Grok auth strategy",
+        )
+    _bind_state_grok_executable(state, require_auth_path=True)
+    if state.grok_auth_strategy == "oauth_shared_file":
+        _revalidate_shared_grok_auth(state)
+        assert state.grok_auth_path_identity is not None
+        identity = state.grok_auth_path_identity
+    else:
+        _raw, identity = _read_host_grok_auth()
+    state.grok_auth_strategy = "oauth_shared_file"
+    state.grok_auth_path_identity = dict(identity)
+    launch_env["GROK_AUTH_PATH"] = str(identity["path"])
 
 
 def _process_start_time(pid: int) -> str | None:
@@ -1275,7 +2777,7 @@ def write_exit_record(
 
 
 _PROVIDER_SUPERVISOR_SCRIPT = r"""
-import errno, hashlib, hmac, json, os, signal, stat, subprocess, sys, time
+import ctypes, ctypes.util, errno, hashlib, hmac, json, os, signal, stat, subprocess, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1299,7 +2801,28 @@ provider_argv = json.loads(sys.argv[4])
 attempt = int(sys.argv[5])
 supervision_backend = sys.argv[6]
 max_stop_request_bytes = int(sys.argv[7])
+provider_executable_identity = json.loads(sys.argv[8])
+expected_staged_packet_path = sys.argv[9]
+expected_staged_packet_identity = json.loads(sys.argv[10])
+expected_packet_sha256 = sys.argv[11]
+expected_packet_size = int(sys.argv[12])
+max_packet_bytes = int(sys.argv[13])
 if max_stop_request_bytes <= 0 or max_stop_request_bytes > 64 * 1024:
+    raise SystemExit(126)
+if (
+    not isinstance(provider_argv, list)
+    or not provider_argv
+    or any(not isinstance(value, str) or not value for value in provider_argv)
+    or not isinstance(provider_executable_identity, dict)
+    or not isinstance(expected_staged_packet_identity, dict)
+    or not os.path.isabs(expected_staged_packet_path)
+    or len(expected_packet_sha256) != 64
+    or any(char not in "0123456789abcdef" for char in expected_packet_sha256)
+    or expected_packet_size < 0
+    or expected_packet_size > max_packet_bytes
+    or max_packet_bytes <= 0
+    or max_packet_bytes > 16 * 1024 * 1024
+):
     raise SystemExit(126)
 try:
     # The launcher supplies exactly one bounded host secret over an anonymous
@@ -1392,7 +2915,8 @@ def requested_stop_signal():
         return signal.SIGTERM
     except Exception:
         # Malformed, oversized, non-regular, or unauthorized artifacts are
-        # ignored. Only the host-authenticated request may alter run control.
+        # ignored. Only a capability-bearing request may alter run control; the
+        # worker itself remains trusted by this authority model.
         return None
     finally:
         os.close(request_fd)
@@ -1649,31 +3173,445 @@ def terminate_descendants():
         time.sleep(0.03)
     return False
 
-try:
-    provider = subprocess.Popen(
-        provider_argv,
-        stdin=subprocess.DEVNULL,
-        close_fds=True,
+MACH_O_MAGICS = {
+    bytes.fromhex(value)
+    for value in (
+        "feedface", "cefaedfe", "feedfacf", "cffaedfe",
+        "cafebabe", "bebafeca", "cafebabf", "bfbafeca",
     )
-    provider_pid = provider.pid
-    scan_alive()
-    while provider.poll() is None and stop_signal is None:
-        requested = requested_stop_signal()
-        if requested is not None:
-            stop_signal = requested
-            break
-        scan_alive()
-        if supervision_error is not None:
-            break
-        time.sleep(0.03)
-    if stop_signal is not None:
-        exit_code = 128 + stop_signal
-    elif supervision_error is not None:
+}
+
+def native_executable_format(descriptor):
+    header = os.pread(descriptor, 4, 0)
+    if sys.platform == "darwin" and header in MACH_O_MAGICS:
+        return "mach-o"
+    if sys.platform.startswith("linux") and header == b"\x7fELF":
+        return "elf"
+    return None
+
+def assert_no_extended_allow_acl(descriptor):
+    if sys.platform != "darwin":
+        return
+    library = ctypes.CDLL(
+        ctypes.util.find_library("System") or "/usr/lib/libSystem.B.dylib",
+        use_errno=True,
+    )
+    acl_get_fd_np = library.acl_get_fd_np
+    acl_get_fd_np.argtypes = [ctypes.c_int, ctypes.c_int]
+    acl_get_fd_np.restype = ctypes.c_void_p
+    acl_get_entry = library.acl_get_entry
+    acl_get_entry.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)
+    ]
+    acl_get_entry.restype = ctypes.c_int
+    acl_get_tag_type = library.acl_get_tag_type
+    acl_get_tag_type.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)
+    ]
+    acl_get_tag_type.restype = ctypes.c_int
+    acl_free = library.acl_free
+    acl_free.argtypes = [ctypes.c_void_p]
+    acl_free.restype = ctypes.c_int
+    ctypes.set_errno(0)
+    acl = acl_get_fd_np(descriptor, 0x00000100)
+    if not acl:
+        if ctypes.get_errno() == errno.ENOENT:
+            return
+        raise RuntimeError("provider_acl_inspection_failed")
+    error = None
+    saw_entry = False
+    entry_id = 0
+    try:
+        while True:
+            entry = ctypes.c_void_p()
+            ctypes.set_errno(0)
+            result = acl_get_entry(acl, entry_id, ctypes.byref(entry))
+            entry_errno = ctypes.get_errno()
+            if result == -1:
+                if saw_entry and entry_errno == errno.EINVAL:
+                    break
+                error = RuntimeError("provider_acl_inspection_failed")
+                break
+            if result != 0 or not entry.value:
+                error = RuntimeError("provider_acl_inspection_failed")
+                break
+            tag = ctypes.c_int()
+            if acl_get_tag_type(entry, ctypes.byref(tag)) != 0:
+                error = RuntimeError("provider_acl_inspection_failed")
+                break
+            if tag.value == 1:
+                error = RuntimeError("provider_acl_allow_unsafe")
+                break
+            if tag.value != 2:
+                error = RuntimeError("provider_acl_inspection_failed")
+                break
+            saw_entry = True
+            entry_id = -1
+    finally:
+        if acl_free(acl) != 0:
+            error = RuntimeError("provider_acl_inspection_failed")
+    if error is not None:
+        raise error
+
+def provider_directory_identity(info):
+    return {
+        "dev": int(info.st_dev),
+        "ino": int(info.st_ino),
+        "uid": int(info.st_uid),
+        "mode": int(stat.S_IMODE(info.st_mode)),
+    }
+
+def bind_shared_oauth_provider_executable():
+    expected_path = provider_executable_identity.get("path")
+    expected_chain = provider_executable_identity.get("parent_chain")
+    required = {
+        "path", "dev", "ino", "uid", "mode", "nlink", "size",
+        "mtime_ns", "ctime_ns", "security_profile", "native_format",
+        "parent_chain",
+    }
+    if (
+        set(provider_executable_identity) != required
+        or provider_executable_identity.get("security_profile")
+        != "shared_oauth_native"
+        or not isinstance(expected_path, str)
+        or provider_argv[0] != expected_path
+        or not os.path.isabs(expected_path)
+        or os.path.realpath(expected_path) != expected_path
+        or not isinstance(expected_chain, list)
+        or not expected_chain
+    ):
+        raise RuntimeError("provider_identity_invalid")
+    candidate = Path(expected_path)
+    parent = candidate.parent
+    anchor = Path(parent.anchor)
+    parts = parent.relative_to(anchor).parts
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+    )
+    file_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    bound_fds = []
+    try:
+        bound_fds.append(os.open(anchor, directory_flags))
+        observed_chain = []
+        for index, component in enumerate((None, *parts)):
+            if component is not None:
+                bound_fds.append(
+                    os.open(component, directory_flags, dir_fd=bound_fds[-1])
+                )
+            info = os.fstat(bound_fds[-1])
+            assert_no_extended_allow_acl(bound_fds[-1])
+            mode = stat.S_IMODE(info.st_mode)
+            is_final = index == len(parts)
+            safe_sticky_root = bool(
+                info.st_uid == 0
+                and mode & stat.S_ISVTX
+                and mode & (stat.S_IWGRP | stat.S_IWOTH)
+            )
+            if (
+                not stat.S_ISDIR(info.st_mode)
+                or info.st_uid not in {0, os.geteuid()}
+                or (
+                    mode & (stat.S_IWGRP | stat.S_IWOTH)
+                    and not safe_sticky_root
+                )
+                or (is_final and info.st_uid not in {0, os.geteuid()})
+            ):
+                raise RuntimeError("provider_parent_unsafe")
+            observed_chain.append(provider_directory_identity(info))
+        if observed_chain != expected_chain:
+            raise RuntimeError("provider_parent_identity_changed")
+        executable_fd = os.open(
+            candidate.name, file_flags, dir_fd=bound_fds[-1]
+        )
+        bound_fds.append(executable_fd)
+        info = os.fstat(executable_fd)
+        assert_no_extended_allow_acl(executable_fd)
+        mode = stat.S_IMODE(info.st_mode)
+        native_format = native_executable_format(executable_fd)
+        observed = {
+            "path": expected_path,
+            "dev": int(info.st_dev),
+            "ino": int(info.st_ino),
+            "uid": int(info.st_uid),
+            "mode": mode,
+            "nlink": int(info.st_nlink),
+            "size": int(info.st_size),
+            "mtime_ns": int(info.st_mtime_ns),
+            "ctime_ns": int(info.st_ctime_ns),
+            "security_profile": "shared_oauth_native",
+            "native_format": native_format,
+            "parent_chain": observed_chain,
+        }
+        published = os.stat(
+            candidate.name,
+            dir_fd=bound_fds[-2],
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid not in {0, os.geteuid()}
+            or info.st_nlink != 1
+            or mode & (stat.S_IWGRP | stat.S_IWOTH)
+            or not (mode & 0o111)
+            or native_format not in {"mach-o", "elf"}
+            or observed != provider_executable_identity
+            or (published.st_dev, published.st_ino)
+            != (info.st_dev, info.st_ino)
+        ):
+            raise RuntimeError("provider_executable_identity_changed")
+        return bound_fds
+    except BaseException:
+        for descriptor in reversed(bound_fds):
+            os.close(descriptor)
+        raise
+
+def bind_staged_packet_snapshot():
+    required = {
+        "path", "dev", "ino", "uid", "mode", "nlink", "size",
+        "mtime_ns", "ctime_ns",
+    }
+    if (
+        set(expected_staged_packet_identity) != required
+        or expected_staged_packet_identity.get("path")
+        != expected_staged_packet_path
+        or any(
+            isinstance(expected_staged_packet_identity.get(key), bool)
+            or not isinstance(expected_staged_packet_identity.get(key), int)
+            for key in required - {"path"}
+        )
+        or provider_argv.count(expected_staged_packet_path) != 1
+    ):
+        raise RuntimeError("staged_packet_identity_invalid")
+    source_fd = None
+    snapshot_write_fd = None
+    snapshot_fd = None
+    snapshot_name = None
+    try:
+        source_fd = os.open(
+            expected_staged_packet_path,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        info = os.fstat(source_fd)
+        observed = {
+            "path": expected_staged_packet_path,
+            "dev": int(info.st_dev),
+            "ino": int(info.st_ino),
+            "uid": int(info.st_uid),
+            "mode": int(stat.S_IMODE(info.st_mode)),
+            "nlink": int(info.st_nlink),
+            "size": int(info.st_size),
+            "mtime_ns": int(info.st_mtime_ns),
+            "ctime_ns": int(info.st_ctime_ns),
+        }
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.geteuid()
+            or info.st_nlink != 1
+            or stat.S_IMODE(info.st_mode) & 0o077
+            or observed != expected_staged_packet_identity
+            or info.st_size != expected_packet_size
+        ):
+            raise RuntimeError("staged_packet_identity_changed")
+        chunks = []
+        remaining = max_packet_bytes + 1
+        while remaining > 0:
+            chunk = os.read(source_fd, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        if (
+            len(raw) != expected_packet_size
+            or len(raw) > max_packet_bytes
+            or not hmac.compare_digest(
+                hashlib.sha256(raw).hexdigest(), expected_packet_sha256
+            )
+        ):
+            raise RuntimeError("staged_packet_digest_changed")
+        published = os.stat(expected_staged_packet_path, follow_symlinks=False)
+        if (
+            published.st_dev != info.st_dev
+            or published.st_ino != info.st_ino
+            or published.st_size != info.st_size
+            or published.st_mtime_ns != info.st_mtime_ns
+            or published.st_ctime_ns != info.st_ctime_ns
+        ):
+            raise RuntimeError("staged_packet_path_changed")
+
+        # The provider reads an unlinked, read-only snapshot inherited by fd.
+        # Later in-place writes or atomic replacement of the staged path cannot
+        # alter the bytes consumed after a delayed provider read.
+        for nonce in range(16):
+            snapshot_name = ".packet-snapshot.%s.%s.%s" % (
+                os.getpid(), time.time_ns(), nonce
+            )
+            try:
+                snapshot_write_fd = os.open(
+                    snapshot_name,
+                    os.O_RDWR
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                    0o600,
+                    dir_fd=runtime_fd,
+                )
+                break
+            except FileExistsError:
+                snapshot_name = None
+        if snapshot_write_fd is None or snapshot_name is None:
+            raise RuntimeError("staged_packet_snapshot_create_failed")
+        offset = 0
+        while offset < len(raw):
+            written = os.write(snapshot_write_fd, raw[offset:])
+            if written <= 0:
+                raise RuntimeError("staged_packet_snapshot_short_write")
+            offset += written
+        os.fsync(snapshot_write_fd)
+        os.fchmod(snapshot_write_fd, 0o400)
+        snapshot_fd = os.open(
+            snapshot_name,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=runtime_fd,
+        )
+        write_info = os.fstat(snapshot_write_fd)
+        read_info = os.fstat(snapshot_fd)
+        if (write_info.st_dev, write_info.st_ino) != (
+            read_info.st_dev, read_info.st_ino
+        ):
+            raise RuntimeError("staged_packet_snapshot_identity_changed")
+        os.close(snapshot_write_fd)
+        snapshot_write_fd = None
+        os.unlink(snapshot_name, dir_fd=runtime_fd)
+        snapshot_name = None
+        snapshot_info = os.fstat(snapshot_fd)
+        if (
+            not stat.S_ISREG(snapshot_info.st_mode)
+            or snapshot_info.st_nlink != 0
+            or snapshot_info.st_size != expected_packet_size
+            or stat.S_IMODE(snapshot_info.st_mode) != 0o400
+        ):
+            raise RuntimeError("staged_packet_snapshot_invalid")
+        rewritten = list(provider_argv)
+        packet_index = rewritten.index(expected_staged_packet_path)
+        rewritten[packet_index] = "/dev/fd/%s" % snapshot_fd
+        return rewritten, [source_fd, snapshot_fd], snapshot_fd
+    except BaseException:
+        if snapshot_name is not None:
+            try:
+                os.unlink(snapshot_name, dir_fd=runtime_fd)
+            except FileNotFoundError:
+                pass
+        for descriptor in (snapshot_fd, snapshot_write_fd, source_fd):
+            if descriptor is not None:
+                os.close(descriptor)
+        raise
+
+def provider_executable_identity_matches():
+    if not provider_executable_identity:
+        return True, []
+    if provider_executable_identity.get("security_profile") == "shared_oauth_native":
+        try:
+            return True, bind_shared_oauth_provider_executable()
+        except BaseException:
+            return False, []
+    required = {
+        "path", "dev", "ino", "uid", "mode", "nlink", "size",
+        "mtime_ns", "ctime_ns", "security_profile",
+    }
+    if set(provider_executable_identity) != required:
+        return False, []
+    expected_path = provider_executable_identity.get("path")
+    if (
+        provider_argv[0] != expected_path
+        or not isinstance(expected_path, str)
+        or not os.path.isabs(expected_path)
+    ):
+        return False, []
+    try:
+        info = os.stat(expected_path, follow_symlinks=False)
+    except OSError:
+        return False, []
+    observed = {
+        "path": expected_path,
+        "dev": int(info.st_dev),
+        "ino": int(info.st_ino),
+        "uid": int(info.st_uid),
+        "mode": int(stat.S_IMODE(info.st_mode)),
+        "nlink": int(info.st_nlink),
+        "size": int(info.st_size),
+        "mtime_ns": int(info.st_mtime_ns),
+        "ctime_ns": int(info.st_ctime_ns),
+        "security_profile": "exact_path",
+    }
+    return stat.S_ISREG(info.st_mode) and observed == provider_executable_identity, []
+
+provider_identity_matches, provider_binding_fds = provider_executable_identity_matches()
+packet_binding_fds = []
+packet_pass_fd = None
+if not provider_identity_matches:
+    supervision_error = "provider_executable_identity_mismatch"
+    exit_code = 125
+else:
+    try:
+        provider_argv, packet_binding_fds, packet_pass_fd = (
+            bind_staged_packet_snapshot()
+        )
+    except BaseException:
+        supervision_error = "staged_packet_binding_mismatch"
         exit_code = 125
-    else:
-        exit_code = int(provider.returncode)
-except OSError:
-    exit_code = 127
+
+if supervision_error is None:
+    try:
+        provider = subprocess.Popen(
+            provider_argv,
+            stdin=subprocess.DEVNULL,
+            close_fds=True,
+            pass_fds=(packet_pass_fd,),
+        )
+        for descriptor in reversed(provider_binding_fds):
+            os.close(descriptor)
+        provider_binding_fds = []
+        for descriptor in reversed(packet_binding_fds):
+            os.close(descriptor)
+        packet_binding_fds = []
+        provider_pid = provider.pid
+        scan_alive()
+        while provider.poll() is None and stop_signal is None:
+            requested = requested_stop_signal()
+            if requested is not None:
+                stop_signal = requested
+                break
+            scan_alive()
+            if supervision_error is not None:
+                break
+            time.sleep(0.03)
+        if stop_signal is not None:
+            exit_code = 128 + stop_signal
+        elif supervision_error is not None:
+            exit_code = 125
+        else:
+            exit_code = int(provider.returncode)
+    except OSError:
+        exit_code = 127
+    finally:
+        for descriptor in reversed(provider_binding_fds):
+            os.close(descriptor)
+        for descriptor in reversed(packet_binding_fds):
+            os.close(descriptor)
 
 descendants_absent = terminate_descendants()
 if not descendants_absent and exit_code == 0:
@@ -1786,6 +3724,11 @@ def _provider_supervisor_argv(
     provider_argv: Sequence[str],
     attempt: int,
     supervisor_executable: str,
+    staged_packet_path: str,
+    staged_packet_identity: Mapping[str, Any],
+    packet_sha256: str,
+    packet_size: int,
+    provider_executable_identity: Mapping[str, Any] | None = None,
 ) -> list[str]:
     """Build a parent supervisor without putting its signaling token on argv."""
     return [
@@ -1799,6 +3742,12 @@ def _provider_supervisor_argv(
         str(attempt),
         supervisor_executable,
         str(MAX_STOP_REQUEST_BYTES),
+        json.dumps(dict(provider_executable_identity or {}), sort_keys=True),
+        staged_packet_path,
+        json.dumps(dict(staged_packet_identity), sort_keys=True),
+        packet_sha256,
+        str(packet_size),
+        str(MAX_PACKET_BYTES),
     ]
 
 
@@ -1806,29 +3755,54 @@ def _handoff_supervision_secret(
     proc: subprocess.Popen[bytes],
     state: FullRunState,
 ) -> None:
-    """Write one bounded stop secret to supervisor stdin, then close the pipe."""
+    """Release a staged supervisor with one bounded secret, never a partial payload."""
     stream = proc.stdin
     if stream is None:
-        raise ValidationIssue(
-            "full_run_supervision_secret_handoff_failed",
-            "Supervisor launch did not create its private stdin channel",
+        try:
+            proc.kill()
+            proc.wait(timeout=1.0)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        raise _PreTransferHandoffError(
+            RuntimeError("supervisor stdin channel missing")
         )
-    payload = (_supervision_secret(state) + "\n").encode("ascii")
     try:
-        written = stream.write(payload)
-        stream.flush()
-        if written != len(payload):
-            raise OSError("short supervision secret write")
-    except (BrokenPipeError, OSError) as exc:
-        raise ValidationIssue(
-            "full_run_supervision_secret_handoff_failed",
-            f"Cannot deliver the private supervisor stop capability: {type(exc).__name__}",
-        ) from exc
-    finally:
+        payload = (_supervision_secret(state) + "\n").encode("ascii")
+        descriptor = stream.fileno()
+        offset = 0
+        while offset < len(payload):
+            written = os.write(descriptor, payload[offset:])
+            if written <= 0:
+                raise OSError("short supervision secret write")
+            offset += written
+    except BaseException as exc:
+        # Until the complete payload and EOF arrive, the child is blocked before
+        # provider spawn. Kill and reap that exact child before closing the pipe.
+        try:
+            proc.kill()
+        except OSError:
+            pass
         try:
             stream.close()
+        except OSError:
+            pass
         finally:
             proc.stdin = None
+        try:
+            proc.wait(timeout=1.0)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        raise _PreTransferHandoffError(exc) from exc
+    try:
+        # EOF is the commit point: only after the complete fixed-size payload is
+        # written can closing stdin release the child into provider spawn.
+        stream.close()
+    except OSError:
+        # Close/EOF delivery is ambiguous. Preserve durable ownership so monitor
+        # or stop can observe whichever side of the commit point occurred.
+        pass
+    finally:
+        proc.stdin = None
 
 
 def _origin_present(repo_root: Path) -> bool:
@@ -2127,16 +4101,31 @@ def _assert_origin_binding(
     return remote_tip
 
 
-def _staged_acceptance_ids(packet_path: Path) -> list[str]:
+def _read_full_run_packet(packet_path: Path) -> bytes:
+    """Read one exact packet candidate through the bounded no-follow reader."""
     try:
-        raw = _read_bounded_regular_bytes(
+        return _read_bounded_regular_bytes(
             packet_path,
             max_bytes=MAX_PACKET_BYTES,
             label="full-run packet",
         )
-        text = raw.decode("utf-8")
     except StorageError as exc:
         raise ValidationIssue("full_run_packet_unreadable", exc.message) from exc
+
+
+def _acceptance_criteria_from_packet(
+    raw: bytes,
+    *,
+    packet_path: Path,
+) -> list[tuple[str, str]]:
+    """Parse canonical acceptance definitions from the exact staged bytes.
+
+    Outer whitespace is syntax and is stripped once. The resulting criterion
+    text is the exact report contract; workers may not swap or paraphrase it.
+    A list is retained here so duplicate IDs remain observable to prepare.
+    """
+    try:
+        text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValidationIssue(
             "full_run_packet_encoding",
@@ -2167,7 +4156,7 @@ def _staged_acceptance_ids(packet_path: Path) -> list[str]:
                 "JSON packet acceptance must be an array of definition objects",
                 path=str(packet_path),
             )
-        ids: list[str] = []
+        criteria: list[tuple[str, str]] = []
         for index, row in enumerate(rows):
             if not isinstance(row, Mapping):
                 raise ValidationIssue(
@@ -2188,11 +4177,262 @@ def _staged_acceptance_ids(packet_path: Path) -> list[str]:
                     f"JSON packet acceptance[{index}] requires a stable id and nonempty criterion",
                     path=str(packet_path),
                 )
-            ids.append(acceptance_id.strip())
-        return ids
+            criteria.append((acceptance_id.strip(), criterion.strip()))
+        return criteria
     # Count only canonical definition rows. Inline references and the required
     # report example may repeat ids without defining a second criterion.
-    return [match.group("id") for match in _ACCEPTANCE_DEFINITION_RE.finditer(text)]
+    return [
+        (match.group("id"), match.group("criterion").strip())
+        for match in _ACCEPTANCE_DEFINITION_RE.finditer(text)
+    ]
+
+
+def _staged_acceptance_criteria(packet_path: Path) -> list[tuple[str, str]]:
+    """Read and parse one packet without splitting identity from content."""
+    return _acceptance_criteria_from_packet(
+        _read_full_run_packet(packet_path),
+        packet_path=packet_path,
+    )
+
+
+def _staged_acceptance_ids(packet_path: Path) -> list[str]:
+    """Compatibility projection for callers that only need stable IDs."""
+    return [item[0] for item in _staged_acceptance_criteria(packet_path)]
+
+
+def _packet_contract_digest(
+    *,
+    source_path: str,
+    staged_packet_identity: Mapping[str, Any],
+    packet_sha256: str,
+    packet_size: int,
+    acceptance_criteria: Mapping[str, str],
+) -> str:
+    payload = {
+        "source_path": source_path,
+        "staged_packet_identity": dict(staged_packet_identity),
+        "packet_sha256": packet_sha256,
+        "packet_size": packet_size,
+        "acceptance_criteria": dict(sorted(acceptance_criteria.items())),
+    }
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _private_staged_packet_path(root: Path, source_path: Path) -> Path:
+    suffix = ".json" if source_path.suffix.lower() == ".json" else ".md"
+    return root / f"staged-packet{suffix}"
+
+
+_STAGED_PACKET_IDENTITY_KEYS = frozenset(
+    {
+        "path",
+        "dev",
+        "ino",
+        "uid",
+        "mode",
+        "nlink",
+        "size",
+        "mtime_ns",
+        "ctime_ns",
+    }
+)
+
+
+def _private_staged_packet_identity(packet_path: Path) -> dict[str, Any]:
+    """Return the exact private staged-packet identity without following links."""
+    candidate = Path(packet_path)
+    try:
+        info = candidate.lstat()
+    except OSError as exc:
+        raise ValidationIssue(
+            "full_run_staged_packet_changed",
+            "Host-private staged packet copy is missing or unavailable",
+            path=str(candidate),
+        ) from exc
+    if (
+        not candidate.is_absolute()
+        or not stat.S_ISREG(info.st_mode)
+        or info.st_nlink != 1
+        or info.st_uid != os.geteuid()
+        or stat.S_IMODE(info.st_mode) & 0o077
+    ):
+        raise ValidationIssue(
+            "full_run_staged_packet_changed",
+            "Host-private staged packet copy no longer has its private regular-file identity",
+            path=str(candidate),
+        )
+    return {
+        "path": str(candidate),
+        "dev": int(info.st_dev),
+        "ino": int(info.st_ino),
+        "uid": int(info.st_uid),
+        "mode": int(stat.S_IMODE(info.st_mode)),
+        "nlink": int(info.st_nlink),
+        "size": int(info.st_size),
+        "mtime_ns": int(info.st_mtime_ns),
+        "ctime_ns": int(info.st_ctime_ns),
+    }
+
+
+def _write_private_packet_copy(
+    repo_root: Path,
+    destination: Path,
+    raw: bytes,
+) -> None:
+    """Write the already-validated UTF-8 packet into host-private runtime state."""
+    text = raw.decode("utf-8")
+    try:
+        with open_repo_text(
+            repo_root,
+            destination,
+            mode="w",
+            permissions=0o600,
+        ) as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except StorageError as exc:
+        raise ValidationIssue(
+            "full_run_staged_packet_write_failed",
+            "Cannot persist the host-private staged packet copy",
+            path=str(destination),
+        ) from exc
+
+
+def _read_private_packet_copy(repo_root: Path, packet_path: Path) -> bytes:
+    _private_staged_packet_identity(packet_path)
+    try:
+        return _read_bounded_regular_bytes(
+            packet_path,
+            max_bytes=MAX_PACKET_BYTES,
+            label="staged full-run packet",
+            repo_root=repo_root,
+        )
+    except StorageError as exc:
+        raise ValidationIssue(
+            "full_run_staged_packet_changed",
+            "Host-private staged packet copy cannot be revalidated",
+            path=str(packet_path),
+        ) from exc
+
+
+def _revalidate_staged_packet_binding(
+    repo_root: Path,
+    state: FullRunState,
+) -> Path:
+    """Bind launch/reconciliation to the exact source, copy, and criteria.
+
+    States prepared before packet binding was introduced intentionally fail
+    closed here. They remain readable for diagnosis and stop operations.
+    """
+    source_path = Path(state.packet_path)
+    expected_staged_path = _private_staged_packet_path(
+        full_run_root(repo_root, state.session_id), source_path
+    )
+    staged_path = Path(state.staged_packet_path or "")
+    criteria = state.acceptance_criteria
+    staged_identity = state.staged_packet_identity
+    if (
+        not state.staged_packet_path
+        or staged_path != expected_staged_path
+        or not isinstance(staged_identity, dict)
+        or set(staged_identity) != _STAGED_PACKET_IDENTITY_KEYS
+        or staged_identity.get("path") != str(staged_path)
+        or any(
+            isinstance(staged_identity.get(key), bool)
+            or not isinstance(staged_identity.get(key), int)
+            for key in _STAGED_PACKET_IDENTITY_KEYS - {"path"}
+        )
+        or not isinstance(state.packet_sha256, str)
+        or not _SHA256_RE.fullmatch(state.packet_sha256)
+        or isinstance(state.packet_size, bool)
+        or not isinstance(state.packet_size, int)
+        or state.packet_size < 0
+        or not isinstance(state.packet_contract_sha256, str)
+        or not _SHA256_RE.fullmatch(state.packet_contract_sha256)
+        or not isinstance(criteria, dict)
+        or any(
+            not isinstance(key, str)
+            or not _ACCEPTANCE_ID_RE.fullmatch(key)
+            or not isinstance(value, str)
+            or not value
+            for key, value in criteria.items()
+        )
+        or not isinstance(state.acceptance_ids, list)
+        or any(not isinstance(item, str) for item in state.acceptance_ids)
+        or sorted(state.acceptance_ids) != sorted(criteria)
+    ):
+        raise ValidationIssue(
+            "full_run_packet_binding_missing",
+            "Full-run state lacks a complete immutable staged-packet binding",
+            hint="Prepare a fresh full-run session before launch or reconciliation",
+        )
+
+    expected_contract_digest = _packet_contract_digest(
+        source_path=str(source_path),
+        staged_packet_identity=staged_identity,
+        packet_sha256=state.packet_sha256,
+        packet_size=state.packet_size,
+        acceptance_criteria=criteria,
+    )
+    if not hmac.compare_digest(
+        expected_contract_digest,
+        state.packet_contract_sha256,
+    ):
+        raise ValidationIssue(
+            "full_run_packet_binding_changed",
+            "Staged packet contract metadata changed after preparation",
+        )
+
+    source_raw = _read_full_run_packet(source_path)
+    source_digest = hashlib.sha256(source_raw).hexdigest()
+    if (
+        len(source_raw) != state.packet_size
+        or not hmac.compare_digest(source_digest, state.packet_sha256)
+    ):
+        raise ValidationIssue(
+            "full_run_packet_source_changed",
+            "Full-run source packet content changed after preparation",
+            path=str(source_path),
+        )
+
+    staged_raw = _read_private_packet_copy(repo_root, staged_path)
+    observed_staged_identity = _private_staged_packet_identity(staged_path)
+    if observed_staged_identity != staged_identity:
+        raise ValidationIssue(
+            "full_run_staged_packet_changed",
+            "Host-private staged packet identity changed after preparation",
+            path=str(staged_path),
+        )
+    staged_digest = hashlib.sha256(staged_raw).hexdigest()
+    if (
+        len(staged_raw) != state.packet_size
+        or not hmac.compare_digest(staged_digest, state.packet_sha256)
+        or not hmac.compare_digest(staged_digest, source_digest)
+    ):
+        raise ValidationIssue(
+            "full_run_staged_packet_changed",
+            "Host-private staged packet content changed after preparation",
+            path=str(staged_path),
+        )
+
+    parsed_rows = _acceptance_criteria_from_packet(
+        staged_raw,
+        packet_path=source_path,
+    )
+    parsed_ids = [item[0] for item in parsed_rows]
+    if len(set(parsed_ids)) != len(parsed_ids) or dict(parsed_rows) != criteria:
+        raise ValidationIssue(
+            "full_run_packet_binding_changed",
+            "Staged packet acceptance contract no longer matches prepared state",
+        )
+    return staged_path
 
 
 _PROC_SCAN_SKIP_ERRNOS = frozenset(
@@ -2363,7 +4603,16 @@ def _scan_supervision_pids(executable: str | Path, marker_value: str) -> set[int
 
 def _run_supervision_canary(executable: Path) -> bool:
     marker_value = secrets.token_hex(32)
-    env = dict(os.environ)
+    # The canary needs only process discovery, not provider/user state.  On
+    # Darwin the qualified `ps e` backend necessarily observes its environment,
+    # so inheriting the host environment would copy every credential into both
+    # the child and the scan buffer.
+    env = {
+        name: os.environ[name]
+        for name in ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ")
+        if os.environ.get(name)
+    }
+    env.setdefault("PATH", os.defpath)
     env["ELVES_FULL_RUN_SUPERVISION_MARKER"] = marker_value
     proc = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(1)"],
@@ -2540,6 +4789,9 @@ def prepare_full_run(
 ) -> dict[str, Any]:
     """Create private full-run artifact tree for one exact session."""
     sid = (session_id or "").strip()
+    normalized_grant_names = _normalize_credential_grant_names(
+        credential_grant_names
+    )
     if not sid or sid.lower() in {"latest", "continue", "last", "most-recent"}:
         raise ValidationIssue(
             "full_run_session_required",
@@ -2573,25 +4825,31 @@ def prepare_full_run(
         prepare_phase=True,
     )
 
-    staged_acceptance_ids = _staged_acceptance_ids(Path(packet_path).expanduser())
+    packet_source = Path(packet_path).expanduser().resolve()
+    packet_raw = _read_full_run_packet(Path(packet_path).expanduser())
+    staged_acceptance_rows = _acceptance_criteria_from_packet(
+        packet_raw,
+        packet_path=packet_source,
+    )
+    staged_acceptance_ids = [item[0] for item in staged_acceptance_rows]
+    duplicate_ids = sorted(
+        {
+            item
+            for item in staged_acceptance_ids
+            if staged_acceptance_ids.count(item) > 1
+        }
+    )
+    if duplicate_ids:
+        raise ValidationIssue(
+            "full_run_acceptance_ids_duplicate",
+            "Full-run packet contains duplicate stable acceptance definitions",
+            path=str(packet_path),
+        )
     if adapter_name != "fixture":
         if not staged_acceptance_ids:
             raise ValidationIssue(
                 "full_run_acceptance_ids_required",
                 "Production full-run packet requires canonical B#-A#/M-A# acceptance definition rows",
-                path=str(packet_path),
-            )
-        duplicate_ids = sorted(
-            {
-                item
-                for item in staged_acceptance_ids
-                if staged_acceptance_ids.count(item) > 1
-            }
-        )
-        if duplicate_ids:
-            raise ValidationIssue(
-                "full_run_acceptance_ids_duplicate",
-                "Production full-run packet contains duplicate stable acceptance definitions",
                 path=str(packet_path),
             )
 
@@ -2615,6 +4873,27 @@ def prepare_full_run(
     ensure_private_dir(root, repo_root=Path(repo_root))
     ensure_private_dir(root / "worker-home", repo_root=Path(repo_root))
     ensure_private_dir(root / "worker-tmp", repo_root=Path(repo_root))
+    staged_packet_path = _private_staged_packet_path(root, packet_source)
+    _write_private_packet_copy(Path(repo_root), staged_packet_path, packet_raw)
+    staged_packet_raw = _read_private_packet_copy(
+        Path(repo_root), staged_packet_path
+    )
+    if staged_packet_raw != packet_raw:
+        raise ValidationIssue(
+            "full_run_staged_packet_changed",
+            "Host-private staged packet copy does not match its source",
+            path=str(staged_packet_path),
+        )
+    staged_packet_identity = _private_staged_packet_identity(staged_packet_path)
+    packet_sha256 = hashlib.sha256(packet_raw).hexdigest()
+    acceptance_criteria = dict(staged_acceptance_rows)
+    packet_contract_sha256 = _packet_contract_digest(
+        source_path=str(packet_source),
+        staged_packet_identity=staged_packet_identity,
+        packet_sha256=packet_sha256,
+        packet_size=len(packet_raw),
+        acceptance_criteria=acceptance_criteria,
+    )
 
     exe = (executable or DEFAULT_EXECUTABLE).strip() or DEFAULT_EXECUTABLE
     if adapter_name == "fixture":
@@ -2631,7 +4910,13 @@ def prepare_full_run(
         branch=branch,
         start_head=start_head,
         worktree=str(Path(worktree).expanduser().resolve()),
-        packet_path=str(Path(packet_path).expanduser().resolve()),
+        packet_path=str(packet_source),
+        staged_packet_path=str(staged_packet_path),
+        staged_packet_identity=staged_packet_identity,
+        packet_sha256=packet_sha256,
+        packet_size=len(packet_raw),
+        packet_contract_sha256=packet_contract_sha256,
+        acceptance_criteria=acceptance_criteria,
         adapter=adapter_name,
         model=model,
         permission_mode=permission_mode,
@@ -2643,9 +4928,7 @@ def prepare_full_run(
         status="pending",
         head=start_head,
         next_action="launch",
-        credential_grant_names=list(
-            credential_grant_names or sorted(DEFAULT_CREDENTIAL_GRANT_NAMES)
-        ),
+        credential_grant_names=normalized_grant_names,
         fixture_script=str(Path(fixture_script).resolve()) if fixture_script else None,
         protected_refs=snapshot_protected_refs(
             Path(repo_root), feature_branch=branch
@@ -2786,16 +5069,17 @@ def save_state(repo_root: Path, state: FullRunState) -> Path:
 
 def build_full_run_argv(state: FullRunState) -> list[str]:
     """Adapter-aware argv. Fixture mode uses explicit python + script + packet."""
+    launch_packet = state.staged_packet_path or state.packet_path
     if state.adapter == "fixture":
         if not state.fixture_script:
             raise ValidationIssue(
                 "fixture_script_required",
                 "fixture adapter requires fixture_script in state",
             )
-        return [state.executable, state.fixture_script, state.packet_path]
+        return [state.executable, state.fixture_script, launch_packet]
     return build_launch_argv(
         session_id=state.session_id,
-        packet=state.packet_path,
+        packet=launch_packet,
         cwd=state.worktree,
         model=state.model,
         permission_mode=state.permission_mode,
@@ -2878,6 +5162,8 @@ def _archive_and_reset_resume_attempt(
     state.supervision_token = secrets.token_hex(24)
     state.credential_granted_names = []
     state.credential_grant_digests = {}
+    state.credential_grant_lengths = {}
+    state.credential_grant_metadata_mac = None
     state.closed_process_identity = None
     state.interruption_evidence = None
     state.pid = None
@@ -2925,6 +5211,11 @@ def _prepare_resume_attempt(repo_root: Path, state: FullRunState) -> str:
             "full_run_resume_adapter_unsupported",
             "Production full-run resume requires the exact Grok Build adapter",
         )
+    if state.grok_auth_strategy == "oauth_shared_file":
+        # Validate the canonical refresh-token authority before archiving or
+        # incrementing the prior attempt. Token bytes may rotate; path identity
+        # and owner-private storage may not.
+        _revalidate_shared_grok_auth(state)
     if state.launch_start_head != state.start_head:
         raise ValidationIssue(
             "full_run_start_head_mutated",
@@ -2935,7 +5226,7 @@ def _prepare_resume_attempt(repo_root: Path, state: FullRunState) -> str:
     if not isinstance(closed, Mapping) or not isinstance(interruption, Mapping):
         raise ValidationIssue(
             "full_run_resume_unauthenticated",
-            "Resume requires a host-authenticated prior interruption and closed identity",
+            "Resume requires a capability-authenticated prior interruption and closed identity",
         )
     if (
         interruption.get("authority") != "host_stop"
@@ -2993,6 +5284,7 @@ def launch_full_run(
     session_id: str,
     background: bool = True,
     credential_grant_names: Sequence[str] | None = None,
+    grant_grok_auth: bool = False,
     resume: bool = False,
 ) -> dict[str, Any]:
     """Background-launch Grok (or explicit fixture) for one exact session.
@@ -3003,6 +5295,7 @@ def launch_full_run(
     state = load_state(repo_root, session_id)
     root = full_run_root(repo_root, session_id)
     if resume:
+        _revalidate_staged_packet_binding(Path(repo_root), state)
         _prepare_resume_attempt(Path(repo_root), state)
         save_state(repo_root, state)
     elif state.status in {"complete", "stopped", "blocked", "failed"}:
@@ -3033,6 +5326,10 @@ def launch_full_run(
             f"Recorded process is dead but has no authenticated resume transition: {reason}",
         )
 
+    # This is intentionally the last packet source used before launch. The
+    # worker consumes only the private staged copy; source or copy drift blocks
+    # before credential setup and before any supervisor/provider spawn.
+    _revalidate_staged_packet_binding(Path(repo_root), state)
     _validate_full_run_git_contract(
         Path(repo_root),
         worktree=state.worktree,
@@ -3058,29 +5355,10 @@ def launch_full_run(
                 "Production launch requires a successful recursive-supervision canary",
             )
 
-    provider_argv = build_full_run_argv(state)
-    if resume and state.adapter != "fixture":
-        try:
-            resume_index = provider_argv.index("--resume")
-        except ValueError as exc:
-            raise ValidationIssue(
-                "full_run_resume_argv_ambiguous",
-                "Grok resume argv must contain exact --resume <session-id>",
-            ) from exc
-        if (
-            resume_index + 1 >= len(provider_argv)
-            or provider_argv[resume_index + 1] != state.session_id
-            or "--session-id" in provider_argv
-        ):
-            raise ValidationIssue(
-                "full_run_resume_argv_ambiguous",
-                "Grok resume argv is not bound to the exact staged session id",
-            )
-    state.last_argv = list(provider_argv)
-    effective_grant_names = list(
-        credential_grant_names
-        if credential_grant_names is not None
-        else state.credential_grant_names
+    effective_grant_names = _normalize_credential_grant_names(
+        state.credential_grant_names
+        if credential_grant_names is None
+        else credential_grant_names
     )
     state.credential_grant_names = effective_grant_names
     launch_env = build_full_run_env(
@@ -3088,20 +5366,20 @@ def launch_full_run(
         root=root,
         credential_grant_names=effective_grant_names,
     )
-    # Never return credential values.
-    granted_names = [
-        n
-        for n in effective_grant_names
-        if n in launch_env
-    ]
+    # Never return credential values. The names are already strict environment
+    # identifiers and cannot smuggle KEY=VALUE material into state or output.
+    granted_names = [n for n in effective_grant_names if n in launch_env]
     state.credential_granted_names = list(granted_names)
     state.credential_grant_digests = {
         name: _credential_grant_digest(state, name, launch_env[name])
         for name in granted_names
     }
-    # Persist the exact granted names before spawn so a concurrently invoked
-    # monitor/log command can redact opaque values from the first worker byte.
-    save_state(repo_root, state)
+    state.credential_grant_lengths = {
+        name: len(launch_env[name]) for name in granted_names
+    }
+    state.credential_grant_metadata_mac = (
+        _credential_grant_metadata_mac(state) if granted_names else None
+    )
 
     transcript = root / "transcript.log"
     for isolated_dir in (
@@ -3110,6 +5388,7 @@ def launch_full_run(
         root / "worker-home" / ".cache",
         root / "worker-home" / ".local",
         root / "worker-home" / ".local" / "share",
+        root / GROK_HOME_REL,
         root / "worker-tmp",
         root / "worker-tmp" / "runtime",
     ):
@@ -3130,104 +5409,180 @@ def launch_full_run(
             "full_run_supervision_unavailable",
             "Launch is missing its host-owned recursive supervision identity",
         )
-    supervisor_argv = _provider_supervisor_argv(
-        root=root,
-        session_id=session_id,
-        provider_argv=provider_argv,
-        attempt=state.attempt,
-        supervisor_executable=state.supervisor_executable,
-    )
-    # Open transcript for inheritance, then close parent fd so launchers across
-    # separate CLI invocations do not leave unclosed handles / ResourceWarnings.
-    with open_repo_text(Path(repo_root), transcript, mode="a") as stdout_handle:
-        proc = subprocess.Popen(
-            supervisor_argv,
-            cwd=state.worktree if state.adapter != "fixture" else state.worktree,
-            env=launch_env,
-            stdout=stdout_handle,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.PIPE,
-            start_new_session=True,
-            close_fds=True,
-        )
-        try:
-            _handoff_supervision_secret(proc, state)
-        except ValidationIssue:
-            # The exact unreaped Popen child cannot be a reused PID. It has not
-            # passed secret validation, so no provider or descendants can exist.
-            try:
-                proc.kill()
-            except OSError:
-                pass
-            try:
-                proc.wait(timeout=1.0)
-            except (OSError, subprocess.TimeoutExpired):
-                pass
-            raise
+    # Shared OAuth is configured only after every non-secret preflight passes.
+    # The provider still receives an isolated HOME/GROK_HOME; only Grok's native
+    # auth path points at the one validated canonical refresh-token authority.
+    proc: subprocess.Popen[bytes] | None = None
+    try:
+        if state.adapter == "grok-build":
+            _configure_grok_auth(
+                Path(repo_root),
+                root,
+                state,
+                launch_env,
+                grant_grok_auth=grant_grok_auth,
+            )
 
-    pgid = os.getpgid(proc.pid) if hasattr(os, "getpgid") else proc.pid
-    # Brief settle so ps can observe the process.
-    time.sleep(0.05)
-    fp = capture_fingerprint(
-        pid=proc.pid,
-        pgid=pgid,
-        session_id=session_id,
-        executable_hint=sys.executable,
-    )
-    state.pid = proc.pid
-    state.pgid = pgid
-    state.fingerprint = fp.to_dict()
-    state.status = "healthy"
-    state.launched_at = _utc_now()
-    state.heartbeat_at = state.launched_at
-    state.next_action = "parked_monitor"
-    if resume:
-        state.create_session = False
-    # The supervisor is the provider's real parent, waits it, and records its exact
-    # exit code before it exits. Monitor validates this launcher-captured identity.
-    atomic_write_json(
-        root / "supervisor.fingerprint.json",
-        fp.to_dict(),
-        repo_root=Path(repo_root),
-    )
-    state.exit_sidecar_pid = proc.pid  # compatibility field: now the parent supervisor PID
-    state.exit_code = None
-    # Drop Popen without waiting: process is tracked by fingerprint + durable exit record.
-    # Clear handles so GC does not emit ResourceWarning for intentional backgrounding.
+        # Recheck at the final provider-argv boundary as well as during launch
+        # preflight, closing the host-side window while auth/capability probes
+        # ran. No provider process exists yet.
+        _revalidate_staged_packet_binding(Path(repo_root), state)
+        # Build argv only after Grok auth selection has resolved and bound the
+        # exact executable. The supervisor receives that same path plus the
+        # identity it must recheck immediately before provider spawn.
+        provider_argv = build_full_run_argv(state)
+        if resume and state.adapter != "fixture":
+            try:
+                resume_index = provider_argv.index("--resume")
+            except ValueError as exc:
+                raise ValidationIssue(
+                    "full_run_resume_argv_ambiguous",
+                    "Grok resume argv must contain exact --resume <session-id>",
+                ) from exc
+            if (
+                resume_index + 1 >= len(provider_argv)
+                or provider_argv[resume_index + 1] != state.session_id
+                or "--session-id" in provider_argv
+            ):
+                raise ValidationIssue(
+                    "full_run_resume_argv_ambiguous",
+                    "Grok resume argv is not bound to the exact staged session id",
+                )
+        state.last_argv = list(provider_argv)
+        supervisor_argv = _provider_supervisor_argv(
+            root=root,
+            session_id=session_id,
+            provider_argv=provider_argv,
+            attempt=state.attempt,
+            supervisor_executable=state.supervisor_executable,
+            staged_packet_path=str(state.staged_packet_path),
+            staged_packet_identity=dict(state.staged_packet_identity or {}),
+            packet_sha256=str(state.packet_sha256),
+            packet_size=int(state.packet_size or 0),
+            provider_executable_identity=(
+                state.grok_executable_identity
+                if state.adapter == "grok-build"
+                else None
+            ),
+        )
+
+        # Open transcript for inheritance, then close the parent descriptor so
+        # separate CLI invocations do not retain handles or ResourceWarnings.
+        with open_repo_text(Path(repo_root), transcript, mode="a") as stdout_handle:
+            proc = subprocess.Popen(
+                supervisor_argv,
+                cwd=state.worktree if state.adapter != "fixture" else state.worktree,
+                env=launch_env,
+                stdout=stdout_handle,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE,
+                start_new_session=True,
+                close_fds=True,
+            )
+
+        pgid = os.getpgid(proc.pid) if hasattr(os, "getpgid") else proc.pid
+        # Brief settle so ps can observe the blocked supervisor identity.
+        time.sleep(0.05)
+        fp = capture_fingerprint(
+            pid=proc.pid,
+            pgid=pgid,
+            session_id=session_id,
+            executable_hint=sys.executable,
+        )
+        state.pid = proc.pid
+        state.pgid = pgid
+        state.fingerprint = fp.to_dict()
+        state.status = "healthy"
+        state.launched_at = _utc_now()
+        state.heartbeat_at = state.launched_at
+        state.next_action = "parked_monitor"
+        if resume:
+            state.create_session = False
+        state.exit_sidecar_pid = proc.pid
+        state.exit_code = None
+
+        # The supervisor is still blocked before provider spawn. Publish every
+        # launcher-owned identity and state artifact before releasing it.
+        atomic_write_json(
+            root / "supervisor.fingerprint.json",
+            fp.to_dict(),
+            repo_root=Path(repo_root),
+        )
+        with open_repo_text(Path(repo_root), root / "worker.pid", mode="w") as handle:
+            handle.write(str(proc.pid) + "\n")
+        with open_repo_text(Path(repo_root), root / "worker.pgid", mode="w") as handle:
+            handle.write(str(pgid) + "\n")
+        atomic_write_json(
+            root / "worker.fingerprint.json",
+            fp.to_dict(),
+            repo_root=Path(repo_root),
+        )
+        _append_event(
+            root / "events.jsonl",
+            {
+                "timestamp": state.launched_at,
+                "session_id": session_id,
+                "branch": state.branch,
+                "head": state.head or state.start_head,
+                "batch": state.batch or 0,
+                "type": "heartbeat",
+                "summary": "Worker launch staged in background supervisor",
+            },
+            expected_session_id=session_id,
+            expected_branch=state.branch,
+            repo_root=Path(repo_root),
+        )
+        save_state(repo_root, state)
+
+    except BaseException as launch_error:
+        _cleanup_refused_launch(
+            Path(repo_root),
+            root,
+            state,
+            proc,
+            cause=launch_error,
+        )
+        raise
+
+    assert proc is not None
+    # Durable state and stop authority now exist. Invoke the irreversible
+    # ownership transfer outside refused-launch cleanup: an asynchronous
+    # exception at or after the complete handoff must never erase the only
+    # identity capable of stopping a provider that may already have started.
+    try:
+        _handoff_supervision_secret(proc, state)
+    except _PreTransferHandoffError as handoff_error:
+        _cleanup_refused_launch(
+            Path(repo_root),
+            root,
+            state,
+            proc,
+            cause=handoff_error,
+        )
+        raise
+    except BaseException:
+        # State, fingerprint, and stop capability remain durable. Detach only
+        # this local Popen wrapper so propagation cannot emit a misleading
+        # ResourceWarning or close over lifecycle ownership.
+        try:
+            proc.stdout = None
+            proc.stderr = None
+            proc.stdin = None
+            if proc.returncode is None:
+                proc.returncode = 0
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+    # Drop Popen without waiting: the durable fingerprint and supervisor exit
+    # record now own lifecycle tracking. Suppress intentional detach warnings.
     try:
         proc.stdout = None
         proc.stderr = None
         proc.stdin = None
-        # Intentional background detach: suppress ResourceWarning on GC.
         if proc.returncode is None:
             proc.returncode = 0
     except Exception:  # noqa: BLE001
         pass
-    save_state(repo_root, state)
-    with open_repo_text(Path(repo_root), root / "worker.pid", mode="w") as handle:
-        handle.write(str(proc.pid) + "\n")
-    with open_repo_text(Path(repo_root), root / "worker.pgid", mode="w") as handle:
-        handle.write(str(pgid) + "\n")
-    atomic_write_json(
-        root / "worker.fingerprint.json",
-        fp.to_dict(),
-        repo_root=Path(repo_root),
-    )
-    _append_event(
-        root / "events.jsonl",
-        {
-            "timestamp": state.launched_at,
-            "session_id": session_id,
-            "branch": state.branch,
-            "head": state.head or state.start_head,
-            "batch": state.batch or 0,
-            "type": "heartbeat",
-            "summary": "Worker launched in background",
-        },
-        expected_session_id=session_id,
-        expected_branch=state.branch,
-        repo_root=Path(repo_root),
-    )
     return {
         "ok": True,
         "action": "full_run_launch",
@@ -3241,6 +5596,7 @@ def launch_full_run(
         "argv": provider_argv,
         "adapter": state.adapter,
         "credential_grant_names_present": granted_names,
+        "grok_auth_strategy": state.grok_auth_strategy,
         "model_calls_made": state.adapter != "fixture",
         "merge_authority": False,
     }
@@ -3376,6 +5732,8 @@ def _read_events(
     expected_session_id: str,
     expected_branch: str,
     exact_secret_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+    credential_grant_state: FullRunState | None = None,
+    shared_oauth_safe_projection: bool = False,
     allow_partial_final: bool = False,
     repo_root: Path | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -3423,27 +5781,106 @@ def _read_events(
         if not line:
             continue
         try:
-            event = json.loads(line)
-        except json.JSONDecodeError as exc:
-            errors.append(f"line {line_no}: malformed json: {exc}")
+            event = _loads_bounded_json(line, label="event")
+        except (json.JSONDecodeError, ValueError, RecursionError):
+            errors.append(f"line {line_no}: malformed or over-budget json")
             continue
         if not isinstance(event, dict):
             errors.append(f"line {line_no}: event must be object")
             continue
+        try:
+            _assert_bounded_json_structure(event, label="event")
+        except StorageError as exc:
+            errors.append(f"line {line_no}: {exc.message}")
+            continue
+        if credential_grant_state and _contains_persisted_credential_grant(
+            event, credential_grant_state
+        ):
+            errors.append(f"line {line_no}: event contains secret-shaped content")
+            continue
+        validation_event = event
+        if shared_oauth_safe_projection:
+            validation_event = {
+                key: event[key]
+                for key in _SHARED_OAUTH_PUBLIC_EVENT_FIELDS
+                if key in event
+            }
+            # Presence remains part of the schema, but OAuth worker free text
+            # is neither trusted nor retained after token rotation.
+            if "summary" in event:
+                validation_event["summary"] = "shared OAuth event"
         verrs = validate_event(
-            event,
+            validation_event,
             expected_session_id=expected_session_id,
             expected_branch=expected_branch,
             seen_terminal=seen_terminal,
             exact_secret_values=exact_secret_values,
+            credential_grant_state=credential_grant_state,
         )
         if verrs:
             errors.extend(f"line {line_no}: {e}" for e in verrs)
             continue
         if event.get("type") in TERMINAL_EVENT_TYPES:
             seen_terminal = True
-        rows.append(event)
+        rows.append(
+            {
+                key: event[key]
+                for key in _SHARED_OAUTH_PUBLIC_EVENT_FIELDS
+                if key in event
+            }
+            if shared_oauth_safe_projection
+            else event
+        )
     return rows, errors
+
+
+_SHARED_OAUTH_PUBLIC_EVENT_FIELDS: tuple[str, ...] = (
+    "timestamp",
+    "session_id",
+    "branch",
+    "head",
+    "batch",
+    "type",
+)
+
+
+def _driver_visible_events(
+    events: Sequence[Mapping[str, Any]],
+    *,
+    shared_oauth: bool,
+) -> list[dict[str, Any]]:
+    """Project OAuth events onto validated structural fields only.
+
+    Free-text summaries cannot be safely redacted after a refresh-token
+    rotation because a prior opaque value is intentionally no longer stored.
+    """
+    if not shared_oauth:
+        return [dict(event) for event in events]
+    return [
+        {
+            key: event[key]
+            for key in _SHARED_OAUTH_PUBLIC_EVENT_FIELDS
+            if key in event
+        }
+        for event in events
+    ]
+
+
+def _driver_visible_blocker(state: FullRunState) -> str | None:
+    """Return a categorical OAuth blocker without echoing worker free text."""
+    if not state.blocker or state.grok_auth_strategy != "oauth_shared_file":
+        return state.blocker
+    categories = {
+        "driver_wake_blocker": "shared OAuth worker reported a blocked state",
+        "driver_wake_safety_tripwire": "shared OAuth run triggered a safety tripwire",
+        "driver_wake_stale_heartbeat": "shared OAuth worker heartbeat became stale",
+        "driver_wake_error": "shared OAuth run requires driver error review",
+        "stopped": "shared OAuth run was stopped",
+    }
+    return categories.get(
+        str(state.next_action or ""),
+        "shared OAuth run requires driver review",
+    )
 
 
 def _bounded_text_tail(
@@ -3573,14 +6010,24 @@ def _validate_git_bound_evidence(
         else:
             if _report_commit_shas(report) != expected_chain:
                 errors.append("report commits do not exactly equal start_head..final_head chain")
-        if state.acceptance_ids:
-            observed_ids = [
-                str(item.get("id") or "")
+        if not state.acceptance_criteria:
+            errors.append("staged acceptance criterion binding is missing")
+        else:
+            observed_criteria = {
+                str(item.get("id") or ""): item.get("criterion")
                 for item in report.get("acceptance") or []
                 if isinstance(item, Mapping)
-            ]
-            if sorted(observed_ids) != sorted(state.acceptance_ids):
+            }
+            if set(observed_criteria) != set(state.acceptance_criteria):
                 errors.append("report acceptance ids do not exactly match staged criteria")
+            elif any(
+                observed_criteria[acceptance_id]
+                != state.acceptance_criteria[acceptance_id]
+                for acceptance_id in state.acceptance_criteria
+            ):
+                errors.append(
+                    "report acceptance criterion text does not exactly match staged criteria"
+                )
         try:
             _assert_clean_worktree(worktree)
         except ValidationIssue as issue:
@@ -3609,14 +6056,17 @@ def monitor_full_run(
         and state.fingerprint is None
     )
     root = full_run_root(repo_root, session_id)
-    exact_secret_values = _state_secret_values(state)
-    grant_context_verified = _launch_grants_verified(state)
+    grant_context_verified, exact_secret_values = _launch_evidence_context(state)
     if grant_context_verified:
         events, event_errors = _read_events(
             root / "events.jsonl",
             expected_session_id=session_id,
             expected_branch=state.branch,
             exact_secret_values=exact_secret_values,
+            credential_grant_state=state,
+            shared_oauth_safe_projection=(
+                state.grok_auth_strategy == "oauth_shared_file"
+            ),
             allow_partial_final=not identity_retired and bool(state.pid or state.pgid),
             repo_root=Path(repo_root),
         )
@@ -3651,10 +6101,17 @@ def monitor_full_run(
                 require_complete_acceptance=report.get("status") == "complete",
                 expected_run_id=_expected_run_id(session_id),
                 expected_attempt=state.attempt,
+                expected_acceptance_criteria=(
+                    state.acceptance_criteria
+                    if state.adapter != "fixture"
+                    else None
+                ),
                 exact_secret_values=exact_secret_values,
+                credential_grant_state=state,
             )
             redacted_report = _redact_full_run_structure(
-                report, exact_values=exact_secret_values
+                _redact_persisted_credential_grants(report, state),
+                exact_values=exact_secret_values,
             )
             if redacted_report != report:
                 # The worker writes this private artifact directly. Replace any
@@ -3681,11 +6138,18 @@ def monitor_full_run(
             state.fingerprint, expected_session_id=session_id
         )
         alive = fp_ok
+        if not fp_ok and state.pid:
+            # In embedded/API use this process may still be the supervisor's
+            # parent. Reap a dead exact child before probing its former process
+            # group; otherwise a zombie can make killpg(..., 0) look live
+            # indefinitely and strand lifecycle finalization.
+            _reap_supervisor_if_child(state.pid)
     elif state.pid and not identity_retired:
         alive = _pid_alive(state.pid)
         fp_reason = "legacy pid without fingerprint"
     group_alive = False if identity_retired else _process_group_alive(state.pgid)
     supervised_pids: set[int] = set()
+    supervision_scan_ok = bool(identity_retired)
     if not identity_retired:
         try:
             supervised_pids = _supervised_alive(state)
@@ -3693,6 +6157,7 @@ def monitor_full_run(
             exit_record_errors = [issue.message]
         else:
             exit_record_errors = []
+            supervision_scan_ok = True
     else:
         exit_record_errors = []
 
@@ -3719,6 +6184,9 @@ def monitor_full_run(
                     supervised_pids = _supervised_alive(state)
                 except ValidationIssue as issue:
                     exit_record_errors.append(issue.message)
+                    supervision_scan_ok = False
+                else:
+                    supervision_scan_ok = True
             if pid_still_alive or group_alive or supervised_pids:
                 exit_record_errors.append(
                     "premature exit record while supervised process identity remains alive"
@@ -3753,7 +6221,11 @@ def monitor_full_run(
         )
         if ev.get("type") == "blocked":
             state.status = "blocked"
-            state.blocker = str(ev.get("summary") or "blocked")
+            state.blocker = (
+                "worker reported a blocked event"
+                if state.grok_auth_strategy == "oauth_shared_file"
+                else str(ev.get("summary") or "blocked")
+            )
             state.next_action = "driver_wake_blocker"
         if ev.get("type") == "run_complete":
             # Lone run_complete never establishes completion — needs validated report
@@ -3875,6 +6347,10 @@ def monitor_full_run(
             state.status = "failed"
             state.blocker = "supervisor exited while recursively supervised descendants remain alive"
             state.next_action = "driver_wake_error"
+        elif state.launched_at:
+            state.status = "failed"
+            state.blocker = "supervisor disappeared without a validated exit record"
+            state.next_action = "driver_wake_error"
         elif last_type == "blocked":
             state.status = "blocked"
             state.next_action = "driver_wake_blocker"
@@ -3883,10 +6359,9 @@ def monitor_full_run(
             state.blocker = "run_complete event without validated complete report and exit"
             state.next_action = "driver_wake_error"
         else:
-            # Prepared-but-not-launched and the short atomic exit-record race are
-            # pending. Neither can imply success.
+            # A genuinely prepared-but-not-launched session remains pending.
             state.status = "pending"
-            state.next_action = "parked_monitor" if state.launched_at else "launch"
+            state.next_action = "launch"
 
     if exit_record is not None and state.fingerprint is not None:
         _retire_process_identity(
@@ -3961,7 +6436,7 @@ def monitor_full_run(
         "pid": state.pid,
         "pgid": state.pgid,
         "next_action": state.next_action,
-        "blocker": state.blocker,
+        "blocker": _driver_visible_blocker(state),
         "driver_contract": "parked_monitor",
         "driver_monitor_mode": "parked_monitor",
         "poll_after_seconds": parked_monitor_poll_after_seconds(stale_after_seconds),
@@ -4140,7 +6615,7 @@ def stop_full_run(
     signaled = False
     if pid_alive and state.fingerprint:
         _write_supervisor_stop_request(Path(repo_root), root, state)
-        # Compatibility field: true now means the authenticated supervisor stop
+        # Compatibility field: true now means the capability-authenticated supervisor stop
         # channel was engaged, not that a reusable numeric PID/PGID was signaled.
         signaled = True
 
@@ -4187,7 +6662,7 @@ def stop_full_run(
     state.next_action = "driver_wake_error" if still_alive else "stopped"
     if still_alive:
         state.blocker = (
-            "supervised process domain remains alive after authenticated stop request"
+            "supervised process domain remains alive after capability-authenticated stop request"
         )
     state.completed_at = _utc_now()
     if not still_alive:
@@ -4215,7 +6690,7 @@ def stop_full_run(
             "head": state.head or state.start_head,
             "batch": state.batch or 0,
             "type": "heartbeat",
-            "summary": "Authenticated supervisor stop requested through private runtime channel",
+            "summary": "Capability-authenticated supervisor stop requested through private runtime channel",
         },
         expected_session_id=session_id,
         expected_branch=state.branch,
@@ -4243,14 +6718,17 @@ def logs_full_run(
     bounded_tail = min(100, max(0, int(tail_lines)))
     root = full_run_root(repo_root, session_id)
     state = load_state(repo_root, session_id)
-    exact_secret_values = _state_secret_values(state)
-    launch_grants_verified = _launch_grants_verified(state)
+    launch_grants_verified, exact_secret_values = _launch_evidence_context(state)
     if launch_grants_verified:
         events, errors = _read_events(
             root / "events.jsonl",
             expected_session_id=session_id,
             expected_branch=state.branch,
             exact_secret_values=exact_secret_values,
+            credential_grant_state=state,
+            shared_oauth_safe_projection=(
+                state.grok_auth_strategy == "oauth_shared_file"
+            ),
             allow_partial_final=bool(state.pid or state.pgid),
             repo_root=Path(repo_root),
         )
@@ -4258,15 +6736,23 @@ def logs_full_run(
         events, errors = [], [
             "launch credential context cannot be verified for worker logs"
         ]
+    visible_events = _driver_visible_events(
+        events[-bounded_tail:] if bounded_tail else [],
+        shared_oauth=state.grok_auth_strategy == "oauth_shared_file",
+    )
     payload: dict[str, Any] = {
         "ok": not errors,
         "session_id": session_id,
-        "events_tail": events[-bounded_tail:] if bounded_tail else [],
+        "events_tail": visible_events,
         "event_errors": errors[-20:],
         "transcript_included": False,
         "merge_authority": False,
     }
-    if raw_tail and not launch_grants_verified:
+    if raw_tail and state.grok_auth_strategy == "oauth_shared_file":
+        payload["transcript_error"] = (
+            "raw transcript unavailable for shared OAuth runs"
+        )
+    elif raw_tail and not launch_grants_verified:
         payload["transcript_error"] = (
             "raw transcript unavailable: launch credential context cannot be verified"
         )
@@ -4290,6 +6776,8 @@ def logs_full_run(
             raw_window = "\n".join(raw_lines)
             if _PEM_BOUNDARY_RE.search(raw_window):
                 payload["transcript_tail"] = ["[REDACTED:pem_block]"]
+            elif _text_contains_persisted_credential_grant(raw_window, state):
+                payload["transcript_tail"] = ["[REDACTED:credential_grant]"]
             else:
                 redacted_window = _redact_full_run_text(
                     raw_window, exact_values=exact_secret_values
@@ -4305,12 +6793,13 @@ def logs_full_run(
 
 def write_report(repo_root: Path, session_id: str, report: Mapping[str, Any]) -> Path:
     state = load_state(repo_root, session_id)
-    if not _launch_grants_verified(state):
+    _revalidate_staged_packet_binding(Path(repo_root), state)
+    launch_grants_verified, exact_secret_values = _launch_evidence_context(state)
+    if not launch_grants_verified:
         raise ValidationIssue(
             "full_run_credential_context_unverified",
             "Cannot accept worker report without the exact launch credential context",
         )
-    exact_secret_values = _state_secret_values(state)
     errors = validate_run_report(
         report,
         expected_session_id=session_id,
@@ -4319,7 +6808,11 @@ def write_report(repo_root: Path, session_id: str, report: Mapping[str, Any]) ->
         require_complete_acceptance=report.get("status") == "complete",
         expected_run_id=_expected_run_id(session_id),
         expected_attempt=state.attempt,
+        expected_acceptance_criteria=(
+            state.acceptance_criteria if state.adapter != "fixture" else None
+        ),
         exact_secret_values=exact_secret_values,
+        credential_grant_state=state,
     )
     if errors:
         raise ValidationIssue("full_run_report_invalid", "; ".join(errors))
@@ -4347,7 +6840,9 @@ def reconcile_full_run_with_git(
     )
 
     state = load_state(repo_root, session_id)
-    if not _launch_grants_verified(state):
+    _revalidate_staged_packet_binding(Path(repo_root), state)
+    launch_grants_verified, exact_secret_values = _launch_evidence_context(state)
+    if not launch_grants_verified:
         raise ValidationIssue(
             "full_run_credential_context_unverified",
             "Cannot reconcile worker evidence without the exact launch credential context",
@@ -4382,7 +6877,6 @@ def reconcile_full_run_with_git(
 
     report_path = full_run_root(repo_root, session_id) / "report.json"
     report: dict[str, Any] = {}
-    exact_secret_values = _state_secret_values(state)
     try:
         report_exists = repo_regular_file_exists(Path(repo_root), report_path)
     except StorageError as exc:
@@ -4404,10 +6898,15 @@ def reconcile_full_run_with_git(
             require_complete_acceptance=report.get("status") == "complete",
             expected_run_id=_expected_run_id(session_id),
             expected_attempt=state.attempt,
+            expected_acceptance_criteria=(
+                state.acceptance_criteria if state.adapter != "fixture" else None
+            ),
             exact_secret_values=exact_secret_values,
+            credential_grant_state=state,
         )
         redacted_report = _redact_full_run_structure(
-            report, exact_values=exact_secret_values
+            _redact_persisted_credential_grants(report, state),
+            exact_values=exact_secret_values,
         )
         if redacted_report != report:
             atomic_write_json(
@@ -4432,6 +6931,10 @@ def reconcile_full_run_with_git(
         expected_session_id=session_id,
         expected_branch=state.branch,
         exact_secret_values=exact_secret_values,
+        credential_grant_state=state,
+        shared_oauth_safe_projection=(
+            state.grok_auth_strategy == "oauth_shared_file"
+        ),
         allow_partial_final=False,
         repo_root=Path(repo_root),
     )

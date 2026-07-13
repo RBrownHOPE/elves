@@ -473,6 +473,117 @@ class RegistryStorageContainmentTests(unittest.TestCase):
                     self.assertFalse(record_path.exists())
 
 
+class SessionListCliTests(unittest.TestCase):
+    @staticmethod
+    def _invoke(root: Path, *, json_output: bool = True) -> subprocess.CompletedProcess[str]:
+        argv = [
+            sys.executable,
+            str(CLI),
+            "session",
+            "list",
+            "--repo-root",
+            str(root),
+        ]
+        if json_output:
+            argv.append("--json")
+        return subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    @staticmethod
+    def _regular_files(root: Path) -> dict[str, bytes]:
+        return {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in root.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        }
+
+    def test_valid_list_preserves_read_only_output_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry = SessionRegistry(root)
+            registry.create(
+                session_id="valid-list",
+                harness="claude-code",
+                profile="claude-code",
+                role="review",
+            )
+            before = self._regular_files(root)
+
+            result = self._invoke(root)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertTrue(payload["read_only"])
+            self.assertFalse(payload["mutated_repo"])
+            self.assertEqual(payload["count"], 1)
+            self.assertEqual(payload["sessions"][0]["session_id"], "valid-list")
+            self.assertEqual(self._regular_files(root), before)
+
+    def test_malformed_record_returns_structured_exit_one_without_mutation(self) -> None:
+        malformed_payloads = (
+            "{not-json",
+            '{"usage": []}',
+            '{"session_id":"bad","harness":"x","profile":"x","revision":1e100000}',
+        )
+        for malformed in malformed_payloads:
+            with self.subTest(malformed=malformed), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                registry = SessionRegistry(root)
+                registry.create(
+                    session_id="good-list",
+                    harness="claude-code",
+                    profile="claude-code",
+                    role="review",
+                )
+                (registry.root / "broken.json").write_text(
+                    malformed,
+                    encoding="utf-8",
+                )
+                before = self._regular_files(root)
+
+                result = self._invoke(root)
+
+                self.assertEqual(result.returncode, 1, result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertFalse(payload["ok"])
+                self.assertTrue(payload["read_only"])
+                self.assertFalse(payload["mutated_repo"])
+                self.assertEqual(payload["sessions"], [])
+                self.assertEqual(payload["count"], 0)
+                self.assertEqual(
+                    payload["issues"][0]["code"],
+                    "session_record_malformed",
+                )
+                self.assertEqual(self._regular_files(root), before)
+
+    def test_unsafe_store_returns_structured_exit_one_without_following_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "repo"
+            outside = base / "outside"
+            root.mkdir()
+            outside.mkdir()
+            sentinel = outside / "sentinel.txt"
+            sentinel.write_text("unchanged\n", encoding="utf-8")
+            (root / ".elves").symlink_to(outside, target_is_directory=True)
+
+            result = self._invoke(root)
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertFalse(payload["ok"])
+            self.assertFalse(payload["mutated_repo"])
+            self.assertEqual(payload["issues"][0]["code"], "storage_symlink_component")
+            self.assertTrue((root / ".elves").is_symlink())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged\n")
+            self.assertFalse((outside / "runtime").exists())
+
+
 class UsageLedgerTests(unittest.TestCase):
     def test_unknown_quota_not_zero(self) -> None:
         usage = parse_usage_payload(

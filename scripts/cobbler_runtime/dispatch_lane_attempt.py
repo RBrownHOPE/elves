@@ -171,6 +171,10 @@ async def run_single_attempt(
             cancelled_plan.isolated.cleanup()
         raise
     except ValidationIssue as issue:
+        if issue.code == "required_isolation_failed":
+            # The attempt loop must not reinterpret a fail-closed required
+            # boundary as ordinary provider unavailability.
+            attempt_result.effective_contract["fallback_terminal"] = True
         return _fail(
             reason=issue.message,
             failure_class=(

@@ -136,7 +136,8 @@ FINAL_READINESS_REVIEW_PHRASES = {
 
 SINGLE_KICKOFF_PHRASES = {
     "SKILL.md": [
-        "Default user path (v2.1+): one kickoff",
+        "Default user path (v2.0+): one kickoff",
+        "v2.1 adds trusted Grok full-run",
         "chat-to-work",
         "chat-to-land",
         "Legacy two-call handoff",
@@ -144,27 +145,31 @@ SINGLE_KICKOFF_PHRASES = {
         "parked",
     ],
     "AGENTS.md": [
-        "Default user path (v2.1+): one kickoff",
+        "Default user path (v2.0+): one kickoff",
+        "v2.1 adds trusted Grok full-run",
         "single-kickoff E2E",
         "legacy two-call",
         "full-run",
         "parked-monitor",
     ],
     "README.md": [
-        "Default (v2.1+): one kickoff",
+        "Default (v2.0+): one kickoff",
+        "v2.1\nadds trusted Grok full-run delegation",
         "Chat-to-work",
         "Chat-to-land",
         "legacy stage-then-launch",
         "full-run",
     ],
     "references/kickoff-prompt-template.md": [
-        "Recommended (v2.1+): one kickoff",
+        "Recommended (v2.0+): one kickoff",
+        "v2.1 adds the trusted Grok",
         "Chat-to-work (E2E, no merge)",
         "Chat-to-land (E2E through merge)",
         "Use separate calls only for the legacy path",
     ],
     "references/e2e-chat-to-land.md": [
-        "recommended default user path (v2.1+)",
+        "recommended default user path (v2.0+)",
+        "v2.1 adds trusted",
         "without waiting for a second human call",
         "Legacy / advanced",
     ],
@@ -268,6 +273,7 @@ INSTALLED_REPO_ONLY_HELPER_FORBIDDEN_PATTERNS = {
 
 REPO_CONSISTENCY_WORKFLOW_PHRASES = {
     ".github/workflows/repo-consistency.yml": [
+        '"api-break-approvals.json"',
         '"config.json.example"',
         '".env*"',
         '"openapi.json"',
@@ -315,6 +321,44 @@ ACCEPTANCE_EVIDENCE_PHRASES = {
         "characterization-only",
         "acceptance: [{criterion, met, evidence}]",
     ],
+}
+
+LANDING_CHECK_CONTRACT_PHRASES = {
+    label: [
+        "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py",
+        "--session <session-path> --repo-root .",
+        "plan_path",
+        "equality assertion",
+    ]
+    for label in (
+        "SKILL.md",
+        "AGENTS.md",
+        "references/survival-guide-template.md",
+    )
+}
+
+LANDING_CHECK_BARE_FORBIDDEN_PATTERNS = {
+    label: [r"python3\s+(?:\./)?scripts/elves_landing_check\.py\b"]
+    for label in LANDING_CHECK_CONTRACT_PHRASES
+}
+
+CODEX_GOALS_SECTION_HEADINGS = {"README.md": "### Codex Goals"}
+CODEX_GOALS_SECTION_PHRASES = {
+    "README.md": [
+        "Read `.elves-session.json` first",
+        "`survival_guide_path`",
+        "`learnings_path`",
+        "`plan_path`",
+        "`execution_log_path`",
+        "do not substitute generic filenames",
+    ]
+}
+CODEX_GOALS_SECTION_FORBIDDEN_PHRASES = {
+    "README.md": [
+        "docs/elves/survival-guide.md",
+        "docs/plans/my-plan.md",
+        "docs/elves/execution-log.md",
+    ]
 }
 
 REPO_CONSISTENCY_WORKFLOW_FORBIDDEN_PHRASES = {
@@ -540,8 +584,10 @@ WORKSPACE_ISOLATION_PHRASES = {
 OPERATOR_DOC_PHRASES = {
     ".ai-docs/manifest.md": [
         "curated layer above the run-specific `docs/elves/*` memory surfaces",
-        "survival-guide.md`: active run brief",
-        "execution-log.md`: chronological run record",
+        "`<plan_path>` from `.elves-session.json`",
+        "`<survival_guide_path>` from `.elves-session.json`",
+        "`<execution_log_path>` from `.elves-session.json`",
+        "`<learnings_path>` from `.elves-session.json`",
         "Promotion flow: `execution log -> learnings -> .ai-docs`",
     ],
     ".ai-docs/architecture.md": [
@@ -1140,6 +1186,11 @@ COUNCIL_MODULE_PHRASES = {
         "Ask the Cobbler",
         "$elves council: <task>",
         "You only need a Quick Cobbler answer",
+        "`survival_guide_path`",
+        "`learnings_path`",
+        "`plan_path`",
+        "`execution_log_path`",
+        "do not substitute generic filenames",
     ],
     "references/tool-config-examples.md": [
         "## Cobbler",
@@ -1392,6 +1443,9 @@ COUNCIL_FORBIDDEN_PHRASES = {
         "Cobbler requires `/goal`",
         "Use `/cobbler` in Codex",
         "Use `/council` in Codex",
+        "docs/elves/survival-guide.md",
+        "docs/plans/my-plan.md",
+        "docs/elves/execution-log.md",
     ],
     "references/council-workflow.md": [
         "ordinary `/council` requires OpenRouter",

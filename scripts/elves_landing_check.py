@@ -212,16 +212,18 @@ def batch_id(batch: dict[str, Any]) -> str:
 
 
 def numeric_batch_id(batch: dict[str, Any]) -> int | None:
+    """Resolve canonical ``B#`` or legacy positive-integer batch identities."""
     raw = batch.get("id")
     if isinstance(raw, bool):
         return None
-    try:
-        value = int(str(raw))
-    except (TypeError, ValueError):
+    if isinstance(raw, int):
+        return raw if raw > 0 else None
+    if not isinstance(raw, str):
         return None
-    if value < 1 or str(raw) != str(value):
+    match = re.fullmatch(r"(?:B)?([1-9][0-9]*)", raw)
+    if match is None:
         return None
-    return value
+    return int(match.group(1))
 
 
 def acceptance_items(batch: dict[str, Any]) -> list[dict[str, Any]]:
@@ -235,6 +237,23 @@ def acceptance_items(batch: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             raise SystemExit(
                 f"Batch {batch_id(batch)} `acceptance[{index}]` must be an object"
+            )
+        out.append(item)
+    return out
+
+
+def master_acceptance_items(session: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return canonical branch-level Master Acceptance evidence rows."""
+    raw = session.get("master_acceptance")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise SystemExit("Session field `master_acceptance` must be an array")
+    out: list[dict[str, Any]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise SystemExit(
+                f"Session `master_acceptance[{index}]` must be an object"
             )
         out.append(item)
     return out
@@ -256,7 +275,8 @@ def check_session_batches(session: dict[str, Any], report: Report) -> None:
         if numeric_id is None:
             report.error(
                 "batch_id_invalid",
-                f"Batch {bid!r} must have a positive integer `id` matching a plan Batch heading.",
+                f"Batch {bid!r} must have a canonical `B#` or legacy positive-integer "
+                "`id` matching a plan Batch heading.",
             )
         elif numeric_id in seen_batch_ids:
             report.error("batch_id_duplicate", f"Duplicate session batch id: {numeric_id}")
@@ -337,6 +357,31 @@ def check_session_batches(session: dict[str, Any], report: Report) -> None:
                             "a split/god-file batch unless plan Acceptance explicitly allows "
                             "characterization-only. Add LOC/facade/size evidence or a hard-stop note.",
                         )
+
+
+def check_session_master_acceptance(session: dict[str, Any], report: Report) -> None:
+    """Validate canonical top-level Master Acceptance evidence values."""
+    for index, item in enumerate(master_acceptance_items(session)):
+        criterion = str(item.get("criterion") or "").strip()
+        evidence = str(item.get("evidence") or "").strip()
+        met = item.get("met")
+        label = criterion or f"item[{index}]"
+        if met is not True:
+            report.error(
+                "master_acceptance_not_met",
+                f"Master acceptance {label!r}: met must be true (got {met!r}).",
+            )
+        if not criterion:
+            report.error(
+                "master_acceptance_no_criterion",
+                f"Master acceptance item {index} is missing `criterion`.",
+            )
+        if not evidence:
+            report.error(
+                "master_acceptance_no_evidence",
+                f"Master acceptance {label!r} is missing `evidence` "
+                "(path, command transcript, metric, or commit SHA).",
+            )
 
 
 def normalize_criterion(value: Any) -> str:
@@ -480,6 +525,7 @@ def parse_plan_batches(plan_text: str) -> dict[int, dict[str, Any]]:
 def check_legacy_acceptance_mapping(
     plan_batches: dict[int, dict[str, Any]],
     master_acceptance: list[dict[str, Any]],
+    session_master_acceptance: list[dict[str, Any]],
     session: dict[str, Any],
     report: Report,
 ) -> None:
@@ -522,6 +568,11 @@ def check_legacy_acceptance_mapping(
             if observed[key] <= 0:
                 observed.pop(key, None)
         remaining.update(observed)
+
+    for item in session_master_acceptance:
+        key = normalize_criterion(item.get("criterion"))
+        labels.setdefault(key, str(item.get("criterion") or ""))
+        remaining[key] += 1
 
     master_expected = Counter(
         normalize_criterion(item["text"]) for item in master_acceptance
@@ -659,11 +710,15 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
     # Stable acceptance ID one-to-one mapping (B#-A# / M-A#). Parse only
     # explicit batch Acceptance and Master Acceptance sections so task lists or
     # prose cannot be mistaken for landing evidence.
-    all_evidence_items: list[tuple[dict[str, Any], dict[str, Any]]] = [
+    session_master = master_acceptance_items(session)
+    all_evidence_items: list[
+        tuple[dict[str, Any] | None, dict[str, Any]]
+    ] = [
         (batch, item)
         for batch in as_batches(session)
         for item in acceptance_items(batch)
     ]
+    all_evidence_items.extend((None, item) for item in session_master)
     global_id_mentions = re.findall(r"\b(?:B\d+-A\d+|M-A\d+)\b", text)
     evidence_has_ids = any(str(item.get("id") or "").strip() for _, item in all_evidence_items)
     stable_mode = bool(global_id_mentions) or evidence_has_ids
@@ -671,6 +726,7 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
         check_legacy_acceptance_mapping(
             plan_batches,
             master_acceptance,
+            session_master,
             session,
             report,
         )
@@ -761,14 +817,34 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
         else:
             plan_by_id[aid] = item
 
-    evidence_by_id: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    canonical_master_present = "master_acceptance" in session
+    legacy_master_rows = [
+        (batch, item)
+        for batch, item in all_evidence_items
+        if batch is not None and str(item.get("id") or "").strip().startswith("M-A")
+    ]
+    if legacy_master_rows and not canonical_master_present:
+        report.warn(
+            "legacy_master_acceptance_location",
+            "Session stores M-A# evidence inside a batch `acceptance` array. "
+            "This remains readable for compatibility; new sessions should use the "
+            "top-level `master_acceptance` array.",
+        )
+
+    evidence_by_id: dict[
+        str, tuple[dict[str, Any] | None, dict[str, Any]]
+    ] = {}
     for batch, item in all_evidence_items:
         aid = str(item.get("id") or "").strip()
         if not aid:
+            scope = (
+                "top-level master_acceptance"
+                if batch is None
+                else f"Batch {batch_id(batch)}"
+            )
             report.error(
                 "acceptance_id_missing",
-                f"Stable-ID plan requires an id on every evidence row in Batch "
-                f"{batch_id(batch)}.",
+                f"Stable-ID plan requires an id on every evidence row in {scope}.",
             )
             continue
         if not re.fullmatch(r"(?:B\d+-A\d+|M-A\d+)", aid):
@@ -778,14 +854,28 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
             )
         batch_match = STABLE_BATCH_ACCEPTANCE_ID.fullmatch(aid)
         if batch_match is not None:
-            expected_batch = numeric_batch_id(batch)
-            if expected_batch is None or int(batch_match.group(1)) != expected_batch:
+            if batch is None:
                 report.error(
-                    "acceptance_id_wrong_batch",
-                    f"Evidence {aid} is stored in session Batch {batch_id(batch)}; "
-                    f"B{batch_match.group(1)} evidence must stay in Batch "
-                    f"{batch_match.group(1)}.",
+                    "acceptance_id_wrong_scope",
+                    f"Batch evidence {aid} must be stored in Batch "
+                    f"{batch_match.group(1)} `acceptance`, not top-level "
+                    "`master_acceptance`.",
                 )
+            else:
+                expected_batch = numeric_batch_id(batch)
+                if expected_batch is None or int(batch_match.group(1)) != expected_batch:
+                    report.error(
+                        "acceptance_id_wrong_batch",
+                        f"Evidence {aid} is stored in session Batch {batch_id(batch)}; "
+                        f"B{batch_match.group(1)} evidence must stay in Batch "
+                        f"{batch_match.group(1)}.",
+                    )
+        elif aid.startswith("M-A") and batch is not None and canonical_master_present:
+            report.error(
+                "acceptance_id_wrong_scope",
+                f"Master evidence {aid} must be stored in top-level "
+                "`master_acceptance`, not Batch {batch_id(batch)} `acceptance`.",
+            )
         if aid in evidence_by_id:
             report.error(
                 "acceptance_evidence_duplicate_id",
@@ -1051,6 +1141,7 @@ def run_checks(args: argparse.Namespace) -> Report:
         _check_session_git_identity(session, repo_root, report)
 
     check_session_batches(session, report)
+    check_session_master_acceptance(session, report)
 
     recorded_plan_raw = session.get("plan_path")
     if repo_root is not None and not recorded_plan_raw:

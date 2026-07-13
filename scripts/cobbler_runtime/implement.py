@@ -1,16 +1,19 @@
 """Lane A (fast) implementer operator helpers.
 
 Host-owned commands for prepare / launch argv / gate / resume-batch / status.
-Does not run paid model inference unless the operator explicitly passes --exec
-to launch (or resume-batch --exec). Network is never required for prepare/status.
+Prints argv by default. Legacy --exec requests fail closed before spawn unless a
+qualified recursive process boundary exists; none is currently available on the
+supported Linux or macOS direct paths. Network is never required for prepare/status.
 """
 
 from __future__ import annotations
 
+import ctypes
 import errno
 import hashlib
 import os
 import re
+import secrets
 import selectors
 import signal
 import subprocess
@@ -18,6 +21,7 @@ import sys
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -71,6 +75,12 @@ _EXEC_READ_CHUNK_BYTES = 64 * 1024
 _EXEC_CAPTURE_WINDOW_BYTES = 512 * 1024
 _EXEC_OUTPUT_TAIL_CHARS = 4000
 _EXEC_OUTPUT_SUMMARY_CHARS = 500
+_EXEC_SUPERVISION_ENV = "ELVES_IMPLEMENT_SUPERVISION_MARKER"
+# Marker inheritance makes a final scan sufficient for ordinary setsid/double-
+# fork escapes. A sparse background scan additionally learns descendants that
+# later sanitize their environment without imposing ps(1) churn on hour-long runs.
+_EXEC_DESCENDANT_SCAN_SECONDS = 5.0
+_EXEC_DESCENDANT_VERIFY_SECONDS = 0.05
 
 _GATE_SECRET_FIELD_RE = re.compile(
     r"(?i)(?:api[_-]?key|[A-Za-z0-9_-]*token|jwt|bearer|authorization|auth|"
@@ -123,6 +133,602 @@ class _BoundedProcessResult:
     stderr_digest: str
     stdout_bytes: int
     stderr_bytes: int
+
+
+@dataclass(frozen=True)
+class _ImplementProcessRecord:
+    pid: int
+    ppid: int
+    pgid: int
+    start_identity: str
+    darwin_audit_token: tuple[int, ...] | None = None
+    marker_present: bool = False
+    zombie: bool = False
+
+
+class _DarwinBsdInfo(ctypes.Structure):
+    """Native ``proc_bsdinfo`` prefix through microsecond start identity."""
+
+    _fields_ = [
+        ("pbi_flags", ctypes.c_uint32),
+        ("pbi_status", ctypes.c_uint32),
+        ("pbi_xstatus", ctypes.c_uint32),
+        ("pbi_pid", ctypes.c_uint32),
+        ("pbi_ppid", ctypes.c_uint32),
+        ("pbi_uid", ctypes.c_uint32),
+        ("pbi_gid", ctypes.c_uint32),
+        ("pbi_ruid", ctypes.c_uint32),
+        ("pbi_rgid", ctypes.c_uint32),
+        ("pbi_svuid", ctypes.c_uint32),
+        ("pbi_svgid", ctypes.c_uint32),
+        ("rfu_1", ctypes.c_uint32),
+        ("pbi_comm", ctypes.c_char * 16),
+        ("pbi_name", ctypes.c_char * 32),
+        ("pbi_nfiles", ctypes.c_uint32),
+        ("pbi_pgid", ctypes.c_uint32),
+        ("pbi_pjobc", ctypes.c_uint32),
+        ("e_tdev", ctypes.c_uint32),
+        ("e_tpgid", ctypes.c_uint32),
+        ("pbi_nice", ctypes.c_int32),
+        ("pbi_start_tvsec", ctypes.c_uint64),
+        ("pbi_start_tvusec", ctypes.c_uint64),
+    ]
+
+
+class _DarwinUniqueIdentifierInfo(ctypes.Structure):
+    """libproc process unique ID plus the current exec-generation PID version."""
+
+    _fields_ = [
+        ("p_uuid", ctypes.c_ubyte * 16),
+        ("p_uniqueid", ctypes.c_uint64),
+        ("p_puniqueid", ctypes.c_uint64),
+        ("p_idversion", ctypes.c_int32),
+        ("p_orig_ppidversion", ctypes.c_int32),
+        ("p_reserve2", ctypes.c_uint64),
+        ("p_reserve3", ctypes.c_uint64),
+    ]
+
+
+class _DarwinBsdInfoWithUniqueId(ctypes.Structure):
+    _fields_ = [
+        ("pbsd", _DarwinBsdInfo),
+        ("p_uniqidentifier", _DarwinUniqueIdentifierInfo),
+    ]
+
+
+class _DarwinAuditToken(ctypes.Structure):
+    _fields_ = [("val", ctypes.c_uint32 * 8)]
+
+
+@lru_cache(maxsize=1)
+def _darwin_proc_pidinfo() -> Any:
+    try:
+        library = ctypes.CDLL(None, use_errno=True)
+        function = library.proc_pidinfo
+    except (AttributeError, OSError) as exc:
+        raise ValidationIssue(
+            "implement_supervision_unavailable",
+            f"Darwin proc_pidinfo is unavailable: {type(exc).__name__}",
+        ) from exc
+    function.argtypes = (
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_uint64,
+        ctypes.c_void_p,
+        ctypes.c_int,
+    )
+    function.restype = ctypes.c_int
+    return function
+
+
+@lru_cache(maxsize=1)
+def _darwin_proc_signal_with_audittoken() -> Any:
+    try:
+        library = ctypes.CDLL(None, use_errno=True)
+        function = library.proc_signal_with_audittoken
+    except (AttributeError, OSError) as exc:
+        raise ValidationIssue(
+            "implement_supervision_unavailable",
+            "Darwin generation-bound signaling is unavailable: "
+            f"{type(exc).__name__}",
+        ) from exc
+    function.argtypes = (ctypes.POINTER(_DarwinAuditToken), ctypes.c_int)
+    function.restype = ctypes.c_int
+    return function
+
+
+def _darwin_audit_token(pid: int, pid_version: int) -> tuple[int, ...]:
+    values = [0] * 8
+    values[5] = int(pid) & 0xFFFFFFFF
+    values[7] = int(pid_version) & 0xFFFFFFFF
+    return tuple(values)
+
+
+def _darwin_signal_audit_token(
+    audit_token: tuple[int, ...] | None,
+    signum: int,
+) -> bool:
+    """Atomically signal one Darwin PID generation, never a reused PID."""
+    if audit_token is None or len(audit_token) != 8:
+        raise ValidationIssue(
+            "implement_supervision_identity_failed",
+            "Darwin process identity is missing its audit token",
+        )
+    token = _DarwinAuditToken()
+    for index, value in enumerate(audit_token):
+        token.val[index] = int(value) & 0xFFFFFFFF
+    result = int(
+        _darwin_proc_signal_with_audittoken()(ctypes.byref(token), int(signum))
+    )
+    if result == 0:
+        return True
+    if result == errno.ESRCH:
+        return False
+    raise ValidationIssue(
+        "implement_descendant_signal_failed",
+        "Cannot signal Darwin process generation: "
+        f"{os.strerror(result) if result > 0 else f'error {result}'}",
+    )
+
+
+def _linux_process_record(
+    pid: int,
+    *,
+    marker: str | None = None,
+) -> _ImplementProcessRecord | None:
+    stat_path = Path(f"/proc/{int(pid)}/stat")
+    try:
+        raw = stat_path.read_text(encoding="utf-8")
+    except (FileNotFoundError, ProcessLookupError):
+        return None
+    except OSError as exc:
+        raise ValidationIssue(
+            "implement_supervision_identity_failed",
+            f"Cannot inspect Linux pid {pid}: {type(exc).__name__}: {exc}",
+        ) from exc
+    close_paren = raw.rfind(")")
+    fields = raw[close_paren + 2 :].split() if close_paren >= 0 else []
+    if len(fields) < 20:
+        raise ValidationIssue(
+            "implement_supervision_identity_failed",
+            f"Linux returned an incomplete process identity for pid {pid}",
+        )
+    try:
+        state = fields[0]
+        ppid = int(fields[1])
+        pgid = int(fields[2])
+        start_ticks = fields[19]
+    except (IndexError, ValueError) as exc:
+        raise ValidationIssue(
+            "implement_supervision_identity_failed",
+            f"Linux returned a malformed process identity for pid {pid}",
+        ) from exc
+    marker_present = False
+    if marker:
+        expected = f"{_EXEC_SUPERVISION_ENV}={marker}".encode("utf-8")
+        try:
+            environment = Path(f"/proc/{int(pid)}/environ").read_bytes()
+        except (FileNotFoundError, ProcessLookupError):
+            environment = b""
+        except PermissionError as exc:
+            try:
+                owner_uid = stat_path.stat().st_uid
+            except (FileNotFoundError, ProcessLookupError):
+                environment = b""
+            except OSError as stat_exc:
+                raise ValidationIssue(
+                    "implement_supervision_scan_failed",
+                    "Cannot identify an environment-inaccessible Linux pid "
+                    f"{pid}: {type(stat_exc).__name__}: {stat_exc}",
+                ) from stat_exc
+            else:
+                if owner_uid == os.geteuid():
+                    # A same-UID worker descendant can become non-dumpable. If
+                    # its environment is unreadable, marker-based recursive
+                    # absence cannot be proved and cleanup must fail closed.
+                    raise ValidationIssue(
+                        "implement_supervision_scan_failed",
+                        f"Cannot inspect same-UID Linux environment for pid {pid}",
+                    ) from exc
+                environment = b""
+        except OSError as exc:
+            raise ValidationIssue(
+                "implement_supervision_scan_failed",
+                f"Cannot inspect Linux environment for pid {pid}: {type(exc).__name__}",
+            ) from exc
+        marker_present = expected in environment.split(b"\0")
+    return _ImplementProcessRecord(
+        pid=int(pid),
+        ppid=ppid,
+        pgid=pgid,
+        start_identity=start_ticks,
+        marker_present=marker_present,
+        zombie=state in {"Z", "X", "x"},
+    )
+
+
+def _darwin_process_record(
+    pid: int,
+    *,
+    marker_present: bool = False,
+) -> _ImplementProcessRecord | None:
+    function = _darwin_proc_pidinfo()
+    info = _DarwinBsdInfoWithUniqueId()
+    ctypes.set_errno(0)
+    size = function(
+        int(pid),
+        18,  # PROC_PIDT_BSDINFOWITHUNIQID
+        0,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+    )
+    if size <= 0:
+        error_number = ctypes.get_errno()
+        if error_number not in {0, errno.ESRCH}:
+            raise ValidationIssue(
+                "implement_supervision_identity_failed",
+                f"Darwin cannot inspect pid {pid}: {os.strerror(error_number)}",
+            )
+        return None
+    if size < ctypes.sizeof(info) or int(info.pbsd.pbi_pid) != int(pid):
+        raise ValidationIssue(
+            "implement_supervision_identity_failed",
+            f"Darwin returned an incomplete process identity for pid {pid}",
+        )
+    unique_id = int(info.p_uniqidentifier.p_uniqueid)
+    pid_version = int(info.p_uniqidentifier.p_idversion)
+    return _ImplementProcessRecord(
+        pid=int(info.pbsd.pbi_pid),
+        ppid=int(info.pbsd.pbi_ppid),
+        pgid=int(info.pbsd.pbi_pgid),
+        start_identity=(
+            f"{int(info.pbsd.pbi_start_tvsec)}:"
+            f"{int(info.pbsd.pbi_start_tvusec)}:{unique_id}"
+        ),
+        darwin_audit_token=_darwin_audit_token(pid, pid_version),
+        marker_present=marker_present,
+        zombie=int(info.pbsd.pbi_status) == 5,  # SZOMB
+    )
+
+
+def _native_process_record(pid: int) -> _ImplementProcessRecord | None:
+    if sys.platform.startswith("linux"):
+        return _linux_process_record(pid)
+    if sys.platform == "darwin":
+        return _darwin_process_record(pid)
+    raise ValidationIssue(
+        "implement_supervision_unavailable",
+        f"Implementer process cleanup is unsupported on {sys.platform}",
+    )
+
+
+def _require_implement_supervision_capability() -> None:
+    """Require a qualified recursive boundary for the bounded worker lane."""
+    if sys.platform.startswith("linux"):
+        raise ValidationIssue(
+            "implement_recursive_containment_unavailable",
+            "The legacy bounded implementer has no qualified PID namespace or "
+            "cgroup boundary on Linux; use the separate trusted full-run route",
+        )
+
+    if sys.platform == "darwin":
+        raise ValidationIssue(
+            "implement_recursive_containment_unavailable",
+            "Darwin has no qualified recursive bounded-implementer process "
+            "boundary; use the separate trusted full-run launch path or a "
+            "qualified isolated platform",
+        )
+
+    raise ValidationIssue(
+        "implement_supervision_unavailable",
+        f"Implementer process cleanup is unsupported on {sys.platform}",
+    )
+
+
+def _darwin_marker_matches_identity(
+    pid: int,
+    *,
+    expected_start_identity: str,
+    marker: str,
+) -> bool:
+    """Bind ps(1)'s environment view to one native Darwin process generation."""
+    before = _darwin_process_record(pid)
+    if before is None or before.start_identity != expected_start_identity:
+        return False
+    try:
+        proc = subprocess.run(
+            ["/bin/ps", "-p", str(pid), "-o", "command="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2.0,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValidationIssue(
+            "implement_supervision_scan_failed",
+            f"Cannot verify Darwin marker for pid {pid}: {type(exc).__name__}: {exc}",
+        ) from exc
+    after = _darwin_process_record(pid)
+    if (
+        after is None
+        or after.start_identity != expected_start_identity
+        or before.start_identity != after.start_identity
+    ):
+        return False
+    if proc.returncode != 0:
+        raise ValidationIssue(
+            "implement_supervision_scan_failed",
+            f"Darwin marker verification exited {proc.returncode} for pid {pid}",
+        )
+    token_marker = f"{_EXEC_SUPERVISION_ENV}={marker}"
+    return token_marker in proc.stdout
+
+
+def _scan_implement_processes(
+    marker: str,
+    *,
+    known_pids: set[int] | None = None,
+) -> dict[int, _ImplementProcessRecord]:
+    records: dict[int, _ImplementProcessRecord] = {}
+    known = known_pids or set()
+    if sys.platform.startswith("linux"):
+        proc_root = Path("/proc")
+        try:
+            entries = tuple(proc_root.iterdir())
+        except OSError as exc:
+            raise ValidationIssue(
+                "implement_supervision_scan_failed",
+                f"Cannot enumerate Linux processes: {type(exc).__name__}: {exc}",
+            ) from exc
+        for entry in entries:
+            if not entry.name.isdigit():
+                continue
+            record = _linux_process_record(int(entry.name), marker=marker)
+            if record is not None:
+                records[record.pid] = record
+        return records
+
+    if sys.platform == "darwin":
+        try:
+            proc = subprocess.run(
+                ["/bin/ps", "-axo", "pid=,ppid=,pgid=,command="],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=2.0,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ValidationIssue(
+                "implement_supervision_scan_failed",
+                f"Cannot enumerate Darwin processes: {type(exc).__name__}: {exc}",
+            ) from exc
+        if proc.returncode != 0:
+            raise ValidationIssue(
+                "implement_supervision_scan_failed",
+                f"Darwin ps exited {proc.returncode}",
+            )
+        token_marker = f"{_EXEC_SUPERVISION_ENV}={marker}"
+        for raw_line in proc.stdout.splitlines():
+            fields = raw_line.strip().split(None, 3)
+            if len(fields) < 3:
+                continue
+            try:
+                pid = int(fields[0])
+            except ValueError:
+                continue
+            command = fields[3] if len(fields) == 4 else ""
+            marker_candidate = token_marker in command
+            try:
+                record = _darwin_process_record(
+                    pid,
+                    marker_present=False,
+                )
+            except ValidationIssue:
+                if marker_candidate or pid in known:
+                    raise
+                continue
+            if record is not None and marker_candidate:
+                marker_present = _darwin_marker_matches_identity(
+                    pid,
+                    expected_start_identity=record.start_identity,
+                    marker=marker,
+                )
+                record = _ImplementProcessRecord(
+                    pid=record.pid,
+                    ppid=record.ppid,
+                    pgid=record.pgid,
+                    start_identity=record.start_identity,
+                    darwin_audit_token=record.darwin_audit_token,
+                    marker_present=marker_present,
+                    zombie=record.zombie,
+                )
+            if record is not None:
+                records[record.pid] = record
+        return records
+
+    raise ValidationIssue(
+        "implement_supervision_unavailable",
+        f"Implementer process cleanup is unsupported on {sys.platform}",
+    )
+
+
+@dataclass
+class _ImplementDescendantSupervisor:
+    marker: str
+    root_pid: int
+    known_pids: dict[int, _ImplementProcessRecord] = field(default_factory=dict)
+
+    def attach(self) -> None:
+        root = _native_process_record(self.root_pid)
+        if root is not None:
+            self.known_pids[root.pid] = root
+        self.scan()
+        if not self.known_pids:
+            raise ValidationIssue(
+                "implement_supervision_identity_failed",
+                "Cannot bind the implementer launch to a stable process identity",
+            )
+
+    def scan(self) -> dict[int, _ImplementProcessRecord]:
+        records = _scan_implement_processes(
+            self.marker,
+            known_pids=set(self.known_pids),
+        )
+        live_known = {
+            pid
+            for pid, identity in self.known_pids.items()
+            if (record := records.get(pid)) is not None
+            and record.start_identity == identity.start_identity
+        }
+        # PID version rotates on exec, but unique ID does not. Refresh the
+        # record for every stable known generation so its audit token is always
+        # the current one even if the worker removed its marker during exec.
+        for pid in live_known:
+            self.known_pids[pid] = records[pid]
+        discovered = {
+            pid for pid, record in records.items() if record.marker_present
+        }
+        changed = True
+        while changed:
+            before = len(discovered)
+            discovered.update(
+                record.pid
+                for record in records.values()
+                if record.ppid in discovered or record.ppid in live_known
+            )
+            changed = len(discovered) != before
+        for pid in discovered:
+            self.known_pids[pid] = records[pid]
+        return records
+
+    def alive(self) -> dict[int, _ImplementProcessRecord]:
+        records = self.scan()
+        return {
+            pid: identity
+            for pid, identity in self.known_pids.items()
+            if pid != os.getpid()
+            and (record := records.get(pid)) is not None
+            and record.start_identity == identity.start_identity
+            and not record.zombie
+        }
+
+    def root_exited(self) -> bool:
+        """Observe leader exit without reaping, so its PID/PGID stay pinned."""
+        expected = self.known_pids.get(self.root_pid)
+        if expected is None:
+            raise ValidationIssue(
+                "implement_supervision_identity_failed",
+                "Implementer root has no stable process identity",
+            )
+        current = _native_process_record(self.root_pid)
+        if current is None:
+            # Darwin's libproc may stop returning a zombie even though this
+            # Popen has deliberately not called wait()/poll(). The unreaped
+            # child still pins its PID/PGID, so absence here means exit.
+            return True
+        if current.start_identity != expected.start_identity:
+            raise ValidationIssue(
+                "implement_supervision_identity_failed",
+                "Implementer root identity disappeared before it was reaped",
+            )
+        return current.zombie
+
+    def signal_identity(
+        self,
+        pid: int,
+        identity: _ImplementProcessRecord,
+        signum: int,
+    ) -> bool:
+        if sys.platform.startswith("linux"):
+            if not (
+                hasattr(os, "pidfd_open")
+                and hasattr(signal, "pidfd_send_signal")
+            ):
+                raise ValidationIssue(
+                    "implement_pidfd_unavailable",
+                    "Linux recursive cleanup requires kernel-bound pidfd signaling",
+                )
+            try:
+                pidfd = os.pidfd_open(pid, 0)
+            except ProcessLookupError:
+                return False
+            except OSError as exc:
+                raise ValidationIssue(
+                    "implement_pidfd_unavailable",
+                    f"Cannot bind Linux pid {pid}: {type(exc).__name__}: {exc}",
+                ) from exc
+            try:
+                current = _native_process_record(pid)
+                if (
+                    current is None
+                    or current.zombie
+                    or current.start_identity != identity.start_identity
+                ):
+                    return False
+                try:
+                    signal.pidfd_send_signal(pidfd, signum)
+                    return True
+                except ProcessLookupError:
+                    return False
+                except OSError as exc:
+                    raise ValidationIssue(
+                        "implement_descendant_signal_failed",
+                        f"Cannot signal Linux pid {pid}: {type(exc).__name__}: {exc}",
+                    ) from exc
+            finally:
+                os.close(pidfd)
+
+        if sys.platform == "darwin":
+            current = _native_process_record(pid)
+            if (
+                current is None
+                or current.zombie
+                or current.start_identity != identity.start_identity
+            ):
+                # Never redirect a signal after PID reuse or identity mismatch.
+                return False
+            # The kernel resolves the audit token's PID version and takes a proc
+            # reference before signaling. A reuse after the check above therefore
+            # returns ESRCH instead of redirecting the signal to the replacement.
+            return _darwin_signal_audit_token(current.darwin_audit_token, signum)
+
+        raise ValidationIssue(
+            "implement_supervision_unavailable",
+            f"Implementer process cleanup is unsupported on {sys.platform}",
+        )
+
+    def terminate_known_descendants(
+        self,
+        *,
+        term_grace_seconds: float,
+        kill_grace_seconds: float,
+    ) -> None:
+        alive = self.alive()
+        for pid, identity in sorted(alive.items(), reverse=True):
+            self.signal_identity(pid, identity, signal.SIGTERM)
+
+        term_deadline = time.monotonic() + max(0.0, term_grace_seconds)
+        while alive and time.monotonic() < term_deadline:
+            time.sleep(_EXEC_DESCENDANT_VERIFY_SECONDS)
+            alive = self.alive()
+
+        for pid, identity in sorted(alive.items(), reverse=True):
+            self.signal_identity(pid, identity, signal.SIGKILL)
+
+        kill_deadline = time.monotonic() + max(0.05, kill_grace_seconds)
+        while True:
+            alive = self.alive()
+            if not alive:
+                return
+            if time.monotonic() >= kill_deadline:
+                raise ValidationIssue(
+                    "implement_descendant_cleanup_failed",
+                    "Implementer cleanup could not prove known descendant absence: "
+                    + ", ".join(str(pid) for pid in sorted(alive)),
+                )
+            for pid, identity in sorted(alive.items(), reverse=True):
+                self.signal_identity(pid, identity, signal.SIGKILL)
+            time.sleep(_EXEC_DESCENDANT_VERIFY_SECONDS)
 
 
 @dataclass
@@ -714,10 +1320,12 @@ def _terminate_and_reap_process_group(
     *,
     pgid: int,
     selector: selectors.BaseSelector,
+    supervisor: _ImplementDescendantSupervisor,
     term_grace_seconds: float,
     kill_grace_seconds: float,
 ) -> None:
     """Terminate the launch session while its unreaped leader pins PID/PGID identity."""
+    cleanup_error: ValidationIssue | None = None
     _signal_process_group(pgid, signal.SIGTERM)
     _drain_selector_until(
         selector,
@@ -732,6 +1340,16 @@ def _terminate_and_reap_process_group(
         selector,
         deadline=time.monotonic() + max(0.0, kill_grace_seconds),
     )
+    try:
+        # The process-group signals cover ordinary children while the unreaped
+        # leader pins the PGID. Stable per-process supervision additionally
+        # cleans descendants observed by the trusted-lane ancestry scan.
+        supervisor.terminate_known_descendants(
+            term_grace_seconds=term_grace_seconds,
+            kill_grace_seconds=kill_grace_seconds,
+        )
+    except ValidationIssue as exc:
+        cleanup_error = exc
     # A descendant that inherited a pipe must never make cleanup perform another
     # unbounded communicate(). Closing our nonblocking readers is deterministic;
     # the killed launch group then observes EPIPE if anything races a final write.
@@ -754,6 +1372,15 @@ def _terminate_and_reap_process_group(
                 "implement_timeout_cleanup_failed",
                 "Timed-out implementer could not be reaped after SIGKILL",
             ) from exc
+    try:
+        supervisor.terminate_known_descendants(
+            term_grace_seconds=0.0,
+            kill_grace_seconds=kill_grace_seconds,
+        )
+    except ValidationIssue as exc:
+        cleanup_error = cleanup_error or exc
+    if cleanup_error is not None:
+        raise cleanup_error
 
 
 def _execute_bounded_process(
@@ -766,27 +1393,39 @@ def _execute_bounded_process(
     kill_grace_seconds: float = _EXEC_KILL_GRACE_SECONDS,
     capture_window_bytes: int = _EXEC_CAPTURE_WINDOW_BYTES,
 ) -> _BoundedProcessResult:
-    """Run one session leader while streaming output into bounded rolling windows."""
-    proc = subprocess.Popen(
-        argv,
-        cwd=str(cwd),
-        env=dict(env),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=False,
-        start_new_session=True,
+    """Run one bounded implementation leader on a qualified platform."""
+    _require_implement_supervision_capability()
+    supervision_marker = secrets.token_hex(24)
+    launch_env = dict(env)
+    launch_env[_EXEC_SUPERVISION_ENV] = supervision_marker
+    supervisor = _ImplementDescendantSupervisor(
+        marker=supervision_marker,
+        root_pid=0,
     )
-    # start_new_session=True makes the direct child's PID the launch PGID. Keep
-    # the child unreaped until all timeout signaling is complete so this numeric
-    # identity cannot be recycled underneath cleanup.
-    pgid = int(proc.pid)
     stdout_capture = _RollingCapture(capture_window_bytes)
     stderr_capture = _RollingCapture(capture_window_bytes)
     selector = selectors.DefaultSelector()
+    proc: subprocess.Popen[bytes] | None = None
+    pgid: int | None = None
     timed_out = False
     completed = False
-    cleanup_started = False
+    cleanup_completed = False
     try:
+        proc = subprocess.Popen(
+            argv,
+            cwd=str(cwd),
+            env=launch_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+            start_new_session=True,
+        )
+        # Enter this process-owned try before any post-launch allocation or
+        # inspection. start_new_session makes PID == PGID, and the unreaped child
+        # pins both numeric identities until cleanup finishes.
+        pgid = int(proc.pid)
+        supervisor.root_pid = pgid
+        supervisor.attach()
         if proc.stdout is None or proc.stderr is None:  # pragma: no cover - Popen contract
             raise OSError("bounded implement capture requires stdout/stderr pipes")
         for stream, capture in (
@@ -797,34 +1436,53 @@ def _execute_bounded_process(
             selector.register(stream, selectors.EVENT_READ, capture)
 
         deadline = time.monotonic() + max(0.0, float(timeout_seconds))
-        while selector.get_map():
+        next_descendant_scan = time.monotonic() + _EXEC_DESCENDANT_SCAN_SECONDS
+        leader_exited = False
+        while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 timed_out = True
                 break
-            _drain_selector_once(
-                selector,
-                timeout_seconds=min(_EXEC_SELECTOR_POLL_SECONDS, remaining),
-            )
+            # Native process state reports SZOMB/Z without wait()/poll(), so the
+            # leader remains unreaped and continues pinning its PID and PGID while
+            # descendants that inherited stdout/stderr are contained.
+            if supervisor.root_exited():
+                leader_exited = True
+                break
+            if selector.get_map():
+                _drain_selector_once(
+                    selector,
+                    timeout_seconds=min(_EXEC_SELECTOR_POLL_SECONDS, remaining),
+                )
+            else:
+                time.sleep(min(_EXEC_SELECTOR_POLL_SECONDS, remaining))
+            if time.monotonic() >= next_descendant_scan:
+                supervisor.scan()
+                next_descendant_scan = (
+                    time.monotonic() + _EXEC_DESCENDANT_SCAN_SECONDS
+                )
 
-        if not timed_out:
-            remaining = max(0.0, deadline - time.monotonic())
-            try:
-                proc.wait(timeout=remaining)
-                completed = True
-            except subprocess.TimeoutExpired:
-                timed_out = True
+        if leader_exited:
+            # Capture descendants while their unreaped parent still pins the
+            # launch generation. This includes children that retained pipes.
+            supervisor.scan()
 
-        if timed_out:
-            cleanup_started = True
+        if timed_out or leader_exited:
             _terminate_and_reap_process_group(
                 proc,
                 pgid=pgid,
                 selector=selector,
+                supervisor=supervisor,
                 term_grace_seconds=term_grace_seconds,
                 kill_grace_seconds=kill_grace_seconds,
             )
+            cleanup_completed = True
             completed = True
+        else:  # pragma: no cover - loop exits only for timeout or leader exit
+            raise ValidationIssue(
+                "implement_supervision_identity_failed",
+                "Bounded implementer exited without an observable leader state",
+            )
 
         return _BoundedProcessResult(
             exit_code=124 if timed_out else int(proc.returncode or 0),
@@ -837,24 +1495,63 @@ def _execute_bounded_process(
             stderr_bytes=stderr_capture.total_bytes,
         )
     except BaseException:
-        if not completed and not cleanup_started:
-            cleanup_started = True
-            _terminate_and_reap_process_group(
-                proc,
-                pgid=pgid,
-                selector=selector,
-                term_grace_seconds=term_grace_seconds,
-                kill_grace_seconds=kill_grace_seconds,
-            )
+        if (
+            proc is not None
+            and pgid is not None
+            and not completed
+            and not cleanup_completed
+        ):
+            try:
+                _terminate_and_reap_process_group(
+                    proc,
+                    pgid=pgid,
+                    selector=selector,
+                    supervisor=supervisor,
+                    term_grace_seconds=term_grace_seconds,
+                    kill_grace_seconds=kill_grace_seconds,
+                )
+                cleanup_completed = True
+            except BaseException as cleanup_error:
+                # The structured retry did not prove absence. Make one bounded
+                # best-effort kill/reap pass, but never promote that effort into
+                # proof or return a normal execution result.
+                # Do not poll here: poll() may reap a naturally exited leader,
+                # releasing the numeric PID/PGID before same-group children are
+                # signaled. ``returncode is None`` preserves the pinned identity.
+                if proc.returncode is None:
+                    try:
+                        os.killpg(pgid, signal.SIGKILL)
+                    except (OSError, ProcessLookupError):
+                        try:
+                            proc.kill()
+                        except (OSError, ProcessLookupError):
+                            pass
+                    try:
+                        proc.wait(timeout=max(0.05, kill_grace_seconds))
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
+                try:
+                    supervisor.terminate_known_descendants(
+                        term_grace_seconds=0.0,
+                        kill_grace_seconds=kill_grace_seconds,
+                    )
+                except BaseException:
+                    pass
+                raise ValidationIssue(
+                    "implement_cleanup_failed",
+                    "Bounded implementer cleanup failed and recursive absence "
+                    "remained unproved",
+                ) from cleanup_error
         raise
     finally:
         _close_selector_streams(selector)
-        for stream in (proc.stdout, proc.stderr):
-            if stream is not None:
-                try:
-                    stream.close()
-                except OSError:
-                    pass
+        if proc is not None:
+            for stream in (proc.stdout, proc.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
         selector.close()
 
 
@@ -938,7 +1635,7 @@ def launch_payload(
     save_state(repo_root, state)
 
     notes = [
-        "Default is print-only; pass --exec to spawn the process",
+        "Default is print-only; legacy --exec requires a qualified recursive boundary",
         "Grok Lane A: never dontAsk / no --no-subagents",
         "OpenCode labor: opencode run --auto; exact --session preferred; OpenRouter provider/model",
     ]
