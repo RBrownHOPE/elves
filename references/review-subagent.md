@@ -60,9 +60,9 @@ Review the current state of PR #[NUMBER] for repo [OWNER/REPO].
 
 ```bash
 # Commit history for the batch
-git log --format='%H %s' refs/elves/rollback/<run>/<session>/batch-N..HEAD
+git log --format='%H %s' refs/elves/rollback/<run>/<session>/bN-<digest>..HEAD
 # Read full commit messages (subject + body) for context
-git log refs/elves/rollback/<run>/<session>/batch-N..HEAD
+git log refs/elves/rollback/<run>/<session>/bN-<digest>..HEAD
 # Fetch review threads — filter for unresolved
 gh api "repos/OWNER/REPO/pulls/NUMBER/comments" --paginate
 gh api "repos/OWNER/REPO/pulls/NUMBER/reviews" --paginate
@@ -414,7 +414,7 @@ Today's date is [DATE]. The codebase is the source of truth, not your training d
 
 Read:
 1. The diff for PR #[NUMBER]
-2. The commit history: git log refs/elves/rollback/<run>/<session>/batch-N..HEAD (read the full messages — the coding agent explains decisions here)
+2. The commit history: git log refs/elves/rollback/<run>/<session>/bN-<digest>..HEAD (read the full messages — the coding agent explains decisions here)
 3. The plan at [PLAN_PATH]
 4. The batch contract in the execution log at [EXECUTION_LOG_PATH]
 

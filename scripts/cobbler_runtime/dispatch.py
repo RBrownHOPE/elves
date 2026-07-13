@@ -893,182 +893,25 @@ async def _run_single_attempt(
     host_ledger: _HostEvidenceLedger | None,
     task: str,
 ) -> tuple[AttemptResult, LaneResult]:
-    """Thin coordinator: transport → native or isolated external → decode/result."""
-    from .dispatch_attempt import (  # noqa: PLC0415
-        build_effective_contract,
-        prepare_transport,
-        record_command_digests,
-        write_attempt_artifacts,
-    )
-    from .dispatch_external import prepare_external_launch, run_external_subprocess  # noqa: PLC0415
-    from .dispatch_host_native import run_host_native_attempt  # noqa: PLC0415
+    """Thin coordinator (≤150 lines): transport → native/external → decode/result.
 
-    launch_time = time.monotonic()
-    attempt_dir = resolve_contained_path(
-        work_dir,
-        f"attempt-{attempt_index}-{safe_path_component(attempt.profile, field='profile')}",
-    )
-    ensure_private_dir(attempt_dir)
-    grants = _attempt_env_grants(spec, attempt)
-    transport = prepare_transport(
-        parent_env=parent_env,
-        env_extra_allowlist=tuple(spec.env_extra_allowlist),
-        grants=tuple(grants),
-    )
-    scrub, exact_secret_values = transport.scrub, transport.exact_secret_values
-    packet_dict = redact_structure(packet.to_dict(), exact_values=exact_secret_values)
-    redacted_task = redact_text(task, exact_values=exact_secret_values).text
-    if isinstance(packet_dict, dict):
-        packet_dict["task"] = redacted_task
-    packet_path, prompt_path = write_attempt_artifacts(
-        attempt_dir,
-        packet_dict=packet_dict,
-        redacted_task=redacted_task,
-        prompt_body=None,
-        write_json_artifact=write_json_artifact,
-        write_text_artifact=write_text_artifact,
-    )
-    attempt_result = AttemptResult(
-        attempt_index=attempt_index,
-        profile=attempt.profile,
-        adapter=attempt.adapter,
-        requested_model=(
-            redact_text(str(attempt.requested_model), exact_values=exact_secret_values).text
-            if attempt.requested_model is not None
-            else None
-        ),
-        actual_model=None,
-        model_evidence_source=None,
-        status="pending",
-        start_time=time.monotonic(),
-        effective_contract=build_effective_contract(
-            attempt,
-            grants=tuple(grants),
-            repo_root=repo_root,
-            exact_secret_values=exact_secret_values,
-            qualified_capabilities=tuple(spec.qualified_capabilities or ()),
-        ),
-    )
+    Host-native execution, isolated external lifecycle, decode/result assembly,
+    and artifact/redaction live in focused modules under ``dispatch_*``.
+    """
+    from .dispatch_lane_attempt import run_single_attempt  # noqa: PLC0415
 
-    def _fail(**kwargs: Any) -> tuple[AttemptResult, LaneResult]:
-        return _build_failed_attempt(
-            attempt_result=attempt_result,
-            spec=spec,
-            attempt=attempt,
-            launch_time=launch_time,
-            scrub=scrub,
-            grants=list(grants),
-            exact_secret_values=exact_secret_values,
-            attempt_dir=str(attempt_dir),
-            **kwargs,
-        )
-
-    if not attempt.enabled:
-        return _fail(reason=f"profile `{attempt.profile}` is disabled", failure_class="unavailable")
-    cap_err, cap_required, cap_missing = _check_capabilities(
-        attempt, lane_qualified=spec.qualified_capabilities
-    )
-    attempt_result.effective_contract["required_capabilities"] = list(cap_required)
-    attempt_result.effective_contract["missing_capabilities"] = list(cap_missing)
-    if cap_err:
-        return _fail(reason=cap_err, failure_class="capability")
-
-    if attempt.adapter == "host-native" and command_override is None:
-        return await run_host_native_attempt(
-            spec=spec,
-            attempt=attempt,
-            attempt_index=attempt_index,
-            attempt_result=attempt_result,
-            attempt_dir=str(attempt_dir),
-            packet_dict=packet_dict if isinstance(packet_dict, dict) else {},
-            exact_secret_values=exact_secret_values,
-            scrub=scrub,
-            grants=list(grants),
-            host_ledger=host_ledger,
-            task=task,
-            launch_time=launch_time,
-            lane_result_cls=LaneResult,
-            fail_fn=_fail,
-            classify_failure_fn=_classify_failure,
-        )
-
-    isolation_required = bool(getattr(spec, "require_isolation", False)) or bool(
-        getattr(attempt, "require_isolation", False)
-    )
-    try:
-        plan = prepare_external_launch(
-            spec=spec,
-            attempt=attempt,
-            attempt_index=attempt_index,
-            repo_root=Path(repo_root),
-            packet_path=packet_path,
-            prompt_path=prompt_path,
-            packet_dict=packet_dict if isinstance(packet_dict, dict) else {},
-            redacted_task=redacted_task,
-            exact_secret_values=exact_secret_values,
-            grants=list(grants),
-            scrub_env=scrub.env,
-            command_override=command_override,
-            parent_env=parent_env,
-        )
-    except ValidationIssue as issue:
-        return _fail(
-            reason=issue.message,
-            failure_class=(
-                "isolation_failure"
-                if "isolation" in (issue.code or "")
-                else _classify_failure(timeout=False, exit_code=None, error=issue.message)
-            ),
-        )
-    attempt_result.effective_contract["isolation"] = plan.isolation_meta
-    if plan.fallback_host_native:
-        return _fail(
-            reason=(
-                "optional_isolation_failed_fallback_host_native: "
-                + str(plan.isolation_meta.get("reason") or "isolation failed")
-            ),
-            failure_class="unavailable",
-        )
-
-    invocation = plan.invocation
-    raw_command = list(plan.argv)
-    redacted_command = record_command_digests(
-        attempt_result.effective_contract,
-        raw_command=raw_command,
-        exact_secret_values=exact_secret_values,
-        invocation=invocation,
-    )
-    if invocation and invocation.prompt_file_body is not None:
-        write_text_artifact(
-            prompt_path,
-            redact_text(invocation.prompt_file_body, exact_values=exact_secret_values).text,
-        )
-    elif not prompt_path.exists():
-        write_text_artifact(prompt_path, redacted_task)
-
-    proc_result = await run_external_subprocess(
-        plan=plan,
-        timeout_seconds=spec.timeout_seconds,
-        terminate_process_group=_terminate_process_group,
-        pgid_alive=_pgid_alive,
-    )
-    return _assemble_external_result(
-        proc_result=proc_result,
-        invocation=invocation,
-        redacted_command=redacted_command,
-        attempt_result=attempt_result,
-        attempt=attempt,
+    return await run_single_attempt(
         spec=spec,
+        attempt=attempt,
         attempt_index=attempt_index,
-        attempt_dir=attempt_dir,
-        exact_secret_values=exact_secret_values,
-        scrub=scrub,
-        grants=list(grants),
-        launch_time=launch_time,
-        fail_fn=_fail,
+        packet=packet,
+        work_dir=work_dir,
+        parent_env=parent_env,
+        command_override=command_override,
+        repo_root=repo_root,
+        host_ledger=host_ledger,
+        task=task,
     )
-
-
 
 
 async def _run_lane_with_fallbacks(

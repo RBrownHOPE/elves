@@ -711,19 +711,88 @@ class LeaseStore:
                 "Write qualification evidence failed closed: " + ", ".join(reasons),
                 path="lease.qualification_evidence",
             )
-        # Enforce exact registered session when provided by evidence.
-        evidence_session = str(qualification_evidence.get("session_id") or session_id)
+        # Exact registered session required; compare every qualification field.
+        evidence_session = str(qualification_evidence.get("session_id") or "")
+        if not evidence_session:
+            raise ValidationIssue(
+                "write_qualification_session_required",
+                "Qualification evidence requires registered session_id",
+            )
         if evidence_session != session_id:
             raise ValidationIssue(
                 "write_qualification_session_mismatch",
                 f"Qualification session `{evidence_session}` != lease session `{session_id}`",
             )
-        if str(qualification_evidence.get("adapter") or "") not in {"", adapter}:
-            if str(qualification_evidence.get("adapter")) != adapter:
+        field_pairs = (
+            ("adapter", adapter),
+            ("sandbox", sandbox_profile),
+            ("worktree", str(Path(worker_checkout).resolve())),
+            ("cwd", str(Path(worker_checkout).resolve())),
+            ("source_head", base_head),
+        )
+        for field_name, expected in field_pairs:
+            observed = qualification_evidence.get(field_name)
+            if observed is None or observed == "":
                 raise ValidationIssue(
-                    "write_qualification_adapter_mismatch",
-                    "Qualification adapter does not match lease adapter",
+                    "write_qualification_field_missing",
+                    f"Qualification missing field `{field_name}`",
                 )
+            if field_name in {"worktree", "cwd"}:
+                try:
+                    if Path(str(observed)).resolve() != Path(str(expected)).resolve():
+                        raise ValidationIssue(
+                            f"write_qualification_{field_name}_mismatch",
+                            f"Qualification {field_name} does not match lease",
+                        )
+                except OSError as exc:
+                    raise ValidationIssue(
+                        f"write_qualification_{field_name}_unreadable",
+                        f"Cannot resolve qualification {field_name}: {exc}",
+                    ) from exc
+            elif str(observed) != str(expected):
+                # model/profile/version compared when evidence carries them
+                if field_name == "sandbox" and str(observed).lower() != str(expected).lower():
+                    raise ValidationIssue(
+                        "write_qualification_sandbox_mismatch",
+                        f"sandbox_profile `{expected}` != evidence sandbox `{observed}`",
+                    )
+                elif field_name != "sandbox":
+                    raise ValidationIssue(
+                        f"write_qualification_{field_name}_mismatch",
+                        f"Qualification {field_name} does not match lease",
+                    )
+        if str(qualification_evidence.get("adapter") or "") != adapter:
+            raise ValidationIssue(
+                "write_qualification_adapter_mismatch",
+                "Qualification adapter does not match lease adapter",
+            )
+        # sandbox_profile must equal evidence sandbox and be in supported enum.
+        from .storage import SUPPORTED_SANDBOX_PROFILES  # noqa: PLC0415
+
+        if str(sandbox_profile).strip().lower() not in SUPPORTED_SANDBOX_PROFILES:
+            raise ValidationIssue(
+                "write_qualification_sandbox_unsupported",
+                f"sandbox_profile `{sandbox_profile}` not in supported enum; "
+                "arbitrary strings cannot enable detached commits",
+            )
+        # Require exact session to be registered when a registry exists.
+        try:
+            from .sessions import SessionRegistry  # noqa: PLC0415
+
+            registry = SessionRegistry(Path(host_checkout))
+            if registry.root.is_dir():
+                try:
+                    registry.get(session_id)
+                except ValidationIssue as issue:
+                    raise ValidationIssue(
+                        "write_qualification_session_unregistered",
+                        f"Lease requires registered exact session `{session_id}`: {issue.message}",
+                    ) from issue
+        except ValidationIssue:
+            raise
+        except Exception:  # noqa: PLC0415, BLE001
+            # Registry unavailable — continue with evidence-only path.
+            pass
         import hashlib
 
         qual_digest = hashlib.sha256(

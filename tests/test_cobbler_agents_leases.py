@@ -78,13 +78,40 @@ def _detached_worktree(main: Path, worktree: Path, head: str) -> None:
 
 
 
-def _qual(worker, head, session_id="sess", adapter="grok-build"):
+def _register_session(host: Path, session_id: str, *, worker: Path, head: str, adapter: str = "grok-build") -> None:
+    """Register an exact session so lease qualification can require it."""
+    from cobbler_runtime.sessions import SessionRecord, SessionRegistry
+
+    reg = SessionRegistry(host)
+    rec = SessionRecord(
+        session_id=session_id,
+        harness=adapter,
+        profile=adapter,
+        role="implementer",
+        actual_model="grok-4.5",
+        requested_model="grok-4.5",
+        cwd=str(Path(worker).resolve()),
+        worktree=str(Path(worker).resolve()),
+        parent_id="host-parent",
+        source_head=head,
+    )
+    try:
+        reg.save(rec)
+    except Exception:
+        # Idempotent for tests that register twice.
+        try:
+            reg.get(session_id)
+        except Exception:
+            raise
+
+
+def _qual(worker, head, session_id="sess", adapter="grok-build", sandbox="devbox"):
     return host_qualification_evidence(
         adapter=adapter,
         model="grok-4.5",
-        sandbox="devbox",
-        worktree=str(worker),
-        cwd=str(worker),
+        sandbox=sandbox,
+        worktree=str(Path(worker).resolve()),
+        cwd=str(Path(worker).resolve()),
         parent="host-parent",
         source_head=head,
         session_id=session_id,
@@ -152,6 +179,7 @@ class LeaseExclusivityTests(unittest.TestCase):
             head = _init_repo(host)
             _detached_worktree(host, worker, head)
             store = LeaseStore(host)
+            _register_session(host, "sess-1", worker=worker, head=head)
             store.prepare(
                 lease_id="lease-1",
                 host_checkout=host,
@@ -164,6 +192,7 @@ class LeaseExclusivityTests(unittest.TestCase):
                 qualification_evidence=_qual(worker, head, session_id="sess-1", adapter="grok-build"),
             )
             with self.assertRaises(ValidationIssue) as ctx:
+                _register_session(host, "sess-2", worker=worker, head=head)
                 store.prepare(
                     lease_id="lease-2",
                     host_checkout=host,
@@ -244,6 +273,7 @@ class AuditAndPatchTests(unittest.TestCase):
             head = _init_repo(host)
             _detached_worktree(host, worker, head)
             store = LeaseStore(host)
+            _register_session(host, "sess", worker=worker, head=head)
             lease = store.prepare(
                 lease_id="lease-ok",
                 host_checkout=host,
@@ -326,6 +356,7 @@ class AuditAndPatchTests(unittest.TestCase):
             head = _init_repo(host)
             _detached_worktree(host, worker, head)
             store = LeaseStore(host)
+            _register_session(host, "sess", worker=worker, head=head)
             lease = store.prepare(
                 lease_id="lease-bad-path",
                 host_checkout=host,
@@ -355,6 +386,7 @@ class AuditAndPatchTests(unittest.TestCase):
             head = _init_repo(host)
             _detached_worktree(host, worker, head)
             store = LeaseStore(host)
+            _register_session(host, "sess", worker=worker, head=head)
             lease = store.prepare(
                 lease_id="lease-merge",
                 host_checkout=host,
@@ -395,6 +427,7 @@ class AuditAndPatchTests(unittest.TestCase):
             head = _init_repo(host)
             _detached_worktree(host, worker, head)
             store = LeaseStore(host)
+            _register_session(host, "sess", worker=worker, head=head)
             lease = store.prepare(
                 lease_id="lease-ref",
                 host_checkout=host,
@@ -426,6 +459,7 @@ class AuditAndPatchTests(unittest.TestCase):
             head = _init_repo(host)
             _detached_worktree(host, worker, head)
             store = LeaseStore(host)
+            _register_session(host, "sess", worker=worker, head=head)
             lease = store.prepare(
                 lease_id="lease-push",
                 host_checkout=host,
@@ -455,6 +489,7 @@ class AuditAndPatchTests(unittest.TestCase):
             head = _init_repo(host)
             _detached_worktree(host, worker, head)
             store = LeaseStore(host)
+            _register_session(host, "sess", worker=worker, head=head)
             lease = store.prepare(
                 lease_id="lease-dirty",
                 host_checkout=host,
@@ -480,20 +515,62 @@ class AuditAndPatchTests(unittest.TestCase):
             head = _init_repo(host)
             _detached_worktree(host, worker, head)
             store = LeaseStore(host)
+            _register_session(host, "sess", worker=worker, head=head)
+            # Unsupported sandbox_profile cannot qualify or enable detached commits.
+            with self.assertRaises(ValidationIssue) as ctx:
+                store.prepare(
+                    lease_id="lease-workspace",
+                    host_checkout=host,
+                    worker_checkout=worker,
+                    session_id="sess",
+                    base_head=head,
+                    adapter="grok-build",
+                    profile="workspace",
+                    sandbox_profile="workspace",
+                    allowed_paths=["src/"],
+                    qualification_evidence=_qual(
+                        worker,
+                        head,
+                        session_id="sess",
+                        adapter="grok-build",
+                        sandbox="workspace",
+                    ),
+                )
+            self.assertIn("sandbox", ctx.exception.message.lower())
+            # Evidence/profile mismatch fails closed.
+            with self.assertRaises(ValidationIssue):
+                store.prepare(
+                    lease_id="lease-workspace-mismatch",
+                    host_checkout=host,
+                    worker_checkout=worker,
+                    session_id="sess",
+                    base_head=head,
+                    adapter="grok-build",
+                    profile="workspace",
+                    sandbox_profile="workspace",
+                    allowed_paths=["src/"],
+                    qualification_evidence=_qual(
+                        worker, head, session_id="sess", adapter="grok-build", sandbox="devbox"
+                    ),
+                )
+            # Explicit detached_commits_permitted=False with supported sandbox.
             lease = store.prepare(
-                lease_id="lease-workspace",
+                lease_id="lease-no-detach",
                 host_checkout=host,
                 worker_checkout=worker,
                 session_id="sess",
                 base_head=head,
                 adapter="grok-build",
                 profile="workspace",
-                sandbox_profile="workspace",
+                sandbox_profile="devbox",
                 allowed_paths=["src/"],
-                qualification_evidence=_qual(worker, head, session_id="sess", adapter="grok-build"),
+                detached_commits_permitted=False,
+                qualification_evidence=_qual(
+                    worker, head, session_id="sess", adapter="grok-build", sandbox="devbox"
+                ),
             )
             self.assertFalse(lease.detached_commits_permitted)
-            self.assertFalse(lease.workspace_sandbox_commit_capable)
+            store.activate(lease.lease_id)
             (worker / "src" / "app.py").write_text("x\n", encoding="utf-8")
             _run(worker, ["git", "add", "--", "src/app.py"])
             _run(worker, ["git", "commit", "-m", "should fail policy", "--", "src/app.py"])
@@ -509,6 +586,7 @@ class AuditAndPatchTests(unittest.TestCase):
             head = _init_repo(host)
             _detached_worktree(host, worker, head)
             store = LeaseStore(host)
+            _register_session(host, "sess", worker=worker, head=head)
             lease = store.prepare(
                 lease_id="lease-refresh",
                 host_checkout=host,
@@ -585,6 +663,7 @@ class UnqualifiedWriteTests(unittest.TestCase):
             _detached_worktree(host, worker, head)
             store = LeaseStore(host)
             with self.assertRaises(ValidationIssue) as ctx:
+                _register_session(host, "sess", worker=worker, head=head)
                 store.prepare(
                     lease_id="lease-unqual",
                     host_checkout=host,

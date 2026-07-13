@@ -130,21 +130,29 @@ class BehaviorPolicyCompositionTests(unittest.TestCase):
         self.assertEqual(decision.landing_mode, "chat_to_land")
         self.assertEqual(decision.git_mode, "branch_progress")
 
+    def test_full_run_alone_stays_host_native(self) -> None:
+        d = resolve_from_signals({"full_run": True})
+        self.assertEqual(d.work_driver, "host_native")
+        self.assertNotEqual(d.driver_monitor_mode, "parked_monitor")
+
+    def test_overnight_alone_stays_host_native(self) -> None:
+        d = resolve_from_signals({"overnight": True})
+        self.assertEqual(d.work_driver, "host_native")
+
     def test_matrix_dimensions(self) -> None:
         cases = [
-            ({"direct_edit": True}, "direct_edit", "host_native"),
-            ({"bounded_task": True}, "bounded_task", "grok_build"),
-            ({"untrusted": True}, "untrusted_writer", "untrusted_writer"),
-            ({"legacy_two_call": True}, "legacy_two_call", "host_native"),
-            ({"full_run": True, "trusted_grok": True}, "full_run_trusted_grok", "grok_build"),
-            ({"chat_to_work": True}, "single_kickoff_e2e", "host_native"),
+            ({"direct_edit": True}, "host_native"),
+            ({"bounded_task": True}, "grok_build"),
+            ({"untrusted": True}, "untrusted_writer"),
+            ({"legacy_two_call": True}, "host_native"),
+            ({"full_run": True, "trusted_grok": True}, "grok_build"),
+            ({"full_run": True}, "host_native"),
+            ({"chat_to_work": True}, "host_native"),
         ]
-        for signals, scenario, driver in cases:
+        for signals, driver in cases:
             with self.subTest(signals=signals):
                 d = resolve_from_signals(signals)
                 self.assertEqual(d.work_driver, driver)
-                # first-match scenarios still resolve, composition overlays dimensions
-                self.assertIn(d.scenario_id, {scenario, "full_run_trusted_grok", "chat_to_land", "single_kickoff_e2e", "direct_edit", "bounded_task", "untrusted_writer", "legacy_two_call", "test_integrity", "rollback_naming"})
 
     def test_parked_forbids_per_push(self) -> None:
         self.assertIn("per_push", FORBIDDEN_FULL_RUN_WAKE_TRIGGERS)
@@ -429,6 +437,70 @@ class FullRunLifecycleTests(unittest.TestCase):
             }
         )
         self.assertTrue(any("secret" in e for e in errors))
+
+
+    def test_forged_pgid_two_sleeper(self) -> None:
+        """Stored PGID that is not the verified process group must fail fingerprint/stop."""
+        import os
+        import signal
+        import subprocess
+        import time
+
+        # Two sleepers: victim process group vs real process group.
+        real = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        forged = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            time.sleep(0.05)
+            real_pgid = os.getpgid(real.pid)
+            forged_pgid = os.getpgid(forged.pid)
+            self.assertNotEqual(real_pgid, forged_pgid)
+            fp = capture_fingerprint(
+                pid=real.pid,
+                pgid=forged_pgid,  # forged: not real's process group
+                session_id="sess-forged-pgid",
+                executable_hint=sys.executable,
+            )
+            ok, reason = verify_fingerprint(fp, expected_session_id="sess-forged-pgid")
+            self.assertFalse(ok)
+            self.assertIn("pgid", reason.lower())
+            # Matching session + correct pgid succeeds.
+            fp_ok = capture_fingerprint(
+                pid=real.pid,
+                pgid=real_pgid,
+                session_id="sess-forged-pgid",
+                executable_hint=sys.executable,
+            )
+            ok2, reason2 = verify_fingerprint(fp_ok, expected_session_id="sess-forged-pgid")
+            self.assertTrue(ok2, reason2)
+            # Executable mismatch never excused by start_time match.
+            bad_exe = dict(fp_ok.to_dict())
+            bad_exe["executable"] = "/nonexistent/forged-binary"
+            ok3, reason3 = verify_fingerprint(bad_exe, expected_session_id="sess-forged-pgid")
+            self.assertFalse(ok3)
+            self.assertIn("executable", reason3.lower())
+        finally:
+            for p in (real, forged):
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                except OSError:
+                    try:
+                        p.kill()
+                    except OSError:
+                        pass
+                try:
+                    p.wait(timeout=1)
+                except Exception:
+                    pass
 
 
 if __name__ == "__main__":

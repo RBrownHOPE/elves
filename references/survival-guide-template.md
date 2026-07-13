@@ -199,7 +199,7 @@ plan, the codebase, or good engineering practice.
 - **One run owns one branch and one checkout.** Never share a working tree or branch with another active agent. If the branch tip moves to a commit you didn't create, stop — it is a collision, not a diverge.
 - **Dedicated worktree helper:** When another agent may touch the repo, create the isolated checkout with `./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect the generated command first. The helper prints the branch, worktree path, base ref, and collision tripwire, and does not reuse, delete, or repair existing worktrees.
 - **Never modify a test to make it pass.** Fix the code, not the test. If you believe a test is wrong, log it and move on. Don't change it.
-- **Never introduce regressions.** Every change must preserve existing functionality. Before marking a batch complete, verify: all pre-existing tests still pass (total test count never decreases), no shared utilities or interfaces were broken (grep for consumers), and the cumulative diff (`git diff <default-branch>...HEAD --stat`) contains no unexpected changes outside batch scope.
+- **Never introduce regressions.** Every change must preserve existing functionality. Before marking a batch complete, verify: all relevant tests still pass (behavior coverage preserved or improved; green-seeking weaken/delete/skip forbidden), no shared utilities or interfaces were broken (grep for consumers), and the cumulative diff (`git diff <default-branch>...HEAD --stat`) contains no unexpected changes outside batch scope.
 
 ---
 
@@ -742,15 +742,15 @@ synthesize-model: coordinator
 
 1. **Create a rollback tag before every batch:**
    ```bash
-   # host-only run-scoped: refs/elves/rollback/<run-id>/<session-id>/batch-N
-   git push origin refs/elves/rollback/<run>/<session>/batch-N
+   # host-only run-scoped: refs/elves/rollback/<run-id>/<session-id>/bN-<digest>
+   git push origin refs/elves/rollback/<run>/<session>/bN-<digest>
    ```
 2. **Never force-push** the working branch.
 3. **Never rebase** the working branch during a run (it invalidates rollback tags).
 4. **Never merge by default.** Not even a fast-forward. The user merges when they return — unless they set a merge-on-green preference or explicitly invoke the reviewed-PR landing command. In either opt-in path, land a regular merge commit (never a squash) only after the final readiness review passes.
 5. **If something goes badly wrong**, stop and create a clean recovery branch from the last good tag instead of rewriting history:
    ```bash
-   git checkout -b recovery/from-elves-pre-batch-N refs/elves/rollback/<run>/<session>/batch-N
+   git checkout -b recovery/from-elves-pre-batch-N refs/elves/rollback/<run>/<session>/bN-<digest>
    git push -u origin HEAD
    ```
    Then document what happened in the execution log and stop. Leave the original branch untouched for later inspection.

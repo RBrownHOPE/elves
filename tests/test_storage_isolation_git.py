@@ -120,6 +120,7 @@ class StoragePrimitiveTests(unittest.TestCase):
                 "cwd": "/wt",
                 "parent": "p1",
                 "source_head": "abc",
+                "session_id": "sess-1",
                 "capabilities": {"write": True},
                 "evidence_kind": "host_observed",
                 "observed_at": "t",

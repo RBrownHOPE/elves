@@ -284,28 +284,114 @@ def cmd_session(args: argparse.Namespace) -> int:
             print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
             return 1
         if getattr(args, "require_write", False):
+            # Observations must come from flags/probe — never substitute stored values.
+            from cobbler_runtime.sessions import (  # noqa: PLC0415
+                ContextDigest,
+                evaluate_session_continuity,
+            )
+
+            observed_model = getattr(args, "model", None) or None
+            observed_cwd = getattr(args, "cwd", None) or None
+            observed_worktree = getattr(args, "worktree", None) or None
+            observed_parent = getattr(args, "parent_id", None) or None
+            observed_head = getattr(args, "source_head", None) or getattr(
+                args, "head", None
+            )
+            observed_adapter = getattr(args, "adapter", None) or None
+            observed_profile = getattr(args, "profile", None) or None
             missing = []
             for field_name, value in (
-                ("adapter", adapter),
-                ("model", model),
-                ("cwd", cwd),
-                ("worktree", rec.worktree),
-                ("parent_id", rec.parent_id),
-                ("source_head", rec.source_head),
+                ("adapter", observed_adapter),
+                ("model", observed_model),
+                ("cwd", observed_cwd),
+                ("worktree", observed_worktree),
+                ("parent_id", observed_parent),
+                ("source_head", observed_head),
             ):
                 if not value:
                     missing.append(field_name)
-            if missing or rec.write_reuse_blocked:
+            if missing:
                 issue = ValidationIssue(
                     "session_write_reuse_unqualified",
-                    "Write reuse refused: missing observations or write_reuse_blocked",
-                    hint=",".join(missing) if missing else rec.block_reason or "blocked",
+                    "Write reuse refused: missing observations from flags/probe "
+                    f"(required: {', '.join(missing)}); never substitute stored values",
+                    hint=",".join(missing),
                 )
                 payload = {"ok": False, "issues": [issue.to_dict()]}
                 if args.json:
                     return _emit_json(payload, exit_code=1)
                 print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
                 return 1
+            if observed_adapter and rec.harness and observed_adapter != rec.harness:
+                issue = ValidationIssue(
+                    "session_resume_adapter_mismatch",
+                    f"Observed adapter `{observed_adapter}` != registered `{rec.harness}`",
+                )
+                payload = {"ok": False, "issues": [issue.to_dict()]}
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+                return 1
+            if observed_profile and rec.profile and observed_profile != rec.profile:
+                issue = ValidationIssue(
+                    "session_resume_profile_mismatch",
+                    f"Observed profile `{observed_profile}` != registered `{rec.profile}`",
+                )
+                payload = {"ok": False, "issues": [issue.to_dict()]}
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+                return 1
+            if observed_model and rec.actual_model and observed_model != rec.actual_model:
+                if rec.requested_model and observed_model != rec.requested_model:
+                    issue = ValidationIssue(
+                        "session_resume_model_mismatch",
+                        f"Contradictory model: observed={observed_model} "
+                        f"recorded actual={rec.actual_model} requested={rec.requested_model}",
+                    )
+                    payload = {"ok": False, "issues": [issue.to_dict()]}
+                    if args.json:
+                        return _emit_json(payload, exit_code=1)
+                    print(
+                        f"session resume: FAILED [{issue.code}] {issue.message}",
+                        file=sys.stderr,
+                    )
+                    return 1
+            digest = ContextDigest(
+                digest=str(rec.context_digest or ""),
+                components={},
+            )
+            continuity = evaluate_session_continuity(
+                rec,
+                observed_model=observed_model,
+                observed_cwd=observed_cwd,
+                observed_worktree=observed_worktree,
+                observed_parent_id=observed_parent,
+                observed_head=observed_head,
+                current_digest=digest,
+            )
+            if not continuity.ok or continuity.write_reuse_blocked or rec.write_reuse_blocked:
+                issue = ValidationIssue(
+                    "session_write_reuse_unqualified",
+                    "Write reuse refused by exact registry continuity: "
+                    + ("; ".join(continuity.reasons) or rec.block_reason or "blocked"),
+                )
+                payload = {
+                    "ok": False,
+                    "issues": [issue.to_dict()],
+                    "continuity": continuity.to_dict()
+                    if hasattr(continuity, "to_dict")
+                    else {"reasons": continuity.reasons},
+                }
+                if args.json:
+                    return _emit_json(payload, exit_code=1)
+                print(f"session resume: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+                return 1
+            # Use observed (flag) values only for resume argv when require_write.
+            adapter = observed_adapter or adapter
+            profile = observed_profile or profile
+            model = observed_model or model
+            cwd = observed_cwd or cwd
         try:
             inv = build_session_resume_invocation(
                 adapter=adapter,
@@ -599,9 +685,14 @@ def cmd_worker(args: argparse.Namespace) -> int:
             lease = store.get(args.lease_id)
             store.mark_auditing(lease.lease_id)
             pre_path = store.snapshot_dir(args.lease_id) / "pre.json"
-            pre = {}
-            if pre_path.is_file():
-                pre = json.loads(pre_path.read_text(encoding="utf-8"))
+            # Missing pre.json is a hard audit error (not a soft empty snapshot).
+            if not pre_path.is_file():
+                raise ValidationIssue(
+                    "audit_missing_pre_snapshot",
+                    "Missing pre.json snapshot; refuse audit without prepare-time evidence",
+                    path=str(pre_path),
+                )
+            pre = json.loads(pre_path.read_text(encoding="utf-8"))
             result = audit_lease_turn(
                 store.get(args.lease_id),
                 pre_refs_digest=pre.get("refs_digest"),
@@ -616,12 +707,16 @@ def cmd_worker(args: argparse.Namespace) -> int:
                 store.reject(args.lease_id, "; ".join(result.reasons))
             else:
                 # Persist immutable evidence + atomic audited_pass transition.
+                # Digest is over canonical payload excluding the digest field itself.
                 import hashlib
 
                 evidence = result.to_dict()
                 evidence["pre_snapshots"] = pre
+                canonical = {k: v for k, v in evidence.items() if k != "evidence_digest"}
                 evidence["evidence_digest"] = hashlib.sha256(
-                    json.dumps(evidence, sort_keys=True).encode("utf-8")
+                    json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode(
+                        "utf-8"
+                    )
                 ).hexdigest()
                 store.mark_audited_pass(args.lease_id, evidence=evidence)
             payload = {"ok": result.ok, "audit": result.to_dict(), "mutated_repo": False}
@@ -658,6 +753,20 @@ def cmd_worker(args: argparse.Namespace) -> int:
                     "export_evidence_lease_mismatch",
                     "Persisted audit evidence lease_id does not match",
                 )
+            # Recompute evidence digest over canonical payload (excluding digest field).
+            import hashlib
+
+            stored_digest = str(evidence.get("evidence_digest") or "")
+            canonical = {k: v for k, v in evidence.items() if k != "evidence_digest"}
+            recomputed = hashlib.sha256(
+                json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            if stored_digest and stored_digest != recomputed:
+                raise ValidationIssue(
+                    "export_evidence_digest_mismatch",
+                    "Persisted audit evidence digest does not match recomputed canonical payload "
+                    "(tampered evidence)",
+                )
             chain = evidence.get("commit_chain") or []
             from cobbler_runtime.audit import CommitInfo  # noqa: PLC0415
 
@@ -673,7 +782,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
                 for c in chain
                 if isinstance(c, dict)
             ]
-            # Do not mark EXPORTED until export (+ optional apply-check) succeeds.
+            # Do not mark EXPORTED until patch export and optional apply-check succeed.
             patches = export_binary_patches(
                 lease,
                 output_dir=out,
@@ -689,10 +798,14 @@ def cmd_worker(args: argparse.Namespace) -> int:
                     cumulative=True,
                     disposable=True,
                 )
-                store.mark_apply_checked(args.lease_id)
+                if not apply_result.get("ok"):
+                    raise ValidationIssue(
+                        "export_apply_check_failed",
+                        "Host apply-check failed; refusing EXPORTED state: "
+                        + str(apply_result.get("error") or apply_result.get("reasons") or apply_result),
+                    )
             store.mark_exported(args.lease_id, str(out))
             if apply_result is not None and apply_result.get("ok"):
-                # Re-assert apply-checked after successful export when check ran.
                 lease2 = store.get(args.lease_id)
                 if lease2.state.value == "exported":
                     store.mark_apply_checked(args.lease_id)
@@ -1296,12 +1409,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     session_resume.add_argument("--profile", default=None, help="Profile name")
     session_resume.add_argument("--executable", default=None, help="Executable override")
-    session_resume.add_argument("--model", default=None, help="Requested model")
-    session_resume.add_argument("--cwd", default=None, help="Verified CWD/worktree path")
+    session_resume.add_argument("--model", default=None, help="Requested/actual model observation")
+    session_resume.add_argument("--cwd", default=None, help="Verified CWD observation")
+    session_resume.add_argument(
+        "--worktree",
+        default=None,
+        help="Verified worktree observation (required with --require-write)",
+    )
+    session_resume.add_argument(
+        "--parent-id",
+        default=None,
+        dest="parent_id",
+        help="Observed parent session id (required with --require-write)",
+    )
+    session_resume.add_argument(
+        "--source-head",
+        default=None,
+        dest="source_head",
+        help="Observed source HEAD (required with --require-write)",
+    )
     session_resume.add_argument(
         "--require-write",
         action="store_true",
-        help="Fail closed unless write-reuse observations are complete and unblocked",
+        help="Fail closed unless flag/probe observations pass exact registry continuity",
     )
     session_resume.set_defaults(func=cmd_session)
 

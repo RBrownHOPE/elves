@@ -215,6 +215,7 @@ def qualify_write_evidence(evidence: Mapping[str, Any] | None) -> tuple[bool, li
         "cwd",
         "parent",
         "source_head",
+        "session_id",
         "capabilities",
         "evidence_kind",
         "observed_at",
@@ -228,6 +229,7 @@ def qualify_write_evidence(evidence: Mapping[str, Any] | None) -> tuple[bool, li
     if sandbox in UNSUPPORTED_SANDBOX_PROFILES:
         reasons.append(f"unsupported_sandbox:{sandbox}")
     elif sandbox and sandbox not in SUPPORTED_SANDBOX_PROFILES:
+        # Arbitrary sandbox strings fail closed — cannot enable detached commits.
         reasons.append(f"unsupported_sandbox:{sandbox}")
 
     if evidence.get("preference_declared") is True and not evidence.get("host_observed"):

@@ -705,7 +705,7 @@ Rules:
 - Each batch must pass validation, review, AND preview deployment (if configured) before the next batch starts.
 - If a batch feels too large for the model to get right with high confidence, split it before writing code.
 - Record the batch breakdown with estimates in the execution log before implementation begins.
-- Create a rollback tag before each batch: run/session-scoped rollback refs (`refs/elves/rollback/<run>/<session>/batch-N`)
+- Create a rollback tag before each batch: run/session-scoped rollback refs (`refs/elves/rollback/<run>/<session>/bN-<digest>`)
 
 ## Subagent Strategy
 
@@ -766,11 +766,11 @@ This catches edge cases where the previous batch passed gates but a subsequent p
 
 If this is the first batch and no code exists yet, run a minimal smoke test instead: confirm the dev server starts, the test runner works, and dependencies are installed. If dependencies are missing (fresh clone or sandbox), install them first (`npm install`, `pip install -r requirements.txt`, etc.).
 
-**Capture the test baseline.** After Verify Green passes, record the test count (total, passing, skipped) in `.elves-session.json` under `test_baseline: { passed: N, total: M, skipped: K }`. This is your reference point for the entire run. At the end of each batch, compare current counts against this baseline. The total should only go up (new tests) or stay flat, never down. A decrease means tests were deleted, commented out, or disabled, which violates test integrity. If the skipped count climbs, investigate.
+**Capture the test baseline.** After Verify Green passes, record the test count (total, passing, skipped) in `.elves-session.json` under `test_baseline: { passed: N, total: M, skipped: K }`. This is your reference point for the entire run. At the end of each batch, compare current counts against this baseline. Record the baseline for comparison. Legitimate behavior-driven test changes and count reductions are allowed when behavioral coverage is preserved or improved and the change is explained. Only green-seeking weaken/delete/skip is forbidden.
 
 ### 3. Tag
 
-Create a rollback safety point: run/session-scoped rollback refs (`refs/elves/rollback/<run>/<session>/batch-N`)
+Create a rollback safety point: run/session-scoped rollback refs (`refs/elves/rollback/<run>/<session>/bN-<digest>`)
 
 ### 4. Contract
 
@@ -944,7 +944,7 @@ Update the execution log with a timestamped entry covering: batch name, timing b
 1. **Cumulative diff review:** run `git diff <default-branch>...HEAD --stat` and review the total delta from the default branch. List any files changed outside the batch scope and explain why they were touched. Flag any unexpected deletions.
 2. **Shared surfaces:** identify any shared code modified in this batch (utilities, types, interfaces, configs, middleware, or anything imported by code outside the batch scope). For each, grep for consumers and verify the change is backward-compatible. Report the consumer count and nature of change (additive / modified / breaking).
 3. **Public API surface delta:** if `api-surface-snapshot` is configured, record the status (`not_applicable`, `captured`, `changed`, `unavailable`, `invalid_config`, or `required_failed`), artifact paths, and whether any additive, planned breaking, or unexpected breaking contract changes appeared.
-4. **Test baseline comparison:** compare the current test count against the baseline captured during Verify Green (step 2). Report the delta. Total tests should only go up or stay flat, never decrease. If the skipped count increased, explain why.
+4. **Test baseline comparison:** compare the current test count against the baseline captured during Verify Green (step 2). Report the delta. Compare coverage quality, not only counts. Legitimate behavior-driven reductions need explanation; green-seeking weaken/delete/skip is forbidden.
 5. **Confidence and reasoning:** state HIGH, MEDIUM, or LOW and explain *why*. "All tests pass" is necessary but not sufficient. Explain what you checked beyond tests and why you believe existing functionality is preserved. If you modified shared surfaces, explain why consumers aren't affected. If MEDIUM or LOW, describe the specific risk and what additional verification would raise confidence.
 
 Also update `.elves-session.json` — set the current batch status to `"complete"` **only after** recording a non-empty `acceptance` array (each item: `criterion`, `met: true`, `evidence`), record the commit SHA and completion timestamp, and capture any resolved, deferred, or dismissed review-comment dispositions. This keeps the JSON in sync with the execution log so either can be used for recovery. Do not mark `complete` because gates are green if plan Acceptance is still open.
@@ -1607,7 +1607,7 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
       "name": "Database schema and models",
       "status": "complete",
       "commit": "abc1234",
-      "rollback_tag": "elves/pre-batch-1",
+      "rollback_tag": "refs/elves/rollback/<run-digest>/<session-digest>/b1-<id-digest>",
       "started_at": "2026-03-24T22:00:00Z",
       "completed_at": "2026-03-24T23:15:00Z",
       "acceptance": [
@@ -1623,7 +1623,7 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
       "name": "Auth endpoints",
       "status": "in_progress",
       "commit": null,
-      "rollback_tag": "elves/pre-batch-2",
+      "rollback_tag": "refs/elves/rollback/<run-digest>/<session-digest>/b2-<id-digest>",
       "started_at": "2026-03-24T23:16:00Z",
       "completed_at": null,
       "acceptance": []

@@ -376,17 +376,18 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
         )
         from cobbler_runtime.schema import ValidationIssue  # noqa: PLC0415
 
+        # Stable-ID mapping is mandatory whenever the plan contains acceptance sections
+        # with B#-A# / M-A# IDs — not only when evidence already carries IDs.
+        has_acceptance_section = bool(
+            re.search(r"(?im)^\s*[-*]\s+\[[ xX]?\]\s+(?:B\d+-A\d+|M-A\d+)\b", text)
+            or re.search(r"(?im)^\s*[-*]\s+\[[ xX]?\]\s*.*\bB\d+-A\d+\b", text)
+            or "Acceptance criteria" in text
+            or "**Acceptance" in text
+        )
         try:
             plan_items = parse_plan_acceptance(text)
         except ValidationIssue as issue:
-            # Only hard-fail when the plan clearly intended stable IDs but is unparseable
-            # for mapping (e.g. mixed/malformed B#-A# lines), or when session uses IDs.
-            session_uses_ids = any(
-                isinstance(item, dict) and item.get("id")
-                for b in as_batches(session)
-                for item in acceptance_items(b)
-            )
-            if session_uses_ids or "B1-A" in text or "M-A" in text:
+            if has_acceptance_section or "B1-A" in text or "M-A" in text:
                 report.error("plan_acceptance_unparseable", issue.message)
             return
 
@@ -403,14 +404,13 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
             for item in acceptance_items(batch):
                 if item.get("id"):
                     evidence_items.append(item)
-        if evidence_items or any(i["id"].startswith("M-A") for i in plan_items):
-            mapping_errors = validate_acceptance_mapping(
-                plan_items,
-                evidence_items,
-                require_master=any(i["id"].startswith("M-A") for i in plan_items),
-            )
-            for err in mapping_errors:
-                report.error("acceptance_id_mapping", err)
+        mapping_errors = validate_acceptance_mapping(
+            plan_items,
+            evidence_items,
+            require_master=any(i["id"].startswith("M-A") for i in plan_items),
+        )
+        for err in mapping_errors:
+            report.error("acceptance_id_mapping", err)
     except Exception as exc:  # noqa: BLE001
         report.warn(
             "acceptance_id_mapping_unavailable",

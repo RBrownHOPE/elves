@@ -163,10 +163,13 @@ def push_feature_branch(
 
 
 def rollback_ref_name(*, run_id: str, session_id: str, batch: int) -> str:
-    """Run/session-scoped rollback ref (not a global elves/pre-batch-N tag)."""
-    safe_run = re.sub(r"[^A-Za-z0-9._-]+", "_", run_id)[:48]
-    safe_sess = re.sub(r"[^A-Za-z0-9._-]+", "_", session_id)[:32]
-    return f"refs/elves/rollback/{safe_run}/{safe_sess}/batch-{int(batch)}"
+    """Collision-free run/session-scoped rollback ref with digest of full IDs."""
+    import hashlib
+    material = f"{run_id}\0{session_id}\0{int(batch)}".encode("utf-8")
+    digest = hashlib.sha256(material).hexdigest()[:12]
+    safe_run = re.sub(r"[^A-Za-z0-9._-]+", "_", run_id)[:24]
+    safe_sess = re.sub(r"[^A-Za-z0-9._-]+", "_", session_id)[:16]
+    return f"refs/elves/rollback/{safe_run}/{safe_sess}/b{int(batch)}-{digest}"
 
 
 def create_rollback_ref(

@@ -171,6 +171,7 @@ def validate_run_report(
     expected_branch: str | None = None,
     expected_start_head: str | None = None,
     require_complete_acceptance: bool = False,
+    expected_run_id: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
     required = (
@@ -196,12 +197,24 @@ def validate_run_report(
         errors.append("report branch mismatch")
     if expected_start_head and report.get("start_head") != expected_start_head:
         errors.append("report start_head mismatch")
+    if expected_run_id and report.get("run_id") != expected_run_id:
+        errors.append("report run_id mismatch")
+    # List-typed evidence surfaces must actually be lists.
+    for list_key in ("batches", "acceptance", "commits", "blockers", "docs_changed", "remaining_risks"):
+        if list_key in report and report[list_key] is not None and not isinstance(
+            report[list_key], list
+        ):
+            errors.append(f"{list_key} must be a list")
+    final_head = str(report.get("final_head") or "").strip()
+    if status == "complete" and not final_head:
+        errors.append("complete report requires nonempty final_head")
     acceptance = report.get("acceptance")
     if acceptance is not None and not isinstance(acceptance, list):
         errors.append("acceptance must be a list")
     elif isinstance(acceptance, list):
         if require_complete_acceptance and status == "complete" and not acceptance:
             errors.append("complete report requires non-empty acceptance")
+        seen_ids: set[str] = set()
         for i, item in enumerate(acceptance):
             if not isinstance(item, dict):
                 errors.append(f"acceptance[{i}] must be an object")
@@ -209,6 +222,13 @@ def validate_run_report(
             for field_name in ("id", "criterion", "met", "evidence"):
                 if field_name not in item:
                     errors.append(f"acceptance[{i}] missing {field_name}")
+            aid = str(item.get("id") or "").strip()
+            if require_complete_acceptance and status == "complete" and not aid:
+                errors.append(f"acceptance[{i}] requires nonempty exact id")
+            if aid:
+                if aid in seen_ids:
+                    errors.append(f"duplicate acceptance id: {aid}")
+                seen_ids.add(aid)
             if item.get("met") is True and not item.get("evidence"):
                 errors.append(f"acceptance[{i}] met without evidence")
     return errors
@@ -272,6 +292,11 @@ class FullRunState:
     last_argv: list[str] = field(default_factory=list)
     # Fixture-only: path to python fixture script (never masquerades as Grok).
     fixture_script: str | None = None
+    # Protected base/remote refs snapped at prepare; verified unchanged at finalization.
+    # Trusted Lane A is policy trust, not an OS Git sandbox — movement still blocks readiness.
+    protected_refs: dict[str, str] = field(default_factory=dict)
+    exit_code: int | None = None
+    exit_sidecar_pid: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -307,15 +332,16 @@ def build_full_run_env(
     for name in grants:
         if name in parent and parent[name]:
             env[name] = str(parent[name])
-    # Supervisor paths for fixture mode only (never secret).
-    if state.adapter == "fixture":
-        env["ELVES_FULL_RUN_SESSION"] = state.session_id
-        env["ELVES_FULL_RUN_EVENTS"] = str(root / "events.jsonl")
-        env["ELVES_FULL_RUN_REPORT"] = str(root / "report.json")
-        env["ELVES_FULL_RUN_TRANSCRIPT"] = str(root / "transcript.log")
-        env["ELVES_FULL_RUN_BRANCH"] = state.branch
-        env["ELVES_FULL_RUN_START_HEAD"] = state.start_head
-        env["ELVES_FULL_RUN_WORKTREE"] = state.worktree
+    # Non-secret full-run contract values for real adapters and fixtures.
+    # Packet requirement: adapters must use these paths for events/report/progress.
+    env["ELVES_FULL_RUN_SESSION"] = state.session_id
+    env["ELVES_FULL_RUN_EVENTS"] = str(root / "events.jsonl")
+    env["ELVES_FULL_RUN_REPORT"] = str(root / "report.json")
+    env["ELVES_FULL_RUN_TRANSCRIPT"] = str(root / "transcript.log")
+    env["ELVES_FULL_RUN_BRANCH"] = state.branch
+    env["ELVES_FULL_RUN_START_HEAD"] = state.start_head
+    env["ELVES_FULL_RUN_WORKTREE"] = state.worktree
+    env["ELVES_FULL_RUN_EXIT_RECORD"] = str(root / "exit_record.json")
     return env
 
 
@@ -379,7 +405,11 @@ def capture_fingerprint(
     )
 
 
-def verify_fingerprint(fp: ProcessFingerprint | Mapping[str, Any]) -> tuple[bool, str]:
+def verify_fingerprint(
+    fp: ProcessFingerprint | Mapping[str, Any],
+    *,
+    expected_session_id: str | None = None,
+) -> tuple[bool, str]:
     if isinstance(fp, Mapping):
         try:
             fp = ProcessFingerprint.from_dict(fp)
@@ -387,6 +417,10 @@ def verify_fingerprint(fp: ProcessFingerprint | Mapping[str, Any]) -> tuple[bool
             return False, f"invalid fingerprint: {exc}"
     if fp.pid <= 0:
         return False, "invalid pid"
+    if not str(fp.session_id or "").strip():
+        return False, "session_id missing on fingerprint"
+    if expected_session_id and str(fp.session_id) != str(expected_session_id):
+        return False, "session_id mismatch on fingerprint"
     try:
         os.kill(fp.pid, 0)
     except ProcessLookupError:
@@ -399,14 +433,172 @@ def verify_fingerprint(fp: ProcessFingerprint | Mapping[str, Any]) -> tuple[bool
         return False, "pid start_time mismatch (reused PID)"
     current_exe = _process_executable(fp.pid)
     if fp.executable and current_exe:
-        # Compare basenames to tolerate path resolution differences.
+        # Strict executable/wrapper identity — mismatch always fails (start_time match
+        # never excuses an executable/wrapper identity drift).
         if Path(fp.executable).name != Path(current_exe).name:
-            # Allow fixture python vs script path differences when start_time matches.
-            if fp.start_time and current_start == fp.start_time:
-                pass
-            else:
-                return False, "pid executable mismatch"
+            return False, "pid executable mismatch"
+    # PGID membership: stored pgid must match live process group of the PID.
+    if fp.pgid is not None:
+        try:
+            live_pgid = os.getpgid(fp.pid)
+            if int(live_pgid) != int(fp.pgid):
+                return False, "pgid membership mismatch"
+        except OSError:
+            return False, "pgid membership unreadable"
     return True, "ok"
+
+
+def read_exit_record(root: Path) -> dict[str, Any] | None:
+    """Host-owned exit sidecar record written after the provider process exits."""
+    path = Path(root) / "exit_record.json"
+    if not path.is_file():
+        return None
+    try:
+        data = read_json(path)
+    except StorageError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def write_exit_record(root: Path, record: Mapping[str, Any]) -> Path:
+    path = Path(root) / "exit_record.json"
+    payload = dict(record)
+    payload.setdefault("completed_at", _utc_now())
+    atomic_write_json(path, payload)
+    return path
+
+
+def _spawn_exit_sidecar(
+    *,
+    root: Path,
+    pid: int,
+    pgid: int | None,
+    session_id: str,
+    executable: str | None,
+    fingerprint: Mapping[str, Any],
+) -> int | None:
+    """Host-owned waiter that records exit code + fingerprint after the child exits.
+
+    Runs as a detached process so CLI invocations (launch → monitor → stop) share
+    one durable exit record without leaving open Popen handles in the launcher.
+    """
+    exit_path = str(root / "exit_record.json")
+    # Sidecar script: wait for pid death, then write atomic exit_record.json.
+    script = r"""
+import json, os, sys, time
+from pathlib import Path
+pid = int(sys.argv[1])
+exit_path = Path(sys.argv[2])
+meta = json.loads(sys.argv[3])
+code = None
+while True:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        break
+    except PermissionError:
+        pass
+    # Reap if we are parent; ignore if not.
+    try:
+        waited, status = os.waitpid(pid, os.WNOHANG)
+        if waited == pid:
+            if hasattr(os, "waitstatus_to_exitcode"):
+                code = os.waitstatus_to_exitcode(status)
+            else:
+                code = status
+            break
+    except (ChildProcessError, OSError):
+        pass
+    time.sleep(0.15)
+# Best-effort exit code when not our child.
+if code is None:
+    code = meta.get("fallback_exit_code")
+from datetime import datetime, timezone
+payload = {
+    "pid": pid,
+    "pgid": meta.get("pgid"),
+    "session_id": meta.get("session_id"),
+    "executable": meta.get("executable"),
+    "fingerprint": meta.get("fingerprint"),
+    "exit_code": code,
+    "completed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+}
+tmp = exit_path.with_suffix(".tmp")
+tmp.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+tmp.replace(exit_path)
+try:
+    exit_path.chmod(0o600)
+except OSError:
+    pass
+"""
+    meta = {
+        "pgid": pgid,
+        "session_id": session_id,
+        "executable": executable,
+        "fingerprint": dict(fingerprint),
+        "fallback_exit_code": None,
+    }
+    try:
+        sidecar = subprocess.Popen(
+            [sys.executable, "-c", script, str(pid), exit_path, json.dumps(meta)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+        # Detach intentionally: record sidecar pid only.
+        (root / "exit_sidecar.pid").write_text(str(sidecar.pid) + "\n", encoding="utf-8")
+        # Prevent ResourceWarning on garbage collection of intentionally backgrounded sidecar.
+        try:
+            sidecar.returncode = 0  # type: ignore[assignment]
+        except Exception:  # noqa: BLE001
+            pass
+        return sidecar.pid
+    except OSError:
+        return None
+
+
+def snapshot_protected_refs(repo_root: Path) -> dict[str, str]:
+    """Snapshot protected base/other remote refs at prepare time."""
+    snaps: dict[str, str] = {}
+    for ref in (
+        "refs/heads/main",
+        "refs/heads/master",
+        "refs/remotes/origin/main",
+        "refs/remotes/origin/master",
+    ):
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(repo_root), "rev-parse", "-q", "--verify", ref],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            continue
+        if result.returncode == 0 and result.stdout.strip():
+            snaps[ref] = result.stdout.strip()
+    return snaps
+
+
+def verify_protected_refs_unchanged(
+    repo_root: Path, expected: Mapping[str, str]
+) -> list[str]:
+    """Any observed protected-ref movement blocks readiness (policy trust, not OS sandbox)."""
+    errors: list[str] = []
+    if not expected:
+        return errors
+    current = snapshot_protected_refs(repo_root)
+    for ref, tip in expected.items():
+        now = current.get(ref)
+        if now is None:
+            errors.append(f"protected ref missing at finalization: {ref}")
+        elif now != tip:
+            errors.append(f"protected ref moved: {ref} was {tip[:12]} now {now[:12]}")
+    return errors
 
 
 def _git_head(cwd: Path) -> str | None:
@@ -544,10 +736,12 @@ def prepare_full_run(
             credential_grant_names or sorted(DEFAULT_CREDENTIAL_GRANT_NAMES)
         ),
         fixture_script=str(Path(fixture_script).resolve()) if fixture_script else None,
+        protected_refs=snapshot_protected_refs(Path(repo_root)),
         notes=[
             "Trusted full-run supervisor prepared; host parks after launch",
             f"adapter={adapter_name}",
             "Worker report is evidence only; never merge authority",
+            "Trusted Lane A is policy trust, not an OS Git sandbox; protected-ref movement blocks readiness",
         ],
     )
     atomic_write_json(state_path, state.to_dict())
@@ -717,7 +911,9 @@ def launch_full_run(
     state = load_state(repo_root, session_id)
     root = full_run_root(repo_root, session_id)
     if state.fingerprint:
-        ok, reason = verify_fingerprint(state.fingerprint)
+        ok, reason = verify_fingerprint(
+            state.fingerprint, expected_session_id=session_id
+        )
         if ok:
             raise ValidationIssue(
                 "full_run_already_running",
@@ -746,6 +942,8 @@ def launch_full_run(
     transcript = root / "transcript.log"
     ensure_private_dir(root / "worker-home")
     ensure_private_dir(root / "worker-tmp")
+    # Open transcript for inheritance, then close parent fd so launchers across
+    # separate CLI invocations do not leave unclosed handles / ResourceWarnings.
     stdout_handle = transcript.open("a", encoding="utf-8")
     try:
         proc = subprocess.Popen(
@@ -754,7 +952,9 @@ def launch_full_run(
             env=launch_env,
             stdout=stdout_handle,
             stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
             start_new_session=True,
+            close_fds=True,
         )
     finally:
         stdout_handle.close()
@@ -777,6 +977,27 @@ def launch_full_run(
     state.next_action = "monitor"
     if resume:
         state.create_session = False
+    # Host-owned exit sidecar records child exit code + fingerprint after provider exits.
+    sidecar_pid = _spawn_exit_sidecar(
+        root=root,
+        pid=proc.pid,
+        pgid=pgid,
+        session_id=session_id,
+        executable=argv[0],
+        fingerprint=fp.to_dict(),
+    )
+    state.exit_sidecar_pid = sidecar_pid
+    # Drop Popen without waiting: process is tracked by fingerprint + exit sidecar.
+    # Clear handles so GC does not emit ResourceWarning for intentional backgrounding.
+    try:
+        proc.stdout = None
+        proc.stderr = None
+        proc.stdin = None
+        # Intentional background detach: suppress ResourceWarning on GC.
+        if proc.returncode is None:
+            proc.returncode = 0
+    except Exception:  # noqa: BLE001
+        pass
     save_state(repo_root, state)
     (root / "worker.pid").write_text(str(proc.pid) + "\n", encoding="utf-8")
     (root / "worker.pgid").write_text(str(pgid) + "\n", encoding="utf-8")
@@ -906,11 +1127,30 @@ def monitor_full_run(
     fp_reason = "no fingerprint"
     alive = False
     if state.fingerprint:
-        fp_ok, fp_reason = verify_fingerprint(state.fingerprint)
+        fp_ok, fp_reason = verify_fingerprint(
+            state.fingerprint, expected_session_id=session_id
+        )
         alive = fp_ok
     elif state.pid:
         alive = _pid_alive(state.pid)
         fp_reason = "legacy pid without fingerprint"
+
+    # Host-owned exit sidecar: actual child exit code + fingerprint after provider exits.
+    exit_record = read_exit_record(root)
+    if exit_record is not None:
+        if exit_record.get("session_id") and str(exit_record["session_id"]) != session_id:
+            exit_record = None  # foreign record
+        else:
+            if exit_record.get("exit_code") is not None:
+                try:
+                    state.exit_code = int(exit_record["exit_code"])
+                except (TypeError, ValueError):
+                    state.exit_code = None
+            # Provider has exited when exit record exists with matching pid.
+            if state.pid and int(exit_record.get("pid") or 0) == int(state.pid):
+                alive = False
+                fp_ok = False
+                fp_reason = "exit_record present (provider exited)"
 
     # Observed feature-branch head (supervisor heartbeat source).
     observed_head = _git_head(Path(state.worktree))
@@ -924,6 +1164,7 @@ def monitor_full_run(
             state.next_action = "parked_monitor"
 
     last_type = None
+    saw_run_complete_event = False
     for ev in events:
         last_type = ev.get("type") or last_type
         if ev.get("type") == "batch_started":
@@ -940,11 +1181,12 @@ def monitor_full_run(
             state.blocker = str(ev.get("summary") or "blocked")
             state.next_action = "driver_wake_blocker"
         if ev.get("type") == "run_complete":
-            state.status = "complete"
-            state.completed_at = str(ev.get("timestamp") or _utc_now())
-            state.next_action = "final_readiness"
+            # Lone run_complete never establishes completion — needs validated report
+            # or clean provider exit with feature-branch progress.
+            saw_run_complete_event = True
 
-    # Report is evidence only after validation.
+    # Report is evidence only after validation. Completion requires validated report
+    # with nonempty acceptance IDs + final_head (not events alone).
     if report and not report_errors:
         if report.get("status") == "complete":
             final_head = str(report.get("final_head") or "")
@@ -982,6 +1224,15 @@ def monitor_full_run(
             state.blocker = "untrusted worker events/report"
             state.next_action = "driver_wake_error"
 
+    # Protected refs: any movement blocks readiness (policy trust, not OS sandbox).
+    protected_errors = verify_protected_refs_unchanged(
+        Path(repo_root), state.protected_refs or {}
+    )
+    if protected_errors:
+        state.status = "failed"
+        state.blocker = "; ".join(protected_errors)
+        state.next_action = "driver_wake_safety_tripwire"
+
     if state.status not in {"blocked", "complete", "failed", "stopped"}:
         if alive:
             hb = state.heartbeat_at or state.launched_at
@@ -1002,10 +1253,40 @@ def monitor_full_run(
             else:
                 state.status = "healthy"
         else:
-            if last_type == "run_complete" and not event_errors and not report_errors:
+            # Provider exited. Clean exit (0 or missing code for fixture) + descendant
+            # feature-branch progress wakes final readiness even without custom events.
+            # A lone run_complete event never establishes completion by itself.
+            progress = bool(
+                observed_head
+                and observed_head != state.start_head
+                and _is_ancestor(Path(state.worktree), state.start_head, observed_head)
+            )
+            exit_code = state.exit_code
+            clean_exit = exit_code is None or int(exit_code) == 0
+            if exit_code is not None and int(exit_code) != 0:
+                state.status = "failed"
+                state.blocker = f"provider nonzero exit: {exit_code}"
+                state.next_action = "driver_wake_error"
+            elif clean_exit and progress:
                 state.status = "complete"
+                state.completed_at = state.completed_at or _utc_now()
+                state.next_action = "final_readiness"
+                state.head = observed_head
+            elif (
+                report
+                and not report_errors
+                and report.get("status") == "complete"
+                and not protected_errors
+            ):
+                state.status = "complete"
+                state.completed_at = state.completed_at or _utc_now()
+                state.next_action = "final_readiness"
             elif last_type == "blocked":
                 state.status = "blocked"
+            elif saw_run_complete_event and not report:
+                state.status = "failed"
+                state.blocker = "run_complete event without validated complete report"
+                state.next_action = "driver_wake_error"
             elif state.status not in {"complete", "blocked"}:
                 state.status = "failed"
                 state.next_action = "driver_wake_error"
@@ -1015,6 +1296,24 @@ def monitor_full_run(
         state.status = "failed"
         state.blocker = f"worktree branch `{observed_branch}` != staged `{state.branch}`"
         state.next_action = "driver_wake_safety_tripwire"
+
+    # Production finalization path: reconcile git + protected refs when complete.
+    # Explicit fixture mode may use synthetic heads without mutating git.
+    reconcile_payload: dict[str, Any] | None = None
+    if (
+        state.status == "complete"
+        and state.next_action == "final_readiness"
+        and state.adapter != "fixture"
+    ):
+        try:
+            reconcile_payload = reconcile_full_run_with_git(
+                repo_root, session_id=session_id
+            )
+        except ValidationIssue as issue:
+            state.status = "failed"
+            state.blocker = issue.message
+            state.next_action = "driver_wake_error"
+            reconcile_payload = {"ok": False, "error": issue.message}
 
     save_state(repo_root, state)
     from .behavior_policy import PARKED_MONITOR_WAKE_CONDITIONS  # noqa: PLC0415
@@ -1042,6 +1341,11 @@ def monitor_full_run(
             "event_errors": len(event_errors),
             "report_errors": len(report_errors),
             "observed_branch": observed_branch,
+            "exit_code": state.exit_code,
+            "exit_record": bool(exit_record),
+            "reconcile_ok": (
+                None if reconcile_payload is None else bool(reconcile_payload.get("ok"))
+            ),
         },
         "report_path": str(report_path),
         "events_path": str(root / "events.jsonl"),
@@ -1081,7 +1385,9 @@ def stop_full_run(
         }
 
     if state.fingerprint:
-        ok, reason = verify_fingerprint(state.fingerprint)
+        ok, reason = verify_fingerprint(
+            state.fingerprint, expected_session_id=session_id
+        )
         if not ok:
             raise ValidationIssue(
                 "full_run_fingerprint_mismatch",
@@ -1090,7 +1396,18 @@ def stop_full_run(
                 hint="PID may have been reused; investigate before signaling",
             )
         pid = int(state.fingerprint.get("pid") or state.pid or 0)
-        pgid = state.fingerprint.get("pgid") or state.pgid
+        # Only signal a PGID that is the verified process group of the live PID.
+        try:
+            live_pgid = os.getpgid(pid) if pid else None
+        except OSError:
+            live_pgid = None
+        stored_pgid = state.fingerprint.get("pgid") or state.pgid
+        if stored_pgid is not None and live_pgid is not None and int(stored_pgid) != int(live_pgid):
+            raise ValidationIssue(
+                "full_run_fingerprint_mismatch",
+                "Refusing stop/killpg: stored pgid is not the verified process group",
+            )
+        pgid = live_pgid if live_pgid is not None else stored_pgid
     else:
         pid = int(state.pid or 0)
         pgid = state.pgid
@@ -1121,7 +1438,9 @@ def stop_full_run(
     if still_alive:
         # Re-verify fingerprint before SIGKILL.
         if state.fingerprint:
-            ok, reason = verify_fingerprint(state.fingerprint)
+            ok, reason = verify_fingerprint(
+                state.fingerprint, expected_session_id=session_id
+            )
             if not ok:
                 raise ValidationIssue(
                     "full_run_fingerprint_mismatch",
@@ -1297,15 +1616,50 @@ def reconcile_full_run_with_git(
             "report_reconciliation_failed",
             "Host merge_on_green control was not preserved",
         )
+    # Protected refs must be unchanged (policy trust — not OS Git sandbox).
+    protected_errors = verify_protected_refs_unchanged(
+        Path(repo_root), state.protected_refs or {}
+    )
+    if protected_errors:
+        raise ValidationIssue(
+            "protected_ref_moved",
+            "; ".join(protected_errors),
+        )
+    # Local + remote feature head / ancestry when remotes are present.
+    local_head = tip
+    remote_head = None
+    try:
+        rem = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(worktree),
+                "rev-parse",
+                "-q",
+                "--verify",
+                f"refs/remotes/origin/{state.branch}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if rem.returncode == 0 and rem.stdout.strip():
+            remote_head = rem.stdout.strip()
+    except OSError:
+        remote_head = None
     return {
         "ok": True,
         "session_id": session_id,
         "branch": state.branch,
         "start_head": state.start_head,
         "final_head": tip,
+        "local_feature_head": local_head,
+        "remote_feature_head": remote_head,
+        "protected_refs_ok": True,
         "merged_host_state": {
             k: merged.get(k)
             for k in ("merge_on_green", "stop_allowed", "driver_monitor_mode", "final_head")
         },
         "merge_authority": False,
+        "policy_trust_not_os_git_sandbox": True,
     }

@@ -177,3 +177,86 @@ class DispatchIsolationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BuiltInAdapterIsolationTests(unittest.TestCase):
+    def test_codex_argv_uses_snapshot_cd_not_original_repo(self) -> None:
+        """Built-in codex-fugu argv must embed --cd <snapshot>, not original repo."""
+        from cobbler_runtime.dispatch_external import prepare_external_launch
+        from cobbler_runtime.schema import EffectiveAttempt
+        from cobbler_runtime.context import scrub_environment, build_context_packet
+        import tempfile, os
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            os.system(f"git -C {repo} init -q")
+            os.system(f"git -C {repo} config user.email t@t && git -C {repo} config user.name t")
+            (repo / "src").mkdir()
+            (repo / "src" / "app.py").write_text("print(1)\n")
+            (repo / ".env").write_text("SECRET=1\n")
+            os.system(f"git -C {repo} add src/app.py && git -C {repo} commit -q -m i")
+            attempt = EffectiveAttempt(
+                profile="codex-fugu",
+                adapter="codex-fugu",
+                executable="codex",
+                requested_model=None,
+                extra_args=(),
+                input_contract="stdin",
+                output_contract="codex-jsonl",
+                capabilities=(),
+                reason="test",
+                required=True,
+                enabled=True,
+                source="test",
+            )
+
+            class Spec:
+                lane_id = "codex"
+                role = "reviewer"
+                adapter = "codex-fugu"
+                profile = "codex-fugu"
+                requested_model = None
+                timeout_seconds = 5.0
+                required = True
+                session_id = None
+                host_executor = None
+                env_extra_allowlist = ()
+                qualified_capabilities = ()
+                attempts = (attempt,)
+                require_isolation = False
+                include_instructions_as_data = False
+                skip_isolation = False
+
+            work = root / "work"
+            work.mkdir()
+            packet_path = work / "packet.json"
+            prompt_path = work / "prompt.txt"
+            packet_path.write_text("{}")
+            prompt_path.write_text("task")
+            scrub = scrub_environment({"PATH": os.environ.get("PATH", "/bin")})
+            plan = prepare_external_launch(
+                spec=Spec(),
+                attempt=attempt,
+                attempt_index=0,
+                repo_root=repo,
+                packet_path=packet_path,
+                prompt_path=prompt_path,
+                packet_dict={"task": "x"},
+                redacted_task="x",
+                exact_secret_values=frozenset(),
+                grants=(),
+                scrub_env=scrub.env,
+                command_override=None,
+                parent_env=scrub.env,
+            )
+            self.assertFalse(plan.fallback_host_native)
+            argv = plan.argv
+            self.assertIn("--cd", argv)
+            cd_val = argv[argv.index("--cd") + 1]
+            self.assertIn("snapshot", cd_val)
+            self.assertNotEqual(Path(cd_val).resolve(), repo.resolve())
+            self.assertFalse((Path(cd_val) / ".env").exists())
+            if plan.isolated:
+                plan.isolated.cleanup()

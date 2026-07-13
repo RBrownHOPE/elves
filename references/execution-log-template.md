@@ -238,7 +238,7 @@
 - Confidence: [HIGH / MEDIUM / LOW], [1-2 sentence explanation. Not "all tests pass." Explain what you checked and why existing functionality is preserved. E.g., "HIGH, all changes are additive (new functions, new tests). No existing function signatures, types, or interfaces were modified. 12 consumers of validation.ts verified unchanged."]
 
 **Commit:** `[abc1234]`
-**Rollback tag:** `elves/pre-batch-[N]`
+**Rollback tag:** `refs/elves/rollback/<run>/<session>/bN-<digest>`
 
 **Next:**
 1. [Immediate next task. Be specific enough that a fresh session can start without re-reading the plan.]

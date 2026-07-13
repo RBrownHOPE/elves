@@ -309,13 +309,16 @@ def resolve_from_signals(
         return any(flags.get(k) or k.replace("_", " ") in text for k in keys)
 
     # Base scenario for notes/scenario_id only.
+    # full_run/overnight alone is host-native single-kickoff, not trusted Grok.
     if has("untrusted", "writer_lease", "detached_lease"):
         base = resolve_scenario("untrusted_writer")
     elif has("legacy_two_call", "stage_only"):
         base = resolve_scenario("legacy_two_call")
-    elif has("full_run", "overnight", "turn_over_to_grok", "trusted_grok"):
+    elif has("trusted_grok", "turn_over_to_grok", "work_driver_grok") and has(
+        "full_run", "overnight"
+    ):
         base = resolve_scenario("full_run_trusted_grok")
-    elif has("single_kickoff", "run_now", "chat_to_work"):
+    elif has("full_run", "overnight", "single_kickoff", "run_now", "chat_to_work"):
         base = resolve_scenario("single_kickoff_e2e")
     elif has("bounded_task", "one_batch"):
         base = resolve_scenario("bounded_task")
@@ -345,28 +348,25 @@ def resolve_from_signals(
         delegation_scope = "batch"
         driver_monitor_mode = "interactive"
         handling_level = "bounded_task"
-    elif has("full_run", "overnight") and has(
-        "trusted_grok", "turn_over_to_grok", "full_run"
+    # Only explicit trusted-Grok / work-driver signals select Grok parked full-run.
+    elif has("trusted_grok", "turn_over_to_grok", "work_driver_grok") and has(
+        "full_run", "overnight"
     ):
-        # Trusted Grok full-run: keep parked-monitor + branch_progress even when
-        # landing mode is also chat-to-land.
         work_driver = "grok_build"
         delegation_scope = "full_run"
         git_mode = "branch_progress"
         driver_monitor_mode = "parked_monitor"
         handling_level = "full_run"
         continuation = "same_session"
-        if kickoff_mode in {"n_a", "legacy_two_call"} and not has("legacy_two_call"):
+        if kickoff_mode in {"n_a"} and not has("legacy_two_call"):
             kickoff_mode = "single_kickoff"
         notes.append("composed: trusted Grok full-run parked-monitor")
-    elif has("trusted_grok", "turn_over_to_grok") and has("full_run", "overnight"):
-        work_driver = "grok_build"
-        delegation_scope = "full_run"
-        git_mode = "branch_progress"
-        driver_monitor_mode = "parked_monitor"
+    elif has("full_run", "overnight"):
+        work_driver = "host_native"
         handling_level = "full_run"
-        continuation = "same_session"
-        notes.append("composed: trusted Grok full-run parked-monitor")
+        if driver_monitor_mode == "parked_monitor":
+            driver_monitor_mode = "interactive"
+        notes.append("composed: full_run host-native (no trusted Grok signal)")
 
     if has("chat_to_land", "merge_on_green", "reviewed_pr_landing"):
         landing_mode = "chat_to_land"

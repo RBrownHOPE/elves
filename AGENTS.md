@@ -546,7 +546,7 @@ Default: **4 developers × 2-week sprint** (~40 person-days). Override in plan/s
 - sprint-length: 1 week
 ```
 
-Each batch must be independently shippable. Split before writing code if a batch is too large. Record breakdown in execution log before implementation. Create a run/session-scoped rollback ref before each batch (for example `refs/elves/rollback/<run>/<session>/batch-N`), not a global unscoped tag.
+Each batch must be independently shippable. Split before writing code if a batch is too large. Record breakdown in execution log before implementation. Create a run/session-scoped rollback ref before each batch (for example `refs/elves/rollback/<run>/<session>/bN-<digest>`), not a global unscoped tag.
 
 **Architecture-aware ordering:** Batch order isn't just about feature dependencies — it's about architectural dependencies. If multiple batches need a shared utility, put it in the earliest batch. If a batch introduces a new pattern (error handling, component structure), schedule it before batches that should follow that pattern. Each batch should create the foundation the next batch builds on.
 
@@ -565,11 +565,11 @@ Identify the first incomplete batch.
 
 **Before starting new work, confirm the project is in a working state.** Run all validation gates (lint, typecheck, build, test). If anything is broken, fix it first. Don't start a new batch on a cracked foundation. If dependencies are missing (fresh clone or Codex sandbox), install them first (`npm install`, `pip install -r requirements.txt`, etc.). On the first batch with no existing code, run a minimal smoke test instead: confirm the dev server starts and the test runner works.
 
-**Capture the test baseline.** Record the test count (passed, total, skipped) in `.elves-session.json` under `test_baseline`. This is your reference for the run. Total tests should only go up or stay flat, never decrease. A decrease means tests were removed or disabled, violating test integrity.
+**Capture the test baseline.** Record the test count (passed, total, skipped) in `.elves-session.json` under `test_baseline`. This is your reference for the run. Legitimate behavior-driven test changes and count reductions are allowed when behavioral coverage is preserved or improved and explained; only green-seeking weaken/delete/skip is forbidden.
 
 ### 3. Tag
 ```bash
-# run-scoped: refs/elves/rollback/<run-id>/<session-id>/batch-N
+# run-scoped: refs/elves/rollback/<run-id>/<session-id>/bN-<digest>
 ```
 
 ### 4. Contract
@@ -628,7 +628,7 @@ Every gate must pass before proceeding. If a gate fails, apply the **bug-fix pro
 
 **This is where the Ralph Loop does its real work.** You built something. You tested it. Now get independent feedback and feed it back into the next iteration.
 
-**Read the commit history first** (`git log refs/elves/rollback/<run>/<session>/batch-N..HEAD`). The coding agent communicates through commit messages — design decisions, justifications, rationale for non-obvious choices. Before flagging something, check whether the commit already explains why. Then read **all** PR feedback — every review thread, issue comment, and CI check run. Don't sample:
+**Read the commit history first** (`git log refs/elves/rollback/<run>/<session>/bN-<digest>..HEAD`). The coding agent communicates through commit messages — design decisions, justifications, rationale for non-obvious choices. Before flagging something, check whether the commit already explains why. Then read **all** PR feedback — every review thread, issue comment, and CI check run. Don't sample:
 ```bash
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments"  --paginate > /tmp/pr-comments.json
@@ -712,7 +712,7 @@ Append to execution log:
 **Decisions made:** [every judgment call made without user input]
 **Docs:** Impacted [list]. Updated [list]. Promoted [list or "none"]. Deferred [list or "none"]
 **Regression attestation:** Cumulative diff: [N files, +X/-Y lines]. Shared surfaces: [list or "none"]. Public API surface delta: [not configured / unavailable / captured / changed / required_failed]. Test baseline: [start to now, delta]. Confidence: [HIGH/MEDIUM/LOW], [why]
-**Commit:** [SHA] | **Rollback ref:** refs/elves/rollback/<run>/<session>/batch-N
+**Commit:** [SHA] | **Rollback ref:** refs/elves/rollback/<run>/<session>/bN-<digest>
 
 **Next:** 1. [next task]  2. [task after]
 ```
@@ -846,7 +846,7 @@ If `git push` fails because the remote branch has diverged, **first rule out a c
 
 ## Test Integrity
 
-**Never weaken or delete a test merely to obtain green. Fix the code, not the gate.**
+**Never weaken, delete, or skip a test merely to obtain green. Legitimate behavior-driven test updates are allowed when coverage is preserved or improved and explained. Fix the code, not the gate.**
 
 - Legitimate behavior-driven test updates are allowed when product behavior changes and coverage
   is preserved or improved; record explicit evidence in the execution log/report.

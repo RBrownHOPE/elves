@@ -620,7 +620,7 @@ Acceptance (LOC cuts, facades, real splits) is still open.
 - **Execution log template updated** with structured regression attestation section.
 
 #### Test baseline (new)
-- **Test baseline capture in Verify Green (step 2).** Agent records test count (passed, total, skipped) in `.elves-session.json` at session start. At the end of each batch, total tests must only go up or stay flat. A decrease means tests were removed or disabled, violating test integrity.
+- **Test baseline capture in Verify Green (step 2).** Agent records test count (passed, total, skipped) in `.elves-session.json` at session start. At the end of each batch, legitimate behavior-driven count changes are allowed with preserved/improved coverage and explanation; green-seeking weaken/delete/skip is forbidden.
 
 #### Blast radius (new)
 - **Blast radius section added to Contract (step 4).** Contract now has four required sections (was three): behaviors, Build on, acceptance criteria, and blast radius. Agent must list shared files being modified, count consumers, and assess risk before writing code. Shifts regression thinking into the contract where it's cheapest to address.
@@ -771,7 +771,7 @@ Acceptance (LOC cuts, facades, real splits) is still open.
 - Subagent delegation for long runs (Claude Code): implementer, validator, reviewer, scout
 - Scout mode for bonus improvements after planned batches are done
 - Time-aware pacing with session budgets
-- Rollback safety with `elves/pre-batch-N` git tags
+- Rollback safety with `refs/elves/rollback/<run>/<session>/bN-<digest>` git tags
 - Structured session data in `.elves-session.json`
 - Persistent preferences via `config.json`
 - Skill memory: execution logs improve over time
