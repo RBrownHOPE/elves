@@ -55,6 +55,11 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs for the same PR/branch without shrinking the matrix.
+concurrency:
+  group: repo-consistency-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Matrix expands check-run names to "verify (os, py)". Branch protection on main
   # still requires the exact context name "check", so a non-matrix aggregator job
@@ -108,7 +113,7 @@ jobs:
           if ! git rev-parse --verify --quiet "${BASE_REF}^{commit}"; then
             BASE_REF="HEAD^"
           fi
-          python3 scripts/verify_repo.py --ci --version 2.1.1 --base-ref "$BASE_REF"
+          python3 scripts/verify_repo.py --ci --version 2.2.0 --base-ref "$BASE_REF"
 
   check:
     needs: verify

@@ -10,7 +10,7 @@ multi-batch runs — implement, test, review, document — that survive context 
 **Cobbler** is the default coordinator. **Claude Code or Codex** is the main driver; optional work
 drivers and lenses help when you already have them.
 
-**Current release: v2.1.1.** You write the plan and own the merge decision. The agent does the middle.
+**Current release: v2.2.0.** You write the plan and own the merge decision. The agent does the middle.
 
 **Default (v2.0+): one kickoff** after conceptual agreement — chat to agreement, then one
 **Chat-to-work** or **Chat-to-land** (`chat-to-work` / `chat-to-land`) prompt stages and runs.
@@ -59,12 +59,12 @@ python3 ~/.claude/skills/elves/scripts/install_doctor.py --startup
 # Codex (use this instead):
 python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.1.1
+python3 scripts/verify_repo.py --version 2.2.0
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.1.1 --final-readiness \
+python3 scripts/verify_repo.py --version 2.2.0 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.1.1 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.2.0 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 
