@@ -1121,6 +1121,143 @@ def humanize_grok_failure(
     return first_useful
 
 
+
+def detect_native_grok_goal(
+    executable: str = "grok",
+    *,
+    help_text: str | None = None,
+) -> dict[str, object]:
+    """Capability-detect native Grok goal orchestration.
+
+    Installed Grok may expose `/goal` as a TUI skill without a public headless
+    ``--goal`` flag. Detection is honest: native_goal only when a real headless
+    goal flag or documented noninteractive goal entrypoint is present.
+    """
+    import re
+    import shutil
+    import subprocess
+
+    text = help_text
+    if text is None:
+        resolved = shutil.which(executable) or executable
+        try:
+            proc = subprocess.run(
+                [resolved, "--help"],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=False,
+            )
+            text = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        except (OSError, subprocess.TimeoutExpired):
+            text = ""
+    lower = text.lower()
+    # Public headless flag (preferred).
+    has_goal_flag = bool(
+        re.search(r"(?m)^\s*--goal\b", text)
+        or re.search(r"\b--goal\s*<", lower)
+    )
+    # Explicit noninteractive goal subcommand (not TUI-only /goal mention).
+    has_goal_subcommand = bool(
+        re.search(r"(?m)^\s*goal\s+", text)
+        and "noninteractive" in lower
+    )
+    # TUI skill mention alone is not headless native goal.
+    tui_only = ("/goal" in lower or "goal mode" in lower) and not (
+        has_goal_flag or has_goal_subcommand
+    )
+    if has_goal_flag or has_goal_subcommand:
+        return {
+            "native_goal": True,
+            "mode": "native_goal",
+            "fallback": None,
+            "detail": "Installed Grok advertises a headless goal entrypoint",
+            "tui_goal_mentioned": "/goal" in lower or "goal mode" in lower,
+        }
+    return {
+        "native_goal": False,
+        "mode": "headless_compatible_fallback",
+        "fallback": "packet_prompt_headless",
+        "detail": (
+            "No public headless --goal flag; use compatible headless prompt/packet "
+            "launch without claiming native goal orchestration"
+            + ("; TUI /goal is present but not a headless API" if tui_only else "")
+        ),
+        "tui_goal_mentioned": tui_only or ("/goal" in lower),
+    }
+
+
+def resolve_phase_route(
+    *,
+    phase: str,
+    requested_model: str | None = None,
+    requested_effort: str | None = None,
+    capability_available: bool = True,
+    host: str = "native",
+) -> dict[str, object]:
+    """Record requested/actual/fallback for phase model + reasoning effort."""
+    requested = {
+        "phase": phase,
+        "model": requested_model,
+        "effort": requested_effort,
+        "host": host,
+    }
+    if capability_available and (requested_model or requested_effort):
+        return {
+            "requested_route": requested,
+            "actual_route": {
+                "phase": phase,
+                "model": requested_model,
+                "effort": requested_effort,
+                "host": host,
+            },
+            "fallback_reason": None,
+        }
+    return {
+        "requested_route": requested,
+        "actual_route": {
+            "phase": phase,
+            "model": None,
+            "effort": None,
+            "host": "native",
+            "route": "host-native",
+        },
+        "fallback_reason": "capability_missing_or_unconfigured; native fallback",
+    }
+
+
+def optional_media_capabilities(
+    *,
+    image_available: bool | None = None,
+    video_available: bool | None = None,
+) -> dict[str, object]:
+    """Grok image/video are optional discoverable capabilities."""
+    def _one(name: str, available: bool | None) -> dict[str, object]:
+        if available is True:
+            status = "available"
+            detail = f"{name} generation capability present"
+        elif available is False:
+            status = "unavailable"
+            detail = f"{name} unavailable on this tier; graceful no-op fallback"
+        else:
+            status = "unknown"
+            detail = f"{name} not probed; treat as optional non-fatal"
+        return {
+            "name": name,
+            "status": status,
+            "required": False,
+            "default_report_format": False,
+            "bounded_ownership": "worker_artifact_host_review",
+            "detail": detail,
+        }
+
+    return {
+        "image": _one("image", image_available),
+        "video": _one("video", video_available),
+        "policy": "optional_non_fatal_unavailable_tier_fallback",
+    }
+
+
 def build_launch_argv(
     *,
     session_id: str | None = None,

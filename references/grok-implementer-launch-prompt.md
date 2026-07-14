@@ -422,3 +422,12 @@ report to the paths supplied in the environment. Do not
 merge, tag, or open a second PR. Do not review your own work as independent review. If blocked,
 write status=blocked, populate blockers with concrete bounded and redacted reasons, and stop.
 ```
+
+
+## Native Grok goal (v2.2)
+
+Capability-detect native headless goal (`--goal` or documented noninteractive goal entrypoint).
+If only TUI `/goal` is present, record `headless_compatible_fallback` and use the packet/prompt
+launch path without claiming native goal orchestration. Claude Code and Codex remain complete
+without Grok. Drivers should prefer `full-run-await` (or `full-run-monitor --wait`) so one tool
+call blocks until a material transition.

@@ -285,3 +285,158 @@ def record_passing_preflight(
     )
     store_preflight(repo_root, evidence)
     return evidence
+
+
+# --- Gate evidence by input digest (docs-only HEAD may reuse) ---
+
+DOCS_ONLY_SUFFIXES = (".md", ".rst", ".adoc", ".txt")
+RUN_METADATA_PREFIXES = (".elves/", "docs/elves/")
+
+
+def path_is_docs_or_run_metadata(path: str) -> bool:
+    rel = path.replace("\\", "/")
+    if any(rel.startswith(p) for p in RUN_METADATA_PREFIXES):
+        return True
+    lower = rel.lower()
+    return lower.endswith(DOCS_ONLY_SUFFIXES)
+
+
+def compute_product_test_input_digest(
+    repo_root: Path,
+    *,
+    relevant_globs: Sequence[str] | None = None,
+) -> str:
+    """Digest product/runtime/test inputs, ignoring pure docs/run-metadata files."""
+    root = Path(repo_root).resolve()
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=str(root),
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        listed = None
+    relatives: list[Path] = []
+    if listed is not None and listed.returncode == 0:
+        relatives = [
+            Path(raw.decode("utf-8", errors="surrogateescape"))
+            for raw in listed.stdout.split(b"\0")
+            if raw
+        ]
+    else:
+        relatives = [
+            path.relative_to(root)
+            for path in root.rglob("*")
+            if path.is_file()
+            and not any(part in {".git", ".elves", "__pycache__"} for part in path.parts)
+        ]
+    digest = hashlib.sha256()
+    for relative in sorted(relatives, key=lambda value: value.as_posix()):
+        rel = relative.as_posix()
+        if path_is_docs_or_run_metadata(rel):
+            continue
+        if relevant_globs:
+            # Optional filter: keep scripts/tests/workflows by default markers.
+            keep = any(
+                rel.startswith(prefix)
+                for prefix in ("scripts/", "tests/", ".github/")
+            )
+            if not keep and not any(rel.endswith(s) for s in (".py", ".sh", ".yml")):
+                # still include lockfiles/config for dependency identity
+                if not any(
+                    name in rel
+                    for name in (
+                        "pyproject.toml",
+                        "requirements",
+                        "package.json",
+                        "Cargo.toml",
+                        "go.mod",
+                    )
+                ):
+                    continue
+        path = root / relative
+        content = _file_digest(path)
+        digest.update(rel.encode("utf-8", errors="surrogateescape"))
+        digest.update(b"\0")
+        digest.update((content or "missing").encode("ascii"))
+        digest.update(b"\0")
+    # Include runtime identity so tool changes invalidate.
+    digest.update(
+        json.dumps(
+            {
+                "python": platform.python_version(),
+                "system": platform.system(),
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+    )
+    return digest.hexdigest()
+
+
+def gate_evidence_reuse(
+    repo_root: Path,
+    *,
+    cached_input_digest: str | None,
+    head: str | None = None,
+) -> dict[str, Any]:
+    """Reuse gate evidence when product/test input digest matches.
+
+    A docs-only or run-metadata-only commit may change HEAD without invalidating
+    runtime proof. Final readiness never accepts cache alone.
+    """
+    current = compute_product_test_input_digest(repo_root)
+    if not cached_input_digest:
+        return {
+            "reuse": False,
+            "reason": "no_cache",
+            "input_digest": current,
+            "final_readiness_accepts_cache_alone": False,
+        }
+    if cached_input_digest != current:
+        return {
+            "reuse": False,
+            "reason": "input_digest_mismatch",
+            "input_digest": current,
+            "final_readiness_accepts_cache_alone": False,
+        }
+    return {
+        "reuse": True,
+        "reason": "identical_product_test_input_digest",
+        "input_digest": current,
+        "head": head,
+        "final_readiness_accepts_cache_alone": False,
+        "note": "Docs-only/run-metadata HEAD moves do not invalidate this digest",
+    }
+
+
+def cleanup_only_tip_attestation(
+    *,
+    parent_tip: str,
+    proven_tip: str,
+    name_status_rows: Sequence[str],
+    recorded_operational_paths: Sequence[str],
+    product_test_input_digest_unchanged: bool,
+) -> dict[str, Any]:
+    """Reuse live broad proof after operational-artifact cleanup only."""
+    from .risk_policy import cleanup_only_reuse_allowed  # noqa: PLC0415
+
+    changed: list[str] = []
+    for row in name_status_rows:
+        parts = row.split("\t")
+        if len(parts) >= 2 and parts[0].startswith("D"):
+            changed.append(parts[-1])
+        elif len(parts) >= 2:
+            # Any non-delete forces live proof.
+            return {
+                "reuse": False,
+                "reason": "non_delete_in_cleanup_diff",
+                "force_live_proof": True,
+            }
+    return cleanup_only_reuse_allowed(
+        parent_tip=parent_tip,
+        proven_tip=proven_tip,
+        changed_paths=changed,
+        recorded_operational_paths=recorded_operational_paths,
+        product_test_input_digest_unchanged=product_test_input_digest_unchanged,
+    )

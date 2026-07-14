@@ -4884,10 +4884,14 @@ class FullRunLifecycleTests(unittest.TestCase):
         launch_full_run(self.repo, session_id=self.session)
         deadline = time.time() + 5
         status = monitor_full_run(self.repo, session_id=self.session)
-        while status["state"] not in {"complete", "failed"} and time.time() < deadline:
+        while (
+            status["state"] not in {"complete", "failed", "blocked"}
+            and time.time() < deadline
+        ):
             time.sleep(0.03)
             status = monitor_full_run(self.repo, session_id=self.session)
-        self.assertEqual(status["state"], "failed", status)
+        self.assertEqual(status["state"], "blocked", status)
+        self.assertEqual(status["next_action"], "driver_wake_reconcile", status)
         self.assertEqual(status["check_summary"]["exit_code"], 0)
         self.assertIn("without a validated complete report", status["blocker"])
 
