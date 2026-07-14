@@ -9,7 +9,7 @@ pleasant without weakening final quality.
 ## Run Control
 
 - Run mode: finite
-- Stop policy: completion, explicit user stop, or genuine blocker
+- Stop policy: completion, explicit user stop, or genuine blocker; resumed by user on 2026-07-14
 - User intent: stage and execute this as an Elves run using the new faster principles
 - Checkpoint due by: none
 - Checkpoint semantics: none
@@ -18,7 +18,7 @@ pleasant without weakening final quality.
 - Workspace ownership: dedicated branch and worktree recorded below
 - Branch tip at start: `6ec138f1c22a5d9c309a2d3bdcf42c07691a018f`
 - Merge policy: user-merges; no driver authorization recorded
-- Final-response policy: disallowed while planned work remains
+- Final-response policy: disallowed while final revision/readiness remains
 - E2E mode: chat-to-work
 - Work driver: Grok Build
 - Implementation lane: fast
@@ -49,7 +49,7 @@ pleasant without weakening final quality.
   parked driver does not shadow batches
 - Re-read rule: the driver re-reads this brief once at a safety or terminal wake
 - Checkpoint rule: checkpoints are not completion and do not stop healthy execution
-- Continuation rule: continue autonomously while work remains unless a recorded stop condition fires
+- Continuation rule: continue through final readiness; do not merge without new authorization
 
 ## Cobbler Session State
 
@@ -62,10 +62,11 @@ pleasant without weakening final quality.
 
 ## Stop Gate
 
-- Planned batches remaining: 6
+- Planned batches remaining: final revision/readiness only
 - Stop allowed right now: no
-- Why: staging and all implementation batches remain
-- Next required action: finish launch readiness and start the trusted full-run worker
+- Why: the user explicitly resumed and final revision/readiness remains
+- Next required action: when resumed, finish the consolidated follow/sentinel fix, run delta review,
+  then the one final broad gate and leave PR #70 landable without merging
 
 ## Effort Standard
 
@@ -85,14 +86,15 @@ pleasant without weakening final quality.
 
 ## Current Phase
 
-- Status: staging
-- Active batch: B0 pending
-- What was just finished: plan/session acceptance identity and focused baseline tests
-- Single next action: commit and push staging, open the PR, then launch the worker
+- Status: resumed consolidated final revision
+- Active batch: B5 review/revision
+- What was just finished: Grok implementation, cumulative review, landing integration fix, and
+  most consolidated documentation/authority fixes; follow/sentinel revision was interrupted
+- Single next action: resume the follow/sentinel fix, then delta-only review and final proof
 
 ## Active Compute
 
-- None; PR #70 is open and the single trusted Grok full-run is next.
+- One targeted local follow/sentinel fix agent; PR #70 remains open and unmerged.
 
 ## Next Exact Batch
 

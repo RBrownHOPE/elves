@@ -863,10 +863,10 @@ permanently valid, and does not install hooks or repair git state.
 Codex Goals can be a useful continuation backend for Elves. Goals keeps Codex working across turns;
 Elves tells it what "working well" means. On host-native and legacy bounded routes, the Goal runs
 the full per-batch loop. On a trusted Grok full-run, the Goal creates the `b0` launch ref, launches
-one exact worker session, then stays parked on bounded monitor reads—no per-batch review, memory, or
-push chatter—until a terminal or safety wake triggers one cumulative final review. Unchanged
-healthy polls produce no chat. Polling defaults to half the stale window (60-second floor, 5-minute
-cap), and the host coalesces nonterminal progress into at most one short update per 15 minutes.
+one exact worker session, then stays parked—no per-batch review, memory, or push chatter—until a
+terminal or safety wake triggers one cumulative final review. The default sanitized follow stream
+is the operator window and performs no model inference; quiet mode suppresses it. There is no timed
+driver-chat heartbeat.
 
 Goals are for full Elves runs, not Quick Cobbler. For a one-off Cobbler answer in Codex, use `$elves cobbler: <task>` or ask naturally: "Ask the Cobbler to..."
 
@@ -1009,7 +1009,10 @@ Bad: "Looks good so far." (no tag, no instruction to continue)
 - **Explicit Effort Standard**: the survival guide and launch prompt tell the model not to be lazy, to work as hard as it can for the full run, and to avoid coasting after the first green check or checkpoint.
 - **Time-aware pacing**: tracks how long each batch takes and uses that to decide whether to start another batch or wrap up cleanly (finite mode)
 - **Slack notifications** (or any custom command): know when your run finishes without watching the terminal
-- **Constitution and legality check**: human-authored deal-breaker behaviors (`docs/constitution.md`) verified by a read-only judge after each batch. Three quality layers: correctness (tests), plan compliance (review), legality (judge). Success criteria the agent didn't author.
+- **Constitution and legality check**: human-authored deal-breaker behaviors
+  (`docs/constitution.md`) are verified in the cumulative final review, plus an explicit checkpoint
+  only for a declared high-risk constitutional surface. Three quality layers remain: correctness
+  (tests), plan compliance (review), and legality. Success criteria are not authored by the worker.
 - **PR Loop**: poll PR comments, inline reviews, and checks after every host push; trusted parked
   full-run worker pushes are reviewed cumulatively at wake/exit rather than reactivating the driver
 - **Readiness Gate**: branch-level checklist before declaring review-ready (plan Acceptance with proof, `elves_landing_check.py` clean, local proof on current tip, preview proof on exact runtime tip, final cumulative review, PR comments polled, legality check clean, strategic forgetting complete, git status clean, execution log current). Green CI + `status: complete` alone is not landable.

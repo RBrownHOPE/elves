@@ -1,7 +1,10 @@
 # Kickoff Prompt Template
 
 > **Recommended (v2.0+): one kickoff after conceptual agreement.** v2.1 adds the trusted Grok
-> full-run / parked-monitor route.
+> full-run / parked-monitor route. **v2.3 joyful runs** add a default sanitized non-model follow
+> stream (`full-run-await`; `--quiet` opt-out), exact-HEAD readiness independent of merge
+> authorization, and impact-selected convergent review. See
+> [`joyful-runs-contract.md`](joyful-runs-contract.md) and [`follow-mode.md`](follow-mode.md).
 >
 > Chat with the main agent (optional multi-planner lenses) until the work is clear, then send
 > **Chat-to-work** (landable PR, no merge) or **Chat-to-land** (through merge) — templates at the
@@ -362,8 +365,8 @@ execution tail with `/goal` using the short launch body from [`codex-goals.md`](
 plus the e2e mode and merge policy from the survival guide.
 
 
-<!-- v2.2 risk policy pins -->
-- thin safety kernel and four risk tiers (trivial/docs, standard trusted, high-risk trusted, untrusted)
+<!-- v2.3 risk/proof policy pins -->
+- thin safety kernel; risk low|standard|high independent of trust trusted|untrusted
 - validate once, verify changes, attest final
-- touched-surface per batch; broad proof at risk checkpoints and terminal readiness
+- impact-selected proof during work; broad proof once at terminal readiness and explicit high-risk checkpoints
 - mid-run nonblocking new/unresolved PR feedback; terminal waits for required checks

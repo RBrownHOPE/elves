@@ -275,22 +275,28 @@
     "fallback_policy": "record-before-switching-provider",
     "_comment": "Optional math research workflow configuration. Math is a Cobbler-managed domain workflow. Configure role slots in your project survival guide; do not hardcode private keys or provider secrets. OPENROUTER_API_KEY and AlphaEvolve are optional unless a project survival guide explicitly requires them."
   },
-  "risk_policy_v2_2": {
+  "risk_policy_v2_3": {
     "thin_safety_kernel": true,
-    "risk_tiers": [
+    "risk_levels": ["low", "standard", "high"],
+    "trust_modes": ["trusted", "untrusted"],
+    "legacy_risk_tiers": [
       "trivial/docs",
       "standard trusted",
       "high-risk trusted",
       "untrusted"
     ],
     "proof_budget": "validate once, verify changes, attest final",
-    "per_batch_default": "touched_surfaces",
+    "per_batch_default": "touched_surfaces_via_impact_path",
     "broad_at": [
       "risk_checkpoints",
       "terminal_readiness"
     ],
+    "follow_mode_default": true,
+    "follow_mode_model_inference": false,
     "mid_run_pr_feedback": "nonblocking_new_unresolved_only",
     "terminal_pr_feedback": "wait_required_checks_and_reviewers",
-    "_comment": "v2.2 risk-tiered execution policy pins for operator surfaces"
+    "landing_outcomes": ["landable_pr", "complete_and_merge"],
+    "readiness_exact_head": true,
+    "_comment": "v2.3 joyful-runs policy: independent risk/trust axes, default follow stream, exact-HEAD readiness"
   }
 }

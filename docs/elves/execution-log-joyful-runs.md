@@ -30,3 +30,24 @@
 - GitHub authentication and HTTPS origin available
 - Grok Build 0.2.101 available
 - Staging commit `f8b01a9` pushed and PR #70 opened
+
+## Paused Checkpoint — 2026-07-14 11:38 CDT
+
+- The user explicitly paused the run; all active agents and the Sakana read-only lens were stopped.
+- Grok implementation is preserved in commits through `6ba8dbf`; the worktree also contains the
+  uncommitted consolidated final-review revision.
+- Landing authority is now wired into the real checker with exact-HEAD and host-only authorization
+  tests passing. Documentation, review convergence, trust-aware authority, migration inventory,
+  and CI-focused fixes are present but not yet committed.
+- The follow/sentinel fix was interrupted and must be inspected/completed before validation.
+- No merge authorization exists. PR #70 remains open and must not be merged on resume unless the
+  user explicitly changes landing authority.
+- Resume at: finish follow/sentinel revision, run delta-only blocker review, run one final broad
+  local suite and required CI, reconcile run memory, commit/push, and leave the PR landable.
+
+## Resumed — 2026-07-14
+
+- User explicitly resumed the run.
+- Continue from the preserved dirty revision; do not repeat Grok implementation or cumulative review.
+- Remaining path: follow/sentinel fix, delta-only blocker review, final broad proof, commit/push,
+  required CI, and landable PR without merge.

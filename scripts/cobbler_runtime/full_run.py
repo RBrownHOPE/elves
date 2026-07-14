@@ -80,6 +80,7 @@ EVENT_TYPES = frozenset(
         "gate_result",
         "batch_complete",
         "high_risk_checkpoint",
+        "material_scope_or_assumption_change",
         "blocked",
         "run_complete",
     }
@@ -94,6 +95,27 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 _REPORT_STATUSES = frozenset({"running", "complete", "blocked", "failed", "stopped"})
 _ACCEPTANCE_ID_RE = STABLE_ACCEPTANCE_ID_RE
 _HIGH_RISK_CHECKPOINT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_MATERIAL_CHANGE_ID_RE = _HIGH_RISK_CHECKPOINT_ID_RE
+_MATERIAL_CHANGE_KINDS = frozenset({"scope", "assumption"})
+WORKER_EVENT_CONTRACT = {
+    "version": 1,
+    "required": [
+        "timestamp",
+        "session_id",
+        "branch",
+        "head",
+        "batch",
+        "type",
+        "summary",
+    ],
+    "types": sorted(EVENT_TYPES),
+    "material_change": {
+        "type": "material_scope_or_assumption_change",
+        "required": ["change_id", "change_kind"],
+        "change_kind": sorted(_MATERIAL_CHANGE_KINDS),
+        "driver_action": "wake",
+    },
+}
 _HIGH_RISK_CHECKPOINT_DEFINITION_RE = re.compile(
     r"(?im)^\s*[-*]\s+high-risk\s+checkpoint\s*:\s*"
     r"(?P<id>[A-Za-z0-9][A-Za-z0-9._-]{0,63})\s*$"
@@ -792,6 +814,21 @@ def validate_event(
                 errors.append("high-risk checkpoint event is duplicated")
     elif checkpoint_id is not None:
         errors.append("checkpoint_id is only valid on high-risk checkpoint events")
+    change_id = event.get("change_id")
+    change_kind = event.get("change_kind")
+    if etype == "material_scope_or_assumption_change":
+        if (
+            not isinstance(change_id, str)
+            or not _MATERIAL_CHANGE_ID_RE.fullmatch(change_id)
+        ):
+            errors.append("material change event requires a stable change_id")
+        if change_kind not in _MATERIAL_CHANGE_KINDS:
+            errors.append("material change event requires change_kind scope or assumption")
+    else:
+        if change_id is not None:
+            errors.append("change_id is only valid on material change events")
+        if change_kind is not None:
+            errors.append("change_kind is only valid on material change events")
     summary_value = event.get("summary")
     summary = summary_value if isinstance(summary_value, str) else ""
     if len(summary) > 500:
@@ -2667,6 +2704,12 @@ def build_full_run_env(
     env["ELVES_FULL_RUN_SESSION"] = state.session_id
     env["ELVES_FULL_RUN_RUN_ID"] = _expected_run_id(state.session_id)
     env["ELVES_FULL_RUN_EVENTS"] = str(root / "events.jsonl")
+    # Machine-readable worker packet supplement. This keeps the exact event
+    # grammar next to the append-only path without asking a worker to infer a
+    # safety wake from prose.
+    env["ELVES_FULL_RUN_EVENT_CONTRACT"] = json.dumps(
+        WORKER_EVENT_CONTRACT, sort_keys=True, separators=(",", ":")
+    )
     env["ELVES_FULL_RUN_REPORT"] = str(root / "report.json")
     env["ELVES_FULL_RUN_TRANSCRIPT"] = str(root / "transcript.log")
     env["ELVES_FULL_RUN_BRANCH"] = state.branch
@@ -4505,6 +4548,17 @@ def _github_provider_managed_ref(origin_url: str, ref_name: str) -> bool:
     return github_origin and ref_name.startswith("refs/pull/")
 
 
+def _host_ephemeral_ref(ref_name: str) -> bool:
+    """Return refs maintained by the host UI, outside worker authority.
+
+    Codex turn-diff refs are local, ephemeral snapshots created by the host
+    application while a task is active. They are neither worker progress nor a
+    protected repository ref, and treating their ordinary creation as worker
+    tampering produces false safety wakes.
+    """
+    return ref_name.startswith("refs/codex/turn-diffs/")
+
+
 def snapshot_protected_refs(
     repo_root: Path,
     *,
@@ -4543,7 +4597,11 @@ def snapshot_protected_refs(
     snaps: dict[str, str] = {}
     for row in result.stdout.splitlines():
         parts = row.split(None, 1)
-        if len(parts) == 2 and parts[0] not in excluded:
+        if (
+            len(parts) == 2
+            and parts[0] not in excluded
+            and not _host_ephemeral_ref(parts[0])
+        ):
             snaps[parts[0]] = parts[1]
     if include_remote:
         remote = _remote_refs(repo_root)
@@ -6903,6 +6961,8 @@ _SHARED_OAUTH_PUBLIC_EVENT_FIELDS: tuple[str, ...] = (
     "batch",
     "type",
     "checkpoint_id",
+    "change_id",
+    "change_kind",
 )
 
 
@@ -6965,6 +7025,37 @@ def follow_stream_lines(
         format_follow_stream_line(ev, shared_oauth=shared_oauth) for ev in new_events
     ]
     return lines, len(visible)
+
+
+def _all_follow_events(repo_root: Path, state: "FullRunState") -> list[dict[str, Any]]:
+    """Read the validated event sequence for an absolute follow cursor.
+
+    ``full-run-logs`` intentionally exposes only a bounded diagnostic tail.
+    Follow mode must not use that rolling window as an index: once more than
+    the tail size arrives between polls, a relative cursor silently skips
+    events. The validated log is already capped at ``MAX_EVENT_LINES``, so an
+    absolute cursor over the complete sequence remains bounded and lossless.
+    """
+    launch_grants_verified, exact_secret_values = _launch_evidence_context(state)
+    if not launch_grants_verified:
+        return []
+    events, errors = _read_events(
+        full_run_root(repo_root, state.session_id) / "events.jsonl",
+        expected_session_id=state.session_id,
+        expected_branch=state.branch,
+        expected_high_risk_checkpoints=state.planned_high_risk_checkpoints,
+        exact_secret_values=exact_secret_values,
+        credential_grant_state=state,
+        shared_oauth_safe_projection=(state.grok_auth_strategy == "oauth_shared_file"),
+        allow_partial_final=bool(state.pid or state.pgid),
+        repo_root=repo_root,
+    )
+    if errors:
+        return []
+    return _driver_visible_events(
+        events,
+        shared_oauth=state.grok_auth_strategy == "oauth_shared_file",
+    )
 
 
 # Follow mode is a deterministic stream, never a model-based watcher.
@@ -7386,6 +7477,11 @@ def monitor_full_run(
         if events_reused and isinstance(cached_event_summary, Mapping)
         else []
     )
+    observed_material_change = bool(
+        events_reused
+        and isinstance(cached_event_summary, Mapping)
+        and cached_event_summary.get("material_scope_or_assumption_change")
+    )
     event_count = (
         int(cached_event_summary.get("count") or 0)
         if events_reused and isinstance(cached_event_summary, Mapping)
@@ -7415,6 +7511,8 @@ def monitor_full_run(
             saw_run_complete_event = True
         if ev.get("type") == "high_risk_checkpoint":
             observed_high_risk_checkpoints.append(str(ev.get("checkpoint_id")))
+        if ev.get("type") == "material_scope_or_assumption_change":
+            observed_material_change = True
 
     if not event_errors and not events_reused and event_signature is not None:
         cache["event_signature"] = event_signature
@@ -7423,6 +7521,7 @@ def monitor_full_run(
             "last_type": last_type,
             "saw_run_complete": saw_run_complete_event,
             "high_risk_checkpoints": list(observed_high_risk_checkpoints),
+            "material_scope_or_assumption_change": observed_material_change,
         }
 
     if acknowledge_high_risk_checkpoint is not None:
@@ -7650,6 +7749,12 @@ def monitor_full_run(
             state.next_action = "final_readiness"
     elif state.status != "healthy":
         state.pending_high_risk_checkpoint = None
+
+    # A worker-discovered material contract change is an explicit hand-back,
+    # not ordinary progress. Keep the process/result intact and wake the driver
+    # so the changed scope or assumption can be resolved before readiness.
+    if state.status in {"healthy", "complete"} and observed_material_change:
+        state.next_action = "driver_wake_material_scope_or_assumption_change"
 
     if exit_record is not None and state.fingerprint is not None:
         _retire_process_identity(
@@ -8189,6 +8294,7 @@ def await_full_run(
     started = mono()
     follow_enabled = bool(follow) and not bool(quiet)
     seen_events = 0
+    seen_attempt: int | None = None
     stream_lines: list[str] = []
     write = stream_writer
     while True:
@@ -8202,19 +8308,17 @@ def await_full_run(
             try:
                 state = load_state(repo_root, session_id)
                 shared_oauth = state.grok_auth_strategy == "oauth_shared_file"
-                events_tail = observed.get("events_tail") or observed.get("events") or []
+                if seen_attempt != state.attempt:
+                    # A supervised resume archives and resets events.jsonl.
+                    seen_events = 0
+                    seen_attempt = state.attempt
+                events_tail = _all_follow_events(Path(repo_root), state)
                 if not events_tail:
-                    # Pull a bounded sanitized tail via logs path when monitor omits it.
-                    try:
-                        logs = logs_full_run(
-                            repo_root,
-                            session_id=session_id,
-                            raw_tail=False,
-                            tail_lines=40,
-                        )
-                        events_tail = logs.get("events_tail") or []
-                    except Exception:  # noqa: BLE001 — follow must never break await
-                        events_tail = []
+                    # Fixture/direct monitor callers may already provide a
+                    # validated projection without a staged launch-evidence
+                    # context. Preserve that supported path; production uses
+                    # the complete absolute sequence above.
+                    events_tail = observed.get("events_tail") or observed.get("events") or []
                 new_lines, seen_events = follow_stream_lines(
                     events_tail if isinstance(events_tail, list) else [],
                     shared_oauth=shared_oauth,

@@ -24,6 +24,7 @@ from cobbler_runtime.canonical_contract import (  # noqa: E402
     SAFETY_KERNEL,
     TERMINAL_OUTCOMES,
     TRUST_MODES,
+    V2_2_NORMATIVE_REQUIREMENT_IDS,
     actor_may,
     classify_risk_and_trust,
     contract_snapshot,
@@ -76,6 +77,23 @@ class CanonicalContractTests(unittest.TestCase):
         self.assertFalse(actor_may("worker", "modify_protected_refs"))
         self.assertTrue(actor_may("driver", "attest_readiness"))
         self.assertTrue(actor_may("user", "grant_driver_merge_authorization"))
+
+    def test_trust_mode_narrows_worker_git_authority(self) -> None:
+        self.assertTrue(
+            actor_may("worker", "commit_feature_branch", trust_mode="trusted")
+        )
+        self.assertTrue(
+            actor_may("worker", "push_feature_branch", trust_mode="trusted")
+        )
+        self.assertFalse(
+            actor_may("worker", "commit_feature_branch", trust_mode="untrusted")
+        )
+        self.assertFalse(
+            actor_may("worker", "push_feature_branch", trust_mode="untrusted")
+        )
+        self.assertTrue(
+            actor_may("worker", "edit_product_code", trust_mode="untrusted")
+        )
 
     def test_safety_kernel_has_destination_and_proof(self) -> None:
         snap = safety_kernel_snapshot()
@@ -133,6 +151,12 @@ class CanonicalContractTests(unittest.TestCase):
             self.assertIn(entry.disposition, {"retained", "changed", "retired"})
             self.assertTrue(entry.new_location)
             self.assertTrue(entry.proof)
+        self.assertEqual(
+            set(V2_2_NORMATIVE_REQUIREMENT_IDS),
+            ids,
+            "every inventoried v2.2 normative cluster must have a disposition",
+        )
+        self.assertGreaterEqual(len(ids), 30)
 
 
 class BehaviorPolicyJoyfulTests(unittest.TestCase):

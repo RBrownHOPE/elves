@@ -1649,10 +1649,26 @@ def check_evidence_review_plan(
             for raw_check in list(plan.focused_checks or [])[:8]:
                 name = str(raw_check)
                 mapped = concrete_checks.get(name)
+                if mapped is None and name.startswith("unit:tests/"):
+                    test_path = name.removeprefix("unit:")
+                    test_module = {
+                        "tests/test_consistency_policy.py": "tests.test_check_repo_consistency",
+                    }.get(
+                        test_path,
+                        test_path.removesuffix(".py").replace("/", "."),
+                    )
+                    mapped = (
+                        "unit-focused",
+                        lambda module=test_module: check_unit_test_modules(
+                            repo_root, [module]
+                        ),
+                    )
                 if mapped is None:
                     return False, f"evidence-review check has no concrete runner: {name}"
                 gate_name, runner = mapped
-                if skip_tests and gate_name in {"unit-tests", "unit-focused"}:
+                if skip_tests and (
+                    gate_name == "unit-tests" or gate_name.startswith("unit-focused")
+                ):
                     executed.append(f"{name}:operator-skip-tests")
                     continue
                 if skip_smokes and gate_name == "installed-smokes":

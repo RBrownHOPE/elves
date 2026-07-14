@@ -33,8 +33,7 @@ handoff remains valid for huge/unstable plans.
 
 **Runtime helper paths:** every `python3 scripts/...` example is **source-checkout shorthand**.
 In an installed Claude Code or Codex skill, resolve helpers from the **active Elves skill root**
-(`~/.claude/skills/elves` or `~/.codex/skills/elves`) while the target repository stays the working
-directory, or pass `--repo-root`. An **installed Elves bundle never requires a repo-only helper**.
+(`~/.claude/skills/elves` or `~/.codex/skills/elves`) while keeping the **target repository as the working directory**, or pass `--repo-root`. An **installed Elves bundle never requires a repo-only helper**.
 See `references/runtime-helper-paths.md`.
 
 ## Reviewed PR Landing Command

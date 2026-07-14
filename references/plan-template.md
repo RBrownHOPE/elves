@@ -378,8 +378,8 @@ paths. Review carefully.
 - Refresh token cookie name should be `__Host-refresh` for security (prefix enforces Secure + no domain)
 
 
-<!-- v2.2 risk policy pins -->
-- thin safety kernel and four risk tiers (trivial/docs, standard trusted, high-risk trusted, untrusted)
+<!-- v2.3 risk/proof policy pins -->
+- thin safety kernel; risk low|standard|high independent of trust trusted|untrusted
 - validate once, verify changes, attest final
-- touched-surface per batch; broad proof at risk checkpoints and terminal readiness
+- impact-selected proof during work; broad proof once at terminal readiness and explicit high-risk checkpoints
 - mid-run nonblocking new/unresolved PR feedback; terminal waits for required checks

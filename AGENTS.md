@@ -20,7 +20,7 @@ This file is a **thin Codex adapter**; the compact **canonical workflow is** in 
 **Grok Build goal mode** is a separate worker capability. Default landing remains **chat-to-work**
 (or **chat-to-land** when authorized); aliases `\land-pr` / `/land-pr`. Honor **Stop Gate** /
 `continuation_guard`. Landable is **plan Acceptance with proof**. Installed helpers use the
-**active Elves skill root** and **source-checkout shorthand**;
+**active Elves skill root** and **source-checkout shorthand** while keeping the **target repository as the working directory**;
 `$ELVES_SKILL_ROOT/scripts/elves_landing_check.py --session <session-path> --repo-root .`.
 Coordinator handoff: **Build On**, **owned surfaces**, **forbidden surfaces**, **acceptance evidence**, **blocking coordinator defect**. Progress subjects use
 `Contract|Implement|Validate|Review|Close` and **Forbid vague subjects**. Full Cobbler protocol

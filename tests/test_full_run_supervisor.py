@@ -35,6 +35,7 @@ from cobbler_runtime.behavior_policy import (  # noqa: E402
     resolve_scenario,
 )
 from cobbler_runtime.full_run import (  # noqa: E402
+    await_full_run,
     build_full_run_argv,
     build_full_run_env,
     capture_fingerprint,
@@ -613,6 +614,138 @@ class FullRunReportValidationTests(unittest.TestCase):
         self.assertTrue(
             validate_event({**event, "type": "heartbeat"})
         )
+
+    def test_material_change_event_has_concrete_typed_schema(self) -> None:
+        event = {
+            "timestamp": "2026-07-13T05:14:00Z",
+            "session_id": "session-1",
+            "branch": "feat/x",
+            "head": "a" * 40,
+            "batch": 2,
+            "type": "material_scope_or_assumption_change",
+            "change_id": "api-contract-expanded",
+            "change_kind": "scope",
+            "summary": "A public API compatibility constraint changed",
+        }
+        self.assertEqual(validate_event(event), [])
+        for mutation in (
+            {"change_id": "bad id"},
+            {"change_kind": "preference"},
+            {"change_id": None},
+            {"change_kind": None},
+        ):
+            with self.subTest(mutation=mutation):
+                self.assertTrue(validate_event({**event, **mutation}))
+        self.assertTrue(validate_event({**event, "type": "heartbeat"}))
+
+    def test_follow_uses_absolute_event_sequence_beyond_diagnostic_tail(self) -> None:
+        state = mock.Mock(attempt=1, grok_auth_strategy=None)
+        events_50 = [
+            {
+                "timestamp": f"2026-07-13T05:14:{index:02d}Z",
+                "batch": 1,
+                "type": "heartbeat",
+                "head": "a" * 40,
+                "summary": f"event {index}",
+            }
+            for index in range(50)
+        ]
+        events_55 = events_50 + [
+            {
+                "timestamp": f"2026-07-13T05:15:{index:02d}Z",
+                "batch": 2,
+                "type": "commit_pushed",
+                "head": "b" * 40,
+                "summary": f"event {index + 50}",
+            }
+            for index in range(5)
+        ]
+        quiet = {
+            "state": "healthy",
+            "next_action": "parked_monitor",
+            "material_transition": False,
+            "unchanged_healthy_poll_silent": True,
+            "poll_after_seconds": 0,
+        }
+        terminal = {
+            **quiet,
+            "state": "complete",
+            "next_action": "final_readiness",
+            "material_transition": True,
+            "unchanged_healthy_poll_silent": False,
+        }
+        with (
+            mock.patch.object(
+                full_run_module,
+                "monitor_full_run",
+                side_effect=[quiet, terminal],
+            ),
+            mock.patch.object(full_run_module, "load_state", return_value=state),
+            mock.patch.object(
+                full_run_module,
+                "_all_follow_events",
+                side_effect=[events_50, events_55],
+            ),
+        ):
+            result = await_full_run(
+                Path("/tmp/repo"),
+                session_id="session-1",
+                sleep_fn=lambda _delay: None,
+            )
+        self.assertEqual(len(result["follow_stream_lines"]), 55)
+        self.assertIn("event 54", result["follow_stream_lines"][-1])
+
+    def test_follow_resets_absolute_cursor_when_resume_attempt_rotates_log(self) -> None:
+        def events(prefix: str, count: int) -> list[dict[str, object]]:
+            return [
+                {
+                    "timestamp": f"2026-07-13T05:14:0{index}Z",
+                    "batch": 1,
+                    "type": "heartbeat",
+                    "head": "a" * 40,
+                    "summary": f"{prefix} {index}",
+                }
+                for index in range(count)
+            ]
+
+        quiet = {
+            "state": "healthy",
+            "next_action": "parked_monitor",
+            "material_transition": False,
+            "unchanged_healthy_poll_silent": True,
+            "poll_after_seconds": 0,
+        }
+        terminal = {
+            **quiet,
+            "state": "complete",
+            "next_action": "final_readiness",
+            "material_transition": True,
+            "unchanged_healthy_poll_silent": False,
+        }
+        attempt_1 = mock.Mock(attempt=1, grok_auth_strategy=None)
+        attempt_2 = mock.Mock(attempt=2, grok_auth_strategy=None)
+        with (
+            mock.patch.object(
+                full_run_module, "monitor_full_run", side_effect=[quiet, terminal]
+            ),
+            mock.patch.object(
+                full_run_module,
+                "load_state",
+                side_effect=[attempt_1, attempt_2],
+            ),
+            mock.patch.object(
+                full_run_module,
+                "_all_follow_events",
+                side_effect=[events("attempt-1", 3), events("attempt-2", 2)],
+            ),
+        ):
+            result = await_full_run(
+                Path("/tmp/repo"),
+                session_id="session-1",
+                sleep_fn=lambda _delay: None,
+            )
+        self.assertEqual(len(result["follow_stream_lines"]), 5)
+        self.assertIn("attempt-2 0", result["follow_stream_lines"][-2])
 
     def test_report_v1_rejects_malformed_batch_and_commit_records(self) -> None:
         valid = self._complete()
@@ -2383,6 +2516,19 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertEqual(env["TMPDIR"], str(root / "worker-tmp"))
             self.assertEqual(env["XDG_CONFIG_HOME"], str(root / "worker-home" / ".config"))
             self.assertEqual(env["GROK_HOME"], str(root / "worker-grok-home"))
+            event_contract = json.loads(env["ELVES_FULL_RUN_EVENT_CONTRACT"])
+            self.assertIn(
+                "material_scope_or_assumption_change", event_contract["types"]
+            )
+            self.assertEqual(
+                event_contract["material_change"],
+                {
+                    "type": "material_scope_or_assumption_change",
+                    "required": ["change_id", "change_kind"],
+                    "change_kind": ["assumption", "scope"],
+                    "driver_action": "wake",
+                },
+            )
             self.assertNotIn("GROK_AUTH_PATH", env)
             self.assertNotIn("HTTPS_PROXY", env)
             stop_secret = str(state.supervision_token)
@@ -4089,6 +4235,79 @@ class FullRunLifecycleTests(unittest.TestCase):
         self.assertLessEqual(len(bounded["transcript_tail"]), 100)
         self.assertTrue(all(len(line) <= 1000 for line in bounded["transcript_tail"]))
 
+    def test_json_await_streams_sanitized_follow_to_stderr_and_terminal_json_to_stdout(self) -> None:
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=self.worker,
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(CLI),
+                "implement",
+                "full-run-await",
+                "--repo-root",
+                str(self.repo),
+                "--session-id",
+                self.session,
+                "--timeout",
+                "0",
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["follow"])
+        self.assertIn("run_started", result.stderr)
+
+    def test_material_scope_change_event_wakes_parked_driver(self) -> None:
+        sleeper = Path(self.tmp.name) / "material_change_sleeper.py"
+        sleeper.write_text(LONG_SLEEPER, encoding="utf-8")
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=sleeper,
+        )
+        launch_full_run(self.repo, session_id=self.session)
+        event = {
+            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "session_id": self.session,
+            "branch": self.branch,
+            "head": self.start_head,
+            "batch": 1,
+            "type": "material_scope_or_assumption_change",
+            "change_id": "unexpected-api-contract",
+            "change_kind": "assumption",
+            "summary": "A staged compatibility assumption no longer holds",
+        }
+        with (full_run_root(self.repo, self.session) / "events.jsonl").open(
+            "a", encoding="utf-8"
+        ) as handle:
+            handle.write(json.dumps(event) + "\n")
+        status = monitor_full_run(
+            self.repo, session_id=self.session, stale_after_seconds=60
+        )
+        self.assertEqual(
+            status["next_action"],
+            "driver_wake_material_scope_or_assumption_change",
+            status,
+        )
+        self.assertTrue(status["material_transition"])
+
     def test_planned_high_risk_checkpoint_wakes_once_then_explicit_ack_reparks(self) -> None:
         self.packet.write_text(
             "# packet\n\n- High-risk checkpoint: security-boundary\n",
@@ -4998,6 +5217,32 @@ class FullRunLifecycleTests(unittest.TestCase):
         status = monitor_full_run(self.repo, session_id=self.session)
         self.assertEqual(status["state"], "failed", status)
         self.assertIn("new protected ref", status["blocker"])
+
+    def test_host_codex_turn_diff_ref_is_not_a_worker_safety_tripwire(self) -> None:
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=self.worker,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.repo),
+                "update-ref",
+                "refs/codex/turn-diffs/task-1/turn-2",
+                self.start_head,
+            ],
+            check=True,
+        )
+        status = monitor_full_run(self.repo, session_id=self.session)
+        self.assertNotEqual(status["next_action"], "driver_wake_safety_tripwire", status)
+        self.assertNotIn("new protected ref", status.get("blocker") or "")
 
     def test_all_local_ref_namespaces_are_protected(self) -> None:
         prepare_full_run(

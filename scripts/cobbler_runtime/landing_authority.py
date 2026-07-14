@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping, Sequence
 
 
 POLICY_VERSION = "2.3.0"
+EXACT_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 LANDING_OUTCOMES: tuple[str, ...] = (
     "landable_pr",  # complete-without-merge (default)
@@ -258,8 +260,8 @@ def attest_readiness(
     Changed inputs invalidate only affected proof scopes; readiness requires
     all gates true at this HEAD. Authorization is untouched.
     """
-    if not head or not isinstance(head, str):
-        raise ValueError("readiness requires exact head SHA")
+    if not isinstance(head, str) or EXACT_COMMIT_RE.fullmatch(head) is None:
+        raise ValueError("readiness requires an exact 40-character commit HEAD")
     reasons: list[str] = []
     if not acceptance_complete:
         reasons.append("acceptance_incomplete")
@@ -427,10 +429,18 @@ def evaluate_merge_guard(
         missing.append("driver_authorized")
     if control.landing_outcome != "complete_and_merge":
         missing.append("landing_outcome_complete_and_merge")
-    if not control.readiness_head or control.readiness_head != current_head:
+    exact_current_head = (
+        isinstance(current_head, str)
+        and EXACT_COMMIT_RE.fullmatch(current_head) is not None
+    )
+    if not exact_current_head:
+        missing.append("current_head_exact_commit")
+    if (
+        not control.readiness_head
+        or EXACT_COMMIT_RE.fullmatch(control.readiness_head) is None
+        or control.readiness_head.lower() != current_head.lower()
+    ):
         missing.append("exact_head_matches_readiness")
-    if not current_head:
-        missing.append("current_head_present")
 
     # Independence: ready alone never allows merge.
     if control.ready and not control.driver_authorized:

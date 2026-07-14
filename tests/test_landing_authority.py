@@ -26,6 +26,8 @@ from cobbler_runtime.landing_authority import (  # noqa: E402
 
 
 class LandingAuthorityTests(unittest.TestCase):
+    HEAD_A = "a" * 40
+    HEAD_B = "b" * 40
     def test_worker_cannot_grant_merge_or_change_outcome(self) -> None:
         host = initial_control(landing_outcome="landable_pr")
         hostile = {
@@ -65,7 +67,7 @@ class LandingAuthorityTests(unittest.TestCase):
     def test_land_pr_grants_without_restarting_readiness(self) -> None:
         control, att = attest_readiness(
             initial_control(),
-            head="deadbeef01",
+            head=self.HEAD_A,
             acceptance_complete=True,
             blockers_resolved=True,
             exact_tip_review_clean=True,
@@ -82,18 +84,18 @@ class LandingAuthorityTests(unittest.TestCase):
         )
         self.assertTrue(granted.driver_authorized)
         self.assertTrue(granted.ready)  # readiness not cleared
-        self.assertEqual(granted.readiness_head, "deadbeef01")
+        self.assertEqual(granted.readiness_head, self.HEAD_A)
         self.assertEqual(granted.landing_outcome, "complete_and_merge")
         self.assertIn("readiness_not_restarted", granted.notes)
 
     def test_readiness_exact_head_and_scope_invalidation(self) -> None:
         digest = compute_readiness_inputs_digest(
-            head="aaa",
+            head=self.HEAD_A,
             acceptance_rows=[{"id": "B0-A1", "met": True, "criterion": "x"}],
         )
         control, att = attest_readiness(
             initial_control(),
-            head="aaa",
+            head=self.HEAD_A,
             acceptance_complete=True,
             blockers_resolved=True,
             exact_tip_review_clean=True,
@@ -102,11 +104,11 @@ class LandingAuthorityTests(unittest.TestCase):
             inputs_digest=digest,
         )
         self.assertTrue(control.ready)
-        self.assertEqual(control.readiness_head, "aaa")
+        self.assertEqual(control.readiness_head, self.HEAD_A)
 
         # HEAD change clears readiness only.
         granted = grant_driver_authorization(control, grant_source="/land-pr")
-        moved = invalidate_on_head_change(granted, current_head="bbb")
+        moved = invalidate_on_head_change(granted, current_head=self.HEAD_B)
         self.assertFalse(moved.ready)
         self.assertIsNone(moved.readiness_head)
         self.assertTrue(moved.driver_authorized)  # auth survives
@@ -119,13 +121,13 @@ class LandingAuthorityTests(unittest.TestCase):
 
     def test_merge_guard_requires_all_host_conditions(self) -> None:
         control = initial_control(landing_outcome="complete_and_merge")
-        decision = evaluate_merge_guard(control, current_head="abc")
+        decision = evaluate_merge_guard(control, current_head=self.HEAD_A)
         self.assertFalse(decision.allowed)
         self.assertTrue(any("driver_authorized" in r for r in decision.reasons))
 
         ready_only, _ = attest_readiness(
             control,
-            head="abc",
+            head=self.HEAD_A,
             acceptance_complete=True,
             blockers_resolved=True,
             exact_tip_review_clean=True,
@@ -134,21 +136,36 @@ class LandingAuthorityTests(unittest.TestCase):
             inputs_digest="x",
         )
         # ready alone never merges
-        d2 = evaluate_merge_guard(ready_only, current_head="abc")
+        d2 = evaluate_merge_guard(ready_only, current_head=self.HEAD_A)
         self.assertFalse(d2.allowed)
         self.assertTrue(any("driver_authorized" in r for r in d2.reasons))
 
         authorized = grant_driver_authorization(ready_only, grant_source="user_explicit")
-        d3 = evaluate_merge_guard(authorized, current_head="abc")
+        d3 = evaluate_merge_guard(authorized, current_head=self.HEAD_A)
         self.assertTrue(d3.allowed)
 
         # wrong head
-        d4 = evaluate_merge_guard(authorized, current_head="zzz")
+        d4 = evaluate_merge_guard(authorized, current_head=self.HEAD_B)
         self.assertFalse(d4.allowed)
 
-        action = terminal_action(authorized, current_head="abc")
+        action = terminal_action(authorized, current_head=self.HEAD_A)
         self.assertTrue(action["merge"])
         self.assertEqual(action["merge_method"], "merge_commit")
+
+    def test_attestation_rejects_abbreviated_or_symbolic_head(self) -> None:
+        for head in ("abc", "HEAD", "a" * 39, "g" * 40):
+            with self.subTest(head=head):
+                with self.assertRaisesRegex(ValueError, "exact 40-character"):
+                    attest_readiness(
+                        initial_control(),
+                        head=head,
+                        acceptance_complete=True,
+                        blockers_resolved=True,
+                        exact_tip_review_clean=True,
+                        required_checks_green=True,
+                        worktree_clean=True,
+                        inputs_digest="d",
+                    )
 
 
 if __name__ == "__main__":

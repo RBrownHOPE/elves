@@ -25,6 +25,7 @@ This entry point stays thin; implementation lives under scripts/cobbler_runtime/
 from __future__ import annotations
 
 import argparse
+from functools import partial
 import json
 import os
 import sys
@@ -1420,8 +1421,15 @@ def cmd_implement(args: argparse.Namespace) -> int:
             if getattr(args, "no_follow", False):
                 follow = False
             stream_writer = None
-            if follow and not getattr(args, "json", False):
-                stream_writer = lambda line: print(line, flush=True)  # noqa: E731
+            if follow:
+                # Keep stdout as one parseable terminal JSON object for
+                # machine-readable callers while the live, sanitized worker
+                # window remains visible on stderr. Text mode follows stdout.
+                stream_writer = partial(
+                    print,
+                    file=(sys.stderr if getattr(args, "json", False) else sys.stdout),
+                    flush=True,
+                )
             payload = await_full_run(
                 repo_root,
                 session_id=args.session_id,

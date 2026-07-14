@@ -53,7 +53,7 @@ STATE_TRANSITIONS: dict[str, frozenset[str]] = {
 ACTORS: tuple[str, ...] = (
     "user",
     "driver",  # host Claude Code / Codex coordinator
-    "worker",  # trusted full-run implementer or untrusted lease writer
+    "worker",  # authority is narrowed by actor_may(..., trust_mode=...)
     "reviewer",  # independent terminal review (read-only)
 )
 
@@ -85,6 +85,16 @@ WORKER_FORBIDDEN_CAPABILITIES: frozenset[str] = frozenset(
         "edit_run_memory",
         "open_or_update_pr",
         "create_tags",
+    }
+)
+
+# Untrusted workers edit only their isolated checkout and may create an audited
+# detached handoff commit. They never own or advance the feature branch/ref.
+UNTRUSTED_WORKER_FORBIDDEN_CAPABILITIES: frozenset[str] = frozenset(
+    {
+        "commit_feature_branch",
+        "push_feature_branch",
+        "follow_worker_stream",
     }
 )
 
@@ -496,6 +506,121 @@ MIGRATION_LEDGER: tuple[MigrationEntry, ...] = (
         summary="Useful optional surfaces stay non-default for happy path",
         proof="tests/test_joyful_runs_contract.py",
     ),
+    MigrationEntry(
+        id="finite-open-ended-stop-gate",
+        disposition="retained",
+        old_location="Run Mode, Stop Gate, continuation_guard",
+        new_location="SKILL.md run control + session continuation_guard",
+        summary="Finite/open-ended semantics and positive stop permission remain durable",
+        proof="tests/test_goal_policy.py",
+    ),
+    MigrationEntry(
+        id="run-memory-and-strategic-forgetting",
+        disposition="retained",
+        old_location="Plan, Survival Guide, execution log, learnings, strategic forgetting",
+        new_location="SKILL.md memory contract + focused templates",
+        summary="Canonical run memory and concise reactivation handoffs remain host-owned",
+        proof="tests/test_check_repo_consistency.py",
+    ),
+    MigrationEntry(
+        id="standalone-worker-packet",
+        disposition="retained",
+        old_location="Coordinator-to-Implementer Handoff Standard",
+        new_location="SKILL.md worker contract + joyful-runs-contract reference",
+        summary="Intent, rationale, Build On, owned/forbidden surfaces, proof, pitfalls, and identity remain required",
+        proof="tests/test_worker_packet_contract.py",
+    ),
+    MigrationEntry(
+        id="untrusted-detached-import-boundary",
+        disposition="retained",
+        old_location="leases + delegated_git detached writer path",
+        new_location="same runtime + trust-aware canonical authority",
+        summary="Untrusted writers never own feature refs, remotes, pushes, PRs, or landing",
+        proof="tests/test_cobbler_agents_leases.py",
+    ),
+    MigrationEntry(
+        id="exact-session-resume",
+        disposition="retained",
+        old_location="exact persistent session registry and full-run resume",
+        new_location="full_run authenticated exact-session resume",
+        summary="No ambiguous latest/continue resume token is introduced",
+        proof="tests/test_full_run_supervisor.py",
+    ),
+    MigrationEntry(
+        id="regular-merge-commit-and-user-authority",
+        disposition="retained",
+        old_location="default no-merge + Reviewed PR Landing Command",
+        new_location="landing_authority + SKILL landing contract",
+        summary="User owns merge permission; authorized landing uses a regular merge commit only",
+        proof="tests/test_landing_authority.py",
+    ),
+    MigrationEntry(
+        id="report-reconstruction",
+        disposition="changed",
+        old_location="worker-supplied Elves report required at closeout",
+        new_location="host reconstruction from exact trusted commits/events/tests",
+        summary="Missing report shape never discards otherwise provable worker work",
+        proof="tests/test_full_run_supervisor.py",
+    ),
+    MigrationEntry(
+        id="constitution-and-completeness-review",
+        disposition="changed",
+        old_location="legality judge and review during batch loop",
+        new_location="one cumulative final review; checkpoint only for declared high risk",
+        summary="Completeness and constitution remain required without routine mid-run review",
+        proof="tests/test_evidence_impact.py",
+    ),
+    MigrationEntry(
+        id="pr-feedback-and-required-checks",
+        disposition="changed",
+        old_location="poll comments and checks after every host push",
+        new_location="terminal feedback read plus final-tip required-check wait",
+        summary="All review surfaces remain required without waking a healthy worker per push",
+        proof="tests/test_behavior_policy.py",
+    ),
+    MigrationEntry(
+        id="release-docs-and-installed-parity",
+        disposition="retained",
+        old_location="version, changelog, README, installed Claude/Codex bundle checks",
+        new_location="release/consistency checks and host-parity contract",
+        summary="Release metadata and both installed hosts must agree",
+        proof="tests/test_installed_bundle_smoke.py",
+    ),
+)
+
+# Explicit v2.2 normative inventory. Adding/removing a migration entry without
+# updating this list is a test-visible contract change, preventing silent loss.
+V2_2_NORMATIVE_REQUIREMENT_IDS: tuple[str, ...] = (
+    "safety-kernel-six",
+    "four-risk-tiers",
+    "parked-monitor",
+    "default-follow-stream",
+    "merge-authority-false",
+    "exact-head-readiness",
+    "complete-without-and-with-merge-pipeline",
+    "active-run-land-pr",
+    "per-batch-driver-review",
+    "equal-time-quotas",
+    "native-host-parity",
+    "native-only-without-providers",
+    "acceptance-b0-b1-stable-ids",
+    "shared-oauth-transcript-restrictions",
+    "progress-commit-subjects",
+    "native-grok-goal-capability",
+    "cleanup-only-proof-reuse",
+    "convergent-delta-review",
+    "codex-goals-vs-grok-goal",
+    "optional-features-off-critical-path",
+    "finite-open-ended-stop-gate",
+    "run-memory-and-strategic-forgetting",
+    "standalone-worker-packet",
+    "untrusted-detached-import-boundary",
+    "exact-session-resume",
+    "regular-merge-commit-and-user-authority",
+    "report-reconstruction",
+    "constitution-and-completeness-review",
+    "pr-feedback-and-required-checks",
+    "release-docs-and-installed-parity",
 )
 
 
@@ -535,9 +660,21 @@ def migration_ledger_snapshot() -> dict[str, Any]:
     }
 
 
-def actor_may(actor: str, capability: str) -> bool:
+def actor_may(
+    actor: str,
+    capability: str,
+    *,
+    trust_mode: str = "trusted",
+) -> bool:
     if actor == "worker" and capability in WORKER_FORBIDDEN_CAPABILITIES:
         return False
+    if actor == "worker":
+        normalized_trust = normalize_trust_mode(trust_mode)
+        if (
+            normalized_trust == "untrusted"
+            and capability in UNTRUSTED_WORKER_FORBIDDEN_CAPABILITIES
+        ):
+            return False
     allowed = AUTHORITY_MATRIX.get(capability)
     if allowed is None:
         return False

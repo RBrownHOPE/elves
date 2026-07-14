@@ -132,7 +132,11 @@ def map_surface_to_consumers(path: str) -> tuple[str, ...]:
     if p.startswith("scripts/") and p.endswith(".py"):
         name = p.rsplit("/", 1)[-1]
         stem = name[:-3] if name.endswith(".py") else name
-        consumers.append(f"tests/test_{stem}.py")
+        consumers.append(
+            "tests/test_check_repo_consistency.py"
+            if stem == "consistency_policy"
+            else f"tests/test_{stem}.py"
+        )
     if p in {"SKILL.md", "AGENTS.md", "README.md"}:
         consumers.extend(
             [
