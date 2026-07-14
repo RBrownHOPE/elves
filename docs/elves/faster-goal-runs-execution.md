@@ -9,9 +9,10 @@
 - Safety kernel frozen in the plan; scope is B0-B3 with one native Grok goal.
 - Validation policy: affected modules during implementation, one broad local suite at terminal,
   final GitHub matrix unchanged.
+- Draft PR #69 opened against the stacked #68 branch. Native Grok 0.2.101 `/goal status` was
+  exercised successfully in the TUI; launch will use that real command rather than prompt mimicry.
 
 ## Acceptance ledger
 
 Pending worker goal and terminal host reconciliation. Evidence will be recorded by stable ID before
 readiness.
-
