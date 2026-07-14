@@ -1,8 +1,9 @@
-"""Risk-tiered execution policy for Elves 2.2 faster trusted runs.
+"""Risk-directed execution policy for Elves 2.3 joyful runs.
 
 Pure helpers (no process I/O) for:
-- thin safety kernel inventory
-- four risk tiers (trivial/docs, standard trusted, high-risk trusted, untrusted)
+- thin safety kernel inventory (IDs retained; destinations in canonical_contract)
+- risk (low|standard|high) independent of trust_mode (trusted|untrusted)
+- legacy four-tier aliases for compatibility (trivial_docs, standard_trusted, …)
 - proof budget (validate once / verify changes / attest final)
 - mid-run vs terminal PR feedback
 - bug-category expansion bounds
@@ -17,10 +18,21 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping, Sequence
 
+from .canonical_contract import (
+    LEGACY_TIER_TO_RISK_TRUST,
+    RISK_LEVELS,
+    RISK_TRUST_TO_LEGACY_TIER,
+    TRUST_MODES,
+    classify_risk_and_trust,
+    normalize_risk,
+    normalize_trust_mode,
+)
 
-POLICY_VERSION = "2.2.0"
+
+POLICY_VERSION = "2.3.0"
 
 # Thin safety kernel — must not weaken. Operator docs and guards pin these names.
+# Canonical destinations + proving tests live in canonical_contract.SAFETY_KERNEL.
 SAFETY_KERNEL: tuple[str, ...] = (
     "exact_plan_session_packet_acceptance_identity",
     "credential_protected_ref_origin_branch_worktree_ancestry_clean_tip",
@@ -30,6 +42,7 @@ SAFETY_KERNEL: tuple[str, ...] = (
     "strict_detached_import_evidence_for_untrusted_writers",
 )
 
+# Legacy 2.2 labels retained as compatibility aliases only.
 RISK_TIERS: tuple[str, ...] = (
     "trivial_docs",
     "standard_trusted",
@@ -104,10 +117,12 @@ RUNTIME_SECURITY_PATH_MARKERS: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class RiskTierDecision:
-    tier: str
+    tier: str  # legacy alias
     broad_proof_required: bool
     proof_mode: str  # touched | checkpoint_broad | terminal_broad
     reasons: tuple[str, ...]
+    risk: str = "standard"  # low | standard | high
+    trust_mode: str = "trusted"  # trusted | untrusted
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -161,7 +176,11 @@ def safety_kernel_snapshot() -> dict[str, Any]:
     return {
         "policy_version": POLICY_VERSION,
         "safety_kernel": list(SAFETY_KERNEL),
+        "risk_levels": list(RISK_LEVELS),
+        "trust_modes": list(TRUST_MODES),
+        # Legacy four-tier labels retained for compatibility fixtures.
         "risk_tiers": list(RISK_TIERS),
+        "legacy_tier_map": dict(LEGACY_TIER_TO_RISK_TRUST),
         "proof_budget": PROOF_BUDGET_SLOGAN,
         "pr_feedback": {
             "mid_run": PR_FEEDBACK_MID_RUN,
@@ -179,31 +198,62 @@ def classify_risk_tier(
     is_untrusted_writer: bool = False,
     batch_blast_radius: str | None = None,
     risk_hints: Sequence[str] | None = None,
+    risk: str | None = None,
+    trust_mode: str | None = None,
 ) -> RiskTierDecision:
-    """Classify the four-tier model from change surface and route signals."""
+    """Classify risk and trust_mode; legacy ``tier`` remains a compatibility alias."""
     paths = [p.replace("\\", "/") for p in (changed_paths or ())]
     hints = [h.lower() for h in (risk_hints or ())]
     reasons: list[str] = []
 
-    if is_untrusted_writer or "untrusted" in hints:
+    if is_untrusted_writer or "untrusted" in hints or (
+        trust_mode is not None and normalize_trust_mode(trust_mode) == "untrusted"
+    ):
+        axes = classify_risk_and_trust(
+            risk=risk or "high",
+            trust_mode="untrusted",
+            is_untrusted_writer=True,
+        )
         return RiskTierDecision(
-            tier="untrusted",
+            tier=axes["legacy_tier"],
+            risk=axes["risk"],
+            trust_mode="untrusted",
             broad_proof_required=True,
             proof_mode="terminal_broad",
             reasons=("untrusted_writer_requires_strict_detached_import_evidence",),
         )
 
     if is_final_readiness:
+        axes = classify_risk_and_trust(
+            risk="high" if is_high_risk_checkpoint else (risk or "standard"),
+            trust_mode=trust_mode or "trusted",
+            is_final_readiness=True,
+            is_high_risk_checkpoint=is_high_risk_checkpoint,
+        )
         return RiskTierDecision(
-            tier="high_risk_trusted" if is_high_risk_checkpoint else "standard_trusted",
+            tier=axes["legacy_tier"],
+            risk=axes["risk"],
+            trust_mode=axes["trust_mode"],
             broad_proof_required=True,
             proof_mode="terminal_broad",
             reasons=("terminal_readiness_requires_broad_proof",),
         )
 
-    if is_high_risk_checkpoint or batch_blast_radius == "high" or "high-risk" in hints:
+    if (
+        is_high_risk_checkpoint
+        or batch_blast_radius == "high"
+        or "high-risk" in hints
+        or (risk is not None and normalize_risk(risk) == "high")
+    ):
+        axes = classify_risk_and_trust(
+            risk="high",
+            trust_mode=trust_mode or "trusted",
+            is_high_risk_checkpoint=True,
+        )
         return RiskTierDecision(
-            tier="high_risk_trusted",
+            tier=axes["legacy_tier"],
+            risk="high",
+            trust_mode=axes["trust_mode"],
             broad_proof_required=True,
             proof_mode="checkpoint_broad",
             reasons=("high_risk_checkpoint_or_blast_radius",),
@@ -215,9 +265,18 @@ def classify_risk_tier(
         or p.startswith("references/")
         for p in paths
     )
-    if docs_only or (not paths and "docs" in hints):
+    if docs_only or (not paths and "docs" in hints) or (
+        risk is not None and normalize_risk(risk) == "low"
+    ):
+        axes = classify_risk_and_trust(
+            risk="low",
+            trust_mode=trust_mode or "trusted",
+            changed_paths=paths,
+        )
         return RiskTierDecision(
-            tier="trivial_docs",
+            tier=axes["legacy_tier"],
+            risk="low",
+            trust_mode=axes["trust_mode"],
             broad_proof_required=False,
             proof_mode="touched",
             reasons=("docs_or_trivial_surface",),
@@ -227,15 +286,30 @@ def classify_risk_tier(
         any(m in p.lower() for m in RUNTIME_SECURITY_PATH_MARKERS) for p in paths
     ):
         reasons.append("runtime_or_medium_blast")
+        axes = classify_risk_and_trust(
+            risk="standard",
+            trust_mode=trust_mode or "trusted",
+            batch_blast_radius=batch_blast_radius,
+            changed_paths=paths,
+        )
         return RiskTierDecision(
-            tier="standard_trusted",
+            tier=axes["legacy_tier"],
+            risk="standard",
+            trust_mode=axes["trust_mode"],
             broad_proof_required=False,
             proof_mode="touched",
             reasons=tuple(reasons) or ("standard_trusted_default",),
         )
 
+    axes = classify_risk_and_trust(
+        risk=risk or "standard",
+        trust_mode=trust_mode or "trusted",
+        changed_paths=paths,
+    )
     return RiskTierDecision(
-        tier="standard_trusted",
+        tier=axes["legacy_tier"],
+        risk=axes["risk"],
+        trust_mode=axes["trust_mode"],
         broad_proof_required=False,
         proof_mode="touched",
         reasons=("standard_trusted_default",),

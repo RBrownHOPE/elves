@@ -289,7 +289,7 @@ REPO_CONSISTENCY_WORKFLOW_PHRASES = {
         '"docs/openapi.json"',
         '"scripts/**"',
         "fetch-depth: 0",
-        "python3 scripts/verify_repo.py --ci --version 2.2.0",
+        "python3 scripts/verify_repo.py --ci --version 2.3.0",
         "--base-ref",
         "actions/checkout@v6",
         "actions/setup-python@v6",
@@ -2062,34 +2062,37 @@ IMPLEMENTER_HANDOFF_PHRASES = {
 
 RISK_TIER_PHRASES = {
     "SKILL.md": [
-        "thin safety kernel",
-        "Four risk tiers",
+        "Thin safety kernel",
         "validate once, verify changes, attest final",
-        "trivial/docs",
-        "standard trusted",
-        "high-risk trusted",
-        "untrusted",
+        "low | standard | high",
+        "trusted | untrusted",
         "touched surfaces",
         "risk checkpoints",
         "terminal readiness",
-        "nonblocking",
-        "new/unresolved",
-        "confirmed same-root",
+        "exact HEAD",
+        "impact-selected",
     ],
     "AGENTS.md": [
-        "thin safety kernel",
-        "Four risk tiers",
-        "validate once, verify changes, attest final",
-        "trivial/docs",
-        "standard trusted",
-        "high-risk trusted",
-        "untrusted",
+        "Thin safety kernel",
+        "risk `low|standard|high`",
+        "independent trust mode",
+        "validate once, verify",
         "touched surfaces",
         "risk checkpoints",
         "terminal readiness",
-        "nonblocking",
-        "new/unresolved",
-        "confirmed same-root",
+    ],
+    "references/joyful-runs-contract.md": [
+        "low",
+        "standard",
+        "high",
+        "trusted",
+        "untrusted",
+        "ready=true never grants merge permission",
+    ],
+    "references/proof-and-review.md": [
+        "validate once, verify changes, attest final",
+        "impact path",
+        "delta re-review",
     ],
 }
 
@@ -2171,3 +2174,206 @@ PUBLIC_WORDING_FORBIDDEN_PHRASES = [
     "cobbled together",
     "cobbled-together",
 ]
+
+# --- Elves 2.3: thin AGENTS adapter + compact SKILL pins ---
+_AGENTS_THIN_POINTER = [
+    'thin Codex adapter',
+    'canonical workflow is',
+    'SKILL.md',
+    'Codex Goals',
+    'Grok Build goal mode',
+    'chat-to-work',
+    'chat-to-land',
+    'plan Acceptance with proof',
+    'Stop Gate',
+    'continuation_guard',
+    'v2.0+',
+    'v2.1',
+    'v2.3',
+    '\\land-pr',
+    '/land-pr',
+    'source-checkout shorthand',
+    'active Elves skill root',
+    '$ELVES_SKILL_ROOT/scripts/elves_landing_check.py',
+    '--session <session-path> --repo-root .',
+    'Build On',
+    'owned surfaces',
+    'forbidden surfaces',
+    'acceptance evidence',
+    'blocking coordinator defect',
+    'Contract|Implement|Validate|Review|Close',
+    'Forbid vague subjects',
+]
+
+if isinstance(COBBLER_FORBIDDEN_PATTERNS, dict) and 'AGENTS.md' in COBBLER_FORBIDDEN_PATTERNS:
+    COBBLER_FORBIDDEN_PATTERNS = {k: v for k, v in COBBLER_FORBIDDEN_PATTERNS.items() if k != 'AGENTS.md'}
+if isinstance(COBBLER_HARNESS_DRIFT_PATTERNS, dict) and 'AGENTS.md' in COBBLER_HARNESS_DRIFT_PATTERNS:
+    COBBLER_HARNESS_DRIFT_PATTERNS = {k: v for k, v in COBBLER_HARNESS_DRIFT_PATTERNS.items() if k != 'AGENTS.md'}
+if isinstance(DOMAIN_WORKFLOW_FORBIDDEN_PATTERNS, dict) and 'AGENTS.md' in DOMAIN_WORKFLOW_FORBIDDEN_PATTERNS:
+    DOMAIN_WORKFLOW_FORBIDDEN_PATTERNS = {k: v for k, v in DOMAIN_WORKFLOW_FORBIDDEN_PATTERNS.items() if k != 'AGENTS.md'}
+if isinstance(EXACT_FULL_RUN_COMMAND_FORBIDDEN_PATTERNS, dict) and 'AGENTS.md' in EXACT_FULL_RUN_COMMAND_FORBIDDEN_PATTERNS:
+    EXACT_FULL_RUN_COMMAND_FORBIDDEN_PATTERNS = {k: v for k, v in EXACT_FULL_RUN_COMMAND_FORBIDDEN_PATTERNS.items() if k != 'AGENTS.md'}
+if isinstance(FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS, dict) and 'AGENTS.md' in FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS:
+    FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS = {k: v for k, v in FULL_RUN_MODEL_ROUTING_FORBIDDEN_PATTERNS.items() if k != 'AGENTS.md'}
+if isinstance(INSTALLED_REPO_ONLY_HELPER_FORBIDDEN_PATTERNS, dict) and 'AGENTS.md' in INSTALLED_REPO_ONLY_HELPER_FORBIDDEN_PATTERNS:
+    INSTALLED_REPO_ONLY_HELPER_FORBIDDEN_PATTERNS = {k: v for k, v in INSTALLED_REPO_ONLY_HELPER_FORBIDDEN_PATTERNS.items() if k != 'AGENTS.md'}
+if isinstance(LANDING_CHECK_BARE_FORBIDDEN_PATTERNS, dict) and 'AGENTS.md' in LANDING_CHECK_BARE_FORBIDDEN_PATTERNS:
+    LANDING_CHECK_BARE_FORBIDDEN_PATTERNS = {k: v for k, v in LANDING_CHECK_BARE_FORBIDDEN_PATTERNS.items() if k != 'AGENTS.md'}
+if isinstance(PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS, dict) and 'AGENTS.md' in PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS:
+    PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS = {k: v for k, v in PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS.items() if k != 'AGENTS.md'}
+if isinstance(SINGLE_KICKOFF_UNSCOPED_PATTERNS, dict) and 'AGENTS.md' in SINGLE_KICKOFF_UNSCOPED_PATTERNS:
+    SINGLE_KICKOFF_UNSCOPED_PATTERNS = {k: v for k, v in SINGLE_KICKOFF_UNSCOPED_PATTERNS.items() if k != 'AGENTS.md'}
+if isinstance(COUNCIL_FORBIDDEN_PHRASES, dict) and 'AGENTS.md' in COUNCIL_FORBIDDEN_PHRASES:
+    COUNCIL_FORBIDDEN_PHRASES = {k: v for k, v in COUNCIL_FORBIDDEN_PHRASES.items() if k != 'AGENTS.md'}
+if isinstance(DOMAIN_WORKFLOW_FORBIDDEN_PHRASES, dict) and 'AGENTS.md' in DOMAIN_WORKFLOW_FORBIDDEN_PHRASES:
+    DOMAIN_WORKFLOW_FORBIDDEN_PHRASES = {k: v for k, v in DOMAIN_WORKFLOW_FORBIDDEN_PHRASES.items() if k != 'AGENTS.md'}
+if isinstance(FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES, dict) and 'AGENTS.md' in FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES:
+    FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES = {k: v for k, v in FULL_RUN_MODEL_ROUTING_FORBIDDEN_PHRASES.items() if k != 'AGENTS.md'}
+if isinstance(REVIEWED_PR_LANDING_FORBIDDEN_PHRASES, dict) and 'AGENTS.md' in REVIEWED_PR_LANDING_FORBIDDEN_PHRASES:
+    REVIEWED_PR_LANDING_FORBIDDEN_PHRASES = {k: v for k, v in REVIEWED_PR_LANDING_FORBIDDEN_PHRASES.items() if k != 'AGENTS.md'}
+if isinstance(SINGLE_KICKOFF_FORBIDDEN_PHRASES, dict) and 'AGENTS.md' in SINGLE_KICKOFF_FORBIDDEN_PHRASES:
+    SINGLE_KICKOFF_FORBIDDEN_PHRASES = {k: v for k, v in SINGLE_KICKOFF_FORBIDDEN_PHRASES.items() if k != 'AGENTS.md'}
+if isinstance(ACCEPTANCE_EVIDENCE_PHRASES, dict) and 'AGENTS.md' in ACCEPTANCE_EVIDENCE_PHRASES:
+    ACCEPTANCE_EVIDENCE_PHRASES = dict(ACCEPTANCE_EVIDENCE_PHRASES)
+    ACCEPTANCE_EVIDENCE_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(COBBLER_CONFIG_PREFERENCE_PHRASES, dict) and 'AGENTS.md' in COBBLER_CONFIG_PREFERENCE_PHRASES:
+    COBBLER_CONFIG_PREFERENCE_PHRASES = dict(COBBLER_CONFIG_PREFERENCE_PHRASES)
+    COBBLER_CONFIG_PREFERENCE_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(COBBLER_HARNESS_LOOP_PHRASES, dict) and 'AGENTS.md' in COBBLER_HARNESS_LOOP_PHRASES:
+    COBBLER_HARNESS_LOOP_PHRASES = dict(COBBLER_HARNESS_LOOP_PHRASES)
+    COBBLER_HARNESS_LOOP_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(COBBLER_MODE_PHRASES, dict) and 'AGENTS.md' in COBBLER_MODE_PHRASES:
+    COBBLER_MODE_PHRASES = dict(COBBLER_MODE_PHRASES)
+    COBBLER_MODE_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(COUNCIL_MODULE_PHRASES, dict) and 'AGENTS.md' in COUNCIL_MODULE_PHRASES:
+    COUNCIL_MODULE_PHRASES = dict(COUNCIL_MODULE_PHRASES)
+    COUNCIL_MODULE_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(DOMAIN_WORKFLOW_PHRASES, dict) and 'AGENTS.md' in DOMAIN_WORKFLOW_PHRASES:
+    DOMAIN_WORKFLOW_PHRASES = dict(DOMAIN_WORKFLOW_PHRASES)
+    DOMAIN_WORKFLOW_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(EFFORT_GUARDRAIL_PHRASES, dict) and 'AGENTS.md' in EFFORT_GUARDRAIL_PHRASES:
+    EFFORT_GUARDRAIL_PHRASES = dict(EFFORT_GUARDRAIL_PHRASES)
+    EFFORT_GUARDRAIL_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(ELVES_REPORT_PHRASES, dict) and 'AGENTS.md' in ELVES_REPORT_PHRASES:
+    ELVES_REPORT_PHRASES = dict(ELVES_REPORT_PHRASES)
+    ELVES_REPORT_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(FINAL_READINESS_REVIEW_PHRASES, dict) and 'AGENTS.md' in FINAL_READINESS_REVIEW_PHRASES:
+    FINAL_READINESS_REVIEW_PHRASES = dict(FINAL_READINESS_REVIEW_PHRASES)
+    FINAL_READINESS_REVIEW_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(FULL_RUN_MODEL_ROUTING_PHRASES, dict) and 'AGENTS.md' in FULL_RUN_MODEL_ROUTING_PHRASES:
+    FULL_RUN_MODEL_ROUTING_PHRASES = dict(FULL_RUN_MODEL_ROUTING_PHRASES)
+    FULL_RUN_MODEL_ROUTING_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(IMPLEMENTATION_LANES_PHRASES, dict) and 'AGENTS.md' in IMPLEMENTATION_LANES_PHRASES:
+    IMPLEMENTATION_LANES_PHRASES = dict(IMPLEMENTATION_LANES_PHRASES)
+    IMPLEMENTATION_LANES_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(IMPLEMENTER_HANDOFF_PHRASES, dict) and 'AGENTS.md' in IMPLEMENTER_HANDOFF_PHRASES:
+    IMPLEMENTER_HANDOFF_PHRASES = dict(IMPLEMENTER_HANDOFF_PHRASES)
+    IMPLEMENTER_HANDOFF_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(INSTALLED_HELPER_PATH_PHRASES, dict) and 'AGENTS.md' in INSTALLED_HELPER_PATH_PHRASES:
+    INSTALLED_HELPER_PATH_PHRASES = dict(INSTALLED_HELPER_PATH_PHRASES)
+    INSTALLED_HELPER_PATH_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(LANDING_CHECK_CONTRACT_PHRASES, dict) and 'AGENTS.md' in LANDING_CHECK_CONTRACT_PHRASES:
+    LANDING_CHECK_CONTRACT_PHRASES = dict(LANDING_CHECK_CONTRACT_PHRASES)
+    LANDING_CHECK_CONTRACT_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(MATH_MODULE_PHRASES, dict) and 'AGENTS.md' in MATH_MODULE_PHRASES:
+    MATH_MODULE_PHRASES = dict(MATH_MODULE_PHRASES)
+    MATH_MODULE_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(MEMORY_HYGIENE_PHRASES, dict) and 'AGENTS.md' in MEMORY_HYGIENE_PHRASES:
+    MEMORY_HYGIENE_PHRASES = dict(MEMORY_HYGIENE_PHRASES)
+    MEMORY_HYGIENE_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(NONSTOP_GUARDRAIL_PHRASES, dict) and 'AGENTS.md' in NONSTOP_GUARDRAIL_PHRASES:
+    NONSTOP_GUARDRAIL_PHRASES = dict(NONSTOP_GUARDRAIL_PHRASES)
+    NONSTOP_GUARDRAIL_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(PROGRESS_COMMIT_PHRASES, dict) and 'AGENTS.md' in PROGRESS_COMMIT_PHRASES:
+    PROGRESS_COMMIT_PHRASES = dict(PROGRESS_COMMIT_PHRASES)
+    PROGRESS_COMMIT_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(PUBLIC_API_SURFACE_SNAPSHOT_PHRASES, dict) and 'AGENTS.md' in PUBLIC_API_SURFACE_SNAPSHOT_PHRASES:
+    PUBLIC_API_SURFACE_SNAPSHOT_PHRASES = dict(PUBLIC_API_SURFACE_SNAPSHOT_PHRASES)
+    PUBLIC_API_SURFACE_SNAPSHOT_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(REVIEWED_PR_LANDING_PHRASES, dict) and 'AGENTS.md' in REVIEWED_PR_LANDING_PHRASES:
+    REVIEWED_PR_LANDING_PHRASES = dict(REVIEWED_PR_LANDING_PHRASES)
+    REVIEWED_PR_LANDING_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(RISK_TIER_PHRASES, dict) and 'AGENTS.md' in RISK_TIER_PHRASES:
+    RISK_TIER_PHRASES = dict(RISK_TIER_PHRASES)
+    RISK_TIER_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(SETUP_COBBLER_PHRASES, dict) and 'AGENTS.md' in SETUP_COBBLER_PHRASES:
+    SETUP_COBBLER_PHRASES = dict(SETUP_COBBLER_PHRASES)
+    SETUP_COBBLER_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(SINGLE_KICKOFF_PHRASES, dict) and 'AGENTS.md' in SINGLE_KICKOFF_PHRASES:
+    SINGLE_KICKOFF_PHRASES = dict(SINGLE_KICKOFF_PHRASES)
+    SINGLE_KICKOFF_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(WORKSPACE_ISOLATION_PHRASES, dict) and 'AGENTS.md' in WORKSPACE_ISOLATION_PHRASES:
+    WORKSPACE_ISOLATION_PHRASES = dict(WORKSPACE_ISOLATION_PHRASES)
+    WORKSPACE_ISOLATION_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
+if isinstance(ACCEPTANCE_EVIDENCE_PHRASES, dict) and 'SKILL.md' in ACCEPTANCE_EVIDENCE_PHRASES:
+    ACCEPTANCE_EVIDENCE_PHRASES = dict(ACCEPTANCE_EVIDENCE_PHRASES)
+    ACCEPTANCE_EVIDENCE_PHRASES['SKILL.md'] = ['plan Acceptance with proof', 'acceptance', 'elves_landing_check.py', 'God-file', 'one batch per close commit']
+if isinstance(COBBLER_CONFIG_PREFERENCE_PHRASES, dict) and 'SKILL.md' in COBBLER_CONFIG_PREFERENCE_PHRASES:
+    COBBLER_CONFIG_PREFERENCE_PHRASES = dict(COBBLER_CONFIG_PREFERENCE_PHRASES)
+    COBBLER_CONFIG_PREFERENCE_PHRASES['SKILL.md'] = ['config.json', 'cobbler', 'council']
+if isinstance(COBBLER_HARNESS_LOOP_PHRASES, dict) and 'SKILL.md' in COBBLER_HARNESS_LOOP_PHRASES:
+    COBBLER_HARNESS_LOOP_PHRASES = dict(COBBLER_HARNESS_LOOP_PHRASES)
+    COBBLER_HARNESS_LOOP_PHRASES['SKILL.md'] = ['capability scan', 'context packet', 'Cobbler-first', 'fit answer']
+if isinstance(COBBLER_MODE_PHRASES, dict) and 'SKILL.md' in COBBLER_MODE_PHRASES:
+    COBBLER_MODE_PHRASES = dict(COBBLER_MODE_PHRASES)
+    COBBLER_MODE_PHRASES['SKILL.md'] = ['Cobbler Mode', 'cobbler-mode', 'not durable run state']
+if isinstance(COUNCIL_MODULE_PHRASES, dict) and 'SKILL.md' in COUNCIL_MODULE_PHRASES:
+    COUNCIL_MODULE_PHRASES = dict(COUNCIL_MODULE_PHRASES)
+    COUNCIL_MODULE_PHRASES['SKILL.md'] = ['## Cobbler', '/cobbler', '$elves cobbler', 'Quick Cobbler', 'native-subagent-first', 'Cobbler-first coordination is the default for Elves runs', '$elves council: <task>', 'Host honesty matters', 'do not assume Codex has a top-level `/cobbler` command', 'Codex Goals are optional continuation plumbing', 'not required for a Quick Cobbler answer', 'default orchestration model', 'worker agents may edit the repo', 'Quick Cobbler is the default one-off answer mode', '/council', '/ec', '/elves-council']
+if isinstance(DOMAIN_WORKFLOW_PHRASES, dict) and 'SKILL.md' in DOMAIN_WORKFLOW_PHRASES:
+    DOMAIN_WORKFLOW_PHRASES = dict(DOMAIN_WORKFLOW_PHRASES)
+    DOMAIN_WORKFLOW_PHRASES['SKILL.md'] = ['**Elves** is the execution system', '**Cobbler** is the default coordinator', '**Domain workflows** are specialized Cobbler-managed packs', '**Math** is the first domain workflow', '**Providers** are optional role routes', 'cobbler.default_for_session']
+if isinstance(EFFORT_GUARDRAIL_PHRASES, dict) and 'SKILL.md' in EFFORT_GUARDRAIL_PHRASES:
+    EFFORT_GUARDRAIL_PHRASES = dict(EFFORT_GUARDRAIL_PHRASES)
+    EFFORT_GUARDRAIL_PHRASES['SKILL.md'] = ['## Effort Standard', 'Do not be lazy.', 'Work as hard as you can for']
+if isinstance(ELVES_REPORT_PHRASES, dict) and 'SKILL.md' in ELVES_REPORT_PHRASES:
+    ELVES_REPORT_PHRASES = dict(ELVES_REPORT_PHRASES)
+    ELVES_REPORT_PHRASES['SKILL.md'] = ['## Elves Report', 'problems found', 'lessons learned', '/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html', 'references/elves-report-template.html', 'collapsible `<details>` sections', 'committed examples and reusable templates non-identifying', 'Elves Report path']
+if isinstance(FINAL_READINESS_REVIEW_PHRASES, dict) and 'SKILL.md' in FINAL_READINESS_REVIEW_PHRASES:
+    FINAL_READINESS_REVIEW_PHRASES = dict(FINAL_READINESS_REVIEW_PHRASES)
+    FINAL_READINESS_REVIEW_PHRASES['SKILL.md'] = ['Final Readiness Review', 'git diff <default-branch>...HEAD', 'review subagent']
+if isinstance(FULL_RUN_MODEL_ROUTING_PHRASES, dict) and 'SKILL.md' in FULL_RUN_MODEL_ROUTING_PHRASES:
+    FULL_RUN_MODEL_ROUTING_PHRASES = dict(FULL_RUN_MODEL_ROUTING_PHRASES)
+    FULL_RUN_MODEL_ROUTING_PHRASES['SKILL.md'] = ['model routing', 'native-first', 'fallback', 'Missing optional provider access']
+if isinstance(IMPLEMENTATION_LANES_PHRASES, dict) and 'SKILL.md' in IMPLEMENTATION_LANES_PHRASES:
+    IMPLEMENTATION_LANES_PHRASES = dict(IMPLEMENTATION_LANES_PHRASES)
+    IMPLEMENTATION_LANES_PHRASES['SKILL.md'] = ['trusted Grok', 'full-run', 'parked', 'untrusted', 'Do not invent top-level Codex slash commands', 'implementation_lane: fast | untrusted']
+if isinstance(IMPLEMENTER_HANDOFF_PHRASES, dict) and 'SKILL.md' in IMPLEMENTER_HANDOFF_PHRASES:
+    IMPLEMENTER_HANDOFF_PHRASES = dict(IMPLEMENTER_HANDOFF_PHRASES)
+    IMPLEMENTER_HANDOFF_PHRASES['SKILL.md'] = ['Build On', 'owned surfaces', 'forbidden surfaces', 'acceptance evidence', 'blocking coordinator defect', 'HEAD / run-doc paths / route-session identity / output format']
+if isinstance(INSTALLED_HELPER_PATH_PHRASES, dict) and 'SKILL.md' in INSTALLED_HELPER_PATH_PHRASES:
+    INSTALLED_HELPER_PATH_PHRASES = dict(INSTALLED_HELPER_PATH_PHRASES)
+    INSTALLED_HELPER_PATH_PHRASES['SKILL.md'] = ['source-checkout shorthand', 'active Elves skill root', '~/.claude/skills/elves', '~/.codex/skills/elves', '$ELVES_SKILL_ROOT/scripts/acceptance_contract.py', '$ELVES_SKILL_ROOT/scripts/elves_landing_check.py', 'installed Elves bundle never requires a repo-only helper']
+if isinstance(LANDING_CHECK_CONTRACT_PHRASES, dict) and 'SKILL.md' in LANDING_CHECK_CONTRACT_PHRASES:
+    LANDING_CHECK_CONTRACT_PHRASES = dict(LANDING_CHECK_CONTRACT_PHRASES)
+    LANDING_CHECK_CONTRACT_PHRASES['SKILL.md'] = ['$ELVES_SKILL_ROOT/scripts/elves_landing_check.py', '--session <session-path> --repo-root .', 'plan_path', 'equality assertion']
+if isinstance(MATH_MODULE_PHRASES, dict) and 'SKILL.md' in MATH_MODULE_PHRASES:
+    MATH_MODULE_PHRASES = dict(MATH_MODULE_PHRASES)
+    MATH_MODULE_PHRASES['SKILL.md'] = ['Cobbler-managed Elves domain workflow', 'Discovery Sprint', 'Native host subagents or direct analysis are the default', 'useful optional math role preset', 'Google Cloud AlphaEvolve', 'math-alphaevolve.md', 'Never treat model output']
+if isinstance(MEMORY_HYGIENE_PHRASES, dict) and 'SKILL.md' in MEMORY_HYGIENE_PHRASES:
+    MEMORY_HYGIENE_PHRASES = dict(MEMORY_HYGIENE_PHRASES)
+    MEMORY_HYGIENE_PHRASES['SKILL.md'] = ['## Strategic Forgetting', 'chats are for execution', 'memory and resource hygiene']
+if isinstance(NONSTOP_GUARDRAIL_PHRASES, dict) and 'SKILL.md' in NONSTOP_GUARDRAIL_PHRASES:
+    NONSTOP_GUARDRAIL_PHRASES = dict(NONSTOP_GUARDRAIL_PHRASES)
+    NONSTOP_GUARDRAIL_PHRASES['SKILL.md'] = ['Stop Gate', 'continuation_guard', 'After every host-owned commit and push, re-read the survival guide before doing anything else.', 'Do not wait for user acknowledgment']
+if isinstance(PROGRESS_COMMIT_PHRASES, dict) and 'SKILL.md' in PROGRESS_COMMIT_PHRASES:
+    PROGRESS_COMMIT_PHRASES = dict(PROGRESS_COMMIT_PHRASES)
+    PROGRESS_COMMIT_PHRASES['SKILL.md'] = ['## Git History as Operator UI', '[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>', 'Forbid vague subjects', 'audited detached handoff commits', 'never own refs, remotes, push, PRs, or canonical run memory', 'Protected refs, PR operations, and merge never dispatch model inference']
+if isinstance(PUBLIC_API_SURFACE_SNAPSHOT_PHRASES, dict) and 'SKILL.md' in PUBLIC_API_SURFACE_SNAPSHOT_PHRASES:
+    PUBLIC_API_SURFACE_SNAPSHOT_PHRASES = dict(PUBLIC_API_SURFACE_SNAPSHOT_PHRASES)
+    PUBLIC_API_SURFACE_SNAPSHOT_PHRASES['SKILL.md'] = ['Public API surface snapshots are optional regression evidence.', 'Use existing structured sources before inventing scanners', 'If no credible source exists, record `unavailable` with the reason instead of fabricating', 'A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide.', '`required: true` is valid only when explicitly set by the user or project survival guide.', 'Do not infer required mode from project type, provider config, framework choice, or the presence of API files.', 'Snapshot artifacts are run artifacts, not product docs', 'Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly', 'Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data.', 'A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.', 'public API surface delta when configured']
+if isinstance(REVIEWED_PR_LANDING_PHRASES, dict) and 'SKILL.md' in REVIEWED_PR_LANDING_PHRASES:
+    REVIEWED_PR_LANDING_PHRASES = dict(REVIEWED_PR_LANDING_PHRASES)
+    REVIEWED_PR_LANDING_PHRASES['SKILL.md'] = ['## Reviewed PR Landing Command', 'gh pr merge --merge', '\\land-pr', '/land-pr', 'default when bots are expected']
+if isinstance(RISK_TIER_PHRASES, dict) and 'SKILL.md' in RISK_TIER_PHRASES:
+    RISK_TIER_PHRASES = dict(RISK_TIER_PHRASES)
+    RISK_TIER_PHRASES['SKILL.md'] = ['Thin safety kernel', 'validate once, verify changes, attest final', 'low | standard | high', 'trusted | untrusted', 'touched surfaces', 'risk checkpoints', 'terminal readiness', 'exact HEAD', 'impact-selected']
+if isinstance(SETUP_COBBLER_PHRASES, dict) and 'SKILL.md' in SETUP_COBBLER_PHRASES:
+    SETUP_COBBLER_PHRASES = dict(SETUP_COBBLER_PHRASES)
+    SETUP_COBBLER_PHRASES['SKILL.md'] = ['setup-cobbler', 'setup-council', 'model-onboarding.md', 'not a top-level', 'cobbler_agents.py setup', 'references/cobbler-setup-recipes.md', 'Supported main drivers are Claude Code and Codex only', '$elves setup-council']
+if isinstance(SINGLE_KICKOFF_PHRASES, dict) and 'SKILL.md' in SINGLE_KICKOFF_PHRASES:
+    SINGLE_KICKOFF_PHRASES = dict(SINGLE_KICKOFF_PHRASES)
+    SINGLE_KICKOFF_PHRASES['SKILL.md'] = ['Default user path (v2.0+): one kickoff', 'v2.1 adds trusted Grok full-run', 'chat-to-work', 'chat-to-land', 'Legacy two-call', 'full-run', 'parked']
+if isinstance(WORKSPACE_ISOLATION_PHRASES, dict) and 'SKILL.md' in WORKSPACE_ISOLATION_PHRASES:
+    WORKSPACE_ISOLATION_PHRASES = dict(WORKSPACE_ISOLATION_PHRASES)
+    WORKSPACE_ISOLATION_PHRASES['SKILL.md'] = ['One run owns one branch and one checkout', './scripts/preflight.sh --create-worktree <branch> --base origin/main', '--dry-run', 'branch, worktree path, base ref, and collision tripwire', 'does not reuse, delete, or repair existing worktrees']

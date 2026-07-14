@@ -10,13 +10,16 @@ multi-batch runs — implement, test, review, document — that survive context 
 **Cobbler** is the default coordinator. **Claude Code or Codex** is the main driver; optional work
 drivers and lenses help when you already have them.
 
-**Current release: v2.2.0.** You write the plan and own the merge decision. The agent does the middle.
+**Current release: v2.3.0.** You write the plan and own the merge decision. The agent does the middle.
 
 **Default (v2.0+): one kickoff** after conceptual agreement — chat to agreement, then one
 **Chat-to-work** or **Chat-to-land** (`chat-to-work` / `chat-to-land`) prompt stages and runs.
 Single kickoff always continues after staging unless you explicitly chose legacy two-call. v2.1
-adds trusted Grok full-run delegation with a quiet parked driver. See
-[`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md).
+adds trusted Grok full-run delegation with a quiet parked driver. **v2.3 joyful runs** keep that
+parked driver, add a default sanitized non-model follow stream, exact-HEAD readiness independent of
+merge authorization, and impact-selected convergent review. See
+[`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md) and
+[`references/joyful-runs-contract.md`](references/joyful-runs-contract.md).
 
 Source-checkout helper: `python3 scripts/cobbler_agents.py`. For a global or project-local Claude
 Code/Codex install, invoke helpers from the **active Elves skill root** while the target repository
@@ -59,12 +62,12 @@ python3 ~/.claude/skills/elves/scripts/install_doctor.py --startup
 # Codex (use this instead):
 python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.2.0
+python3 scripts/verify_repo.py --version 2.3.0
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.2.0 --final-readiness \
+python3 scripts/verify_repo.py --version 2.3.0 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.2.0 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.3.0 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 
@@ -860,10 +863,10 @@ permanently valid, and does not install hooks or repair git state.
 Codex Goals can be a useful continuation backend for Elves. Goals keeps Codex working across turns;
 Elves tells it what "working well" means. On host-native and legacy bounded routes, the Goal runs
 the full per-batch loop. On a trusted Grok full-run, the Goal creates the `b0` launch ref, launches
-one exact worker session, then stays parked on bounded monitor reads—no per-batch review, memory, or
-push chatter—until a terminal or safety wake triggers one cumulative final review. Unchanged
-healthy polls produce no chat. Polling defaults to half the stale window (60-second floor, 5-minute
-cap), and the host coalesces nonterminal progress into at most one short update per 15 minutes.
+one exact worker session, then stays parked—no per-batch review, memory, or push chatter—until a
+terminal or safety wake triggers one cumulative final review. The default sanitized follow stream
+is the operator window and performs no model inference; quiet mode suppresses it. There is no timed
+driver-chat heartbeat.
 
 Goals are for full Elves runs, not Quick Cobbler. For a one-off Cobbler answer in Codex, use `$elves cobbler: <task>` or ask naturally: "Ask the Cobbler to..."
 
@@ -1006,7 +1009,10 @@ Bad: "Looks good so far." (no tag, no instruction to continue)
 - **Explicit Effort Standard**: the survival guide and launch prompt tell the model not to be lazy, to work as hard as it can for the full run, and to avoid coasting after the first green check or checkpoint.
 - **Time-aware pacing**: tracks how long each batch takes and uses that to decide whether to start another batch or wrap up cleanly (finite mode)
 - **Slack notifications** (or any custom command): know when your run finishes without watching the terminal
-- **Constitution and legality check**: human-authored deal-breaker behaviors (`docs/constitution.md`) verified by a read-only judge after each batch. Three quality layers: correctness (tests), plan compliance (review), legality (judge). Success criteria the agent didn't author.
+- **Constitution and legality check**: human-authored deal-breaker behaviors
+  (`docs/constitution.md`) are verified in the cumulative final review, plus an explicit checkpoint
+  only for a declared high-risk constitutional surface. Three quality layers remain: correctness
+  (tests), plan compliance (review), and legality. Success criteria are not authored by the worker.
 - **PR Loop**: poll PR comments, inline reviews, and checks after every host push; trusted parked
   full-run worker pushes are reviewed cumulatively at wake/exit rather than reactivating the driver
 - **Readiness Gate**: branch-level checklist before declaring review-ready (plan Acceptance with proof, `elves_landing_check.py` clean, local proof on current tip, preview proof on exact runtime tip, final cumulative review, PR comments polled, legality check clean, strategic forgetting complete, git status clean, execution log current). Green CI + `status: complete` alone is not landable.

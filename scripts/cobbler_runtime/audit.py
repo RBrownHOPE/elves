@@ -989,7 +989,7 @@ def _read_export_bundle_bytes(
                 )
             patch_rows.append((name, data))
         after = os.fstat(directory_fd)
-        published = out.stat(follow_symlinks=False)
+        published = os.stat(out, follow_symlinks=False)
         if (
             _git_surface_stat_tuple(before) != _git_surface_stat_tuple(after)
             or (before.st_dev, before.st_ino, before.st_mode)
@@ -1294,7 +1294,7 @@ def _snapshot_directory_authority(path: Path) -> dict[str, Any]:
     try:
         _opened, directory_fd = _open_repo_directory(Path("/"), path, create=False)
         opened = os.fstat(directory_fd)
-        published = path.stat(follow_symlinks=False)
+        published = os.stat(path, follow_symlinks=False)
         if (
             not stat.S_ISDIR(opened.st_mode)
             or stat.S_ISLNK(published.st_mode)
@@ -1391,7 +1391,7 @@ def snapshot_git_authority(worker_checkout: Path) -> dict[str, Any]:
     worker_root = _snapshot_directory_authority(worker)
     dot_git = worker / ".git"
     try:
-        dot_git_info = dot_git.stat(follow_symlinks=False)
+        dot_git_info = os.stat(dot_git, follow_symlinks=False)
     except OSError as exc:
         raise _raise_git_surface_unsafe(dot_git, "checkout has no safe .git locator") from exc
     if stat.S_ISLNK(dot_git_info.st_mode):
@@ -1699,7 +1699,7 @@ def _snapshot_git_surface_directory_fd(
             if child_fd >= 0:
                 os.close(child_fd)
     after = os.fstat(directory_fd)
-    published = path.stat(follow_symlinks=False)
+    published = os.stat(path, follow_symlinks=False)
     if (
         _git_surface_stat_tuple(before) != _git_surface_stat_tuple(after)
         or (before.st_dev, before.st_ino, before.st_mode)
@@ -1716,7 +1716,7 @@ def _snapshot_git_surface_directory_fd(
 def _snapshot_git_surface_directory(path: Path) -> dict[str, Any]:
     """Snapshot an optional Git metadata tree with no-follow traversal."""
     try:
-        info = path.stat(follow_symlinks=False)
+        info = os.stat(path, follow_symlinks=False)
     except FileNotFoundError:
         return {"type": "missing"}
     except OSError as exc:

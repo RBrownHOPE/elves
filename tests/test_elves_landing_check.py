@@ -1223,6 +1223,177 @@ class ElvesLandingCheckTests(unittest.TestCase):
 
             self.assertEqual(report.errors, [])
 
+    def test_land_pr_grant_preserves_active_run_readiness(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            readiness = {
+                "head": "a" * 40,
+                "inputs_digest": "d" * 64,
+                "acceptance_complete": True,
+                "blockers_resolved": True,
+                "exact_tip_review_clean": True,
+                "required_checks_green": True,
+                "worktree_clean": True,
+            }
+            session_path = self._write_session(
+                tmp,
+                {
+                    "landing": {
+                        "outcome": "landable_pr",
+                        "driver_authorized": False,
+                        "worker_merge_authority": False,
+                        "readiness": readiness,
+                    }
+                },
+            )
+
+            self.assertEqual(
+                self.mod.main(
+                    [
+                        "--session",
+                        str(session_path),
+                        "--grant-driver-authorization",
+                        "land-pr",
+                        "--json",
+                    ]
+                ),
+                0,
+            )
+            updated = json.loads(session_path.read_text(encoding="utf-8"))
+            self.assertEqual(updated["landing"]["readiness"], readiness)
+            self.assertEqual(updated["landing"]["outcome"], "complete_and_merge")
+            self.assertTrue(updated["landing"]["driver_authorized"])
+            self.assertFalse(updated["landing"]["worker_merge_authority"])
+
+    def test_strict_landing_attestation_is_bound_to_exact_current_head(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "repo"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "feature"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "tests@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Elves Tests"], cwd=root, check=True)
+            (root / "plan.md").write_text(
+                "### Batch 0: Staging\n\n**Acceptance criteria:**\n- [x] B0-A1: Done\n\n"
+                "## Master Acceptance\n\n- [x] M-A1: Ready\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "plan.md"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "plan"], cwd=root, check=True)
+            start = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=True
+            ).stdout.strip()
+            session = {
+                "run_id": "run-authority",
+                "branch": "feature",
+                "start_head": start,
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": "B0",
+                        "status": "complete",
+                        "acceptance": [
+                            {"id": "B0-A1", "criterion": "Done", "met": True, "evidence": "proof"}
+                        ],
+                    }
+                ],
+                "master_acceptance": [
+                    {"id": "M-A1", "criterion": "Ready", "met": True, "evidence": "proof"}
+                ],
+                "landing": {
+                    "outcome": "landable_pr",
+                    "driver_authorized": False,
+                    "worker_merge_authority": False,
+                },
+            }
+            session_path = self._write_session(root, session)
+            subprocess.run(["git", "add", ".elves-session.json"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "session"], cwd=root, check=True)
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=True
+            ).stdout.strip()
+
+            args = self.mod.parse_args(
+                ["--repo-root", str(root), "--session", str(session_path)]
+            )
+            missing_landable = self.mod.run_checks(args)
+            self.assertIn(
+                "readiness_missing", {item.code for item in missing_landable.errors}
+            )
+            self.assertFalse(missing_landable.landing["ready"])
+            self.assertEqual(missing_landable.landing["action"], "landable_pr")
+
+            session["landing"]["outcome"] = "complete_and_merge"
+            session["landing"]["driver_authorized"] = True
+            session_path.write_text(json.dumps(session), encoding="utf-8")
+            missing_merge = self.mod.run_checks(args)
+            self.assertIn(
+                "readiness_missing", {item.code for item in missing_merge.errors}
+            )
+            self.assertFalse(missing_merge.landing["ready"])
+            self.assertEqual(missing_merge.landing["action"], "hold")
+            self.assertFalse(missing_merge.landing["merge"])
+
+            session["landing"]["outcome"] = "landable_pr"
+            session["landing"]["driver_authorized"] = False
+            session["landing"]["readiness"] = {
+                "head": head,
+                "inputs_digest": "d" * 64,
+                "acceptance_complete": True,
+                "blockers_resolved": True,
+                "exact_tip_review_clean": True,
+                "required_checks_green": True,
+                "worktree_clean": True,
+            }
+            session_path.write_text(json.dumps(session), encoding="utf-8")
+
+            report = self.mod.run_checks(args)
+            self.assertEqual(report.errors, [])
+            self.assertIsNotNone(report.landing)
+            self.assertTrue(report.landing["ready"])
+            self.assertEqual(report.landing["action"], "landable_pr")
+
+            self.assertEqual(
+                self.mod.main(
+                    [
+                        "--session",
+                        str(session_path),
+                        "--grant-driver-authorization",
+                        "land-pr",
+                    ]
+                ),
+                0,
+            )
+            merge_ready = self.mod.run_checks(args)
+            self.assertEqual(merge_ready.errors, [])
+            self.assertEqual(merge_ready.landing["action"], "complete_and_merge")
+            self.assertTrue(merge_ready.landing["merge"])
+
+            subprocess.run(["git", "commit", "--allow-empty", "-qm", "move head"], cwd=root, check=True)
+            stale = self.mod.run_checks(args)
+            self.assertIn("readiness_head_changed", {item.code for item in stale.errors})
+
+    def test_worker_landing_authority_claim_is_rejected_and_ignored(self) -> None:
+        report = self.mod.Report()
+        control, _ = self.mod._landing_control_from_session(
+            {
+                "landing": {
+                    "outcome": "landable_pr",
+                    "driver_authorized": False,
+                    "worker_merge_authority": True,
+                },
+                "worker_report": {
+                    "landing_outcome": "complete_and_merge",
+                    "driver_authorized": True,
+                    "ready": True,
+                },
+            },
+            report,
+        )
+        self.assertFalse(control.driver_authorized)
+        self.assertEqual(control.landing_outcome, "landable_pr")
+        self.assertIn("worker_merge_authority_invalid", {item.code for item in report.errors})
+        self.assertIn("worker_authority_claims_ignored", {item.code for item in report.warnings})
+
     def test_stable_batch_ids_cannot_be_swapped(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)

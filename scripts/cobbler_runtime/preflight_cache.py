@@ -334,7 +334,16 @@ def compute_product_test_input_digest(
 ) -> str:
     """Digest product/runtime/test inputs, ignoring pure docs/run-metadata files."""
     root = Path(repo_root).resolve()
+    use_git_listing = False
+    relatives: list[Path] = []
     try:
+        toplevel = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         listed = subprocess.run(
             ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
             cwd=str(root),
@@ -342,21 +351,37 @@ def compute_product_test_input_digest(
             check=False,
         )
     except OSError:
+        toplevel = None
         listed = None
-    relatives: list[Path] = []
-    if listed is not None and listed.returncode == 0:
+    if (
+        listed is not None
+        and listed.returncode == 0
+        and toplevel is not None
+        and toplevel.returncode == 0
+        and Path(toplevel.stdout.strip()).resolve() == root
+    ):
         relatives = [
             Path(raw.decode("utf-8", errors="surrogateescape"))
             for raw in listed.stdout.split(b"\0")
             if raw
         ]
-    else:
-        relatives = [
-            path.relative_to(root)
-            for path in root.rglob("*")
-            if path.is_file()
-            and not any(part in {".git", ".elves", "__pycache__"} for part in path.parts)
-        ]
+        use_git_listing = bool(relatives)
+    if not use_git_listing:
+        relatives = []
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                relative = path.relative_to(root)
+            except ValueError:
+                continue
+            # Exclude only nested metadata dirs *under* the digest root, not
+            # ancestors that happen to sit in a host .elves runtime path.
+            if any(
+                part in {".git", ".elves", "__pycache__"} for part in relative.parts
+            ):
+                continue
+            relatives.append(relative)
     digest = hashlib.sha256()
     for relative in sorted(relatives, key=lambda value: value.as_posix()):
         rel = relative.as_posix()

@@ -6,8 +6,9 @@ This is the default review mechanism for Elves. It works out of the box with zer
 
 For host-native and legacy bounded execution, the coordinator spawns this subagent after each
 batch. For a healthy trusted full-run, the coordinator stays parked while the worker runs its
-internal batches and invokes this reviewer once, cumulatively, at terminal/safety wake. The
-subagent:
+internal batches and invokes this reviewer once, cumulatively, at terminal/safety wake (v2.3
+convergent review: consolidate blockers, revise, then **delta re-review** only — see
+`proof-and-review.md`). The subagent:
 
 1. Reads all PR comments, review threads, and CI status via `gh api`
 2. Reads the current batch diff (host-native/legacy) or the cumulative full-run diff (trusted
@@ -337,8 +338,9 @@ Read:
 8. Every PR review comment — resolved and unresolved, from humans, bots, and CI — plus issue comments and current check runs
 9. TODO.md and relevant docs touched by the run
 
-Run (or have the coordinator run and report results if you are read-only):
-- Every test that makes sense to confirm the branch is green: the full test suite plus any E2E or browser checks that apply. Report pass/fail counts and any skips.
+Use the coordinator's exact-tip evidence map. Request only tests whose inputs changed or whose
+consumers are reasonably affected. At terminal readiness, require the project's one broad gate;
+request E2E or browser proof only when the changed surface can affect it. Reuse unchanged evidence.
 
 Assess:
 - Is the branch green and ready to merge — for the human to merge, for an opt-in merge-on-green commit, or for the reviewed-PR landing command if the user invoked it?
@@ -366,14 +368,15 @@ Return:
 If everything is clean, say: "Final readiness review clean."
 ```
 
-The coordinator fixes blocking findings, resolves or replies to PR comments, updates
-`.elves-session.json`, reruns relevant validation, pushes, and repeats this final review until it
-is clean. Before cleanup, require the target project's broad gates plus
+The coordinator consolidates all blocking findings into one revision, resolves or replies to PR
+comments, updates `.elves-session.json`, and reruns validation affected by that revision. A
+delta-only re-review checks the fixes and unresolved blockers; advisory suggestions do not reopen
+settled work. Before cleanup, require the target project's single terminal broad gate plus
 `python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session <session-path> --repo-root .`
 from a clean worktree. A repository-specific aggregate verifier is additional proof only when the
-target checkout itself provides one; installed Elves never depends on a repo-only helper. After the
-operational-artifact cleanup commit, rerun project-native broad gates on the clean tip, then poll
-comments and checks one last time.
+target checkout itself provides one; installed Elves never depends on a repo-only helper. After an
+operational-artifact cleanup commit, reuse product proof unless cleanup touched a relevant input;
+then run only the affected checks. Poll comments and required checks once on the final tip.
 Then hand the user the Elves Report and tell them to review it, and either stop for the user to
 merge or — only if the user set a merge-on-green preference or invoked the reviewed-PR landing
 command — land a regular merge commit (never a squash).
@@ -421,9 +424,10 @@ The built-in review is the minimum viable loop. Users can strengthen it by:
 
 The more review infrastructure you add, the tighter each batch gets before the agent moves on. The built-in review ensures there is always *something* checking the work, even on a fresh project with no bots installed.
 
-## Adversarial Review Pattern
+## Optional High-Risk Adversarial Lens
 
-For higher confidence, spawn a second review subagent that has no context from the implementation. This is the "fresh eyes" pattern used internally at Anthropic.
+For a declared high-risk security, data-integrity, or public-contract surface, one fresh read-only
+lens may supplement the cumulative review. It is not part of the normal trusted fast path.
 
 The adversarial reviewer doesn't know what you were trying to do. It reads only the diff and the plan, then critiques from scratch. This catches a category of bugs that the primary review misses: cases where the implementation is internally consistent but doesn't match the requirements, or where the code "makes sense" only if you already know what the author intended.
 
@@ -455,7 +459,9 @@ For each finding, state:
 Do not be polite. Do not pad with compliments. If the code is correct and the contract is fully delivered, say so in one line and stop.
 ```
 
-The coordinator fixes any blocking findings from the adversarial review, then runs it again. The loop continues until the adversarial reviewer has nothing left to find.
+Consolidate concrete blockers with the primary review. After revision, re-check only the changed
+delta and unresolved blockers. Stop when exact-tip evidence is sufficient; the absence of further
+suggestions is not a readiness condition.
 
 This pattern is most valuable for security-sensitive code, data integrity logic, and anything where a subtle bug would be expensive. It adds time to each batch, so use it selectively.
 

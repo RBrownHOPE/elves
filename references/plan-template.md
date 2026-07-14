@@ -115,9 +115,16 @@ actions, canonical memory, final review, and merge stay host-owned. Forbid vague
 **Docs likely touched:**
 - [README / config docs / learnings / `.ai-docs/*` / "none expected"]
 
-**Risk:** [One sentence. What is most likely to go wrong, or what has the highest uncertainty?]
+**Risk:** `low` | `standard` | `high` — [one sentence on what is most uncertain]
+**Caution:** [non-obvious trap; omit only if truly none]
+**Affected surfaces:** [modules/files/packages this batch may change]
+**Constitution impacts:** [flows/invariants at risk, or "none"]
+**Review focus:** [what the terminal reviewer should scrutinize]
+**Focused tests:** [modules or scenarios that prove this batch]
+**Depends on:** [batch ids, or "none"]
 
-> Elves records each completed criterion in `.elves-session.json` as
+> Plans express intent and acceptance — not implementation choreography. Elves records each
+> completed criterion in `.elves-session.json` as
 > `acceptance: [{id: "B1-A1", criterion, met, evidence}]`. Green tests without these stable-id proof
 > rows do not make the batch landable. The legacy schema shorthand
 > `acceptance: [{criterion, met, evidence}]` remains readable through deterministic stable-id alias
@@ -141,7 +148,13 @@ actions, canonical memory, final review, and merge stay host-owned. Forbid vague
 **Docs likely touched:**
 - [README / config docs / learnings / `.ai-docs/*` / "none expected"]
 
-**Risk:** [One sentence]
+**Risk:** `low` | `standard` | `high` — [one sentence]
+**Caution:** [trap or "none"]
+**Affected surfaces:** [list]
+**Constitution impacts:** [list or "none"]
+**Review focus:** [list]
+**Focused tests:** [list]
+**Depends on:** [ids or "none"]
 
 ---
 
@@ -159,7 +172,13 @@ actions, canonical memory, final review, and merge stay host-owned. Forbid vague
 **Docs likely touched:**
 - [README / config docs / learnings / `.ai-docs/*` / "none expected"]
 
-**Risk:** [One sentence]
+**Risk:** `low` | `standard` | `high` — [one sentence]
+**Caution:** [trap or "none"]
+**Affected surfaces:** [list]
+**Constitution impacts:** [list or "none"]
+**Review focus:** [list]
+**Focused tests:** [list]
+**Depends on:** [ids or "none"]
 
 ---
 
@@ -359,8 +378,8 @@ paths. Review carefully.
 - Refresh token cookie name should be `__Host-refresh` for security (prefix enforces Secure + no domain)
 
 
-<!-- v2.2 risk policy pins -->
-- thin safety kernel and four risk tiers (trivial/docs, standard trusted, high-risk trusted, untrusted)
+<!-- v2.3 risk/proof policy pins -->
+- thin safety kernel; risk low|standard|high independent of trust trusted|untrusted
 - validate once, verify changes, attest final
-- touched-surface per batch; broad proof at risk checkpoints and terminal readiness
+- impact-selected proof during work; broad proof once at terminal readiness and explicit high-risk checkpoints
 - mid-run nonblocking new/unresolved PR feedback; terminal waits for required checks

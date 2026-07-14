@@ -44,6 +44,16 @@ from cobbler_runtime.acceptance import (
     normalize_batch_id,
     parse_markdown_acceptance_rows,
 )
+from cobbler_runtime.landing_authority import (
+    EXACT_COMMIT_RE,
+    LandingControl,
+    attest_readiness,
+    grant_driver_authorization,
+    initial_control,
+    invalidate_on_head_change,
+    strip_worker_authority_claims,
+    terminal_action,
+)
 
 
 DEFAULT_SESSION = ".elves-session.json"
@@ -115,6 +125,7 @@ class Finding:
 @dataclass
 class Report:
     findings: list[Finding] = field(default_factory=list)
+    landing: dict[str, Any] | None = None
 
     def error(self, code: str, message: str) -> None:
         self.findings.append(Finding("ERROR", code, message))
@@ -183,6 +194,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Repository root for strict landing provenance. When set, the session "
             "and plan must be ordinary, tracked files in this worktree and session "
             "branch/run identity is verified against Git."
+        ),
+    )
+    parser.add_argument(
+        "--grant-driver-authorization",
+        metavar="SOURCE",
+        default=None,
+        help=(
+            "Host-only active-run authority update (for example land-pr). Writes only "
+            "session landing authority, preserves any exact-HEAD readiness attestation, "
+            "and exits without running readiness again."
         ),
     )
     return parser.parse_args(argv)
@@ -1170,6 +1191,169 @@ def _check_session_git_identity(
         )
 
 
+def _landing_control_from_session(
+    session: dict[str, Any], report: Report
+) -> tuple[LandingControl, dict[str, Any] | None]:
+    """Load only host-owned landing state; worker authority claims are ignored."""
+
+    raw = session.get("landing")
+    if raw is None:
+        return initial_control(), None
+    if not isinstance(raw, dict):
+        report.error("landing_invalid", "Session field `landing` must be an object.")
+        return initial_control(), None
+
+    if raw.get("worker_merge_authority") is not False:
+        report.error(
+            "worker_merge_authority_invalid",
+            "Session landing.worker_merge_authority must be false; a worker can never "
+            "authorize or perform merge.",
+        )
+    try:
+        control = initial_control(
+            landing_outcome=str(raw.get("outcome") or "landable_pr"),
+            driver_authorized=raw.get("driver_authorized") is True,
+        )
+    except ValueError as exc:
+        report.error("landing_outcome_invalid", str(exc))
+        control = initial_control()
+
+    worker_payload = session.get("worker_report")
+    if isinstance(worker_payload, dict):
+        stripped = strip_worker_authority_claims(control, worker_payload)
+        if stripped.stripped:
+            report.warn(
+                "worker_authority_claims_ignored",
+                "Ignored worker-owned landing authority fields: "
+                + ", ".join(stripped.stripped),
+            )
+
+    readiness = raw.get("readiness")
+    if readiness is None:
+        return control, None
+    if not isinstance(readiness, dict):
+        report.error(
+            "landing_readiness_invalid",
+            "Session landing.readiness must be an object when present.",
+        )
+        return control, None
+    return control, readiness
+
+
+def _check_host_landing_control(
+    session: dict[str, Any], repo_root: Path, report: Report
+) -> None:
+    """Bind declared v2.3 landing control to a required exact-HEAD attestation."""
+
+    current = _git(repo_root, "rev-parse", "--verify", "HEAD^{commit}")
+    current_head = current.stdout.strip() if current.returncode == 0 else ""
+    if EXACT_COMMIT_RE.fullmatch(current_head) is None:
+        report.error(
+            "current_head_invalid",
+            "Landing readiness requires Git to resolve HEAD to an exact 40-character commit.",
+        )
+        return
+
+    control, readiness = _landing_control_from_session(session, report)
+    if readiness is None:
+        report.landing = terminal_action(control, current_head=current_head)
+        if isinstance(session.get("landing"), dict):
+            report.error(
+                "readiness_missing",
+                "Session declares v2.3 landing control but has no host exact-HEAD "
+                "readiness attestation. Attest readiness before declaring the PR landable "
+                "or authorizing merge.",
+            )
+        return
+
+    attested_head = readiness.get("head")
+    if not isinstance(attested_head, str) or EXACT_COMMIT_RE.fullmatch(attested_head) is None:
+        report.error(
+            "readiness_head_invalid",
+            "Session landing.readiness.head must be an exact 40-character commit HEAD.",
+        )
+        report.landing = terminal_action(control, current_head=current_head)
+        return
+    if attested_head.lower() != current_head.lower():
+        invalidated = invalidate_on_head_change(
+            LandingControl(
+                landing_outcome=control.landing_outcome,
+                driver_authorized=control.driver_authorized,
+                ready=True,
+                readiness_head=attested_head,
+            ),
+            current_head=current_head,
+        )
+        report.error(
+            "readiness_head_changed",
+            f"Readiness was attested at {attested_head}, but current HEAD is "
+            f"{current_head}; the attestation is invalidated and must be refreshed.",
+        )
+        report.landing = terminal_action(invalidated, current_head=current_head)
+        return
+
+    inputs_digest = readiness.get("inputs_digest")
+    if not isinstance(inputs_digest, str) or re.fullmatch(r"[0-9a-fA-F]{64}", inputs_digest) is None:
+        report.error(
+            "readiness_digest_invalid",
+            "Session landing.readiness.inputs_digest must be a 64-character SHA-256 digest.",
+        )
+        report.landing = terminal_action(control, current_head=current_head)
+        return
+
+    updated, attestation = attest_readiness(
+        control,
+        head=current_head,
+        acceptance_complete=not report.errors and readiness.get("acceptance_complete") is True,
+        blockers_resolved=readiness.get("blockers_resolved") is True,
+        exact_tip_review_clean=readiness.get("exact_tip_review_clean") is True,
+        required_checks_green=readiness.get("required_checks_green") is True,
+        worktree_clean=readiness.get("worktree_clean") is True,
+        inputs_digest=inputs_digest,
+    )
+    if not attestation.ready:
+        report.error(
+            "readiness_incomplete",
+            "Host readiness attestation is incomplete: "
+            + ", ".join(attestation.reasons),
+        )
+    report.landing = terminal_action(updated, current_head=current_head)
+
+
+def _grant_session_driver_authorization(session_path: Path, source: str) -> dict[str, Any]:
+    """Persist a host grant without changing or discarding readiness evidence."""
+
+    session = load_json(session_path)
+    landing = session.get("landing")
+    if landing is None:
+        landing = {}
+    if not isinstance(landing, dict):
+        raise SystemExit("Session field `landing` must be an object")
+    try:
+        granted = grant_driver_authorization(
+            initial_control(
+                landing_outcome=str(landing.get("outcome") or "landable_pr"),
+                driver_authorized=landing.get("driver_authorized") is True,
+            ),
+            grant_source=source,
+            active_run=True,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    # Deliberately mutate only host authority. In particular, preserve the
+    # readiness object byte-for-byte at the data-model level.
+    landing["outcome"] = granted.landing_outcome
+    landing["driver_authorized"] = granted.driver_authorized
+    landing["authorized_by"] = source
+    landing["worker_merge_authority"] = False
+    session["landing"] = landing
+    replacement = session_path.with_name(f".{session_path.name}.tmp-{os.getpid()}")
+    replacement.write_text(json.dumps(session, indent=2) + "\n", encoding="utf-8")
+    os.replace(replacement, session_path)
+    return landing
+
+
 def run_checks(args: argparse.Namespace) -> Report:
     report = Report()
     repo_root = Path(args.repo_root).expanduser().resolve() if args.repo_root else None
@@ -1272,6 +1456,9 @@ def run_checks(args: argparse.Namespace) -> Report:
                 required=args.require_evidence_dirs,
             )
 
+    if repo_root is not None:
+        _check_host_landing_control(session, repo_root, report)
+
     # One-line policy reminder when anything failed
     if report.errors:
         report.warn(
@@ -1313,6 +1500,7 @@ def print_json(report: Report, session_path: Path) -> None:
             "Green CI + status:complete is not landable; "
             "landable is plan Acceptance with proof."
         ),
+        "landing": report.landing,
     }
     print(json.dumps(payload, indent=2, sort_keys=True))
 
@@ -1321,6 +1509,30 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     session_path = Path(args.session).expanduser().resolve()
     try:
+        if args.grant_driver_authorization is not None:
+            landing = _grant_session_driver_authorization(
+                session_path, args.grant_driver_authorization
+            )
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "session": str(session_path),
+                            "ok": True,
+                            "landing": landing,
+                            "readiness_restarted": False,
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                )
+            else:
+                print("Elves landing authority updated")
+                print(f"- Session: {session_path}")
+                print("- Driver authorized: true")
+                print("- Landing outcome: complete_and_merge")
+                print("- Existing readiness preserved: yes")
+            return 0
         report = run_checks(args)
     except SystemExit as exc:
         # load_json / validation usage exits

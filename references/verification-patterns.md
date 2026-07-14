@@ -127,7 +127,7 @@ echo "State assertions passed"
 
 ```bash
 #!/usr/bin/env bash
-# verify.sh -- runs after each batch. Exit 0 = pass, non-zero = fail.
+# verify.sh -- run when its affected surface changes or at final readiness.
 set -euo pipefail
 FAILURES=0
 fail() { echo "FAIL: $1"; FAILURES=$((FAILURES+1)); }

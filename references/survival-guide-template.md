@@ -77,10 +77,16 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
 - **Delegation scope:** [none | batch | full_run]
 - **Git mode:** [host_only | branch_progress | detached_lease]
 - **Driver monitor mode:** [interactive | parked_monitor | n_a]
-- **Driver update policy:** [material transitions + host-coalesced heartbeat at most every 15m;
-  unchanged healthy polls silent | interactive]
+- **Driver update policy:** [default sanitized follow stream; no timed driver chat; material wakes
+  only | quiet follow opt-out | interactive]
 - **Driver poll policy:** [host wait primitive | half stale window, bounded 60–300s | interactive]
 - **Driver review policy:** [final independent review only | per-batch]
+- **Follow mode:** [default sanitized stream on full-run-await | quiet opt-out]
+- **Risk posture:** [low | standard | high] (independent of trust)
+- **Trust mode:** [trusted | untrusted]
+- **Landing outcome:** [landable_pr | complete_and_merge]
+- **Driver merge authorized:** [no | yes via land-pr / run control]
+- **Worker merge authority:** false
 - **Stable plan IDs:** [batches `B#`; `B0` and `B1` are equally valid starts with no preferred
   convention; batch acceptance `B#-A#`; Master Acceptance `M-A#`; legacy aliases mapped
   deterministically by document order and never renumbered]
@@ -894,8 +900,8 @@ complete. Don't re-implement it.
 # READ THIS FILE FIRST AFTER ANY COMPACTION OR RESTART
 
 
-<!-- v2.2 risk policy pins -->
-- thin safety kernel and four risk tiers (trivial/docs, standard trusted, high-risk trusted, untrusted)
+<!-- v2.3 risk/proof policy pins -->
+- thin safety kernel; risk low|standard|high independent of trust trusted|untrusted
 - validate once, verify changes, attest final
-- touched-surface per batch; broad proof at risk checkpoints and terminal readiness
+- impact-selected proof during work; broad proof once at terminal readiness and explicit high-risk checkpoints
 - mid-run nonblocking new/unresolved PR feedback; terminal waits for required checks
