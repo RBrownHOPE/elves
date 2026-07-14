@@ -4878,7 +4878,7 @@ def _acceptance_contract_binding(
     authoritative_plan = _resolve_acceptance_contract_path(
         repo,
         recorded_plan,
-        base=session.parent,
+        base=repo,
         label="authoritative plan",
     )
     if plan_path is not None:

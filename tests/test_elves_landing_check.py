@@ -1148,6 +1148,81 @@ class ElvesLandingCheckTests(unittest.TestCase):
             subprocess.run(["git", "commit", "-qm", "external plan"], cwd=root, check=True)
             self.assertEqual(self.mod.main(strict), 1)
 
+    def test_strict_nested_session_resolves_plan_from_repo_root(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "repo"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "feature"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "tests@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Elves Tests"], cwd=root, check=True)
+            plan = root / "docs" / "plans" / "plan.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(
+                "### Batch 0: Staging\n\n**Acceptance criteria:**\n"
+                "- [x] B0-A1: Done\n\n"
+                "## Master Acceptance\n\n- [x] M-A1: Ready\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "docs/plans/plan.md"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "plan"], cwd=root, check=True)
+            start = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
+            session_path = root / ".elves" / "session.json"
+            session_path.parent.mkdir(parents=True)
+            session_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": "run-nested",
+                        "branch": "feature",
+                        "start_head": start,
+                        "plan_path": "docs/plans/plan.md",
+                        "batches": [
+                            {
+                                "id": "B0",
+                                "status": "complete",
+                                "acceptance": [
+                                    {
+                                        "id": "B0-A1",
+                                        "criterion": "Done",
+                                        "met": True,
+                                        "evidence": "proof",
+                                    }
+                                ],
+                            }
+                        ],
+                        "master_acceptance": [
+                            {
+                                "id": "M-A1",
+                                "criterion": "Ready",
+                                "met": True,
+                                "evidence": "proof",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", ".elves/session.json"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "session"], cwd=root, check=True)
+
+            report = self.mod.run_checks(
+                self.mod.parse_args(
+                    [
+                        "--repo-root",
+                        str(root),
+                        "--session",
+                        str(session_path),
+                    ]
+                )
+            )
+
+            self.assertEqual(report.errors, [])
+
     def test_stable_batch_ids_cannot_be_swapped(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)

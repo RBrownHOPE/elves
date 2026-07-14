@@ -239,7 +239,8 @@ class VerifyRepoUnitTests(unittest.TestCase):
             plan = root / "docs/plans/v2.1.0-delegated-worker-stabilization.md"
             plan.parent.mkdir(parents=True)
             plan.write_text("# plan\n", encoding="utf-8")
-            session = root / ".elves-session.json"
+            session = root / ".elves" / "session.json"
+            session.parent.mkdir(parents=True)
             session.write_text(
                 json.dumps(
                     {
@@ -257,7 +258,7 @@ class VerifyRepoUnitTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     self.verify, "_verified_repo_file", side_effect=provenance
-                ),
+                ) as verified_file,
                 mock.patch.object(
                     self.verify, "_verify_session_identity", return_value=(True, "ok")
                 ),
@@ -265,13 +266,15 @@ class VerifyRepoUnitTests(unittest.TestCase):
             ):
                 ok, message = self.verify.check_landing(
                     root,
-                    session_path=Path(".elves-session.json"),
+                    session_path=Path(".elves/session.json"),
                     plan_path=Path(
                         "docs/plans/v2.1.0-delegated-worker-stabilization.md"
                     ),
                 )
 
             self.assertTrue(ok, message)
+            recorded_plan_call = verified_file.call_args_list[1]
+            self.assertEqual(recorded_plan_call.kwargs["base"], root)
             command = run.call_args.args[0]
             self.assertIn("--session", command)
             self.assertIn("--plan", command)

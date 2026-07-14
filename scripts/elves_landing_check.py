@@ -1210,7 +1210,7 @@ def run_checks(args: argparse.Namespace) -> Report:
     elif repo_root is not None:
         recorded_plan = _strict_repo_file(
             str(recorded_plan_raw),
-            base=base,
+            base=repo_root,
             repo_root=repo_root,
             label="plan",
             report=report,

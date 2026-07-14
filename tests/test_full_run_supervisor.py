@@ -418,7 +418,7 @@ def _write_production_acceptance_contract(repo: Path, packet: Path) -> Path:
     session.write_text(
         json.dumps(
             {
-                "plan_path": "plan.md",
+                "plan_path": ".elves/test-acceptance/plan.md",
                 "batches": [
                     {
                         "id": f"B{number}",

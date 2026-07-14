@@ -547,7 +547,8 @@ python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" sync-session \
 
 `sync-session` derives pending rows from the plan, preserves matching proof, and refuses to erase
 or rewrite evidenced criteria. With `--session`, an explicit `--plan` is only an equality assertion
-against the recorded `plan_path`. Syntax, duplicate-id, criterion-mismatch, and plan/session
+against the repository-relative `plan_path`, regardless of the session file's location. Syntax,
+duplicate-id, criterion-mismatch, and plan/session
 batch-set results are hard staging failures; an explicitly declared Batch or Master Acceptance
 section must contain at least one checkbox criterion even in legacy plans. Production full-run
 preparation and launch revalidate the same contract.

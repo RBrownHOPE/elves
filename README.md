@@ -1493,7 +1493,8 @@ python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" \
   --plan <plan-path> --evidence-root <evidence-path> --require-evidence-dirs
 ```
 
-The session's `plan_path` is authoritative. An explicit `--plan <plan-path>` is only an equality
+The session's repository-relative `plan_path` is authoritative, regardless of where the session
+file itself is stored. An explicit `--plan <plan-path>` is only an equality
 assertion and must match it; do not substitute generic plan, survival-guide, or execution-log paths.
 Before the session exists, use `acceptance_contract.py validate --repo-root . --plan <plan-path>`
 for a plan-only syntax check. `sync-session` preserves matching proof and refuses to erase or

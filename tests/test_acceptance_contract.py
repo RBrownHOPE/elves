@@ -123,6 +123,29 @@ class AcceptanceContractCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["issues"], [])
 
+    def test_nested_session_resolves_recorded_plan_from_repo_root(self) -> None:
+        plan = self.repo / "docs" / "plans" / "plan.md"
+        plan.parent.mkdir(parents=True)
+        plan.write_text(VALID_PLAN, encoding="utf-8")
+        session_path = self.repo / ".elves" / "session.json"
+        session_path.parent.mkdir(parents=True)
+        session = session_for_plan()
+        session["plan_path"] = "docs/plans/plan.md"
+        session_path.write_text(
+            json.dumps(session, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_cli(
+            "validate",
+            "--session",
+            str(session_path.relative_to(self.repo)),
+            "--json",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)["plan"], str(plan.resolve()))
+
     def test_shared_parser_accepts_bare_and_bracketed_crlf_rows(self) -> None:
         rows, issues = parse_markdown_acceptance_rows(
             "- [ ] B0-A1: Bare criterion.\r\n"

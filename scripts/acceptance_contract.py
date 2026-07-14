@@ -106,7 +106,7 @@ def _resolve_inputs(
             raise ValueError("Session must record a non-empty plan_path before launch")
         candidate = Path(raw)
         if not candidate.is_absolute():
-            candidate = session_path.parent / candidate  # type: ignore[union-attr]
+            candidate = repo_root / candidate
         recorded_plan = _inside_repo(candidate, repo_root, label="recorded plan")
         if explicit_plan is not None and explicit_plan != recorded_plan:
             raise ValueError(
