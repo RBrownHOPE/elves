@@ -1,0 +1,354 @@
+{
+  "batches": [
+    {
+      "acceptance": [
+        {
+          "criterion": "Normal flow, actor authority, state transitions, wake conditions, proof rules, and terminal outcomes are defined once.",
+          "evidence": "",
+          "id": "B0-A1",
+          "met": false
+        },
+        {
+          "criterion": "Every retained safety-kernel requirement has a canonical destination and a proving test.",
+          "evidence": "",
+          "id": "B0-A2",
+          "met": false
+        },
+        {
+          "criterion": "Risk is low, standard, or high while trust mode is independently trusted or untrusted.",
+          "evidence": "",
+          "id": "B0-A3",
+          "met": false
+        },
+        {
+          "criterion": "Claude Code and Codex share identical workflow semantics.",
+          "evidence": "",
+          "id": "B0-A4",
+          "met": false
+        }
+      ],
+      "id": "B0",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Worker evidence cannot grant merge authority or modify the host-owned landing outcome.",
+          "evidence": "",
+          "id": "B1-A1",
+          "met": false
+        },
+        {
+          "criterion": "Complete-without-merge and complete-and-merge share one implementation and readiness pipeline.",
+          "evidence": "",
+          "id": "B1-A2",
+          "met": false
+        },
+        {
+          "criterion": "Active-run land-pr grants driver authority without bypassing or restarting readiness.",
+          "evidence": "",
+          "id": "B1-A3",
+          "met": false
+        },
+        {
+          "criterion": "Readiness is attested to an exact HEAD and changed inputs invalidate only affected proof.",
+          "evidence": "",
+          "id": "B1-A4",
+          "met": false
+        },
+        {
+          "criterion": "A host-only merge guard requires completed acceptance, resolved blockers, clean exact-tip review evidence, required checks, and explicit driver authorization.",
+          "evidence": "",
+          "id": "B1-A5",
+          "met": false
+        }
+      ],
+      "id": "B1",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Trusted full-run await follows a sanitized human-readable worker stream by default with a quiet opt-out.",
+          "evidence": "",
+          "id": "B2-A1",
+          "met": false
+        },
+        {
+          "criterion": "Follow mode performs no model inference and replaces timed driver chat updates.",
+          "evidence": "",
+          "id": "B2-A2",
+          "met": false
+        },
+        {
+          "criterion": "Death, hangs, missing or malformed completion, safety violations, explicit blockers, and material scope or assumption changes wake the driver.",
+          "evidence": "",
+          "id": "B2-A3",
+          "met": false
+        },
+        {
+          "criterion": "Previously pushed trusted worker progress survives recovery and can resume safely from the verified feature tip.",
+          "evidence": "",
+          "id": "B2-A4",
+          "met": false
+        },
+        {
+          "criterion": "Shared OAuth raw-transcript restrictions and all redaction guarantees remain intact.",
+          "evidence": "",
+          "id": "B2-A5",
+          "met": false
+        },
+        {
+          "criterion": "Workers commit and push meaningful progress slices with concrete operator-readable subjects.",
+          "evidence": "",
+          "id": "B2-A6",
+          "met": false
+        },
+        {
+          "criterion": "Native Grok goal mode is used only when capability-proven; otherwise the compatible one-packet fallback is recorded honestly.",
+          "evidence": "",
+          "id": "B2-A7",
+          "met": false
+        }
+      ],
+      "id": "B2",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Verification follows an explicit changed-surface to affected-consumer to selected-test impact path.",
+          "evidence": "",
+          "id": "B3-A1",
+          "met": false
+        },
+        {
+          "criterion": "Evidence records its inputs and invalidation scope so unchanged proof is reused.",
+          "evidence": "",
+          "id": "B3-A2",
+          "met": false
+        },
+        {
+          "criterion": "One cumulative review checks completeness, constitution, declared risks, and concrete regressions.",
+          "evidence": "",
+          "id": "B3-A3",
+          "met": false
+        },
+        {
+          "criterion": "Blocking findings are consolidated before revision and advisory findings do not delay readiness.",
+          "evidence": "",
+          "id": "B3-A4",
+          "met": false
+        },
+        {
+          "criterion": "Re-review verifies the revision delta and unresolved blockers without rescanning settled untouched work.",
+          "evidence": "",
+          "id": "B3-A5",
+          "met": false
+        },
+        {
+          "criterion": "New re-review blockers require a concrete serious regression, acceptance or constitution breach, security or data-integrity issue, or failure introduced by the revision.",
+          "evidence": "",
+          "id": "B3-A6",
+          "met": false
+        },
+        {
+          "criterion": "Cleanup-only operational changes do not invalidate product proof, while relevant new surfaces broaden proof automatically.",
+          "evidence": "",
+          "id": "B3-A7",
+          "met": false
+        },
+        {
+          "criterion": "The loop stops on sufficient exact-tip evidence rather than the absence of reviewer suggestions.",
+          "evidence": "",
+          "id": "B3-A8",
+          "met": false
+        }
+      ],
+      "id": "B3",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "SKILL.md is the compact canonical workflow while AGENTS.md is a thin Codex repository adapter rather than a second fork.",
+          "evidence": "",
+          "id": "B4-A1",
+          "met": false
+        },
+        {
+          "criterion": "README is operator documentation and focused references own runtime, authority, worker, proof, follow, schema, and parity details.",
+          "evidence": "",
+          "id": "B4-A2",
+          "met": false
+        },
+        {
+          "criterion": "Plans express intent, acceptance, risk, caution, affected surfaces, constitution impacts, focused tests, review focus, dependencies, and optional checkpoints without implementation choreography.",
+          "evidence": "",
+          "id": "B4-A3",
+          "met": false
+        },
+        {
+          "criterion": "Survival, kickoff, worker, reviewer, validation, landing, and goal templates implement the new fast path without repeating the protocol.",
+          "evidence": "",
+          "id": "B4-A4",
+          "met": false
+        },
+        {
+          "criterion": "Claude Code aliases and Codex skill or natural-language invocation remain host-honest and behaviorally equivalent.",
+          "evidence": "",
+          "id": "B4-A5",
+          "met": false
+        },
+        {
+          "criterion": "Codex continuation Goals and Grok Build goal mode are clearly distinct.",
+          "evidence": "",
+          "id": "B4-A6",
+          "met": false
+        },
+        {
+          "criterion": "Planning and final review may prefer stronger reasoning while monitoring uses no model and lower-effort phase routes remain capability-detected, optional, and prompt-fallback compatible.",
+          "evidence": "",
+          "id": "B4-A7",
+          "met": false
+        },
+        {
+          "criterion": "Reports, notifications, provider routes, media generation, legacy bounded execution, and untrusted lanes remain useful but outside the normal critical path.",
+          "evidence": "",
+          "id": "B4-A8",
+          "met": false
+        }
+      ],
+      "id": "B4",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Semantic scenarios prove both terminal outcomes, immutable worker authority, exact-HEAD readiness, delta review convergence, proof reuse, worker failure recovery, and follow-mode behavior.",
+          "evidence": "",
+          "id": "B5-A1",
+          "met": false
+        },
+        {
+          "criterion": "Claude Code and Codex installed bundles have identical canonical workflow files, schemas, packets, acceptance behavior, and landing policy.",
+          "evidence": "",
+          "id": "B5-A2",
+          "met": false
+        },
+        {
+          "criterion": "Every old normative requirement is retained, deliberately changed, or explicitly retired in the migration ledger with a new location and proof.",
+          "evidence": "",
+          "id": "B5-A3",
+          "met": false
+        },
+        {
+          "criterion": "A fresh independent cumulative review and a Sakana omission/simplification lens find no unresolved blocker.",
+          "evidence": "",
+          "id": "B5-A4",
+          "met": false
+        },
+        {
+          "criterion": "Targeted tests, release and consistency checks, link and secret checks, installed-bundle smokes, one final broad local suite, and required GitHub CI are green.",
+          "evidence": "",
+          "id": "B5-A5",
+          "met": false
+        },
+        {
+          "criterion": "Version metadata, README, CHANGELOG, release notes, and Claude Code/Codex installation guidance agree on Elves 2.3.0.",
+          "evidence": "",
+          "id": "B5-A6",
+          "met": false
+        }
+      ],
+      "id": "B5",
+      "status": "pending"
+    }
+  ],
+  "branch": "codex/joyful-elves-runs",
+  "cobbler": {
+    "activated_by": "Elves invocation",
+    "default_for_session": true,
+    "mode": "run",
+    "scope": "current Elves run"
+  },
+  "continuation_guard": {
+    "checkpoint_is_stop": false,
+    "next_required_action": "Complete staging and launch the trusted full-run worker",
+    "remaining_batches": 6,
+    "stop_allowed": false
+  },
+  "execution_log_path": "docs/elves/execution-log-joyful-runs.md",
+  "landing": {
+    "authorized_by": null,
+    "driver_authorized": false,
+    "outcome": "landable_pr",
+    "worker_merge_authority": false
+  },
+  "learnings_path": "docs/elves/learnings.md",
+  "master_acceptance": [
+    {
+      "criterion": "A trusted worker can execute the complete plan while the driver stays inactive during healthy progress.",
+      "evidence": "",
+      "id": "M-A1",
+      "met": false
+    },
+    {
+      "criterion": "The user can watch worker activity continuously through a default sanitized non-model follow window.",
+      "evidence": "",
+      "id": "M-A2",
+      "met": false
+    },
+    {
+      "criterion": "Worker death, hangs, false completion, or genuine safety drift reliably wakes the driver without discarding pushed progress.",
+      "evidence": "",
+      "id": "M-A3",
+      "met": false
+    },
+    {
+      "criterion": "Complete-without-merge and complete-and-merge share one implementation, review, revision, and readiness pipeline.",
+      "evidence": "",
+      "id": "M-A4",
+      "met": false
+    },
+    {
+      "criterion": "The worker can never authorize or perform merge and the driver merges only with explicit host-owned permission at an attested exact HEAD.",
+      "evidence": "",
+      "id": "M-A5",
+      "met": false
+    },
+    {
+      "criterion": "One strong cumulative review plus consolidated fixes and delta-only re-review preserves quality without infinite loops or redundant broad proof.",
+      "evidence": "",
+      "id": "M-A6",
+      "met": false
+    },
+    {
+      "criterion": "Claude Code and Codex provide the same workflow, safety, and installed behavior without requiring Grok or any external provider.",
+      "evidence": "",
+      "id": "M-A7",
+      "met": false
+    },
+    {
+      "criterion": "No important Elves 2.2 safety invariant is lost in the fresh rewrite.",
+      "evidence": "",
+      "id": "M-A8",
+      "met": false
+    },
+    {
+      "criterion": "The normal workflow is materially shorter, quieter, and more fluid than Elves 2.2 while remaining recoverable and trustworthy.",
+      "evidence": "",
+      "id": "M-A9",
+      "met": false
+    }
+  ],
+  "plan_path": "docs/plans/v2.3.0-joyful-runs-rewrite.md",
+  "pr_number": null,
+  "review_comments": [],
+  "run_id": "elves-2026-07-14-joyful-runs-rewrite",
+  "session_id": "4d6b5560-c9a7-430a-b72a-a0dba1d18f69",
+  "start_head": "6ec138f1c22a5d9c309a2d3bdcf42c07691a018f",
+  "status": "staging",
+  "survival_guide_path": "docs/elves/survival-guide-joyful-runs.md",
+  "version": "2.2.0"
+}
