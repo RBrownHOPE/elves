@@ -31,9 +31,9 @@
       "completed_at": null,
       "id": "B0",
       "name": "Risk-tiered execution policy",
-      "rollback_tag": null,
-      "started_at": null,
-      "status": "pending"
+      "rollback_tag": "refs/elves/rollback/faster-goal-runs/elves-2026-07-13/b0-b6c61664e8ef",
+      "started_at": "2026-07-14T03:31:04Z",
+      "status": "in_progress"
     },
     {
       "acceptance": [
@@ -72,7 +72,7 @@
       "completed_at": null,
       "id": "B1",
       "name": "Native Grok goal and truly parked supervision",
-      "rollback_tag": null,
+      "rollback_tag": "refs/elves/rollback/faster-goal-runs/elves-2026-07-13/b0-b6c61664e8ef",
       "started_at": null,
       "status": "pending"
     },
@@ -107,7 +107,7 @@
       "completed_at": null,
       "id": "B2",
       "name": "Recoverable reports and incremental proof",
-      "rollback_tag": null,
+      "rollback_tag": "refs/elves/rollback/faster-goal-runs/elves-2026-07-13/b0-b6c61664e8ef",
       "started_at": null,
       "status": "pending"
     },
@@ -148,7 +148,7 @@
       "completed_at": null,
       "id": "B3",
       "name": "Phase routing, optional media, CI economy, and release",
-      "rollback_tag": null,
+      "rollback_tag": "refs/elves/rollback/faster-goal-runs/elves-2026-07-13/b0-b6c61664e8ef",
       "started_at": null,
       "status": "pending"
     }
@@ -162,14 +162,14 @@
   },
   "continuation_guard": {
     "checkpoint_is_stop": false,
-    "next_required_action": "Launch one native Grok goal for B0-B3",
+    "next_required_action": "Observe the native Grok goal until material transition or exit",
     "remaining_batches": 4,
     "stop_allowed": false
   },
   "current_batch": {
     "id": "B0",
     "name": "Risk-tiered execution policy",
-    "status": "pending"
+    "status": "in_progress"
   },
   "execution_log_path": "docs/elves/faster-goal-runs-execution.md",
   "learnings_path": "docs/elves/faster-goal-runs-learnings.md",
@@ -207,7 +207,7 @@
   ],
   "model_routes": [
     {
-      "actual_route": "pending capability-confirmed launch",
+      "actual_route": "grok-build-0.2.101-native-goal:grok-4.5:medium",
       "batch": "B0-B3",
       "fallback_reason": null,
       "phase": "implementation",
