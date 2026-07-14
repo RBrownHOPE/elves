@@ -540,7 +540,7 @@ class VerifyRepoUnitTests(unittest.TestCase):
         self.assertIn("full_unittest->unit-tests:ok", message)
         self.assertIn("installed_smokes->installed-smokes:ok", message)
 
-    def test_runtime_review_runs_focused_modules_before_required_broad_gate(self) -> None:
+    def test_runtime_review_runs_focused_modules_without_ordinary_broad_gate(self) -> None:
         cache: dict[str, tuple[bool, str]] = {}
         success = (True, "ok")
         with (
@@ -574,12 +574,12 @@ class VerifyRepoUnitTests(unittest.TestCase):
         self.assertTrue(ok, message)
         focused.assert_called_once()
         self.assertIn("tests.test_cobbler_agents_leases", focused.call_args.args[1])
-        broad.assert_called_once_with(REPO_ROOT)
+        broad.assert_not_called()
         self.assertIn("reasons=", message)
         self.assertIn("selected=", message)
         self.assertIn("skipped=", message)
 
-    def test_cobbler_agents_entrypoint_maps_to_relevant_suites_and_broad_gate(self) -> None:
+    def test_cobbler_agents_entrypoint_maps_to_relevant_focused_suites(self) -> None:
         modules = self.verify._focused_unit_modules(["scripts/cobbler_agents.py"])
         self.assertIn("tests.test_cobbler_agents_dispatch", modules)
         self.assertIn("tests.test_cobbler_agents_implement", modules)
@@ -590,7 +590,7 @@ class VerifyRepoUnitTests(unittest.TestCase):
         from cobbler_runtime.evidence_review import plan_review
 
         plan = plan_review(changed_paths=["scripts/cobbler_agents.py"])
-        self.assertTrue(plan.broad_gate_required)
+        self.assertFalse(plan.broad_gate_required)
         self.assertIn("unit:runtime", plan.focused_checks)
 
     def test_docs_only_review_executes_links_without_full_unittest_alias(self) -> None:

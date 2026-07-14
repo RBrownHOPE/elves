@@ -277,7 +277,7 @@ native overnight run:
 - **Work drivers (batch labor)** — only when the user has the CLI and wants it. Record
   `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
   `.elves-session.json`). Grok Build via
-  `python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-logs`
+  `python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs`
   (`full-run-stop` is explicit cancellation/recovery only)
   for trusted full-run, or `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`
   for legacy bounded batches (Lane A;
@@ -403,8 +403,9 @@ These principles apply to **all code changes**, including review fixes. When the
 ## Coordinator-to-Implementer Handoff Standard
 
 The host coordinator is assumed to hold more context than an external or less-capable implementation
-worker. Before every worker turn, write a task packet that can stand alone after compaction and
-carries:
+worker. Before every worker turn, write a task packet that can stand alone after compaction. A
+trusted full-run has exactly one normal worker turn and one packet for the whole plan: do not
+manufacture per-batch re-handoffs while it is healthy. The packet carries:
 
 1. **intent / why** — product intent and why the batch exists;
 2. **non-obvious rationale** — architecture choices the worker should not rediscover from chat;
@@ -840,19 +841,10 @@ honor internally, not instructions for the parked host to shadow every batch.
 
 ### Time Allocation
 
-Left to their own instincts, agents spend 80% of batch time implementing and rush through validation and review. This is backwards. Implementation produces a draft. Validation and review produce something shippable. If you finish implementing and feel like the batch is "almost done," you're wrong — you've produced a first draft that hasn't been tested or reviewed yet.
-
-The default time split is **equal thirds** — roughly equal time implementing, validating, and reviewing. The user can override this in the survival guide under `## Run Control`:
-
-```markdown
-## Time Allocation
-- implement: 40%
-- validate: 30%
-- review: 30%
-- notes: Heavy greenfield work in this project, lighter review expected.
-```
-
-Whatever the split, the principle holds: **validation and review are not afterthoughts.** E2E tests, smoke tests, QA checks, contract verification, PR comment triage, philosophy enforcement — these are where quality happens. If the agent is rushing through them, the batches aren't tight.
+Do not impose equal time quotas. Plan carefully, let implementation dominate the run, verify each
+ordinary batch with the smallest evidence that proves its claims, and spend the review budget once
+on the cumulative terminal diff. Add time only when a concrete failure, declared high-risk
+checkpoint, or safety tripwire justifies it. Timing telemetry is diagnostic, not a gate.
 
 Track time per phase in the execution log (Implement Xm / Validate Xm / Review Xm) so drift is visible across the run.
 
@@ -1243,11 +1235,12 @@ This is a lightweight check, not a full review cycle. The full review in step 7 
 
 This is not optional. Skipping it means review feedback piles up silently and the user returns to a PR full of unaddressed comments. The PR loop is what makes the difference between "autonomous completion" and "visible collaborative review cadence."
 
-### 14. Entropy Check (every 3 batches)
+### 14. Evidence-triggered drift check
 
-**Every 3 completed batches, do a cross-batch quality scan before starting the next batch.** The per-batch review (step 7) evaluates the batch in isolation. The entropy check evaluates what's accumulated across batches: patterns that drifted, utilities that were duplicated in different batches, naming conventions that diverged, abstractions that grew inconsistent.
-
-This is continuous entropy management — catching the slow drift that individual batch reviews miss. Over a 10-batch overnight run, small inconsistencies compound. An entropy check every 3 batches prevents that from becoming structural debt.
+Do not stop on a fixed batch cadence for another review. Run a short cross-batch drift check only
+when the worker reports repeated friction, a focused gate exposes inconsistent shared behavior, or
+the plan is unusually long and drift is actually visible. A healthy trusted full-run defers this
+question to its one cumulative terminal review.
 
 **What to check:**
 - Scan for duplicated utilities or helpers introduced in different batches that do the same thing. Consolidate them.
@@ -1261,7 +1254,8 @@ If you find drift, fix it now in a small focused commit: `[<branch> · Entropy c
 
 If the process retro finds a real pattern, record the adjustment explicitly in the execution log (for example, "added a regression-preservation acceptance criterion after repeated regression-only review warnings"). This is how Elves gradually self-tunes across long runs without pretending to be fully autonomous process design.
 
-If nothing needs fixing, skip it and move on. This should take minutes, not hours. The 3-batch cadence is a default; override in the survival guide under `## Run Control`. **Scaling guidance:** for short plans (4-5 batches), check after batch 2 or 3 so you catch drift before the final batch. For long plans (15+ batches), every 3 batches is right. If batches are passing review cleanly with minimal findings, consider stretching to every 4-5 batches to save time.
+If no concrete signal triggered the check, skip it. If one did, keep the correction focused and
+return to implementation; do not turn it into a broad regression run or a second final review.
 
 ### 15. Continue or Stop
 
@@ -1387,7 +1381,7 @@ A batch isn't done unless:
 
 1. Code lints cleanly and type-checks with zero errors.
 2. Build succeeds.
-3. Touched-surface tests pass with no new failures. (Broad regression proof runs at entropy checks and before the Readiness Gate — see **Proof Scope**.)
+3. Touched-surface tests pass with no new failures. Broad regression proof runs only at a declared high-risk checkpoint or the Readiness Gate.
 4. Preview deploys and smoke tests pass (if configured).
 5. **Plan and contract Acceptance criteria marked as met with evidence** (or exceptions documented with reasoning and a hard-stop note). Self-certified complete is not enough — see **Acceptance evidence** below.
 6. Review performed. The review loop ran until no blockers remained. All review threads resolved or replied to.
@@ -1524,8 +1518,17 @@ cumulative review, and required final CI; strict detached/import evidence for un
 **touched surfaces**. Broad proof is required at **risk checkpoints** and **terminal readiness**,
 not before every ordinary batch.
 
-**PR feedback:** mid-run pushes use one **nonblocking** new/unresolved feedback fetch; only
-**terminal readiness** waits for required checks/reviewers.
+**Trusted delegation sequence:** plan well, hand off once, and let the worker own implementation,
+internal validation, commits, and course correction for the whole run. The parked host performs no
+per-batch code review or acceptance gate; it observes only cheap operational tripwires. Then it
+performs one strong cumulative review, fixes concrete loose ends, and proceeds to readiness without
+reopening settled design or rerunning unchanged proof.
+Intermediate report shape, commit cosmetics, and run-memory neatness are advisory while useful work
+is advancing; reconcile them at terminal unless they threaten safety, scope, or recoverability.
+
+**PR feedback:** host-native and legacy mid-run pushes use one **nonblocking** new/unresolved fetch.
+Trusted parked worker pushes trigger no host PR polling; the terminal wake reads all feedback and
+waits for required checks/reviewers once.
 
 **Bug-category expansion:** block only confirmed same-root failures on owned or affected shared
 surfaces; record unrelated siblings as advisory follow-up.
@@ -1537,7 +1540,7 @@ Not all proof is equal. Distinguish between:
 - **Touched-surface proof:** validation focused on the code and behaviors this batch actually changed. This is the minimum required for every batch.
 - **Broad regression proof:** running the full test suite, all E2E scenarios, all viewports, etc. This is valuable but expensive and can be blocked by known issues in unrelated areas.
 
-**Default to touched-surface proof** (validate once, verify changes, attest final). Run broad regression proof at risk checkpoints, entropy check intervals (see step 14), and before calling the branch review-ready (see **Readiness Gate** below). If a broad regression run is blocked by an unrelated known issue, record it in the execution log and fall back to narrower touched-surface proof instead of thrashing. Don't waste hours debugging a pre-existing flake in an area you didn't touch.
+**Default to touched-surface proof** (validate once, verify changes, attest final). Run broad regression proof only at declared high-risk checkpoints and before calling the branch review-ready (see **Readiness Gate** below). If a broad regression run is blocked by an unrelated known issue, record it in the execution log and fall back to narrower touched-surface proof instead of thrashing. Don't waste hours debugging a pre-existing flake in an area you didn't touch.
 
 **Preview proof must be on the exact current runtime tip.** After pushing review fixes, re-deploying, or any commit that changes deployed behavior, re-verify on the current deployed version. Proof from a prior commit does not carry forward after subsequent changes. Don't inherit proof — re-earn it.
 

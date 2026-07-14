@@ -41,6 +41,7 @@ PROOF_BUDGET_SLOGAN = "validate once, verify changes, attest final"
 
 # Mid-run PR feedback is nonblocking; terminal readiness waits for required checks.
 PR_FEEDBACK_MID_RUN = "nonblocking_new_unresolved_only"
+PR_FEEDBACK_TRUSTED_PARKED = "defer_all_until_terminal"
 PR_FEEDBACK_TERMINAL = "wait_required_checks_and_reviewers"
 
 # Reconstruction may only derive independently provable fields.
@@ -164,6 +165,7 @@ def safety_kernel_snapshot() -> dict[str, Any]:
         "proof_budget": PROOF_BUDGET_SLOGAN,
         "pr_feedback": {
             "mid_run": PR_FEEDBACK_MID_RUN,
+            "trusted_parked": PR_FEEDBACK_TRUSTED_PARKED,
             "terminal": PR_FEEDBACK_TERMINAL,
         },
     }
@@ -257,12 +259,23 @@ def proof_budget_for_tier(tier: str, *, is_final_readiness: bool = False) -> dic
     }
 
 
-def pr_feedback_policy(*, is_terminal_readiness: bool) -> PrFeedbackPolicy:
+def pr_feedback_policy(
+    *,
+    is_terminal_readiness: bool,
+    trusted_parked_full_run: bool = False,
+) -> PrFeedbackPolicy:
     if is_terminal_readiness:
         return PrFeedbackPolicy(
             phase="terminal",
             mode=PR_FEEDBACK_TERMINAL,
             wait_for_required_checks=True,
+            fetch_new_unresolved_only=False,
+        )
+    if trusted_parked_full_run:
+        return PrFeedbackPolicy(
+            phase="mid_run",
+            mode=PR_FEEDBACK_TRUSTED_PARKED,
+            wait_for_required_checks=False,
             fetch_new_unresolved_only=False,
         )
     return PrFeedbackPolicy(

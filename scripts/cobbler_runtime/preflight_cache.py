@@ -228,11 +228,14 @@ def reuse_preflight(
         repo_root, head=head, config_paths=config_paths, env_names=env_names
     )
     cached = load_preflight(repo_root)
+    current_product_digest = compute_product_test_input_digest(repo_root)
     if cached is None:
         return {
             "reuse": False,
             "reason": "no_cache",
             "key": key,
+            "reuse_product_tests": False,
+            "product_test_input_digest": current_product_digest,
             "final_readiness_accepts_cache_alone": False,
         }
     if cached.status != "pass":
@@ -240,14 +243,26 @@ def reuse_preflight(
             "reuse": False,
             "reason": "cached_not_pass",
             "key": key,
+            "reuse_product_tests": False,
+            "product_test_input_digest": current_product_digest,
             "final_readiness_accepts_cache_alone": False,
         }
+    cached_product_digest = str(
+        (cached.gates or {}).get("product_test_input_digest") or ""
+    )
+    product_tests_reusable = bool(
+        cached_product_digest
+        and cached_product_digest == current_product_digest
+        and cached.status == "pass"
+    )
     if cached.key != key:
         return {
             "reuse": False,
             "reason": "key_mismatch",
             "key": key,
             "cached_key": cached.key,
+            "reuse_product_tests": product_tests_reusable,
+            "product_test_input_digest": current_product_digest,
             "final_readiness_accepts_cache_alone": False,
         }
     if cached.head != head:
@@ -255,6 +270,8 @@ def reuse_preflight(
             "reuse": False,
             "reason": "head_mismatch",
             "key": key,
+            "reuse_product_tests": product_tests_reusable,
+            "product_test_input_digest": current_product_digest,
             "final_readiness_accepts_cache_alone": False,
         }
     return {
@@ -262,6 +279,8 @@ def reuse_preflight(
         "reason": "identical_head_and_config",
         "key": key,
         "evidence": cached.to_dict(),
+        "reuse_product_tests": product_tests_reusable,
+        "product_test_input_digest": current_product_digest,
         "final_readiness_accepts_cache_alone": False,
         "note": "Cached preflight may skip Batch-1-style broad gate; final readiness still requires live proof",
     }
@@ -275,12 +294,16 @@ def record_passing_preflight(
     notes: Sequence[str] | None = None,
 ) -> PreflightEvidence:
     key = compute_preflight_key(repo_root, head=head)
+    recorded_gates = dict(gates or {})
+    recorded_gates["product_test_input_digest"] = compute_product_test_input_digest(
+        repo_root
+    )
     evidence = PreflightEvidence(
         key=key,
         head=head,
         status="pass",
         recorded_at=_utc_now(),
-        gates=dict(gates or {}),
+        gates=recorded_gates,
         notes=list(notes or []),
     )
     store_preflight(repo_root, evidence)
@@ -289,7 +312,7 @@ def record_passing_preflight(
 
 # --- Gate evidence by input digest (docs-only HEAD may reuse) ---
 
-DOCS_ONLY_SUFFIXES = (".md", ".rst", ".adoc", ".txt")
+DOCS_ONLY_SUFFIXES = (".md", ".rst", ".adoc")
 RUN_METADATA_PREFIXES = (".elves/", "docs/elves/")
 
 
@@ -298,7 +321,10 @@ def path_is_docs_or_run_metadata(path: str) -> bool:
     if any(rel.startswith(p) for p in RUN_METADATA_PREFIXES):
         return True
     lower = rel.lower()
-    return lower.endswith(DOCS_ONLY_SUFFIXES)
+    return lower.endswith(DOCS_ONLY_SUFFIXES) or (
+        lower.endswith(".txt")
+        and (rel.startswith("docs/") or rel.startswith("references/"))
+    )
 
 
 def compute_product_test_input_digest(
@@ -310,7 +336,7 @@ def compute_product_test_input_digest(
     root = Path(repo_root).resolve()
     try:
         listed = subprocess.run(
-            ["git", "ls-files", "-z"],
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
             cwd=str(root),
             capture_output=True,
             check=False,

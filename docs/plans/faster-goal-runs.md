@@ -32,7 +32,7 @@ advisory follow-up work.
 
 - [ ] [B0-A1] SKILL.md, AGENTS.md, templates, examples, and consistency guards agree on the thin safety kernel and four risk tiers.
 - [ ] [B0-A2] Per-batch proof defaults to touched surfaces; broad proof is required at risk checkpoints and terminal readiness, not before every ordinary batch.
-- [ ] [B0-A3] Mid-run pushes use one nonblocking new/unresolved feedback fetch; only terminal readiness waits for required checks/reviewers.
+- [ ] [B0-A3] Host-native and legacy mid-run pushes use one nonblocking new/unresolved feedback fetch; trusted parked worker pushes defer all host PR polling until terminal readiness.
 - [ ] [B0-A4] Bug-category review blocks only confirmed same-root failures in owned or affected shared surfaces and records unrelated siblings as advisory follow-up.
 
 ### Batch 1 [B1]: Native Grok goal and truly parked supervision

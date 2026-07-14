@@ -36,7 +36,7 @@ implementation_lane: fast | untrusted
   [`grok-implementer-launch-prompt.md`](grok-implementer-launch-prompt.md).
   Operator CLI (primary): `python3 scripts/cobbler_agents.py implement rollback-ref` with `--batch
   0 --head <start-head> --push`, then
-  `full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`; `full-run-stop` is explicit
+  `full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs`; `full-run-stop` is explicit
   cancellation/recovery only, not normal completion.
   Legacy bounded batch: `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`.
 - **Host-import writer (`untrusted`):** exclusive writer lease, detached commits, host audit/import

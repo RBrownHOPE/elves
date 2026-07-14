@@ -1,5 +1,5 @@
 > **Primary path (v2.1+):** trusted Grok full-run uses
-> `full-run-prepare|full-run-launch|full-run-monitor|full-run-logs` with parked-monitor.
+> `full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs` with parked-monitor.
 > `full-run-stop` is cancellation/recovery only. **Batch resume**
 > (`prepare|launch|gate|resume-batch`) is the legacy/alternative path.
 

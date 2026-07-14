@@ -757,7 +757,7 @@ and configured — same native-first rule as the rest of Cobbler and the math mo
 
 **Optional external work driver** (e.g. Grok Build, only if you have it): record
 `implementation_lane: fast` and use
-`python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`
+`python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs`
 for the primary trusted full-run path; `full-run-stop` is cancellation/recovery only.
 `prepare|launch|gate|resume-batch|status` is the explicit legacy/bounded-batch path.
 See [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
@@ -977,10 +977,9 @@ Bad: "Looks good so far." (no tag, no instruction to continue)
 - **Rollback safety**: host-native/legacy runs use host-owned `bN` refs; trusted parked full-runs
   use one host-owned `b0` launch ref plus worker commit SHAs as internal rollback points
 - **Scout mode**: after all planned work is done, the agent looks for adjacent improvements, test gaps, and documentation holes. Prioritizes risk-reducing fixes first, then quality, then leaves ambiguous items. Commits tagged `[branch · Scout]`, with validation gates required and clear stop rules.
-- **Proof scope**: touched-surface proof per batch (only test what you changed), broad regression at entropy checks and before readiness. Re-earn proof after each push; don't inherit from prior commits.
-- **High-risk regression pass**: batches with medium/high blast radius can trigger a second,
-  regression-only review pass that traces changed shared surfaces to their consumers and asks only
-  "what could this break?"
+- **Proof scope**: touched-surface proof per batch, with broad regression only at declared high-risk checkpoints and once before readiness. Reuse unchanged evidence instead of rerunning it after metadata-only commits.
+- **High-risk regression pass**: only declared high-risk checkpoints or concrete safety signals
+  trigger a deeper mid-run regression pass; ordinary trusted batches keep moving on focused proof.
 - **Public API surface snapshots**: optional regression evidence for REST, GraphQL, exported
   library, CLI, event, and configuration contracts. `enabled: auto` stays advisory when no credible
   source exists; `required: true` is only an explicit survival-guide opt-in.

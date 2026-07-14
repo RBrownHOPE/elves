@@ -10,7 +10,7 @@ Commands:
   session list|probe|resume  Exact persistent session registry helpers
   worker prepare|audit|export|refresh
                              Single external writer lease lifecycle (host-owned)
-  implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-logs|full-run-stop
+  implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs|full-run-stop
                              Trusted persistent external full-run supervisor
   implement prepare|launch|gate|resume-batch|status
                              Legacy bounded external batch implementer
@@ -1432,6 +1432,21 @@ def cmd_implement(args: argparse.Namespace) -> int:
             )
             return 0
 
+        if action == "full-run-reconcile":
+            payload = reconstruct_missing_report(
+                repo_root,
+                session_id=args.session_id,
+                host_tests_pass=bool(getattr(args, "host_tests_pass", False)),
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
+            print(
+                f"full-run reconcile: ok={payload.get('ok')} "
+                f"next={payload.get('next_action')} "
+                f"provenance={payload.get('provenance')}"
+            )
+            return 0 if payload.get("ok") else 1
+
         if action == "full-run-logs":
             payload = logs_full_run(
                 repo_root,
@@ -2062,7 +2077,7 @@ def build_parser() -> argparse.ArgumentParser:
     implement = sub.add_parser(
         "implement",
         help=(
-            "Optional external implementer: trusted full-run-prepare/launch/monitor/logs/stop "
+            "Optional external implementer: trusted full-run-prepare/launch/monitor/await/reconcile/logs/stop "
             "or legacy bounded prepare/launch/gate/resume-batch/status; Grok Build or OpenCode"
         ),
     )
@@ -2213,6 +2228,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Acknowledge the exact pending staged checkpoint after host review",
     )
     i_fr_await.set_defaults(func=cmd_implement)
+
+    i_fr_reconcile = implement_sub.add_parser(
+        "full-run-reconcile",
+        help="Host-reconstruct a missing trusted report from independently proved facts",
+    )
+    _add_common_flags(i_fr_reconcile)
+    i_fr_reconcile.add_argument("--session-id", required=True)
+    i_fr_reconcile.add_argument(
+        "--host-tests-pass",
+        action="store_true",
+        help="Explicitly attest that host-run acceptance tests passed",
+    )
+    i_fr_reconcile.set_defaults(func=cmd_implement)
 
     i_fr_logs = implement_sub.add_parser(
         "full-run-logs",

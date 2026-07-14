@@ -4572,9 +4572,14 @@ def verify_protected_refs_unchanged(
     current = snapshot_protected_refs(
         repo_root, feature_branch=feature_branch, include_remote=include_remote
     )
-    for ref in sorted(set(current) - set(expected)):
+    expected_now = {
+        ref: tip
+        for ref, tip in expected.items()
+        if include_remote or not ref.startswith("remote::")
+    }
+    for ref in sorted(set(current) - set(expected_now)):
         errors.append(f"new protected ref created: {ref}")
-    for ref, tip in expected.items():
+    for ref, tip in expected_now.items():
         now = current.get(ref)
         if now is None:
             errors.append(f"protected ref missing at finalization: {ref}")
@@ -6070,6 +6075,7 @@ def build_full_run_argv(state: FullRunState) -> list[str]:
         output_format=state.output_format,
         adapter=state.adapter,
         check=bool(state.check),
+        native_goal=bool(detection.get("native_goal")),
     )
 
 
@@ -6852,6 +6858,43 @@ def _read_events(
     return rows, errors
 
 
+def _event_log_signature(repo_root: Path, events_path: Path) -> dict[str, Any]:
+    """Return a cheap identity for an append-only event log.
+
+    A matching signature lets an ordinary healthy poll reuse the already
+    validated structural summary. Terminal, checkpoint-ack, and forced-full
+    paths still re-read and validate the complete log.
+    """
+    candidate = guard_repo_path(repo_root, events_path)
+    try:
+        info = candidate.lstat()
+    except FileNotFoundError:
+        return {"exists": False}
+    except OSError as exc:
+        raise StorageError(
+            "event_log_unavailable",
+            f"event log metadata is unavailable: {type(exc).__name__}",
+        ) from exc
+    if not stat.S_ISREG(info.st_mode):
+        raise StorageError(
+            "event_log_not_regular",
+            "event log must be a regular non-symlink file",
+        )
+    if info.st_size > MAX_EVENT_FILE_BYTES:
+        raise StorageError(
+            "event_log_too_large",
+            f"event log exceeds {MAX_EVENT_FILE_BYTES} byte limit",
+        )
+    return {
+        "exists": True,
+        "dev": info.st_dev,
+        "ino": info.st_ino,
+        "size": info.st_size,
+        "mtime_ns": info.st_mtime_ns,
+        "ctime_ns": info.st_ctime_ns,
+    }
+
+
 _SHARED_OAUTH_PUBLIC_EVENT_FIELDS: tuple[str, ...] = (
     "timestamp",
     "session_id",
@@ -7075,7 +7118,6 @@ def monitor_full_run(
     initial_next_action = state.next_action
     initial_blocker = state.blocker
     initial_completed_at = state.completed_at
-    initial_batch = state.batch
     initial_pending_checkpoint = state.pending_high_risk_checkpoint
     initial_acknowledged_checkpoints = tuple(
         state.acknowledged_high_risk_checkpoints
@@ -7117,9 +7159,26 @@ def monitor_full_run(
     )
     root = full_run_root(repo_root, session_id)
     grant_context_verified, exact_secret_values = _launch_evidence_context(state)
-    if grant_context_verified:
+    events_path = root / "events.jsonl"
+    events_reused = False
+    event_signature: dict[str, Any] | None = None
+    cached_event_summary = cache.get("event_summary")
+    try:
+        event_signature = _event_log_signature(Path(repo_root), events_path)
+    except StorageError as exc:
+        event_signature = None
+        events, event_errors = [], [exc.message]
+    else:
+        events_reused = bool(
+            resolved_depth == "incremental"
+            and event_signature == cache.get("event_signature")
+            and isinstance(cached_event_summary, Mapping)
+        )
+    if event_signature is not None and events_reused:
+        events, event_errors = [], []
+    elif event_signature is not None and grant_context_verified:
         events, event_errors = _read_events(
-            root / "events.jsonl",
+            events_path,
             expected_session_id=session_id,
             expected_branch=state.branch,
             expected_high_risk_checkpoints=state.planned_high_risk_checkpoints,
@@ -7131,7 +7190,7 @@ def monitor_full_run(
             allow_partial_final=not identity_retired and bool(state.pid or state.pgid),
             repo_root=Path(repo_root),
         )
-    else:
+    elif event_signature is not None:
         events, event_errors = [], [
             "launch credential context cannot be verified for worker evidence"
         ]
@@ -7268,9 +7327,26 @@ def monitor_full_run(
     if observed_head:
         state.head = observed_head
 
-    last_type = None
-    saw_run_complete_event = False
-    observed_high_risk_checkpoints: list[str] = []
+    last_type = (
+        cached_event_summary.get("last_type")
+        if events_reused and isinstance(cached_event_summary, Mapping)
+        else None
+    )
+    saw_run_complete_event = bool(
+        events_reused
+        and isinstance(cached_event_summary, Mapping)
+        and cached_event_summary.get("saw_run_complete")
+    )
+    observed_high_risk_checkpoints: list[str] = (
+        [str(item) for item in cached_event_summary.get("high_risk_checkpoints", [])]
+        if events_reused and isinstance(cached_event_summary, Mapping)
+        else []
+    )
+    event_count = (
+        int(cached_event_summary.get("count") or 0)
+        if events_reused and isinstance(cached_event_summary, Mapping)
+        else len(events)
+    )
     for ev in events:
         last_type = ev.get("type") or last_type
         if ev.get("type") == "batch_started":
@@ -7295,6 +7371,15 @@ def monitor_full_run(
             saw_run_complete_event = True
         if ev.get("type") == "high_risk_checkpoint":
             observed_high_risk_checkpoints.append(str(ev.get("checkpoint_id")))
+
+    if not event_errors and not events_reused and event_signature is not None:
+        cache["event_signature"] = event_signature
+        cache["event_summary"] = {
+            "count": len(events),
+            "last_type": last_type,
+            "saw_run_complete": saw_run_complete_event,
+            "high_risk_checkpoints": list(observed_high_risk_checkpoints),
+        }
 
     if acknowledge_high_risk_checkpoint is not None:
         checkpoint_id = str(acknowledge_high_risk_checkpoint)
@@ -7573,7 +7658,6 @@ def monitor_full_run(
         state.blocker = _redact_full_run_text(
             state.blocker, exact_values=exact_secret_values
         )
-    save_state(repo_root, state)
     from .behavior_policy import (  # noqa: PLC0415
         PARKED_MONITOR_UPDATE_POLICY,
         PARKED_MONITOR_USER_HEARTBEAT_SECONDS,
@@ -7586,7 +7670,6 @@ def monitor_full_run(
         or state.next_action != initial_next_action
         or state.blocker != initial_blocker
         or state.completed_at != initial_completed_at
-        or state.batch != initial_batch
         or state.pending_high_risk_checkpoint != initial_pending_checkpoint
         or tuple(state.acknowledged_high_risk_checkpoints)
         != initial_acknowledged_checkpoints
@@ -7608,9 +7691,10 @@ def monitor_full_run(
         cache["last_depth"] = "full"
     else:
         cache["last_depth"] = "incremental"
-        cache["skipped_full_event_rescan"] = False  # events still validated
+        cache["skipped_full_event_rescan"] = events_reused
         cache["skipped_deep_git_reconciliation"] = True
         cache["skipped_remote_all_ref_audit"] = True
+    save_state(repo_root, state)
 
     status = {
         "ok": state.status in {"healthy", "complete", "pending"}
@@ -7648,7 +7732,8 @@ def monitor_full_run(
             state.acknowledged_high_risk_checkpoints
         ),
         "check_summary": {
-            "events": len(events),
+            "events": event_count,
+            "events_reused": events_reused,
             "last_event_type": last_type,
             "alive": alive,
             "group_alive": group_alive,
@@ -8031,8 +8116,6 @@ def write_report(repo_root: Path, session_id: str, report: Mapping[str, Any]) ->
     return path
 
 
-@_locked_full_run
-
 def await_full_run(
     repo_root: Path,
     *,
@@ -8068,14 +8151,19 @@ def await_full_run(
             result = dict(observed)
             result["awaited"] = True
             return result
-        if timeout_seconds is not None and (mono() - started) >= max(0.0, timeout_seconds):
+        elapsed = mono() - started
+        if timeout_seconds is not None and elapsed >= max(0.0, timeout_seconds):
             result = dict(observed)
             result["awaited"] = True
             result["await_timed_out"] = True
             return result
-        sleep(float(observed.get("poll_after_seconds") or 60))
+        delay = float(observed.get("poll_after_seconds") or 60)
+        if timeout_seconds is not None:
+            delay = min(delay, max(0.0, float(timeout_seconds) - elapsed))
+        sleep(delay)
 
 
+@_locked_full_run
 def reconstruct_missing_report(
     repo_root: Path,
     *,
@@ -8122,6 +8210,89 @@ def reconstruct_missing_report(
     ancestry_ok = bool(
         tip and state.start_head and _is_ancestor(worktree, state.start_head, tip)
     )
+    commits = _git_commit_chain(worktree, state.start_head, tip) if ancestry_ok else []
+    if ancestry_ok and not commits:
+        return {
+            "ok": False,
+            "session_id": session_id,
+            "next_action": "driver_wake_error",
+            "refused_reasons": ["no_feature_branch_progress"],
+            "provenance": "host_reconstructed",
+        }
+    commit_rows: list[dict[str, str]] = []
+    for sha in commits:
+        subject_result = subprocess.run(
+            ["git", "-C", str(worktree), "show", "-s", "--format=%s", sha],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if subject_result.returncode != 0:
+            return {
+                "ok": False,
+                "session_id": session_id,
+                "next_action": "driver_wake_error",
+                "refused_reasons": ["commit_subject_unavailable"],
+                "provenance": "host_reconstructed",
+            }
+        commit_rows.append(
+            {"sha": sha, "subject": (subject_result.stdout or "").strip()}
+        )
+    acceptance_rows = [
+        {
+            "id": aid,
+            "criterion": crit,
+            "met": True,
+            "evidence": "host verified from exact staged contract, Git progress, and tests",
+        }
+        for aid, crit in (state.acceptance_criteria or {}).items()
+    ]
+    batch_ids = sorted(
+        {
+            aid.split("-A", 1)[0]
+            for aid in state.acceptance_criteria
+            if "-A" in aid and not aid.startswith("M-")
+        }
+    ) or ["full-run"]
+    default_facts: dict[str, Any] = {
+        "run_id": _expected_run_id(session_id),
+        "session_id": session_id,
+        "branch": state.branch,
+        "start_head": state.start_head,
+        "final_head": tip,
+        "status": "complete",
+        "commits": commit_rows,
+        "acceptance": acceptance_rows,
+        "batches": [
+            {
+                "id": batch_id,
+                "status": "complete",
+                "evidence": "host reconstructed from exact Git ancestry and acceptance proof",
+            }
+            for batch_id in batch_ids
+        ],
+        "blockers": [],
+        "remaining_risks": [],
+        "docs_changed": [],
+        "tests": {"host_reconstructed": True},
+        "security_notes": [
+            "provenance host_reconstructed; worker-only claims unknown"
+        ],
+    }
+    facts = dict(default_facts)
+    facts.update(dict(available_facts or {}))
+    # Identity and Git evidence are host-derived, never caller-overridable.
+    facts.update(
+        {
+            "run_id": _expected_run_id(session_id),
+            "session_id": session_id,
+            "branch": state.branch,
+            "start_head": state.start_head,
+            "final_head": tip,
+            "status": "complete",
+            "commits": commit_rows,
+        }
+    )
     plan = plan_host_reconstruction(
         clean_exit=state.exit_code == 0,
         ancestry_ok=ancestry_ok,
@@ -8136,32 +8307,7 @@ def reconstruct_missing_report(
         host_tests_pass=host_tests_pass,
         untrusted_writer=False,
         missing_security_evidence=bool(protected_errors),
-        available_facts=available_facts
-        or {
-            "run_id": _expected_run_id(session_id),
-            "session_id": session_id,
-            "branch": state.branch,
-            "start_head": state.start_head,
-            "final_head": tip,
-            "status": "complete",
-            "commits": [],
-            "acceptance": [
-                {
-                    "id": aid,
-                    "criterion": crit,
-                    "met": True,
-                    "evidence": "host_reconstructed_from_git_and_session",
-                }
-                for aid, crit in (state.acceptance_criteria or {}).items()
-            ],
-            "batches": [],
-            "blockers": [],
-            "docs_changed": [],
-            "tests": {"host_reconstructed": True},
-            "security_notes": [
-                "provenance host_reconstructed; worker-only claims unknown"
-            ],
-        },
+        available_facts=facts,
     )
     if not plan.allowed:
         return {
@@ -8171,7 +8317,7 @@ def reconstruct_missing_report(
             "refused_reasons": list(plan.refused_reasons),
             "provenance": "host_reconstructed",
         }
-    report = build_reconstructed_report(plan, facts=available_facts or {})
+    report = build_reconstructed_report(plan, facts=facts)
     # Ensure required complete-report keys.
     report.setdefault("run_id", _expected_run_id(session_id))
     report.setdefault("session_id", session_id)
@@ -8179,8 +8325,9 @@ def reconstruct_missing_report(
     report.setdefault("start_head", state.start_head)
     report.setdefault("final_head", tip)
     report.setdefault("status", "complete")
-    report.setdefault("batches", [])
-    report.setdefault("commits", [])
+    report.setdefault("attempt", state.attempt)
+    report.setdefault("batches", default_facts["batches"])
+    report.setdefault("commits", commit_rows)
     report.setdefault("blockers", [])
     report.setdefault("docs_changed", [])
     report.setdefault("tests", {"host_reconstructed": True})
@@ -8200,8 +8347,7 @@ def reconstruct_missing_report(
         ]
     report["provenance"] = "host_reconstructed"
     report["merge_authority"] = False
-    root = full_run_root(repo_root, session_id)
-    atomic_write_json(root / "report.json", report, repo_root=Path(repo_root))
+    write_report(repo_root, session_id, report)
     state.report_provenance = "host_reconstructed"
     state.status = "complete"
     state.next_action = "final_readiness"

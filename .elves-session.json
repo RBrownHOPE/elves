@@ -15,7 +15,7 @@
           "met": false
         },
         {
-          "criterion": "Mid-run pushes use one nonblocking new/unresolved feedback fetch; only terminal readiness waits for required checks/reviewers.",
+          "criterion": "Host-native and legacy mid-run pushes use one nonblocking new/unresolved feedback fetch; trusted parked worker pushes defer all host PR polling until terminal readiness.",
           "evidence": "",
           "id": "B0-A3",
           "met": false
@@ -220,5 +220,5 @@
   "session_id": "elves-2026-07-13-faster-goal-runs",
   "status": "in_progress",
   "survival_guide_path": "docs/elves/faster-goal-runs-survival.md",
-  "version": "2.1.1"
+  "version": "2.2.0"
 }

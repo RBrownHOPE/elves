@@ -1,7 +1,8 @@
 """Deterministic evidence-aware focused review selection.
 
-Chooses focused checks from changed-surface and risk evidence. High-risk and
-final readiness always escalate to the broad cumulative gate. Reasons are logged.
+Ordinary trusted batches verify the changed surface without reopening the whole
+run.  Declared high-risk checkpoints, security tripwires, untrusted writers, and
+terminal readiness escalate to the broad cumulative gate. Reasons are logged.
 """
 
 from __future__ import annotations
@@ -11,21 +12,6 @@ from typing import Any, Mapping, Sequence
 
 from .risk_policy import classify_risk_tier, proof_budget_for_tier
 
-
-HIGH_RISK_PATH_MARKERS: tuple[str, ...] = (
-    "auth",
-    "billing",
-    "lease",
-    "session",
-    "credential",
-    "secret",
-    "dispatch",
-    "audit",
-    "security",
-    "payment",
-    ".github/workflows",
-    "scripts/cobbler_runtime",
-)
 
 SECURITY_MARKERS: tuple[str, ...] = (
     "secret",
@@ -59,6 +45,8 @@ def plan_review(
     is_final_readiness: bool = False,
     risk_hints: Sequence[str] | None = None,
     batch_blast_radius: str | None = None,
+    is_high_risk_checkpoint: bool = False,
+    is_untrusted_writer: bool = False,
 ) -> ReviewPlan:
     paths = _paths(changed_paths)
     reasons: list[str] = []
@@ -88,8 +76,6 @@ def plan_review(
         any(m in p.lower() for m in SECURITY_MARKERS) for p in paths
     ) or any(m in hints for m in SECURITY_MARKERS)
     runtime_hit = any("scripts/cobbler_runtime" in p or p.startswith("scripts/") for p in paths)
-    high_risk_hit = any(any(m in p.lower() for m in HIGH_RISK_PATH_MARKERS) for p in paths)
-
     if security_hit:
         risk = "high"
         focused.extend(["secret_redaction", "isolation_smoke", "unit:security"])
@@ -112,17 +98,15 @@ def plan_review(
         reasons.append("ci_workflow_changed")
         risk = "high" if risk != "high" else risk
 
-    if high_risk_hit and risk != "high":
-        risk = "high"
-        reasons.append("high_risk_path_marker")
-
-    # A cache miss is useful only if the replacement evidence covers the
-    # changed surface. Unknown code/config/assets and test fixtures cannot be
-    # safely mapped to one focused module, so require the broad cumulative gate.
+    # Unknown code/config/assets still receive a concrete focused check. They do
+    # not silently turn an ordinary trusted batch receipt into cumulative review;
+    # planning must declare a high-risk checkpoint when broad mid-run proof is
+    # actually required.
     unmapped_nondoc_hit = bool(paths) and not docs_only and not runtime_hit
     if unmapped_nondoc_hit:
         if risk == "low":
             risk = "medium"
+        focused.append("unit:focused")
         reasons.append("unmapped_or_nondoc_surface_changed")
 
     # Deduplicate focused checks preserving order.
@@ -133,54 +117,27 @@ def plan_review(
             seen.add(item)
             ordered.append(item)
 
-    broad = (
-        risk == "high"
-        or security_hit
-        or runtime_hit
-        or test_surface_hit
-        or unmapped_nondoc_hit
-        or is_final_readiness
-    )
-    if broad:
-        reasons.append("escalate_to_broad_gate")
-        if "full_unittest" not in ordered:
-            ordered.append("full_unittest")
-    else:
-        skipped.append("full_unittest_deferred_to_entropy_or_final")
-
-    if not ordered:
-        ordered = ["unit:focused"]
-        reasons.append("default_focused_unit")
-
     tier = classify_risk_tier(
         changed_paths=paths,
         is_final_readiness=is_final_readiness,
-        is_high_risk_checkpoint=risk == "high" and is_final_readiness is False and (
-            batch_blast_radius == "high" or security_hit
-        ),
+        is_high_risk_checkpoint=(is_high_risk_checkpoint or security_hit),
+        is_untrusted_writer=is_untrusted_writer,
         batch_blast_radius=batch_blast_radius,
         risk_hints=hints,
     )
     budget = proof_budget_for_tier(tier.tier, is_final_readiness=is_final_readiness)
-    # Risk-tier policy *escalates* broad at checkpoints/terminal and records the
-    # tier. It does not clear existing safety escalations (security, unmapped
-    # surfaces, runtime) that the focused planner already required.
+    broad = bool(budget["broad_required_now"])
     if budget["broad_required_now"]:
-        broad = True
         if "full_unittest" not in ordered:
             ordered.append("full_unittest")
-        if f"risk_tier={tier.tier}" not in reasons:
-            reasons.append(f"risk_tier={tier.tier}")
-    elif docs_only and not is_final_readiness:
-        # Ordinary docs-only batches stay on touched-surface proof.
-        broad = False
-        if "full_unittest" in ordered:
-            ordered = [c for c in ordered if c != "full_unittest"]
-        if "full_unittest_deferred_to_entropy_or_final" not in skipped:
-            skipped.append("full_unittest_deferred_to_entropy_or_final")
-        reasons.append(f"risk_tier={tier.tier};proof=touched")
+        reasons.append("escalate_to_broad_gate")
     else:
-        reasons.append(f"risk_tier={tier.tier}")
+        skipped.append("full_unittest_deferred_to_terminal")
+
+    if not ordered:
+        ordered = ["unit:focused"]
+        reasons.append("default_focused_unit")
+    reasons.append(f"risk_tier={tier.tier};proof={tier.proof_mode}")
 
     return ReviewPlan(
         focused_checks=tuple(ordered),

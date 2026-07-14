@@ -1136,27 +1136,36 @@ def detect_native_grok_goal(
     import re
     import shutil
     import subprocess
+    import tempfile
 
     text = help_text
     if text is None:
         resolved = shutil.which(executable) or executable
         try:
-            proc = subprocess.run(
-                [resolved, "--help"],
-                capture_output=True,
-                text=True,
-                timeout=8,
-                check=False,
-            )
+            with tempfile.TemporaryDirectory(prefix="elves-grok-goal-probe-") as tmp:
+                probe_env = {
+                    "HOME": tmp,
+                    "GROK_HOME": str(Path(tmp) / "grok"),
+                    "XDG_CONFIG_HOME": str(Path(tmp) / "config"),
+                    "XDG_CACHE_HOME": str(Path(tmp) / "cache"),
+                    "XDG_DATA_HOME": str(Path(tmp) / "data"),
+                    "PATH": os.environ.get("PATH") or os.defpath,
+                    "LANG": os.environ.get("LANG") or "C.UTF-8",
+                }
+                proc = subprocess.run(
+                    [resolved, "--help"],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                    check=False,
+                    env=probe_env,
+                )
             text = (proc.stdout or "") + "\n" + (proc.stderr or "")
         except (OSError, subprocess.TimeoutExpired):
             text = ""
     lower = text.lower()
     # Public headless flag (preferred).
-    has_goal_flag = bool(
-        re.search(r"(?m)^\s*--goal\b", text)
-        or re.search(r"\b--goal\s*<", lower)
-    )
+    has_goal_flag = bool(re.search(r"--goal\s+<[^>]+>", lower))
     # Explicit noninteractive goal subcommand (not TUI-only /goal mention).
     has_goal_subcommand = bool(
         re.search(r"(?m)^\s*goal\s+", text)
@@ -1166,7 +1175,7 @@ def detect_native_grok_goal(
     tui_only = ("/goal" in lower or "goal mode" in lower) and not (
         has_goal_flag or has_goal_subcommand
     )
-    if has_goal_flag or has_goal_subcommand:
+    if has_goal_flag:
         return {
             "native_goal": True,
             "mode": "native_goal",
@@ -1182,6 +1191,11 @@ def detect_native_grok_goal(
             "No public headless --goal flag; use compatible headless prompt/packet "
             "launch without claiming native goal orchestration"
             + ("; TUI /goal is present but not a headless API" if tui_only else "")
+            + (
+                "; an advertised goal subcommand is not used without a packet-path contract"
+                if has_goal_subcommand
+                else ""
+            )
         ),
         "tui_goal_mentioned": tui_only or ("/goal" in lower),
     }
@@ -1273,6 +1287,7 @@ def build_launch_argv(
     output_format: str | None = "json",
     adapter: str = "grok-build",
     check: bool = False,
+    native_goal: bool = False,
 ) -> list[str]:
     """Build headless implementer argv for Grok Build (Lane A) or OpenCode.
 
@@ -1355,8 +1370,12 @@ def build_launch_argv(
         argv.extend(["--session-id", sid])
     elif sid:
         argv.extend(["--resume", sid])
-    # Headless packet delivery (mutually exclusive with -p).
-    argv.extend(["--prompt-file", str(packet_path)])
+    # A capability-probed native goal flag receives the immutable packet path.
+    # Otherwise use the ordinary headless packet contract without claiming goal.
+    if native_goal:
+        argv.extend(["--goal", str(packet_path)])
+    else:
+        argv.extend(["--prompt-file", str(packet_path)])
     argv.extend(
         [
             "--cwd",

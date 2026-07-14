@@ -74,6 +74,12 @@ class RiskTierAndSafetyKernelTests(unittest.TestCase):
         mid = pr_feedback_policy(is_terminal_readiness=False)
         self.assertTrue(mid.fetch_new_unresolved_only)
         self.assertFalse(mid.wait_for_required_checks)
+        parked = pr_feedback_policy(
+            is_terminal_readiness=False,
+            trusted_parked_full_run=True,
+        )
+        self.assertFalse(parked.fetch_new_unresolved_only)
+        self.assertEqual(parked.mode, "defer_all_until_terminal")
         term = pr_feedback_policy(is_terminal_readiness=True)
         self.assertTrue(term.wait_for_required_checks)
 
@@ -107,6 +113,16 @@ class RiskTierAndSafetyKernelTests(unittest.TestCase):
         self.assertFalse(docs.broad_gate_required)
         final = plan_review(changed_paths=["README.md"], is_final_readiness=True)
         self.assertTrue(final.broad_gate_required)
+
+        runtime = plan_review(changed_paths=["scripts/cobbler_runtime/full_run.py"])
+        self.assertFalse(runtime.broad_gate_required)
+        self.assertIn("unit:runtime", runtime.focused_checks)
+
+        checkpoint = plan_review(
+            changed_paths=["scripts/cobbler_runtime/full_run.py"],
+            is_high_risk_checkpoint=True,
+        )
+        self.assertTrue(checkpoint.broad_gate_required)
 
 
 class GoalAwaitAndMonitorDepthTests(unittest.TestCase):
@@ -275,6 +291,7 @@ class ReconstructionAndGateCacheTests(unittest.TestCase):
     def test_docs_metadata_paths_and_cleanup_only(self) -> None:
         self.assertTrue(path_is_docs_or_run_metadata("README.md"))
         self.assertTrue(path_is_docs_or_run_metadata("docs/elves/x.md"))
+        self.assertFalse(path_is_docs_or_run_metadata("requirements.txt"))
         self.assertFalse(path_is_docs_or_run_metadata("scripts/x.py"))
         ok = cleanup_only_tip_attestation(
             parent_tip="deadbeef",
@@ -309,6 +326,9 @@ class ReconstructionAndGateCacheTests(unittest.TestCase):
             (root / "scripts" / "a.py").write_text("print(2)\n", encoding="utf-8")
             d3 = compute_product_test_input_digest(root)
             self.assertNotEqual(d1, d3)
+            (root / "requirements.txt").write_text("demo==1\n", encoding="utf-8")
+            d4 = compute_product_test_input_digest(root)
+            self.assertNotEqual(d3, d4)
             decision = gate_evidence_reuse(root, cached_input_digest=d1)
             self.assertFalse(decision["reuse"])
 
