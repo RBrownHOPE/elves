@@ -1412,6 +1412,16 @@ def cmd_implement(args: argparse.Namespace) -> int:
             return 0
 
         if action == "full-run-await":
+            follow = True
+            if getattr(args, "quiet", False):
+                follow = False
+            if getattr(args, "follow", None) is False:
+                follow = False
+            if getattr(args, "no_follow", False):
+                follow = False
+            stream_writer = None
+            if follow and not getattr(args, "json", False):
+                stream_writer = lambda line: print(line, flush=True)  # noqa: E731
             payload = await_full_run(
                 repo_root,
                 session_id=args.session_id,
@@ -1422,13 +1432,17 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 acknowledge_high_risk_checkpoint=getattr(
                     args, "ack_high_risk_checkpoint", None
                 ),
+                follow=follow,
+                quiet=bool(getattr(args, "quiet", False)),
+                stream_writer=stream_writer,
             )
             if args.json:
                 return _emit_json(payload, exit_code=0)
             print(
                 f"full-run await: state={payload.get('state')} "
                 f"next={payload.get('next_action')} "
-                f"material={payload.get('material_transition')}"
+                f"material={payload.get('material_transition')} "
+                f"follow={payload.get('follow')}"
             )
             return 0
 
@@ -2206,7 +2220,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     i_fr_await = implement_sub.add_parser(
         "full-run-await",
-        help="Block until material progress, checkpoint, stale/failure, user input, or exit",
+        help=(
+            "Block until material progress while following a sanitized worker stream "
+            "(default; no model inference). Use --quiet to park silently."
+        ),
     )
     _add_common_flags(i_fr_await)
     i_fr_await.add_argument("--session-id", required=True)
@@ -2226,6 +2243,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--ack-high-risk-checkpoint",
         default=None,
         help="Acknowledge the exact pending staged checkpoint after host review",
+    )
+    i_fr_await.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Quiet opt-out: park without emitting the live follow stream",
+    )
+    i_fr_await.add_argument(
+        "--no-follow",
+        action="store_true",
+        help="Alias for --quiet: disable default sanitized follow stream",
     )
     i_fr_await.set_defaults(func=cmd_implement)
 

@@ -1,0 +1,155 @@
+"""Host-owned landing authority and exact-HEAD readiness tests (B1)."""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+from cobbler_runtime.landing_authority import (  # noqa: E402
+    apply_worker_report_to_control,
+    attest_readiness,
+    compute_readiness_inputs_digest,
+    evaluate_merge_guard,
+    grant_driver_authorization,
+    initial_control,
+    invalidate_on_head_change,
+    invalidate_scopes,
+    shared_readiness_pipeline_id,
+    strip_worker_authority_claims,
+    terminal_action,
+)
+
+
+class LandingAuthorityTests(unittest.TestCase):
+    def test_worker_cannot_grant_merge_or_change_outcome(self) -> None:
+        host = initial_control(landing_outcome="landable_pr")
+        hostile = {
+            "merge_authority": True,
+            "driver_authorized": True,
+            "landing_outcome": "complete_and_merge",
+            "ready": True,
+            "status": "complete",
+        }
+        stripped = strip_worker_authority_claims(host, hostile)
+        self.assertIn("merge_authority", stripped.stripped)
+        self.assertIn("driver_authorized", stripped.stripped)
+        self.assertIn("landing_outcome", stripped.stripped)
+        self.assertFalse(stripped.control.driver_authorized)
+        self.assertFalse(stripped.control.ready)
+        self.assertEqual(stripped.control.landing_outcome, "landable_pr")
+
+        after = apply_worker_report_to_control(host, hostile)
+        self.assertFalse(after.driver_authorized)
+        self.assertFalse(after.ready)
+        self.assertEqual(after.landing_outcome, "landable_pr")
+
+    def test_shared_pipeline_for_both_terminal_outcomes(self) -> None:
+        pipe = shared_readiness_pipeline_id()
+        landable = initial_control(landing_outcome="landable_pr")
+        mergeable = initial_control(landing_outcome="complete_and_merge")
+        self.assertEqual(
+            terminal_action(landable, current_head="abc")["pipeline"], pipe
+        )
+        self.assertEqual(
+            terminal_action(mergeable, current_head="abc")["pipeline"], pipe
+        )
+        self.assertEqual(
+            terminal_action(landable, current_head="abc")["action"], "landable_pr"
+        )
+
+    def test_land_pr_grants_without_restarting_readiness(self) -> None:
+        control, att = attest_readiness(
+            initial_control(),
+            head="deadbeef01",
+            acceptance_complete=True,
+            blockers_resolved=True,
+            exact_tip_review_clean=True,
+            required_checks_green=True,
+            worktree_clean=True,
+            inputs_digest="d1",
+        )
+        self.assertTrue(att.ready)
+        self.assertTrue(control.ready)
+        self.assertFalse(control.driver_authorized)
+
+        granted = grant_driver_authorization(
+            control, grant_source="land-pr", active_run=True
+        )
+        self.assertTrue(granted.driver_authorized)
+        self.assertTrue(granted.ready)  # readiness not cleared
+        self.assertEqual(granted.readiness_head, "deadbeef01")
+        self.assertEqual(granted.landing_outcome, "complete_and_merge")
+        self.assertIn("readiness_not_restarted", granted.notes)
+
+    def test_readiness_exact_head_and_scope_invalidation(self) -> None:
+        digest = compute_readiness_inputs_digest(
+            head="aaa",
+            acceptance_rows=[{"id": "B0-A1", "met": True, "criterion": "x"}],
+        )
+        control, att = attest_readiness(
+            initial_control(),
+            head="aaa",
+            acceptance_complete=True,
+            blockers_resolved=True,
+            exact_tip_review_clean=True,
+            required_checks_green=True,
+            worktree_clean=True,
+            inputs_digest=digest,
+        )
+        self.assertTrue(control.ready)
+        self.assertEqual(control.readiness_head, "aaa")
+
+        # HEAD change clears readiness only.
+        granted = grant_driver_authorization(control, grant_source="/land-pr")
+        moved = invalidate_on_head_change(granted, current_head="bbb")
+        self.assertFalse(moved.ready)
+        self.assertIsNone(moved.readiness_head)
+        self.assertTrue(moved.driver_authorized)  # auth survives
+
+        # Scope invalidation is selective.
+        partial = invalidate_scopes(control, ["checks"])
+        self.assertFalse(partial.required_checks_green)
+        self.assertTrue(partial.acceptance_complete)
+        self.assertFalse(partial.ready)
+
+    def test_merge_guard_requires_all_host_conditions(self) -> None:
+        control = initial_control(landing_outcome="complete_and_merge")
+        decision = evaluate_merge_guard(control, current_head="abc")
+        self.assertFalse(decision.allowed)
+        self.assertTrue(any("driver_authorized" in r for r in decision.reasons))
+
+        ready_only, _ = attest_readiness(
+            control,
+            head="abc",
+            acceptance_complete=True,
+            blockers_resolved=True,
+            exact_tip_review_clean=True,
+            required_checks_green=True,
+            worktree_clean=True,
+            inputs_digest="x",
+        )
+        # ready alone never merges
+        d2 = evaluate_merge_guard(ready_only, current_head="abc")
+        self.assertFalse(d2.allowed)
+        self.assertTrue(any("driver_authorized" in r for r in d2.reasons))
+
+        authorized = grant_driver_authorization(ready_only, grant_source="user_explicit")
+        d3 = evaluate_merge_guard(authorized, current_head="abc")
+        self.assertTrue(d3.allowed)
+
+        # wrong head
+        d4 = evaluate_merge_guard(authorized, current_head="zzz")
+        self.assertFalse(d4.allowed)
+
+        action = terminal_action(authorized, current_head="abc")
+        self.assertTrue(action["merge"])
+        self.assertEqual(action["merge_method"], "merge_commit")
+
+
+if __name__ == "__main__":
+    unittest.main()

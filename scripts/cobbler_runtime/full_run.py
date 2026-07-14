@@ -6928,6 +6928,50 @@ def _driver_visible_events(
     ]
 
 
+def format_follow_stream_line(
+    event: Mapping[str, Any],
+    *,
+    shared_oauth: bool = False,
+) -> str:
+    """Format one sanitized human-readable follow-mode line (no model inference)."""
+    etype = str(event.get("type") or "event")
+    ts = str(event.get("timestamp") or "")
+    batch = event.get("batch")
+    head = str(event.get("head") or "")
+    short_head = head[:12] if head else "-"
+    batch_s = f"b{batch}" if batch is not None else "b?"
+    if shared_oauth:
+        # Never include free-text summary under shared OAuth.
+        return f"{ts} [{batch_s}] {etype} @ {short_head}"
+    summary = str(event.get("summary") or "").strip()
+    if len(summary) > 200:
+        summary = summary[:197] + "..."
+    if summary:
+        return f"{ts} [{batch_s}] {etype} @ {short_head} — {summary}"
+    return f"{ts} [{batch_s}] {etype} @ {short_head}"
+
+
+def follow_stream_lines(
+    events: Sequence[Mapping[str, Any]],
+    *,
+    shared_oauth: bool = False,
+    already_seen: int = 0,
+) -> tuple[list[str], int]:
+    """Return new follow lines since ``already_seen`` and the new cursor."""
+    visible = _driver_visible_events(events, shared_oauth=shared_oauth)
+    cursor = max(0, int(already_seen))
+    new_events = visible[cursor:]
+    lines = [
+        format_follow_stream_line(ev, shared_oauth=shared_oauth) for ev in new_events
+    ]
+    return lines, len(visible)
+
+
+# Follow mode is a deterministic stream, never a model-based watcher.
+FOLLOW_MODE_MODEL_INFERENCE = False
+FOLLOW_MODE_REPLACES_TIMED_CHAT = True
+
+
 def _driver_visible_blocker(state: FullRunState) -> str | None:
     """Return a categorical OAuth blocker without echoing worker free text."""
     if not state.blocker or state.grok_auth_strategy != "oauth_shared_file":
@@ -8125,8 +8169,15 @@ def await_full_run(
     sleep_fn=None,
     monotonic_fn=None,
     acknowledge_high_risk_checkpoint: str | None = None,
+    follow: bool = True,
+    quiet: bool = False,
+    stream_writer=None,
 ) -> dict[str, Any]:
     """Block until a material monitor transition (or timeout).
+
+    By default follows a sanitized human-readable worker stream (no model
+    inference; replaces timed driver chat updates). Pass ``quiet=True`` or
+    ``follow=False`` to opt out of stream emission while still parking.
 
     Returns the first monitor payload that is not an unchanged healthy park.
     Designed for one host tool call instead of model-turn polling.
@@ -8136,6 +8187,10 @@ def await_full_run(
     sleep = sleep_fn or _time.sleep
     mono = monotonic_fn or _time.monotonic
     started = mono()
+    follow_enabled = bool(follow) and not bool(quiet)
+    seen_events = 0
+    stream_lines: list[str] = []
+    write = stream_writer
     while True:
         observed = monitor_full_run(
             repo_root,
@@ -8143,6 +8198,34 @@ def await_full_run(
             stale_after_seconds=stale_after_seconds,
             acknowledge_high_risk_checkpoint=acknowledge_high_risk_checkpoint,
         )
+        if follow_enabled:
+            try:
+                state = load_state(repo_root, session_id)
+                shared_oauth = state.grok_auth_strategy == "oauth_shared_file"
+                events_tail = observed.get("events_tail") or observed.get("events") or []
+                if not events_tail:
+                    # Pull a bounded sanitized tail via logs path when monitor omits it.
+                    try:
+                        logs = logs_full_run(
+                            repo_root,
+                            session_id=session_id,
+                            raw_tail=False,
+                            tail_lines=40,
+                        )
+                        events_tail = logs.get("events_tail") or []
+                    except Exception:  # noqa: BLE001 — follow must never break await
+                        events_tail = []
+                new_lines, seen_events = follow_stream_lines(
+                    events_tail if isinstance(events_tail, list) else [],
+                    shared_oauth=shared_oauth,
+                    already_seen=seen_events,
+                )
+                for line in new_lines:
+                    stream_lines.append(line)
+                    if write is not None:
+                        write(line)
+            except Exception:  # noqa: BLE001 — stream is best-effort
+                pass
         material = bool(
             observed.get("material_transition")
             or not observed.get("unchanged_healthy_poll_silent")
@@ -8150,12 +8233,22 @@ def await_full_run(
         if material:
             result = dict(observed)
             result["awaited"] = True
+            result["follow"] = follow_enabled
+            result["follow_model_inference"] = FOLLOW_MODE_MODEL_INFERENCE
+            result["follow_replaces_timed_chat"] = FOLLOW_MODE_REPLACES_TIMED_CHAT
+            result["follow_stream_lines"] = list(stream_lines)
+            result["merge_authority"] = False
             return result
         elapsed = mono() - started
         if timeout_seconds is not None and elapsed >= max(0.0, timeout_seconds):
             result = dict(observed)
             result["awaited"] = True
             result["await_timed_out"] = True
+            result["follow"] = follow_enabled
+            result["follow_model_inference"] = FOLLOW_MODE_MODEL_INFERENCE
+            result["follow_replaces_timed_chat"] = FOLLOW_MODE_REPLACES_TIMED_CHAT
+            result["follow_stream_lines"] = list(stream_lines)
+            result["merge_authority"] = False
             return result
         delay = float(observed.get("poll_after_seconds") or 60)
         if timeout_seconds is not None:

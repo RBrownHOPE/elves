@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping
 
 
-POLICY_VERSION = "2.2.0"
+POLICY_VERSION = "2.3.0"
 
 # Driver monitor wake conditions once a full-run is healthy.
 PARKED_MONITOR_WAKE_CONDITIONS: frozenset[str] = frozenset(
@@ -29,6 +29,11 @@ PARKED_MONITOR_WAKE_CONDITIONS: frozenset[str] = frozenset(
         "high_risk_checkpoint",
         "user_input",
         "worker_exit",
+        "worker_death",
+        "hang",
+        "missing_or_malformed_completion",
+        "material_scope_or_assumption_change",
+        "explicit_blocker",
         "final_readiness",
         "reconcile",
     }
@@ -40,9 +45,16 @@ FORBIDDEN_FULL_RUN_WAKE_TRIGGERS: frozenset[str] = frozenset(
         "per_push",
         "per_tool_call",
         "per_batch_prompt",
+        "timed_chat_update",
+        "model_monitor_tick",
         "resume_batch_required",
     }
 )
+
+# Default live worker window (B2): sanitized stream, no model inference.
+FOLLOW_MODE_DEFAULT = True
+FOLLOW_MODE_USES_MODEL_INFERENCE = False
+FOLLOW_MODE_REPLACES_TIMED_CHAT_UPDATES = True
 
 # Quiet parked monitoring is part of the product contract, not a prose hint.
 # The driver should use a host wait/monitor primitive when one exists. A host
@@ -293,6 +305,51 @@ SCENARIOS: dict[str, BehaviorScenario] = {
             notes=("Global unscoped rollback tags are forbidden; use run/session scope",),
         ),
     ),
+    "active_run_land_pr": BehaviorScenario(
+        scenario_id="active_run_land_pr",
+        intent="Active-run /land-pr grants driver authority without restarting readiness",
+        signals=("land-pr", "/land-pr", "reviewed pr landing during run"),
+        expected=_decision(
+            scenario_id="active_run_land_pr",
+            handling_level="full_run",
+            kickoff_mode="single_kickoff",
+            work_driver="host_native",
+            delegation_scope="full_run",
+            git_mode="host_only",
+            driver_monitor_mode="parked_monitor",
+            landing_mode="chat_to_land",
+            test_integrity="preserve_or_improve",
+            rollback_naming="run_scoped",
+            continuation="same_session",
+            notes=(
+                "Grants driver_authorized only; does not set ready or restart readiness",
+                "Shares one readiness pipeline with landable_pr",
+            ),
+        ),
+    ),
+    "follow_mode_default": BehaviorScenario(
+        scenario_id="follow_mode_default",
+        intent="Trusted full-run await follows sanitized worker stream by default",
+        signals=("full-run-await", "follow stream", "parked monitor"),
+        expected=_decision(
+            scenario_id="follow_mode_default",
+            handling_level="full_run",
+            kickoff_mode="single_kickoff",
+            work_driver="grok_build",
+            delegation_scope="full_run",
+            git_mode="branch_progress",
+            driver_monitor_mode="parked_monitor",
+            landing_mode="chat_to_work",
+            test_integrity="preserve_or_improve",
+            rollback_naming="run_scoped",
+            continuation="same_session",
+            notes=(
+                "Follow mode performs no model inference",
+                "Replaces timed driver chat updates",
+                "Quiet opt-out available",
+            ),
+        ),
+    ),
 }
 
 
@@ -452,14 +509,23 @@ def policy_snapshot() -> dict[str, Any]:
         "policy_version": POLICY_VERSION,
         "parked_monitor_wake_conditions": sorted(PARKED_MONITOR_WAKE_CONDITIONS),
         "forbidden_full_run_wake_triggers": sorted(FORBIDDEN_FULL_RUN_WAKE_TRIGGERS),
-        "risk_policy_version": "2.2.0",
+        "risk_policy_version": "2.3.0",
+        "risk_levels": ["low", "standard", "high"],
+        "trust_modes": ["trusted", "untrusted"],
         "proof_budget": "validate once, verify changes, attest final",
+        # Legacy labels retained for compatibility readers.
         "risk_tiers": [
             "trivial_docs",
             "standard_trusted",
             "high_risk_trusted",
             "untrusted",
         ],
+        "follow_mode": {
+            "default": FOLLOW_MODE_DEFAULT,
+            "model_inference": FOLLOW_MODE_USES_MODEL_INFERENCE,
+            "replaces_timed_chat_updates": FOLLOW_MODE_REPLACES_TIMED_CHAT_UPDATES,
+            "quiet_opt_out": True,
+        },
         "parked_monitor_quiet_policy": {
             "min_poll_seconds": PARKED_MONITOR_MIN_POLL_SECONDS,
             "max_poll_seconds": PARKED_MONITOR_MAX_POLL_SECONDS,
@@ -468,6 +534,19 @@ def policy_snapshot() -> dict[str, Any]:
             "unchanged_healthy_poll_silent": True,
         },
         "scenarios": [s.to_dict() for s in list_scenarios()],
+    }
+
+
+def resolve_land_pr_grant(*, active_run: bool = True) -> dict[str, Any]:
+    """Active-run land-pr grants driver authority without restarting readiness."""
+    return {
+        "grants_driver_authorized": True,
+        "sets_ready": False,
+        "restarts_readiness": False,
+        "landing_outcome": "complete_and_merge",
+        "pipeline": "elves_2_3_shared_readiness_pipeline_v1",
+        "active_run": active_run,
+        "merge_method_if_ready": "merge_commit",
     }
 
 
