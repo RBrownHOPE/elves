@@ -42,6 +42,7 @@ from cobbler_runtime.adapters import (  # noqa: E402
     registry_snapshot,
     workspace_sandbox_write_profile,
 )
+from cobbler_runtime.acceptance import normalize_batch_id  # noqa: E402
 from cobbler_runtime.audit import (  # noqa: E402
     audit_lease_turn,
     build_audit_evidence,
@@ -114,6 +115,15 @@ from cobbler_runtime.storage import (  # noqa: E402
     atomic_write_json,
     read_repo_regular_bytes,
 )
+
+
+def _nonnegative_batch_arg(value: str) -> int:
+    batch = normalize_batch_id(value)
+    if batch is None:
+        raise argparse.ArgumentTypeError(
+            "batch must be B0, B1+, or an unambiguous non-negative integer"
+        )
+    return batch
 
 
 WORKER_SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024
@@ -1322,6 +1332,17 @@ def cmd_implement(args: argparse.Namespace) -> int:
             return 0
 
         if action == "full-run-prepare":
+            adapter_name = getattr(args, "adapter", None) or "grok-build"
+            acceptance_session = getattr(args, "session", None)
+            if adapter_name != "fixture" and not acceptance_session:
+                default_session = repo_root / ".elves-session.json"
+                if default_session.is_file():
+                    acceptance_session = str(default_session)
+                else:
+                    raise ValidationIssue(
+                        "full_run_acceptance_session_required",
+                        "Production full-run-prepare requires --session (or a repo-root .elves-session.json) so plan/session/packet Acceptance can be reconciled before launch",
+                    )
             payload = prepare_full_run(
                 repo_root,
                 session_id=args.session_id,
@@ -1329,7 +1350,9 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 start_head=args.start_head,
                 worktree=args.worktree or repo_root,
                 packet_path=args.packet,
-                adapter=getattr(args, "adapter", None) or "grok-build",
+                session_path=acceptance_session,
+                plan_path=getattr(args, "plan", None),
+                adapter=adapter_name,
                 model=getattr(args, "model", None) or "grok-4.5",
                 permission_mode=getattr(args, "permission_mode", None) or "auto",
                 effort=getattr(args, "effort", None) or "medium",
@@ -2029,6 +2052,19 @@ def build_parser() -> argparse.ArgumentParser:
     i_fr_prepare.add_argument("--start-head", required=True)
     i_fr_prepare.add_argument("--packet", required=True, help="Path to full-run packet")
     i_fr_prepare.add_argument(
+        "--session",
+        default=None,
+        help=(
+            "Canonical .elves-session.json; defaults to the repo-root file for "
+            "production and is validated before any worker state is created"
+        ),
+    )
+    i_fr_prepare.add_argument(
+        "--plan",
+        default=None,
+        help="Optional equality assertion against the session plan_path",
+    )
+    i_fr_prepare.add_argument(
         "--adapter",
         default="grok-build",
         help="grok-build (default) or fixture (explicit test mode only)",
@@ -2142,7 +2178,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_flags(i_rollback)
     i_rollback.add_argument("--run-id", required=True)
     i_rollback.add_argument("--session-id", required=True)
-    i_rollback.add_argument("--batch", type=int, required=True)
+    i_rollback.add_argument("--batch", type=_nonnegative_batch_arg, required=True)
     i_rollback.add_argument("--head", default=None)
     i_rollback.add_argument("--push", action="store_true")
     i_rollback.add_argument("--remote", default="origin")
@@ -2252,7 +2288,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     i_launch.add_argument(
         "--batch",
-        type=int,
+        type=_nonnegative_batch_arg,
         default=None,
         help="Optional batch number to record in state",
     )
@@ -2276,7 +2312,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run tests, record tip + counts under gates/batch-N.json",
     )
     _add_common_flags(i_gate)
-    i_gate.add_argument("--batch", type=int, required=True, help="Batch number")
+    i_gate.add_argument(
+        "--batch",
+        type=_nonnegative_batch_arg,
+        required=True,
+        help="Batch number (0/B0 and B1+ are equivalent)",
+    )
     i_gate.add_argument(
         "--focused",
         action="store_true",
@@ -2294,7 +2335,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print launch argv for next batch packet (same session)",
     )
     _add_common_flags(i_resume)
-    i_resume.add_argument("--batch", type=int, required=True, help="Next batch number")
+    i_resume.add_argument(
+        "--batch",
+        type=_nonnegative_batch_arg,
+        required=True,
+        help="Next batch number (0/B0 and B1+ are equivalent)",
+    )
     i_resume.add_argument(
         "--packet",
         required=True,

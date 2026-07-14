@@ -65,9 +65,20 @@ Example:
 >
 > **Stable identity (v2.1+):** give each batch a stable `B#` id, each batch criterion a stable
 > `B#-A#` id, and each branch-level Master Acceptance criterion a stable `M-A#` id. Never renumber
-> an existing id after staging; add a new id instead. Legacy plans remain readable: map `Batch 1`
+> an existing id after staging; add a new id instead. `B0` and `B1` are equally valid starts, and
+> canonical batch ids are `B0` or `B1` and above—Elves does not reserve or prefer either starting
+> convention, and leading-zero aliases are invalid.
+> Acceptance rows may use either `- [ ] B0-A1: criterion text` or
+> `- [ ] [B0-A1] criterion text`; the two spellings are equivalent, but defining the same id twice
+> is still an error. Legacy plans remain readable: map `Batch 1`
 > deterministically to `B1`, its nth criterion to `B1-An`, and the nth unlabelled master criterion
 > to `M-An`, recording those aliases during reconciliation before claiming completion.
+>
+> Before any worker launch, staging parses this authoritative plan, reports malformed acceptance
+> rows with a targeted replacement, and checks the session plus any worker packet against the
+> plan's id-to-criterion mapping. Run the installed `acceptance_contract.py validate` helper;
+> `sync-session --write` may explicitly derive pending session rows without overwriting evidence.
+> Missing, duplicate, or text-mismatched rows block launch.
 
 ### Batch 1 [B1]: [Name]
 
@@ -87,9 +98,9 @@ Example:
 - [ ] [Specific implementable task]
 
 **Acceptance criteria:**
-- [ ] [B1-A1] [Verifiable criterion. Should be checkable by running a command or reading a file.]
+- [ ] B1-A1: [Verifiable criterion. Should be checkable by running a command or reading a file.]
 - [ ] [B1-A2] [Verifiable criterion]
-- [ ] [B1-A3] [Verifiable criterion]
+- [ ] B1-A3: [Verifiable criterion]
 - [ ] [B1-A4] [If this batch changes existing behavior, include one criterion that proves old behavior still works]
 - [ ] [B1-A5] [If this batch splits a large/god file: include a measurable bar (LOC, facade boundary, module count) — structure/regex lock tests alone do not complete the batch unless you explicitly allow characterization-only here]
 
@@ -110,7 +121,8 @@ actions, canonical memory, final review, and merge stay host-owned. Forbid vague
 > `acceptance: [{id: "B1-A1", criterion, met, evidence}]`. Green tests without these stable-id proof
 > rows do not make the batch landable. The legacy schema shorthand
 > `acceptance: [{criterion, met, evidence}]` remains readable through deterministic stable-id alias
-> mapping; new plans must write the ids explicitly.
+> mapping; new plans must write the ids explicitly. The staged session criterion text and any
+> full-run packet criterion text must match the parsed plan row for that id before launch.
 
 ---
 

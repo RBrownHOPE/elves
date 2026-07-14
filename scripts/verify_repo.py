@@ -418,7 +418,7 @@ def check_landing(
     recorded_ok, recorded_plan, recorded_detail = _verified_repo_file(
         repo_root,
         Path(recorded_raw),
-        base=resolved_session.parent,
+        base=repo_root,
         label="plan",
     )
     if not recorded_ok or recorded_plan is None:

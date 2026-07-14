@@ -6,6 +6,12 @@
 - Template updates in `references/*` should reflect the same model as the skill files.
 - A release version bump is incomplete until the skill metadata, `AGENTS.md`, and
   `CHANGELOG.md` all agree.
+- Stable acceptance numbering is intentionally neutral: `B0` and `B1` are equally valid starts.
+  Canonical batch ids are `B0` or `B1` and above; leading-zero aliases are invalid. Bare
+  `- [ ] B0-A1: criterion` and bracketed `- [ ] [B0-A1] criterion` rows are equivalent; duplicate
+  ids are not. Before worker launch,
+  staging parses the authoritative plan and requires session plus packet id/text mappings to match
+  it, reporting targeted replacements for malformed rows.
 - Coordinator-to-implementer handoff packets must carry intent/why, non-obvious rationale,
   Build On targets, owned/forbidden surfaces, acceptance evidence, failure modes/pitfalls, and
   HEAD/run-doc/route-session/output identity. Pin drift with consistency phrases.
@@ -41,8 +47,8 @@
   `SKILL.md`, `AGENTS.md` (Codex), `config.json.example`, `references/`,
   `scripts/preflight.sh`, `scripts/preflight_worktree.py`, `scripts/notify.sh`,
   `scripts/install_doctor.py`, `scripts/validate_survival_guide.py`,
-  `scripts/elves_landing_check.py`, `scripts/cobbler_agents.py`, `scripts/openrouter_lens.py`, and
-  `scripts/workspace_guard.py` plus
+  `scripts/acceptance_contract.py`, `scripts/elves_landing_check.py`,
+  `scripts/cobbler_agents.py`, `scripts/openrouter_lens.py`, and `scripts/workspace_guard.py` plus
   `scripts/cobbler_runtime/` when those runtime modules exist.
   Repo-only maintenance helpers stay in the checkout.
 - Local `.elves/models.toml` is ignored checkout preference; track only

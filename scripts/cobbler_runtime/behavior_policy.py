@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping
 
 
-POLICY_VERSION = "2.1.0"
+POLICY_VERSION = "2.1.1"
 
 # Driver monitor wake conditions once a full-run is healthy.
 PARKED_MONITOR_WAKE_CONDITIONS: frozenset[str] = frozenset(

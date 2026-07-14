@@ -1066,9 +1066,13 @@ class DelegatedGitAndAcceptanceTests(unittest.TestCase):
     def test_rollback_refs_are_run_scoped_and_distinct(self) -> None:
         a = rollback_ref_name(run_id="run-1", session_id="sess-a", batch=1)
         b = rollback_ref_name(run_id="run-2", session_id="sess-a", batch=1)
+        staging = rollback_ref_name(run_id="run-1", session_id="sess-a", batch=0)
         self.assertNotEqual(a, b)
         self.assertIn("refs/elves/rollback/", a)
+        self.assertIn("/b0-", staging)
         self.assertNotEqual(a, "elves/pre-batch-1")
+        with self.assertRaises(ValidationIssue):
+            rollback_ref_name(run_id="run-1", session_id="sess-a", batch=-1)
 
     def test_create_rollback_ref_creates_local_ref_before_push(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1230,6 +1234,61 @@ class DelegatedGitAndAcceptanceTests(unittest.TestCase):
 
         with self.assertRaises(ValidationIssue):
             parse_plan_acceptance("no acceptance here")
+
+    def test_bare_and_bracketed_plan_acceptance_parse_identically(self) -> None:
+        bare = """
+### Batch 0: Staging
+**Acceptance criteria:**
+- [ ] B0-A1: Staging contract continues
+  across a wrapped line.
+## Master Acceptance
+- [ ] M-A1 — Master contract
+"""
+        bracketed = """
+### Batch 0: Staging
+**Acceptance criteria:**
+- [ ] [B0-A1] Staging contract continues
+  across a wrapped line.
+## Master Acceptance
+- [ ] [M-A1] Master contract
+"""
+        expected = [
+            {
+                "id": "B0-A1",
+                "criterion": "Staging contract continues across a wrapped line.",
+            },
+            {"id": "M-A1", "criterion": "Master contract"},
+        ]
+
+        self.assertEqual(parse_plan_acceptance(bare), expected)
+        self.assertEqual(parse_plan_acceptance(bracketed), expected)
+
+    def test_delegated_plan_parser_rejects_leading_zero_batch_heading(self) -> None:
+        plan = """
+### Batch 00: Ambiguous staging
+**Acceptance criteria:**
+- [ ] B0-A1: Staging contract
+## Master Acceptance
+- [ ] M-A1: Master contract
+"""
+
+        with self.assertRaises(ValidationIssue) as ctx:
+            parse_plan_acceptance(plan)
+        self.assertEqual(ctx.exception.code, "batch_id_invalid")
+
+    def test_delegated_plan_parser_prioritizes_actionable_row_syntax(self) -> None:
+        plan = """
+### Batch 0: Staging
+**Acceptance criteria:**
+- [ ] B0-A1 criterion missing its separator
+"""
+
+        with self.assertRaises(ValidationIssue) as ctx:
+            parse_plan_acceptance(plan)
+
+        self.assertEqual(ctx.exception.code, "acceptance_row_syntax")
+        self.assertIn("- [ ] B0-A1: <criterion>", ctx.exception.message)
+        self.assertIn("- [ ] [B0-A1] <criterion>", ctx.exception.message)
 
     def test_bare_remote_feature_branch_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

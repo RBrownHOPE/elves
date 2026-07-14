@@ -43,17 +43,26 @@
 - PR review automation only becomes useful once the branch is pushed and the PR exists. Opening the
   PR late starves the review loop.
 - This repo has no package-managed lint/typecheck/build pipeline. Use
-  `python3 scripts/verify_repo.py --version 2.1.0` as the canonical aggregate proof command, plus
+  `python3 scripts/verify_repo.py --version 2.1.1` as the canonical aggregate proof command, plus
   `--final-readiness --session <session-path>` for live landing readiness.
 - Provider wording drifts easily. Normal Cobbler and ordinary Elves must not require OpenRouter.
   Math may show `openrouter:<model-id>` as an optional role route, but default config should keep
   `math-required-env: []` unless a project survival guide explicitly opts in.
 - `status: complete` in `.elves-session.json` is self-certified unless paired with per-batch
   `acceptance: [{id: "B#-A#", criterion, met, evidence}]`. New plans use stable `B#`, `B#-A#`,
-  and branch-level `M-A#` ids; legacy rows receive deterministic document-order aliases. Green CI
+  and branch-level `M-A#` ids. `B0` and `B1` are equally valid starts; do not reserve or prefer
+  either. Bare `- [ ] B0-A1: criterion` and bracketed `- [ ] [B0-A1] criterion` rows are equivalent.
+  Legacy rows receive deterministic document-order aliases. Green CI
   plus complete flags is not landable; plan
   Acceptance with proof is. Less-disciplined models especially tend to close god-file / split
   batches on structure or regex lock tests alone.
+- Acceptance drift should fail in staging, not after an unattended worker finishes. Parse the
+  authoritative plan before launch, emit a targeted replacement for malformed stable-id rows, and
+  require the session and packet id-to-criterion mappings—and the plan/session batch sets—to match
+  it. Missing, extra, duplicate, or text-mismatched rows or batches are launch blockers. Explicit
+  empty legacy or stable Acceptance sections also fail early. Use installed
+  `acceptance_contract.py validate`; its `sync-session --write` action is explicit and refuses to
+  erase or rewrite evidenced rows.
 - Multi-batch "close remaining" commits can make unfinished work look shippable. Prefer one batch
   per close commit; otherwise require separate Validate sections per batch id and run
   `scripts/elves_landing_check.py` before Final Readiness.

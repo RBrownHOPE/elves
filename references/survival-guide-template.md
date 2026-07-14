@@ -81,8 +81,17 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
   unchanged healthy polls silent | interactive]
 - **Driver poll policy:** [host wait primitive | half stale window, bounded 60–300s | interactive]
 - **Driver review policy:** [final independent review only | per-batch]
-- **Stable plan IDs:** [batches `B#`; batch acceptance `B#-A#`; Master Acceptance `M-A#`; legacy
-  aliases mapped deterministically by document order and never renumbered]
+- **Stable plan IDs:** [batches `B#`; `B0` and `B1` are equally valid starts with no preferred
+  convention; batch acceptance `B#-A#`; Master Acceptance `M-A#`; legacy aliases mapped
+  deterministically by document order and never renumbered]
+- **Acceptance row syntax:** [bare `- [ ] B0-A1: criterion` and bracketed
+  `- [ ] [B0-A1] criterion` are equivalent; duplicate ids remain invalid]
+- **Batch helper syntax:** [`--batch 0` and `--batch B0` are equivalent; negatives and leading-zero
+  aliases are invalid]
+- **Staging acceptance validation:** [PASS — plan parsed; session and packet id/text mappings match |
+  BLOCKED — targeted syntax or mismatch diagnostic]
+- **Staging acceptance command:** [`python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py"
+  validate --repo-root . --session <session-path>`; optional explicit `sync-session --write`]
 - **High-risk checkpoints:** [list or none]
 - **GitHub push auth route:** [host `gh` projection | named GH_TOKEN | named GITHUB_TOKEN | local/file remote | n/a]
 - **Re-drive budget:** [N external worker re-drives | n/a]
@@ -294,7 +303,7 @@ If not applicable, write: **No active paid or long-running compute.**
 - [Task 3]
 
 **Acceptance criteria:**
-- [ ] [B#-A1] [Criterion 1]
+- [ ] B#-A1: [Criterion 1]
 - [ ] [B#-A2] [Criterion 2]
 
 **Risk:** [One sentence describing the highest-risk aspect of this batch]
@@ -402,8 +411,15 @@ Before marking any batch complete, verify all of the following:
 **Policy:** Green CI + `status: complete` is not landable. Landable is plan Acceptance with proof.
 
 Stable ids are required for new plans: batch `B#`, batch acceptance `B#-A#`, and branch-level
-Master Acceptance `M-A#`. Legacy numeric/unlabelled plans remain compatible by deterministic
-document-order aliases recorded before completion; never renumber an established alias.
+Master Acceptance `M-A#`. `B0` and `B1` are equally valid starts, with no Elves preference. Bare
+`- [ ] B0-A1: criterion` and bracketed `- [ ] [B0-A1] criterion` rows are equivalent. Legacy
+numeric/unlabelled plans remain compatible by deterministic document-order aliases recorded before
+completion; never renumber an established alias. Before worker launch, staging must parse the plan
+and require session and packet criteria to match it by id and text, with targeted diagnostics for
+bad syntax or mismatches.
+
+- [ ] Staging acceptance validation passed before any worker launch (plan syntax parsed; session
+      and packet id/text mappings match)
 
 - [ ] All configured validation gates pass (lint, typecheck, build, test)
 - [ ] Plan Acceptance criteria for this batch are met with `B#-A#` evidence (not only "tests green")

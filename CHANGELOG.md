@@ -4,6 +4,24 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-07-13
+
+### Acceptance contract compatibility and staging diagnostics
+
+- Treat `B0` and `B1` as equally valid batch-numbering starts, without reserving or preferring
+  either convention; batch-taking helpers normalize equivalent integer and stable-id forms.
+- Accept bare `- [ ] B0-A1: criterion` and bracketed `- [ ] [B0-A1] criterion` stable-id rows as
+  equivalent plan syntax, with targeted diagnostics for malformed rows.
+- Validate plan, session, and full-run packet acceptance mappings during staging so missing,
+  duplicate, unrelated, or text-mismatched criteria—and missing or extra session batches—block
+  before worker launch rather than failing late; `acceptance_contract.py` provides read-only
+  validation plus explicit proof-preserving session sync.
+- Require production full-run state to bind the canonical plan/session contract to the exact packet
+  and revalidate it before launch or reconciliation; legacy unbound production state fails closed.
+- Reject ambiguous/oversized batch IDs, duplicate session JSON keys, explicit empty legacy or stable
+  Batch/Master Acceptance sections, and malformed proof containers without erasing existing
+  evidence. Final evidence remains a separate `elves_landing_check.py` gate after staging validation.
+
 ## [2.1.0] - 2026-07-13
 
 ### Trusted full-run delegation (major stabilization)

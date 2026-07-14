@@ -37,10 +37,16 @@ User chat (intent, constraints, non-negotiables)
     ├─ optional multi-planner panel (Cobbler / OpenRouter / Gemini / …)
     │     re-chat if intent still fuzzy
     ▼
-Host materializes plan + survival guide + learnings + execution log
+Host materializes plan + survival guide + learnings + execution log + session scaffold
     │
     ▼
-Stage: branch, PR, preflight, Cobbler session state, Stop Gate, merge policy
+Stage: branch, PR, Cobbler session state, Stop Gate, merge policy
+    │
+    ▼
+Acceptance staging: derive/validate session rows from the plan; bind the exact worker packet
+    │
+    ▼
+Preflight and launch-ready checks
     │
     ├─ optional: /goal (Codex) or host continuation harness (Claude Code)
     ▼
@@ -162,6 +168,11 @@ Copy-paste prompts: [`kickoff-prompt-template.md`](kickoff-prompt-template.md) s
 ## Implemented v2.1 contract
 
 - Survival-guide Run Control records E2E mode, delegation/Git/monitor policy, and re-drive budget.
+- Before any worker launch, `acceptance_contract.py sync-session`/`validate` reconciles exact
+  plan/session criterion text and exact normalized Batch sets. Trusted full-run prepare receives
+  the canonical `--session` (or the repo-root `.elves-session.json`) and immutably binds that
+  plan/session mapping to the packet;
+  use the exact recipe in [`grok-implementer-launch-prompt.md`](grok-implementer-launch-prompt.md).
 - Legacy `implement gate` and the trusted full-run supervisor validate acceptance/report evidence.
 - Trusted full-run uses one packet/session, `branch_progress`, bounded events/report, a parked host,
   and cumulative terminal review; legacy bounded re-drive remains available after an actual return.

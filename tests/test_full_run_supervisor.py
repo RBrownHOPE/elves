@@ -366,9 +366,92 @@ def _attach_origin(repo: Path, remote: Path, branch: str) -> None:
 
 def _write_production_packet(path: Path, *acceptance_ids: str) -> None:
     ids = acceptance_ids or ("B1-A1",)
+    if not any(item.startswith("M-A") for item in ids):
+        ids = (*ids, "M-A1")
     rows = ["# Production packet", "", "## Acceptance"]
     rows.extend(f"- {item} — criterion for {item}" for item in ids)
     path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+def _write_production_acceptance_contract(repo: Path, packet: Path) -> Path:
+    rows = full_run_module._staged_acceptance_criteria(packet)
+    batches: dict[int, list[tuple[str, str]]] = {}
+    master: list[tuple[str, str]] = []
+    for acceptance_id, criterion in rows:
+        if acceptance_id.startswith("B"):
+            batch = int(acceptance_id[1:].split("-", 1)[0])
+            batches.setdefault(batch, []).append((acceptance_id, criterion))
+        else:
+            master.append((acceptance_id, criterion))
+
+    contract_root = repo / ".elves" / "test-acceptance"
+    contract_root.mkdir(parents=True, exist_ok=True)
+    plan = contract_root / "plan.md"
+    plan_lines = ["# Production full-run test plan", ""]
+    for number, batch_rows in sorted(batches.items()):
+        plan_lines.extend(
+            [
+                f"## Batch {number}: Production test",
+                "",
+                "**Acceptance criteria:**",
+                "",
+                *[
+                    f"- [ ] {acceptance_id}: {criterion}"
+                    for acceptance_id, criterion in batch_rows
+                ],
+                "",
+            ]
+        )
+    plan_lines.extend(
+        [
+            "## Master Acceptance",
+            "",
+            *[
+                f"- [ ] {acceptance_id}: {criterion}"
+                for acceptance_id, criterion in master
+            ],
+        ]
+    )
+    plan.write_text("\n".join(plan_lines) + "\n", encoding="utf-8")
+
+    session = contract_root / "session.json"
+    session.write_text(
+        json.dumps(
+            {
+                "plan_path": ".elves/test-acceptance/plan.md",
+                "batches": [
+                    {
+                        "id": f"B{number}",
+                        "status": "pending",
+                        "acceptance": [
+                            {
+                                "id": acceptance_id,
+                                "criterion": criterion,
+                                "met": False,
+                                "evidence": "",
+                            }
+                            for acceptance_id, criterion in batch_rows
+                        ],
+                    }
+                    for number, batch_rows in sorted(batches.items())
+                ],
+                "master_acceptance": [
+                    {
+                        "id": acceptance_id,
+                        "criterion": criterion,
+                        "met": False,
+                        "evidence": "",
+                    }
+                    for acceptance_id, criterion in master
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return session
 
 
 class BehaviorPolicyCompositionTests(unittest.TestCase):
@@ -860,17 +943,19 @@ class FullRunGrokArgvTests(unittest.TestCase):
             markdown = root / "packet.md"
             markdown.write_text(
                 "B1-A9 is only an inline reference.\n"
+                "- [ ] [B0-A1] bracketed staging criterion\n"
                 "- [ ] B1-A1 — first observable criterion\n"
                 "* M-A2: second observable criterion\n",
                 encoding="utf-8",
             )
             self.assertEqual(
                 full_run_module._staged_acceptance_ids(markdown),
-                ["B1-A1", "M-A2"],
+                ["B0-A1", "B1-A1", "M-A2"],
             )
             self.assertEqual(
                 full_run_module._staged_acceptance_criteria(markdown),
                 [
+                    ("B0-A1", "bracketed staging criterion"),
                     ("B1-A1", "first observable criterion"),
                     ("M-A2", "second observable criterion"),
                 ],
@@ -901,6 +986,230 @@ class FullRunGrokArgvTests(unittest.TestCase):
             inline_only = root / "inline.md"
             inline_only.write_text("Report B3-A1 when complete.\n", encoding="utf-8")
             self.assertEqual(full_run_module._staged_acceptance_ids(inline_only), [])
+
+    def test_acceptance_parser_reports_actionable_malformed_stable_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "packet.md"
+            packet.write_text(
+                "- [ ] B0-A1 criterion missing its separator\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                full_run_module._staged_acceptance_criteria(packet)
+
+            self.assertEqual(ctx.exception.code, "full_run_acceptance_syntax")
+            diagnostic = f"{ctx.exception.message} {ctx.exception.hint or ''}"
+            self.assertIn("- [ ] B0-A1: <criterion>", diagnostic)
+            self.assertIn("- [ ] [B0-A1] <criterion>", diagnostic)
+
+    def test_prepare_rejects_plan_session_packet_drift_before_runtime_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            head = _init_feature_repo(repo)
+            plan = repo / "plan.md"
+            plan.write_text(
+                "### Batch 0: Staging\n\n**Acceptance criteria:**\n"
+                "- [ ] [B0-A1] Canonical staging criterion\n\n"
+                "## Master Acceptance\n\n- [ ] M-A1: Canonical master criterion\n",
+                encoding="utf-8",
+            )
+            session_path = repo / ".elves-session.json"
+            session_path.write_text(
+                json.dumps(
+                    {
+                        "plan_path": "plan.md",
+                        "batches": [
+                            {
+                                "id": "B0",
+                                "status": "pending",
+                                "acceptance": [
+                                    {
+                                        "id": "B0-A1",
+                                        "criterion": "Copied text drifted",
+                                        "met": False,
+                                        "evidence": "",
+                                    }
+                                ],
+                            }
+                        ],
+                        "master_acceptance": [
+                            {
+                                "id": "M-A1",
+                                "criterion": "Canonical master criterion",
+                                "met": False,
+                                "evidence": "",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            packet = repo / "packet.md"
+            packet.write_text(
+                "- [ ] B0-A1: Canonical staging criterion\n"
+                "- [ ] [M-A1] Canonical master criterion\n",
+                encoding="utf-8",
+            )
+            worker = root / "worker.py"
+            worker.write_text("print('must not run')\n", encoding="utf-8")
+            session_id = "acceptance-drift-before-state"
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                prepare_full_run(
+                    repo,
+                    session_id=session_id,
+                    branch="feat/x",
+                    start_head=head,
+                    worktree=repo,
+                    packet_path=packet,
+                    session_path=session_path,
+                    adapter="fixture",
+                    fixture_script=worker,
+                )
+
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_acceptance_contract_mismatch",
+            )
+            self.assertIn("B0-A1", ctx.exception.message)
+            self.assertFalse((full_run_root(repo, session_id) / "state.json").exists())
+
+    def test_prepare_prioritizes_actionable_plan_row_syntax_before_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            head = _init_feature_repo(repo)
+            plan = repo / "plan.md"
+            plan.write_text(
+                "### Batch 0: Staging\n\n**Acceptance criteria:**\n"
+                "- [ ] B0-A1 criterion missing its separator\n",
+                encoding="utf-8",
+            )
+            session_path = repo / ".elves-session.json"
+            session_path.write_text(
+                json.dumps(
+                    {
+                        "plan_path": "plan.md",
+                        "batches": [
+                            {
+                                "id": "B0",
+                                "status": "pending",
+                                "acceptance": [],
+                            }
+                        ],
+                        "master_acceptance": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            packet = repo / "packet.md"
+            packet.write_text(
+                "- [ ] B0-A1: criterion missing its separator\n"
+                "- [ ] M-A1: Master criterion\n",
+                encoding="utf-8",
+            )
+            worker = root / "worker.py"
+            worker.write_text("print('must not run')\n", encoding="utf-8")
+            session_id = "acceptance-syntax-before-state"
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                prepare_full_run(
+                    repo,
+                    session_id=session_id,
+                    branch="feat/x",
+                    start_head=head,
+                    worktree=repo,
+                    packet_path=packet,
+                    session_path=session_path,
+                    adapter="fixture",
+                    fixture_script=worker,
+                )
+
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_acceptance_contract_invalid",
+            )
+            diagnostic = f"{ctx.exception.message} {ctx.exception.hint or ''}"
+            self.assertIn("- [ ] B0-A1: <criterion>", diagnostic)
+            self.assertIn("- [ ] [B0-A1] <criterion>", diagnostic)
+            self.assertFalse((full_run_root(repo, session_id) / "state.json").exists())
+
+    def test_launch_revalidates_bound_plan_session_packet_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            head = _init_feature_repo(repo)
+            plan = repo / "plan.md"
+            plan.write_text(
+                "### Batch 0: Staging\n\n**Acceptance criteria:**\n"
+                "- [ ] [B0-A1] Canonical staging criterion\n\n"
+                "## Master Acceptance\n\n- [ ] M-A1: Canonical master criterion\n",
+                encoding="utf-8",
+            )
+            session_path = repo / ".elves-session.json"
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": "B0",
+                        "status": "pending",
+                        "acceptance": [
+                            {
+                                "id": "B0-A1",
+                                "criterion": "Canonical staging criterion",
+                                "met": False,
+                                "evidence": "",
+                            }
+                        ],
+                    }
+                ],
+                "master_acceptance": [
+                    {
+                        "id": "M-A1",
+                        "criterion": "Canonical master criterion",
+                        "met": False,
+                        "evidence": "",
+                    }
+                ],
+            }
+            session_path.write_text(json.dumps(session), encoding="utf-8")
+            packet = repo / "packet.md"
+            packet.write_text(
+                "- [ ] B0-A1: Canonical staging criterion\n"
+                "- [ ] [M-A1] Canonical master criterion\n",
+                encoding="utf-8",
+            )
+            worker = root / "worker.py"
+            worker.write_text("print('must not run')\n", encoding="utf-8")
+            session_id = "acceptance-drift-before-launch"
+            prepare_full_run(
+                repo,
+                session_id=session_id,
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                session_path=session_path,
+                adapter="fixture",
+                fixture_script=worker,
+            )
+            session["batches"][0]["acceptance"][0]["criterion"] = "Later drift"
+            session_path.write_text(json.dumps(session), encoding="utf-8")
+
+            with mock.patch("cobbler_runtime.full_run.subprocess.Popen") as popen:
+                with self.assertRaises(ValidationIssue) as ctx:
+                    launch_full_run(repo, session_id=session_id)
+
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_acceptance_contract_mismatch",
+            )
+            popen.assert_not_called()
 
     def test_prepare_binds_private_packet_copy_and_launch_rejects_source_or_copy_drift(
         self,
@@ -1096,7 +1405,8 @@ class FullRunGrokArgvTests(unittest.TestCase):
                         json.dumps(
                             {
                                 "acceptance": [
-                                    {"id": "B1-A1", "criterion": "exact criterion"}
+                                    {"id": "B1-A1", "criterion": "exact criterion"},
+                                    {"id": "M-A1", "criterion": "master criterion"},
                                 ]
                             }
                         ),
@@ -1104,7 +1414,8 @@ class FullRunGrokArgvTests(unittest.TestCase):
                     )
                 else:
                     packet.write_text(
-                        "- B1-A1 — exact criterion\n",
+                        "- B1-A1 — exact criterion\n"
+                        "- [M-A1] master criterion\n",
                         encoding="utf-8",
                     )
                 session = f"criterion-binding-{packet_format}"
@@ -1115,6 +1426,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                     start_head=head,
                     worktree=repo,
                     packet_path=packet,
+                    session_path=_write_production_acceptance_contract(repo, packet),
                     adapter="grok-build",
                     executable="grok",
                 )
@@ -1136,7 +1448,13 @@ class FullRunGrokArgvTests(unittest.TestCase):
                             "criterion": "altered criterion",
                             "met": True,
                             "evidence": head,
-                        }
+                        },
+                        {
+                            "id": "M-A1",
+                            "criterion": "master criterion",
+                            "met": True,
+                            "evidence": head,
+                        },
                     ],
                     "commits": [head],
                 }
@@ -1188,6 +1506,51 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertEqual(ctx.exception.code, "full_run_packet_binding_missing")
             popen.assert_not_called()
 
+    def test_legacy_production_state_without_acceptance_binding_fails_closed(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = root / "packet.md"
+            _write_production_packet(packet)
+            head = _init_feature_repo(repo)
+            _attach_origin(repo, root / "origin.git", "feat/x")
+            session = "legacy-production-acceptance-binding"
+            prepare_full_run(
+                repo,
+                session_id=session,
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                session_path=_write_production_acceptance_contract(repo, packet),
+                adapter="grok-build",
+                executable="grok",
+            )
+            state_path = full_run_root(repo, session) / "state.json"
+            legacy = json.loads(state_path.read_text(encoding="utf-8"))
+            for key in (
+                "acceptance_plan_path",
+                "acceptance_plan_sha256",
+                "acceptance_session_path",
+                "acceptance_session_sha256",
+                "acceptance_contract_sha256",
+            ):
+                legacy.pop(key, None)
+            state_path.write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+
+            self.assertEqual(load_state(repo, session).session_id, session)
+            with mock.patch("cobbler_runtime.full_run.subprocess.Popen") as popen:
+                with self.assertRaises(ValidationIssue) as ctx:
+                    launch_full_run(repo, session_id=session)
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_acceptance_contract_binding_missing",
+            )
+            popen.assert_not_called()
+
     def test_acceptance_packet_reader_rejects_unsafe_or_oversized_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1209,6 +1572,37 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 with self.assertRaises(ValidationIssue):
                     full_run_module._staged_acceptance_ids(fifo)
 
+    def test_acceptance_packet_ignores_narrative_bullet_id_references(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "packet.md"
+            packet.write_text(
+                "- [B0-A1] Exact staging criterion.\n"
+                "- The worker must report B0-A1 unchanged in final JSON.\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                full_run_module._staged_acceptance_criteria(packet),
+                [("B0-A1", "Exact staging criterion.")],
+            )
+
+    def test_acceptance_json_packet_rejects_deep_structure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "packet.json"
+            depth = full_run_module.MAX_JSON_DEPTH + 2
+            packet.write_text(
+                '{"acceptance":[],"nested":'
+                + "[" * depth
+                + "null"
+                + "]" * depth
+                + "}\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                full_run_module._staged_acceptance_criteria(packet)
+            self.assertEqual(ctx.exception.code, "full_run_packet_invalid_json")
+
     def test_production_rejects_missing_and_duplicate_acceptance_definitions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1219,7 +1613,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
             cases = (
                 (
                     "missing",
-                    "B1-A1 appears only inline and is not a definition.\n",
+                    "- The worker must report B1-A1 unchanged in final JSON.\n",
                     "full_run_acceptance_ids_required",
                 ),
                 (
@@ -1245,6 +1639,117 @@ class FullRunGrokArgvTests(unittest.TestCase):
                         )
                     self.assertEqual(ctx.exception.code, expected_code)
 
+    def test_production_prepare_requires_canonical_session_in_core(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = root / "packet.md"
+            _write_production_packet(packet)
+            head = _init_feature_repo(repo)
+            _attach_origin(repo, root / "origin.git", "feat/x")
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                prepare_full_run(
+                    repo,
+                    session_id="production-session-required",
+                    branch="feat/x",
+                    start_head=head,
+                    worktree=repo,
+                    packet_path=packet,
+                    adapter="grok-build",
+                    executable="grok",
+                )
+
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_acceptance_session_required",
+            )
+            self.assertFalse(
+                (
+                    full_run_root(repo, "production-session-required")
+                    / "state.json"
+                ).exists()
+            )
+
+    def test_production_prepare_rejects_deep_session_before_state_creation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = root / "packet.md"
+            _write_production_packet(packet)
+            head = _init_feature_repo(repo)
+            _attach_origin(repo, root / "origin.git", "feat/x")
+            session_path = _write_production_acceptance_contract(repo, packet)
+            depth = full_run_module.MAX_JSON_DEPTH + 2
+            session_path.write_text(
+                '{"plan_path":"plan.md","batches":[],"master_acceptance":[],'
+                '"nested":'
+                + "[" * depth
+                + "null"
+                + "]" * depth
+                + "}\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                prepare_full_run(
+                    repo,
+                    session_id="production-deep-session",
+                    branch="feat/x",
+                    start_head=head,
+                    worktree=repo,
+                    packet_path=packet,
+                    session_path=session_path,
+                    adapter="grok-build",
+                    executable="grok",
+                )
+
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_acceptance_session_invalid",
+            )
+            self.assertFalse(
+                (full_run_root(repo, "production-deep-session") / "state.json").exists()
+            )
+
+    def test_production_prepare_rejects_master_only_acceptance_contract(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = root / "packet.md"
+            _write_production_packet(packet, "M-A1")
+            head = _init_feature_repo(repo)
+            _attach_origin(repo, root / "origin.git", "feat/x")
+            session_path = _write_production_acceptance_contract(repo, packet)
+
+            with self.assertRaises(ValidationIssue) as ctx:
+                prepare_full_run(
+                    repo,
+                    session_id="production-master-only",
+                    branch="feat/x",
+                    start_head=head,
+                    worktree=repo,
+                    packet_path=packet,
+                    session_path=session_path,
+                    adapter="grok-build",
+                    executable="grok",
+                )
+
+            self.assertEqual(
+                ctx.exception.code,
+                "full_run_acceptance_contract_invalid",
+            )
+            self.assertFalse(
+                (full_run_root(repo, "production-master-only") / "state.json").exists()
+            )
+
     def test_production_requires_origin_and_clean_bound_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1261,6 +1766,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                     start_head=head,
                     worktree=repo,
                     packet_path=packet,
+                    session_path=_write_production_acceptance_contract(repo, packet),
                     adapter="grok-build",
                     executable="grok",
                 )
@@ -1283,6 +1789,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                     start_head=head,
                     worktree=repo,
                     packet_path=packet,
+                    session_path=_write_production_acceptance_contract(repo, packet),
                     adapter="grok-build",
                     executable="grok",
                 )
@@ -1305,6 +1812,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                     start_head=head,
                     worktree=repo,
                     packet_path=packet,
+                    session_path=_write_production_acceptance_contract(repo, packet),
                     adapter="grok-build",
                     executable="grok",
                 )
@@ -1340,6 +1848,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 start_head=start_head,
                 worktree=worktree,
                 packet_path=packet,
+                session_path=_write_production_acceptance_contract(repo, packet),
                 adapter="grok-build",
                 model="grok-4.5",
                 permission_mode="auto",
@@ -1390,6 +1899,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 start_head=head,
                 worktree=repo,
                 packet_path=packet,
+                session_path=_write_production_acceptance_contract(repo, packet),
                 adapter="grok-build",
                 executable=sys.executable,
             )
@@ -1428,6 +1938,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 start_head=head,
                 worktree=repo,
                 packet_path=packet,
+                session_path=_write_production_acceptance_contract(repo, packet),
                 adapter="grok-build",
                 executable=str(native_grok),
             )
@@ -1484,6 +1995,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                     start_head=head,
                     worktree=repo,
                     packet_path=packet,
+                    session_path=_write_production_acceptance_contract(repo, packet),
                     adapter="grok-build",
                     executable=str(native_grok),
                 )
@@ -1569,6 +2081,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 start_head=head,
                 worktree=repo,
                 packet_path=packet,
+                session_path=_write_production_acceptance_contract(repo, packet),
                 adapter="grok-build",
                 executable=str(grok),
             )
@@ -3298,6 +3811,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 start_head=head,
                 worktree=repo,
                 packet_path=packet,
+                session_path=_write_production_acceptance_contract(repo, packet),
                 adapter="grok-build",
                 executable="grok",
             )
@@ -3377,7 +3891,13 @@ class FullRunGrokArgvTests(unittest.TestCase):
                         "criterion": "criterion for B1-A1",
                         "met": True,
                         "evidence": old_secret,
-                    }
+                    },
+                    {
+                        "id": "M-A1",
+                        "criterion": "criterion for M-A1",
+                        "met": True,
+                        "evidence": old_secret,
+                    },
                 ],
                 "commits": [{"sha": tip, "subject": old_secret}],
                 "blockers": [],
@@ -3511,8 +4031,12 @@ class FullRunLifecycleTests(unittest.TestCase):
         os.system(f"git -C {self.repo} init -q")
         os.system(f"git -C {self.repo} config user.email t@t")
         os.system(f"git -C {self.repo} config user.name t")
+        (self.repo / ".gitignore").write_text(".elves/\n", encoding="utf-8")
         (self.repo / "f.txt").write_text("1\n")
-        os.system(f"git -C {self.repo} add f.txt && git -C {self.repo} commit -q -m init")
+        os.system(
+            f"git -C {self.repo} add .gitignore f.txt && "
+            f"git -C {self.repo} commit -q -m init"
+        )
         os.system(f"git -C {self.repo} checkout -q -b {self.branch}")
         self.start_head = subprocess.run(
             ["git", "-C", str(self.repo), "rev-parse", "HEAD"],
@@ -4135,6 +4659,9 @@ class FullRunLifecycleTests(unittest.TestCase):
             start_head=self.start_head,
             worktree=self.repo,
             packet_path=self.packet,
+            session_path=_write_production_acceptance_contract(
+                self.repo, self.packet
+            ),
             adapter="grok-build",
             executable=str(grok),
         )
@@ -4565,6 +5092,9 @@ class FullRunLifecycleTests(unittest.TestCase):
             start_head=self.start_head,
             worktree=self.repo,
             packet_path=self.packet,
+            session_path=_write_production_acceptance_contract(
+                self.repo, self.packet
+            ),
             adapter="grok-build",
             executable="grok",
         )
@@ -4601,7 +5131,13 @@ class FullRunLifecycleTests(unittest.TestCase):
                         "criterion": "criterion for B1-A1",
                         "met": True,
                         "evidence": tip,
-                    }
+                    },
+                    {
+                        "id": "M-A1",
+                        "criterion": "criterion for M-A1",
+                        "met": True,
+                        "evidence": tip,
+                    },
                 ],
                 "commits": [tip],
             },
@@ -4623,6 +5159,9 @@ class FullRunLifecycleTests(unittest.TestCase):
             start_head=self.start_head,
             worktree=self.repo,
             packet_path=self.packet,
+            session_path=_write_production_acceptance_contract(
+                self.repo, self.packet
+            ),
             adapter="grok-build",
             executable="grok",
         )
@@ -4661,7 +5200,13 @@ class FullRunLifecycleTests(unittest.TestCase):
                         "criterion": "criterion for B1-A1",
                         "met": True,
                         "evidence": tip,
-                    }
+                    },
+                    {
+                        "id": "M-A1",
+                        "criterion": "criterion for M-A1",
+                        "met": True,
+                        "evidence": tip,
+                    },
                 ],
                 "commits": [tip],
             },
@@ -4706,6 +5251,9 @@ class FullRunLifecycleTests(unittest.TestCase):
             start_head=self.start_head,
             worktree=self.repo,
             packet_path=self.packet,
+            session_path=_write_production_acceptance_contract(
+                self.repo, self.packet
+            ),
             adapter="grok-build",
             executable="grok",
         )
@@ -4745,7 +5293,7 @@ class FullRunLifecycleTests(unittest.TestCase):
                         "met": True,
                         "evidence": tip,
                     }
-                    for acceptance_id in ("B1-A1", "B1-A2")
+                    for acceptance_id in ("B1-A1", "B1-A2", "M-A1")
                 ],
                 # Exact SHA shape, but intentionally not the start..final chain.
                 "commits": [self.start_head],

@@ -44,6 +44,7 @@ REQUIRED_TOP_LEVEL_RUNTIME_PATHS = (
     "scripts/notify.sh",
     "scripts/install_doctor.py",
     "scripts/validate_survival_guide.py",
+    "scripts/acceptance_contract.py",
     "scripts/elves_landing_check.py",
     "scripts/cobbler_agents.py",
     "scripts/openrouter_lens.py",
@@ -94,6 +95,7 @@ SMOKE_COMMANDS: list[tuple[str, list[str]]] = [
 ]
 
 RUNTIME_HELP_COMMANDS = (
+    ("acceptance-contract-help", "scripts/acceptance_contract.py", ["--help"]),
     ("landing-check-help", "scripts/elves_landing_check.py", ["--help"]),
     ("openrouter-help", "scripts/openrouter_lens.py", ["--help"]),
     ("workspace-guard-help", "scripts/workspace_guard.py", ["--help"]),
@@ -380,6 +382,7 @@ def smoke_host(
         agents = bundle_root / "scripts" / "cobbler_agents.py"
         openrouter = bundle_root / "scripts" / "openrouter_lens.py"
         workspace_guard = bundle_root / "scripts" / "workspace_guard.py"
+        acceptance_contract = bundle_root / "scripts" / "acceptance_contract.py"
         landing_check = bundle_root / "scripts" / "elves_landing_check.py"
         package = bundle_root / "scripts" / "cobbler_runtime"
         missing_runtime_paths = [
@@ -519,6 +522,7 @@ def smoke_host(
 
             # Required standalone helpers must start without credentials/model calls.
             helper_paths = {
+                "scripts/acceptance_contract.py": acceptance_contract,
                 "scripts/elves_landing_check.py": landing_check,
                 "scripts/openrouter_lens.py": openrouter,
                 "scripts/workspace_guard.py": workspace_guard,

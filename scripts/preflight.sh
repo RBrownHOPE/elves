@@ -608,15 +608,56 @@ fi
 # ---------------------------------------------------------------------------
 header "Plan File"
 
+SESSION_CONTRACT_PATH="${ELVES_SESSION_PATH:-}"
+if [ -z "${SESSION_CONTRACT_PATH}" ] && [ -f ".elves-session.json" ]; then
+  SESSION_CONTRACT_PATH=".elves-session.json"
+fi
+
+PLAN_CONTRACT_READY=1
 if [ -z "${ELVES_PLAN_PATH:-}" ]; then
-  info "ELVES_PLAN_PATH not set — will need to specify plan path at session start"
-else
-  if [ -f "${ELVES_PLAN_PATH}" ]; then
-    PLAN_LINES=$(wc -l < "${ELVES_PLAN_PATH}" 2>/dev/null || echo "?")
-    pass "Plan file found: ${ELVES_PLAN_PATH} (${PLAN_LINES} lines)"
+  if [ -z "${SESSION_CONTRACT_PATH}" ]; then
+    info "ELVES_PLAN_PATH not set — will need to specify plan path at session start"
   else
-    fail "Plan file not found: ${ELVES_PLAN_PATH}"
-    info "Create the file or update ELVES_PLAN_PATH"
+    info "Using plan_path recorded in ${SESSION_CONTRACT_PATH}"
+  fi
+elif [ -f "${ELVES_PLAN_PATH}" ]; then
+  PLAN_LINES=$(wc -l < "${ELVES_PLAN_PATH}" 2>/dev/null || echo "?")
+  pass "Plan file found: ${ELVES_PLAN_PATH} (${PLAN_LINES} lines)"
+else
+  fail "Plan file not found: ${ELVES_PLAN_PATH}"
+  info "Create the file or update ELVES_PLAN_PATH"
+  PLAN_CONTRACT_READY=0
+fi
+
+if [ -n "${SESSION_CONTRACT_PATH}" ] && [ ! -f "${SESSION_CONTRACT_PATH}" ]; then
+  fail "Session file not found: ${SESSION_CONTRACT_PATH}"
+  info "Create the file or update ELVES_SESSION_PATH"
+  PLAN_CONTRACT_READY=0
+fi
+
+if [ "${PLAN_CONTRACT_READY}" -eq 1 ] && \
+   { [ -n "${ELVES_PLAN_PATH:-}" ] || [ -n "${SESSION_CONTRACT_PATH}" ]; }; then
+  if ! command -v python3 &>/dev/null || [ ! -f "${SCRIPT_DIR}/acceptance_contract.py" ]; then
+    fail "Acceptance staging validator unavailable"
+  else
+    ACCEPTANCE_LOG=$(mktemp "${TMPDIR:-/tmp}/elves-preflight-acceptance.XXXXXX")
+    ACCEPTANCE_ARGS=(validate --repo-root "${PWD}")
+    if [ -n "${SESSION_CONTRACT_PATH}" ]; then
+      ACCEPTANCE_ARGS+=(--session "${SESSION_CONTRACT_PATH}")
+    fi
+    if [ -n "${ELVES_PLAN_PATH:-}" ]; then
+      ACCEPTANCE_ARGS+=(--plan "${ELVES_PLAN_PATH}")
+    fi
+    if python3 "${SCRIPT_DIR}/acceptance_contract.py" "${ACCEPTANCE_ARGS[@]}" \
+      >"${ACCEPTANCE_LOG}" 2>&1; then
+      pass "Plan/session Acceptance staging contract passed"
+    else
+      fail "Plan/session Acceptance staging contract failed"
+      while IFS= read -r LINE; do
+        [ -n "${LINE}" ] && info "${LINE}"
+      done < "${ACCEPTANCE_LOG}"
+    fi
+    rm -f "${ACCEPTANCE_LOG}"
   fi
 fi
 

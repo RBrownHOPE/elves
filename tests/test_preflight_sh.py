@@ -116,11 +116,19 @@ exit 1
             self.run_git(repo, "push", "-u", "origin", "main")
         return repo
 
-    def run_preflight(self, repo: Path) -> subprocess.CompletedProcess[str]:
+    def run_preflight(
+        self,
+        repo: Path,
+        *,
+        env_overrides: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        env = self.env()
+        if env_overrides:
+            env.update(env_overrides)
         return subprocess.run(
             ["bash", str(PREFLIGHT_SCRIPT)],
             cwd=repo,
-            env=self.env(),
+            env=env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -215,6 +223,101 @@ exec {shlex.quote(str(real_git))} "$@"
             result.stdout,
         )
         self.assertNotIn("(unpushed)", result.stdout)
+
+    def test_preflight_rejects_malformed_plan_acceptance_before_launch(self) -> None:
+        self.write_fake_gh()
+        repo = self.create_repo(with_remote=True)
+        plan = repo / "plan.md"
+        plan.write_text(
+            """\
+# Plan
+
+## Batch 0: Staging
+
+**Acceptance criteria:**
+
+- [ ] B0-A1 Missing separator.
+
+## Master Acceptance
+
+- [ ] [M-A1] Master criterion.
+"""
+        )
+
+        result = self.run_preflight(
+            repo,
+            env_overrides={"ELVES_PLAN_PATH": str(plan)},
+        )
+
+        combined = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, combined)
+        self.assertIn("Plan/session Acceptance staging contract failed", result.stdout)
+        self.assertIn("acceptance_row_syntax", result.stdout)
+        self.assertIn("- [ ] B0-A1: <criterion>", result.stdout)
+        self.assertIn("- [ ] [B0-A1] <criterion>", result.stdout)
+
+    def test_preflight_rejects_session_criterion_drift_before_launch(self) -> None:
+        self.write_fake_gh()
+        repo = self.create_repo(with_remote=True)
+        plan = repo / "plan.md"
+        plan.write_text(
+            """\
+# Plan
+
+## Batch 0: Staging
+
+**Acceptance criteria:**
+
+- [ ] [B0-A1] Authoritative criterion.
+
+## Master Acceptance
+
+- [ ] M-A1: Master criterion.
+"""
+        )
+        session = repo / "session.json"
+        session.write_text(
+            """\
+{
+  "plan_path": "plan.md",
+  "batches": [
+    {
+      "id": "B0",
+      "status": "pending",
+      "acceptance": [
+        {
+          "id": "B0-A1",
+          "criterion": "Hand-copied criterion drifted.",
+          "met": false,
+          "evidence": ""
+        }
+      ]
+    }
+  ],
+  "master_acceptance": [
+    {
+      "id": "M-A1",
+      "criterion": "Master criterion.",
+      "met": false,
+      "evidence": ""
+    }
+  ]
+}
+"""
+        )
+
+        result = self.run_preflight(
+            repo,
+            env_overrides={"ELVES_SESSION_PATH": str(session)},
+        )
+
+        combined = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, combined)
+        self.assertIn("Plan/session Acceptance staging contract failed", result.stdout)
+        self.assertIn("acceptance_criterion_mismatch", result.stdout)
+        self.assertIn("B0-A1", result.stdout)
+        self.assertIn("Authoritative criterion.", result.stdout)
+        self.assertIn("Hand-copied criterion drifted.", result.stdout)
 
     def test_preflight_worktree_helper_dispatches_before_full_checklist(self) -> None:
         repo = self.create_repo(with_remote=True)

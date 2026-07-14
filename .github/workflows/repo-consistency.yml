@@ -108,7 +108,7 @@ jobs:
           if ! git rev-parse --verify --quiet "${BASE_REF}^{commit}"; then
             BASE_REF="HEAD^"
           fi
-          python3 scripts/verify_repo.py --ci --version 2.1.0 --base-ref "$BASE_REF"
+          python3 scripts/verify_repo.py --ci --version 2.1.1 --base-ref "$BASE_REF"
 
   check:
     needs: verify

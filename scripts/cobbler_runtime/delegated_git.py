@@ -17,6 +17,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .acceptance import (
+    normalize_batch_id,
+    parse_markdown_acceptance_rows,
+    parse_plan_acceptance_contract,
+)
 from .schema import ValidationIssue
 from .storage import atomic_write_json, ensure_private_dir
 
@@ -165,11 +170,17 @@ def push_feature_branch(
 def rollback_ref_name(*, run_id: str, session_id: str, batch: int) -> str:
     """Collision-free run/session-scoped rollback ref with digest of full IDs."""
     import hashlib
-    material = f"{run_id}\0{session_id}\0{int(batch)}".encode("utf-8")
+    normalized_batch = normalize_batch_id(batch)
+    if normalized_batch is None:
+        raise ValidationIssue(
+            "delegated_git_batch_invalid",
+            "Rollback batch must be B0, B1+, or an unambiguous non-negative integer",
+        )
+    material = f"{run_id}\0{session_id}\0{normalized_batch}".encode("utf-8")
     digest = hashlib.sha256(material).hexdigest()[:12]
     safe_run = re.sub(r"[^A-Za-z0-9._-]+", "_", run_id)[:24]
     safe_sess = re.sub(r"[^A-Za-z0-9._-]+", "_", session_id)[:16]
-    return f"refs/elves/rollback/{safe_run}/{safe_sess}/b{int(batch)}-{digest}"
+    return f"refs/elves/rollback/{safe_run}/{safe_sess}/b{normalized_batch}-{digest}"
 
 
 def create_rollback_ref(
@@ -314,30 +325,21 @@ def parse_plan_acceptance(plan_text: str) -> list[dict[str, str]]:
             "plan_unparseable",
             "Plan text is empty; cannot parse acceptance criteria",
         )
-    pattern = re.compile(
-        r"^[ ]{0,3}[-*]\s+\[[ xX]\]\s+"
-        r"((?:B\d+-A\d+|M-A\d+))\s*[—–:-]\s*(.+?)\s*$",
-        re.MULTILINE,
-    )
-    matches = list(pattern.finditer(plan_text))
-    items: list[dict[str, str]] = []
-    for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(plan_text)
-        continuation: list[str] = []
-        for raw_line in plan_text[match.end() : end].splitlines():
-            stripped = raw_line.strip()
-            if not stripped:
-                continue
-            if stripped.startswith(("#", "**")) or re.match(
-                r"^[-*]\s+\[[ xX]\]", stripped
-            ):
-                break
-            if raw_line[:1].isspace():
-                continuation.append(stripped)
-                continue
-            break
-        criterion = " ".join([match.group(2).strip(), *continuation]).strip()
-        items.append({"id": match.group(1), "criterion": criterion})
+    contract = parse_plan_acceptance_contract(plan_text)
+    if contract.batch_ids or contract.issues:
+        rows = list(contract.rows)
+        syntax_issues = list(contract.issues)
+    else:
+        # Compatibility for old standalone ``### Acceptance`` fragments that
+        # predate explicit Batch and Master Acceptance scoping.
+        rows, syntax_issues = parse_markdown_acceptance_rows(
+            plan_text,
+            require_checkbox=True,
+        )
+    if syntax_issues:
+        issue = syntax_issues[0]
+        raise ValidationIssue(issue.code, issue.message)
+    items = [{"id": row.id, "criterion": row.criterion} for row in rows]
     if not items:
         raise ValidationIssue(
             "plan_unparseable",
