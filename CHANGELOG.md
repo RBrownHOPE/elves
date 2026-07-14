@@ -4,6 +4,22 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-07-14
+
+### Joyful runs rewrite
+
+- Compact canonical workflow in `SKILL.md`; `AGENTS.md` is a thin Codex adapter (not a second fork).
+- Independent axes: `risk` low|standard|high and `trust_mode` trusted|untrusted (legacy four-tier
+  labels remain compatibility aliases).
+- Host-owned landing authority with exact-HEAD readiness; worker evidence cannot grant merge.
+- Complete-without-merge and complete-and-merge share one readiness pipeline; active-run `/land-pr`
+  grants driver authorization without restarting readiness.
+- Default sanitized non-model follow stream on `full-run-await` (`--quiet` opt-out).
+- Impact-path proof selection, evidence input digests, convergent cumulative + delta re-review.
+- Focused references: joyful-runs-contract, landing-authority, follow-mode, proof-and-review,
+  host-parity, schema-and-acceptance; temporary migration ledger for 2.2→2.3.
+- Safety kernel preserved with destinations and proving tests in `canonical_contract.py`.
+
 ## [2.2.0] - 2026-07-13
 
 ### Faster trusted Grok full-runs

@@ -10,13 +10,16 @@ multi-batch runs — implement, test, review, document — that survive context 
 **Cobbler** is the default coordinator. **Claude Code or Codex** is the main driver; optional work
 drivers and lenses help when you already have them.
 
-**Current release: v2.2.0.** You write the plan and own the merge decision. The agent does the middle.
+**Current release: v2.3.0.** You write the plan and own the merge decision. The agent does the middle.
 
 **Default (v2.0+): one kickoff** after conceptual agreement — chat to agreement, then one
 **Chat-to-work** or **Chat-to-land** (`chat-to-work` / `chat-to-land`) prompt stages and runs.
 Single kickoff always continues after staging unless you explicitly chose legacy two-call. v2.1
-adds trusted Grok full-run delegation with a quiet parked driver. See
-[`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md).
+adds trusted Grok full-run delegation with a quiet parked driver. **v2.3 joyful runs** keep that
+parked driver, add a default sanitized non-model follow stream, exact-HEAD readiness independent of
+merge authorization, and impact-selected convergent review. See
+[`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md) and
+[`references/joyful-runs-contract.md`](references/joyful-runs-contract.md).
 
 Source-checkout helper: `python3 scripts/cobbler_agents.py`. For a global or project-local Claude
 Code/Codex install, invoke helpers from the **active Elves skill root** while the target repository
@@ -59,12 +62,12 @@ python3 ~/.claude/skills/elves/scripts/install_doctor.py --startup
 # Codex (use this instead):
 python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.2.0
+python3 scripts/verify_repo.py --version 2.3.0
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.2.0 --final-readiness \
+python3 scripts/verify_repo.py --version 2.3.0 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.2.0 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.3.0 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 

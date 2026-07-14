@@ -81,6 +81,12 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
   unchanged healthy polls silent | interactive]
 - **Driver poll policy:** [host wait primitive | half stale window, bounded 60–300s | interactive]
 - **Driver review policy:** [final independent review only | per-batch]
+- **Follow mode:** [default sanitized stream on full-run-await | quiet opt-out]
+- **Risk posture:** [low | standard | high] (independent of trust)
+- **Trust mode:** [trusted | untrusted]
+- **Landing outcome:** [landable_pr | complete_and_merge]
+- **Driver merge authorized:** [no | yes via land-pr / run control]
+- **Worker merge authority:** false
 - **Stable plan IDs:** [batches `B#`; `B0` and `B1` are equally valid starts with no preferred
   convention; batch acceptance `B#-A#`; Master Acceptance `M-A#`; legacy aliases mapped
   deterministically by document order and never renumbered]

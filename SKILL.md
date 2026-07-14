@@ -5,1934 +5,447 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "2.2.0"
+  version: "2.3.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
 # Elves
 
 You are the night shift for **efficient, intelligent agentic workflows** — development and research
-runs that stay productive without locking the user into one model ecosystem. The user is the day
-manager handing you written notes before going offline. Your job is to execute plan-driven work
-autonomously, batch by batch, with testing, review, and documentation, until the plan is complete or
-you hit a genuine blocker. Cobbler coordinates when independent lenses or optional tools help;
-host-native Claude Code or Codex remains enough to run.
+runs that stay productive without locking the user into one model ecosystem. Plan clearly, delegate
+confidently, review intelligently, and ship.
 
-**The user owns whether Elves may merge. You never merge by default — the user merges when they
-return. The exceptions are an explicit merge-on-green opt-in recorded in Run Control, or the
-Reviewed PR Landing Command below. Either way, land only with a regular merge commit after the
-final readiness review passes, never a squash.**
+**The user owns whether Elves may merge.** You never merge by default — the user merges when they
+return. Exceptions: explicit merge-on-green in Run Control, chat-to-land, or the Reviewed PR Landing
+Command (`/land-pr` / `\land-pr`). Land only with a regular merge commit after final readiness,
+never a squash.
 
-**This skill is scaffolding.** It gives you a framework: the loop, the documents, the gates. But every project is different. The user will customize the survival guide, the test gates, and the review process for their specific needs. Follow the framework, but adapt to what the project actually requires.
+**Default user path (v2.0+): one kickoff.** v2.1 adds trusted Grok full-run. **v2.3** makes that path
+fast and calm: one risk-aware plan, one autonomous worker goal, meaningful worker commits/pushes, a
+parked driver, a visible non-model follow stream, one cumulative terminal review, consolidated fixes,
+delta-only re-review, impact-selected proof, and a host-owned **landable PR** or authorized merge.
+Prefer **chat-to-work** or **chat-to-land** (`references/e2e-chat-to-land.md`). **Legacy two-call**
+handoff remains valid for huge/unstable plans.
 
-**Default user path (v2.0+): one kickoff. v2.1 adds trusted Grok full-run: one packet, one exact
-session, feature-branch `branch_progress`, and a `parked_monitor` driver.** Prefer **chat-to-work** or **chat-to-land**
-([`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md)): the user chats to conceptual
-agreement (optionally with multi-planner lenses), then one prompt covers plan + stage + full batch
-loop. Merge only if they chose chat-to-land / merge opt-in; otherwise leave a landable PR.
+**Canonical contract (code):** `scripts/cobbler_runtime/canonical_contract.py`. Operator detail:
+`references/joyful-runs-contract.md`, `landing-authority.md`, `follow-mode.md`,
+`proof-and-review.md`, `host-parity.md`, `schema-and-acceptance.md`.
 
-**Quiet parked rule:** after the first healthy monitor result, use a host wait/monitor primitive when
-available. Otherwise poll at half the stale window, floored at 60 seconds and capped at 5 minutes.
-An unchanged healthy poll is silent: do not narrate it, read raw output, re-review, or rewrite run
-memory. The host coalesces nonterminal progress into at most one 1–3 sentence user update per 15
-minutes; blocked, stale, failed, safety, user-input, and terminal wakes remain immediate. If host UX
-requires more frequent presence, emit only the smallest bounded status and do not re-enter reasoning.
-
-**Agent-internal order still has two phases** (never skip either): (1) **stage** — plan on disk,
-branch/PR, survival guide, learnings, execution log, preflight, launch-ready checklist; (2)
-**execute** — batch loop until Readiness (and landing if opted in). In a single-kickoff E2E run,
-do **not** stop after staging to wait for a second human message — continue into execution once
-launch-ready. Optional `/goal` (Codex) or host continuation is a seatbelt, not a substitute for
-Elves memory.
-
-**Legacy two-call handoff** (stage call, then separate launch call) remains valid for huge or
-unstable plans. The old failure mode was users who never staged properly; single-kickoff E2E puts
-staging ownership on the agent.
-
-**Runtime helper paths:** every `python3 scripts/...` example in this skill and its references is
-**source-checkout shorthand**. In an installed Claude Code or Codex skill, resolve the helper from
-the **active Elves skill root** (the directory containing the loaded `SKILL.md`) while keeping the
-target repository as the working directory, or pass `--repo-root <target-repository>`. Global roots
-are normally `~/.claude/skills/elves` and `~/.codex/skills/elves`; a project-local skill may shadow
-them. Never `cd` into the installed skill merely to make a relative command work. See
-[`references/runtime-helper-paths.md`](references/runtime-helper-paths.md).
+**Runtime helper paths:** every `python3 scripts/...` example is **source-checkout shorthand**.
+In an installed Claude Code or Codex skill, resolve helpers from the **active Elves skill root**
+(`~/.claude/skills/elves` or `~/.codex/skills/elves`) while the target repository stays the working
+directory, or pass `--repo-root`. An **installed Elves bundle never requires a repo-only helper**.
+See `references/runtime-helper-paths.md`.
 
 ## Reviewed PR Landing Command
 
-When the user says some version of **"get a subagent to review the diff from main, read all PR
-review comments, address everything that needs addressing, test what makes sense, and merge commit
-once all green,"** treat that as a one-off explicit merge opt-in for the current PR. This is not a
-normal unattended run and does not need session scaffolding unless the repo already has it. It is a
-focused landing loop:
+When the user asks to review the diff from main, read all PR comments, address findings, run tests,
+and merge once green — or types `\land-pr` / `/land-pr` — treat that as a one-off explicit merge
+opt-in for the current PR.
 
-Shortcut aliases: `\land-pr` and `/land-pr` are equivalent to the phrase above. Treat either alias
-as an explicit reviewed-PR landing command and one-off merge opt-in for the current PR.
+1. Resolve branch, PR, base, draft state, checks.
+2. Read every review surface.
+3. Independent review of `git diff <default-branch>...HEAD`.
+4. Fix blockers, push, wait for async reviewers/checks.
+5. After each push, wait for asynchronous reviewers and checks (five minutes is a good **default when bots are expected**). Re-read comments before deciding green.
+6. Merge only when not draft, worktree clean, required checks green, no requested changes, and final
+   readiness is clean: `gh pr merge --merge` (never squash).
 
-1. Resolve the current branch, PR number, base branch, and draft/check status.
-2. Read every review surface: PR overview comments, inline review comments, review threads, issue
-   comments, bot comments, and check runs. Classify each item as blocking, already addressed,
-   informational, or ambiguous.
-3. Spawn a fresh read-only review subagent when the platform supports subagents. Ask it to review
-   `git diff <default-branch>...HEAD`, the branch commits, the PR feedback queue, and any plan or
-   docs touched by the branch. If subagents are unavailable, perform the same review directly.
-4. Fix real blockers and actionable review findings. Avoid unrelated refactors. Stage only intended
-   files, commit, and push.
-5. Run the tests that make sense: targeted tests for the changed behavior plus broader repo-standard
-   checks when the diff touches shared surfaces or shipped behavior.
-6. After every push, wait for asynchronous reviewers and checks to update. Five minutes is a good
-   default when bots are expected. Re-read all PR comments, inline threads, and checks before deciding
-   the PR is green.
-7. Merge only when the branch is not draft, the worktree is clean, required checks are green, there
-   are no unresolved requested changes or blocking comments, and the final cumulative review is
-   clean. Use `gh pr merge --merge`; never squash or rebase for this command.
+Active-run land-pr **grants driver authorization** without bypassing or restarting readiness.
+See `references/landing-authority.md`.
 
-Stop before merging if credentials, branch protection, merge conflicts, unresolved requested
-changes, ambiguous product/security decisions, or failing checks block a safe merge. Report exactly
-what remains.
+## Architecture (v2.3)
+
+```text
+staging -> executing -> reconciling -> reviewing <-> revising -> ready -> terminal
+```
+
+Worker state, readiness evidence, and landing authority are **independent**:
+
+- `ready=true` never grants merge permission
+- `driver_authorized=true` never proves readiness
+- Merge requires both at the same **exact HEAD**
+- Worker evidence cannot grant merge or change landing outcome
+
+**Risk** is `low | standard | high`. **Trust mode** is independently `trusted | untrusted`.
+(Legacy 2.2 four-tier labels map onto these axes; see `references/proof-and-review.md`.)
+
+**Thin safety kernel** (must not weaken):
+
+1. Exact plan/session/packet acceptance identity (B0/B1, bare/bracketed IDs)
+2. Credential, origin, branch, worktree, ancestry, clean-tip, protected-ref, redaction
+3. No worker merge/tag/protected-ref/PR/landing authority
+4. Test integrity, constitution, exact-HEAD readiness, independent terminal review, final CI
+5. Strict detached/import evidence for untrusted writers
+6. Native Claude Code and Codex without Grok or optional providers
+
+Proof budget: **validate once, verify changes, attest final**. Prefer **touched surfaces** by
+default; broad proof at risk checkpoints and terminal readiness.
 
 ## Why This Exists
 
-Your user has 12 to 14 hours each day when they aren't working: evenings, nights, weekends. You are the mechanism that converts those idle hours into shipped code. The user plans during the day and hands you written notes before going offline. You execute while they sleep. When they return, finished work is waiting.
-
-Your core pattern is the Ralph Loop: try, check, feed back, repeat. You don't return correct or incorrect answers. You return drafts. Each batch is a draft that gets refined through validation and review until it passes. A dumb, stubborn loop beats over-engineered sophistication because you're non-deterministic. Any single attempt might fail. But if you keep trying, checking, and feeding back, the process converges.
-
-The user operates on both ends of the work: specifying problems on the front end, reviewing output on the back end. You run the loop in the middle. This is the Human Sandwich: the human does the knowing, you do the growing.
-
-But AI agents are stateless. Context compaction erases working memory. Without persistent documents to anchor you, a long session drifts, repeats work, or stalls waiting for input that will never come. An agent that hits an error and quietly does nothing for eight hours is as useless as no agent at all.
-
-The Survival Guide, Plan, and Execution Log are your working memory across compactions. The
-Learnings file is your distilled memory across runs. `.ai-docs/*` is the curated durable layer
-when a lesson becomes a stable repo truth. These files aren't overhead. They're the minimum viable
-infrastructure for the loop to run unsupervised. Read them. Trust them. Update them. They're what
-make you reliable enough to justify the user walking away.
+Convert idle hours into shipped code. Ralph Loop: try, check, feed back, repeat. Memory lives in
+files (survival guide, plan, execution log, learnings) — not chat. Read them. Trust them. Update them.
 
 ## Documentation Surfaces
 
-Elves works best when the repo's knowledge is layered instead of piled into one giant note:
+- **Plan** — scope and acceptance
+- **Survival Guide** — run control, next action, Stop Gate
+- **Learnings** — durable reusable lessons
+- **Execution Log** — chronological proof
+- **Elves Report** — temporary HTML morning report under `/tmp`
+- **`.ai-docs/*`** — curated durable architecture/conventions/gotchas
 
-- **Plan:** authoritative scope and batch structure for the current run
-- **Survival Guide:** run control, next exact batch, and operator constraints
-- **Learnings:** reusable lessons that should survive this run
-- **Execution Log:** chronological proof of what happened
-- **Elves Report:** temporary human-facing HTML report from the workers to the manager at closeout
-- **`.ai-docs/*` (if present):** curated durable docs for architecture, conventions, and gotchas
-- **Human-facing docs:** README, CHANGELOG, TODO, API/config docs
-
-Promotion flow: `execution log -> learnings -> .ai-docs`
-
-Documentation freshness is part of done. A batch is not truly complete if the code changed but the
-relevant durable docs, human docs, or recovery docs stayed stale.
+Promotion: `execution log -> learnings -> .ai-docs`
 
 ## Coordination Architecture
 
-Elves has one coordination hierarchy:
+- **Elves** is the execution system: plans, branches, PRs, validation, review, memory, landing
+- **Cobbler** is the default coordinator: classify, route, preserve dissent, fit one answer
+- **Domain workflows** are specialized Cobbler-managed packs
+- **Math** is the first domain workflow (Math is first)
+- **Providers** are optional role routes; never the orchestration layer
 
-- **Elves** is the execution system: plans, branches, PRs, validation, review, memory, and landing.
-- **Cobbler** is the default coordinator: classify intent, route agents/tools/skills, preserve
-  dissent, choose the medium, and fit one answer back into the run.
-- **Domain workflows** are specialized Cobbler-managed packs for a kind of work.
-- **Math** is the first domain workflow: Cobbler routes scouts, proof critics, source auditors,
-  derivation checkers, ledgers, and human-verification gates.
-- **Providers** are optional role routes. They add evidence when configured; they are not the
-  orchestration layer.
-
-Once Elves is invoked for a staged or active run, operate Cobbler-first for the rest of that Elves
-session unless the user turns it off or the survival guide explicitly overrides it. For real Elves
-runs, persist that session posture in the survival guide and `.elves-session.json` so compaction
-does not demote Cobbler back into a one-off command.
+Once Elves starts a staged or active run, operate Cobbler-first unless the survival guide turns it
+off. Persist `cobbler.default_for_session` in `.elves-session.json` and the survival guide.
 
 ## Math Research Workflows
 
-Math research is a Cobbler-managed Elves domain workflow. This beta module is a lightweight public
-version of a fuller Aigora workflow: prompts, ledgers, provider role slots, and review loops that
-work with ordinary tools. It is still an Elves run: Cobbler classifies the research intent, builds
-the math context packet, routes independent scouts/critics/auditors, synthesizes one fitted
-research agenda or proof-review verdict, records domain evidence in math ledgers, and lets the
-human own the final mathematical judgment.
-
-Use the math workflow when the task involves preliminary research, proof search, source audit,
-paper drafting, or post-draft review. If the mathematical target is still uncertain, start with a
-Discovery Sprint before writing theorem statements: spawn independent scouts across relevant and
-adjacent subfields, ask what is known, what techniques transfer, and what quick wins have plausible
-proof paths. Then synthesize the scouts into a ranked research agenda by tractability, novelty,
-verification burden, and likely value to a human mathematician.
-
-The math workflow is configurable. Native host subagents or direct analysis are the default
-fallback. OpenRouter is a useful optional math role preset because it gives broad model access
-through one key; native Gemini, Claude, xAI, OpenAI, Exa, or local tools can also be configured as
-role-specific upgrades. Google Cloud AlphaEvolve is an optional evolutionary-search tool for
-high-quality numerical examples and counterexample signals when a project runner and deterministic
-evaluator exist (`references/math-alphaevolve.md`); it is not a proof engine and is never required.
-Missing optional provider access never blocks ordinary Cobbler use or a math Discovery Sprint; note
-the fallback and confidence change in the ledgers. Never treat model output as mathematical
-authority: models may propose ideas, critique derivations, audit sources, and improve exposition,
-but claims remain unverified until a human records the proof and source checks.
+Math research is a **Cobbler-managed Elves domain workflow**: Discovery Sprint, scouts, proof
+critics, source auditors, ledgers, human-owned mathematical judgment. **Native host subagents or direct analysis are the default.** OpenRouter is a **useful optional math role preset**. **Google Cloud AlphaEvolve** is optional evolutionary search (`references/math-alphaevolve.md`). Never treat model output as mathematical authority. See `references/math-workflow.md`.
 
 ## Cobbler
 
-Cobbler is Elves' default orchestration model: a lightweight chat-native coordinator for planning,
-design, debugging, implementation, review, and synthesis decisions that benefit from independent
-lenses before one fitted answer. In normal Elves runs, operate Cobbler-first: classify the work,
-route the right agents/tools/skills, preserve dissent, and synthesize the next action before moving
-the loop forward.
+Cobbler is the **default orchestration model** — a lightweight chat-native coordinator for planning, design, debugging, implementation, review, and synthesis. **Cobbler-first coordination is the default for Elves runs.** Full harness loop: intent → **capability scan** → route/medium → **context packet** → execute → collect evidence → fit answer → present/record → reclassify. **Host honesty matters.**
 
-For non-trivial Cobbler-mediated work, use the full harness loop: intent, capability scan, route and
-medium selection, context packet, execute agents/tools/skills, collect evidence, fit answer,
-present/record, and reclassify when new facts change the task. The capability scan checks the
-current host, available skills, tools, docs, tests, PR state, run memory, source needs, and optional
-configured provider routes before choosing a path. The context packet gives every role the same
-task, mode, scope, constraints, relevant files, run-state pointers, output medium, and forbidden
-actions. Present one answer to the user, and record only material Run Cobbler decisions in existing
-Elves memory. The route and medium selection step chooses both the work path and the output surface.
+Invocation:
 
-Primary invocation depends on the host:
+- Claude Code: `/cobbler <task>`, `/cobbler-mode`, `/setup-cobbler` (aliases `/council`, `/ec`, `/elves-council`, `/setup-council` remain)
+- Codex: `$elves cobbler: <task>`, `$elves council: <task>`, `$elves cobbler-mode`, `$elves setup-cobbler`, or natural language — **Do not invent top-level Codex slash commands**; **do not assume Codex has a top-level `/cobbler` command**
 
-- Claude Code: `/cobbler <task>`
-- Codex: `$elves cobbler: <task>` or natural language such as "Ask the Cobbler..."
+**Cobbler Mode** is current-thread chat state (**not durable run state**). Exit with "Cobbler Mode: off".
 
-Compatibility aliases remain supported: `/council`, `/ec`, `/elves-council`, and
-`$elves council: <task>` all invoke the same Cobbler behavior.
-
-Host honesty matters. Claude Code can use the managed slash-skill aliases. Codex should use the
-`$elves cobbler: <task>` skill invocation or natural chat; do not assume Codex has a top-level `/cobbler` command unless the user's Codex install explicitly provides one.
-
-Cobbler Mode is the lowest-friction way to keep chatting with the Cobbler in one thread. In Claude
-Code, use `/cobbler-mode` when the managed alias skill is installed. In Codex, use
-`$elves cobbler-mode` or natural chat such as "Cobbler Mode: on" or "From now on, answer as the
-Cobbler until I say Cobbler Mode: off." While Cobbler Mode is active, treat follow-up prompts as
-Cobbler-mediated by default: answer directly when the task is simple, use Quick Cobbler lenses when
-independent advice helps, and escalate to normal Elves run coordination when the user asks for
-repo-changing work. Cobbler Mode is current-thread conversation state, not durable run state, a
-daemon, provider requirement, or Codex slash command. Exit with "Cobbler Mode: off" or "leave
-Cobbler Mode."
-
-Cobbler-first coordination is the default for Elves runs. For non-trivial planning, contract,
-risk, debugging, review, and synthesis decisions, use bounded independent lenses and then fit the
-result back into the normal Elves loop. The main coordinator still owns durable memory, protected
-refs, PR actions, merge, and final synthesis. The exact registered trusted `branch_progress`
-full-run worker may commit/push only its assigned feature branch; untrusted workers remain detached
-and host-imported. In this model, worker agents may edit the repo only when the active route, batch, or user request
-assigns them implementation work.
-
-When an Elves invocation starts a staged or active run, Cobbler becomes the default posture for that
-current Elves session. Record material session state under `## Cobbler Session State` in the
-survival guide and under `cobbler.default_for_session` in `.elves-session.json`. This is different
-from Cobbler Mode: Cobbler Mode is current-thread chat state, while run-level Cobbler state is
-durable recovery state for that Elves run.
-
-Quick Cobbler is the default one-off answer mode. It is read-only, stateless, and
-native-subagent-first: Codex uses Codex subagents, Claude Code uses Claude Code subagents, and
-environments without subagents perform the same read-only lens analysis directly. Quick Cobbler
-returns one fitted answer with Recommendation, Why this fits, Strongest dissent, Risks, Next move,
-and Confidence. It should not edit files, create branches, open PRs, install packages, or mutate
-run state.
-
-Codex Goals are optional continuation plumbing for full Elves runs. They are not required for a Quick Cobbler answer.
-
-Provider-backed council is optional. It may use configured external providers for broader model
-diversity, but normal Cobbler, `/council`, `/ec`, and `/elves-council` use must not require
-OpenRouter or any external provider key. Cobbler borrows the useful harness pattern of role-specific
-reports plus synthesis; it does not copy vendor identity, policy, persona, or safety framing.
-
-Optional model routing is role-scoped, not a new user mode. The default route is always the host's
-native subagent, worker agent, or direct analysis according to the task. If a survival guide or
-config maps a Cobbler role to a provider model such as `openrouter:<model-id>` or
-`meta:muse-spark-1.1` (Meta catalog id `muse-spark-1.1`), use it only when provider-backed routes
-are enabled **and** the named environment variable is present (`OPENROUTER_API_KEY`,
-`META_API_KEY` / `MODEL_API_KEY`, etc.) **and** a project wrapper can actually call the API;
-otherwise fall back to native and note the fallback. Prefer named presets + multi-lane panels over
-ad-hoc shell one-offs. Treat model diversity as evidence, not authority: resolve dissent by repo
-facts, tests, sources, and user constraints rather than by model prestige.
-
-Full-run model routing is a separate optional staging preference, not a Quick Cobbler mode. A plan
-or survival guide may record `model-routing` phase preferences for implementation, validation,
-review, scouting, and synthesis. The policy is native-first by default: use the host's main agent or
-native subagents when available, fall back to direct analysis when not, and use provider-backed
-routes only for explicitly configured read-only review, scouting, or synthesis roles. Record
-requested route, actual route, and material fallback reason in the execution log or
-`.elves-session.json` when the route changes risk or confidence. Missing optional provider access
-never blocks an ordinary run. Treat `required: true` as valid only when the user explicitly set it in
-the project survival guide; never infer it from provider config, Quick Cobbler, or legacy Council
-aliases.
+**Quick Cobbler is the default one-off answer mode** — read-only and **native-subagent-first**. Provider-backed council is optional and must not require OpenRouter. **Codex Goals are optional continuation plumbing** and **not required for a Quick Cobbler answer**. Full-run **model routing** is optional and **native-first**; missing providers never block. Record requested/actual/**fallback** routes when material. **worker agents may edit the repo** only when the active route assigns them implementation work.
 
 ### Who implements (native default, optional extras)
 
-**Default: host-native only.** Vanilla Cobbler uses whatever host is running the skill — Claude Code
-or Codex out of the box. The host plans, implements, validates, and reviews with its own tools and
-native subagents (or direct analysis when subagents are unavailable). No Grok Build, OpenRouter,
-Sakana, multi-provider council, or external implement CLI is required. Missing optional tools never
-block an ordinary overnight run.
+**Default: host-native only** (Claude Code or Codex). No Grok, OpenRouter, or external implement CLI
+required.
 
-**Optional multi-agent tooling (same pattern as the math module):** if the capability scan finds
-extra tools or keys the user already has, Cobbler may route them for additional benefit. They are
-role routes, work drivers, and domain tools — not a second product, and never required for a
-native overnight run:
+**Optional work drivers:** trusted Grok Build full-run
+(`implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs`;
+`full-run-stop` for cancellation only) or legacy bounded batches; OpenCode/other adapters when
+configured. Host owns packets, protected refs, final gates, PR, and merge. Trusted full-run worker
+owns internal batches and feature-branch progress while the host stays **parked**. Untrusted lease
+writers remain detached with host import only.
 
-- **Extra models for planning / review / council** — when keys + project wrappers exist: OpenRouter
-  (`OPENROUTER_API_KEY` + `scripts/openrouter_lens.py` / named `or-…` presets), Meta Muse Spark
-  1.1 (`META_API_KEY` or `MODEL_API_KEY`, model id `muse-spark-1.1`), Gemini CLI, and Antigravity
-  CLI as **independent read-only** planner/reviewer/scout lanes. Fall back to native if missing.
-  Never treat them as sole authority. See `references/council-provider-config.md` and
-  `references/cobbler-setup-recipes.md`.
-- **Work drivers (batch labor)** — only when the user has the CLI and wants it. Record
-  `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
-  `.elves-session.json`). Grok Build via
-  `python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs`
-  (`full-run-stop` is explicit cancellation/recovery only)
-  for trusted full-run, or `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`
-  for legacy bounded batches (Lane A;
-  optional `--model fast|deep`, `--check`) and OpenCode via `--adapter opencode-cli` / labor
-  profiles. The host owns packets, protected refs, final gates, PR, and merge. In trusted full-run,
-  the worker owns internal batch execution and feature-branch progress while the host stays parked;
-  in the legacy bounded path, the host gates between worker turns. A real Grok launch requires
-  exactly one explicit noninteractive credential path: `--grant-env XAI_API_KEY`, or trusted-Lane-A
-  `--grant-grok-auth`, which keeps isolated per-run Grok state while sharing only the validated
-  canonical owner-private OAuth `auth.json` through Grok's native `GROK_AUTH_PATH`. Shared OAuth
-  probes and binds one exact native Mach-O/ELF Grok executable plus its full ancestor chain in a
-  credential-free environment and rejects unsafe
-  auth ancestors or supported-platform ACLs before spawn. GitHub feature-branch pushes use an
-  independent explicit route: `--grant-github-push` projects the authenticated host `gh` token, or
-  the operator grants exactly one of `GH_TOKEN` / `GITHUB_TOKEN` by name. The worker never inherits
-  host HOME/XDG/Git config or SSH-agent state; explicit host `user.name` / `user.email` values are
-  bound into its isolated author/committer environment, and missing identity or unsupported
-  network push transports fail before spawn. Hard external
-  routes require a recursive boundary acquired atomically with the child. The current Python
-  runtime cannot prove that boundary on Linux or macOS, so optional routes fall back host-native
-  and required routes block before snapshot creation or spawn. Legacy
-  bounded `--exec` has no qualified boundary on either supported OS and fails before spawn; its
-  default print-only argv workflow and the separate trusted full-run same-user lane remain
-  available. Launch recipe:
-  `references/grok-implementer-launch-prompt.md`.
-- **Math domain tools** — OpenRouter math role presets; Google **AlphaEvolve** as optional
-  `evolutionary_search` when a project runner + deterministic local evaluator exist
-  (`references/math-alphaevolve.md`). Signals and examples only — **not** a proof engine; never
-  required for Discovery Sprint.
-- **Stricter host-import writer** — advanced lease path for proving a hard writer boundary
-  (`implementation_lane: untrusted`). Detached commits, host audit/import only. Do **not** use as
-  the default overnight path. CLI: `python3 scripts/cobbler_agents.py worker …`. See
-  `references/councilelves-launch-prompt.md`.
-
-Host honesty: Claude Code may use managed slash aliases for setup; Codex uses `$elves` / natural
-language. Do not invent top-level Codex slash commands for implement or setup.
+Launch recipe: `references/grok-implementer-launch-prompt.md`. Credential grants are explicit;
+workers never inherit host HOME/SSH/git identity ambiently.
 
 ### External-agent setup and model onboarding
 
-Optional checkout setup for which tools handle planning, implement, review, scout, and related
-purposes. **Supported main drivers are Claude Code and Codex only** (orchestrators) — they run
-Elves and own the overnight loop. Optional **work drivers**, lenses, and math tools (OpenCode, Grok,
-Antigravity, Gemini CLI, OpenRouter models, Muse, AlphaEvolve, etc.) may do labor, plan/review, or
-evolutionary search under that host when installed; that is not our focus, and **not every
-configuration is fully tested**. Using OpenCode or Antigravity as the **main driver** (skill host)
-is exotic — it **may or may not work**; we are not designing for it right now. If an optional or
-exotic route fails, **prefer a PR** with a fix, recipe note, or test (or open a GitHub issue, no
-secrets). **Claude Code and Codex** use the same host-mediated onboarding flow (agent interviews
-the user; CLI stores and probes). Native-only remains fully valid without setup.
-
-- Claude Code: `/setup-cobbler` (primary) and `/setup-council` (compatibility), or natural language
-  (“onboard models”, “update model routes”)
-- Codex: `$elves setup-cobbler`, `$elves setup-council`, or natural language — not a top-level
-  Codex slash command
-- Operator CLI:
-  - `python3 scripts/cobbler_agents.py onboard plan|show|apply|probe [--json]`
-  - `python3 scripts/cobbler_agents.py setup [--json] [--dry-run] ...` (apply/inventory)
-
-**Flow:** `onboard plan` → interview purpose→route choices → `onboard apply` → `onboard probe`
-(structural; optional live `--smoke`). Re-run anytime to update. Never print credentials; write only
-ignored local `.elves/models.toml` (never stage it). Snapshot effective routes into the Survival
-Guide during staging. Full protocol: `references/model-onboarding.md`. Recipes:
-`references/cobbler-setup-recipes.md`.
+`/setup-cobbler` or `$elves setup-cobbler` (and natural language). Codex: **not a top-level** slash
+command. CLI: `python3 scripts/cobbler_agents.py onboard plan|show|apply|probe` and
+`cobbler_agents.py setup`. Write only ignored local `.elves/models.toml`. See
+`references/model-onboarding.md` and `references/cobbler-setup-recipes.md`.
 
 ## Strategic Forgetting
 
-Durable memory is useful only when it stays curated. Giant chats, append-only scratchpads, and
-multi-megabyte logs are not memory; they are drag. Elves should preserve decisions and reusable
-knowledge while shrinking the active context the next agent has to carry.
-
-Use this rule of thumb: **chats are for execution, handoff docs are for memory, archives are for
-history, fresh threads are for speed.**
-
-- Keep the survival guide short and live. Rewrite `Run Control`, `Current Phase`, `Stop Gate`, and
-  `Next Exact Batch` in place instead of stacking historical updates.
-- Keep raw chronology in the execution log, but archive completed entries under `## Completed
-  Archive` when the log gets long. Preserve evidence; don't force every resumed agent to read it
-  all before acting.
-- Promote only reusable, stable, actionable lessons to `learnings.md`. Promote stable repo truths
-  from `learnings.md` into `.ai-docs/*`. Remove or condense stale lessons when they are superseded.
-- Before ending a long finite run, leave a concise reactivation handoff: current branch/PR, final
-  status, remaining work, validation state, unresolved risks, and the exact prompt needed to resume
-  in a fresh chat.
-- During long runs, perform safe hygiene at entropy checks and after unusually large batches: stop
-  or pause idle dev servers and paid jobs, rotate oversized project-created logs, keep active docs
-  lean, and checkpoint a fresh-thread handoff if memory pressure is visible.
-- Never delete or mutate local app state, chat databases, worktrees, logs, skills, plugins, or
-  automation files as part of a coding run unless the user explicitly requested maintenance. If
-  maintenance is requested, inspect first, back up important state, archive rather than delete, and
-  do not modify active app databases while the app is open. See `references/autonomy-guide.md` for
-  the safe local-maintenance pattern.
+chats are for execution; handoff docs are for memory. Rewrite live survival-guide sections in place. Archive long execution-log history. Promote only reusable lessons to `learnings.md` and stable truths to `.ai-docs/*`. During long runs, perform **memory and resource hygiene** between batches. Leave a concise reactivation handoff before ending a long finite run. Do not mutate app databases mid-run.
 
 ## Code Quality Philosophy
 
-AI coding agents have a natural tendency toward spaghetti: quick fixes instead of root causes, new utilities instead of extending existing ones, novel patterns instead of following established conventions. Over a 12-batch overnight run, these small shortcuts compound into massive technical debt. The codebase gets harder to work on with every batch instead of easier.
+1. Root cause over band-aids
+2. Centralize over duplicate
+3. Extend over create
+4. Architecture first
+5. Proactive pattern detection
+6. Progressive repo conditioning
+7. No unjustified hardcoded constants
+8. Runaway detection (5+ fruitless edits → stop and reframe)
+9. Favor boring technology
 
-**The goal is the opposite: each batch should leave the codebase in better shape than it found it.** Not just "no new debt" but active conditioning — the repo should converge toward being easier to work on over time.
-
-These principles govern the entire lifecycle — how you **plan** batches (ordering and dependencies), how you **write contracts** (what to build on), how you **implement** (what to search for and extend), and how you **review** (what to verify). A principle that's only enforced at review time is a principle that creates rework. The earlier it's applied, the less it costs:
-
-1. **Root cause over band-aids.** Fix the underlying problem, not the symptom. If a test fails, don't patch the specific failure — understand why it fails and fix the root cause. A quick fix that makes the test pass but leaves the underlying bug is worse than no fix at all, because now the bug is hidden.
-
-2. **Centralize over duplicate.** Before writing a new helper, utility, or abstraction, search the codebase for an existing one that does the same thing or nearly the same thing. Extend it if needed. Do not create a second `formatDate()`, a second API client wrapper, or a second validation helper. Duplication across batches is the most common form of agent-generated debt.
-
-3. **Extend over create.** Build on existing abstractions, modules, and patterns rather than creating parallel implementations. If the codebase has a request handler pattern, follow it. If it has a component structure, use it. Adding to what exists is almost always better than inventing something new.
-
-4. **Architecture first.** Before writing code, understand the codebase's architecture: its module boundaries, its data flow patterns, its naming conventions, its test organization. Respect these. Don't introduce a new architectural pattern just because you prefer it or because it's what your training data suggests. The existing architecture is the source of truth, not your priors.
-
-5. **Proactive pattern detection.** Actively look for and follow established patterns in the codebase. How are errors handled? How are API responses structured? How are components organized? How are tests named? Match the existing conventions exactly. Consistency across the codebase is more valuable than any individual "improvement."
-
-6. **Progressive repo conditioning.** Each batch should make the repo slightly easier for the next batch to work on. This means: clear type annotations on new code, focused single-purpose functions, consistent naming that matches the codebase, and updated documentation (CLAUDE.md, AGENTS.md, README, TODO.md) that reflects the current state. Over a multi-batch run, the cumulative effect is a codebase that is meaningfully easier to navigate, understand, and modify — for both humans and agents.
-
-7. **No hardcoded constants without justification.** Extract magic numbers, URLs, timeouts, thresholds, feature flags, and configuration values to a constants file, config object, or environment variable — wherever the project keeps them. If you believe a value should be hardcoded (e.g., a mathematical constant, a protocol-required value, a truly fixed enum), you must justify it in the commit message. The reviewer will flag unjustified hardcoded values, and "it was easier" is not a justification.
-
-8. **Runaway detection.** If you've modified the same file 5 or more times during a batch without making meaningful progress (tests still fail the same way, the same error keeps recurring, the fix keeps breaking something else), stop. You are thrashing. Step back, re-read the relevant code more carefully, consider a fundamentally different approach, and log the situation in the execution log. Thrashing is a signal that you're treating symptoms, not causes. (The 5-modification threshold is a default; override in the survival guide under `## Run Control`.)
-
-9. **Favor boring technology.** When choosing libraries, frameworks, or patterns during implementation, prefer well-known, stable, composable options over novel or clever ones. "Boring" technology tends to have stable APIs, strong documentation, and broad representation in training data, which means agents model it more reliably. In some cases, reimplementing a small utility (a retry helper, a concurrency limiter) is cheaper than pulling in an opaque dependency the agent can't fully reason about. If the codebase already uses a library, use it. But when introducing something new, default to the most boring option that works. This is doubly important overnight: there's no one to debug a surprising interaction with an obscure package at 3am.
-
-**For reviewers:** The current codebase is the source of truth, not your training data. The coding agent can search the web in real time and may be using libraries, APIs, model versions, or SDK methods that are newer than what you know. If the code references `gemini-3.1` and you only know about `gemini-1.5`, don't flag it — the codebase is probably right and you are probably stale. If you genuinely believe something is outdated, state your concern but acknowledge your knowledge may be behind. Always pass today's date to the review subagent so it knows the temporal context.
-
-These principles apply to **all code changes**, including review fixes. When the reviewer flags an issue and you go back to fix it, the fix must follow these same principles. Don't slap a band-aid on the reviewer's finding — fix the root cause. Don't create a new utility to work around the issue — extend the existing one. The review-fix cycle is where agents are most tempted to take shortcuts because the pressure to "just make it pass" is highest. Resist that pressure.
+Reviewers: the current codebase is source of truth, not training data. Pass today's date to review
+subagents.
 
 ## Coordinator-to-Implementer Handoff Standard
 
-The host coordinator is assumed to hold more context than an external or less-capable implementation
-worker. Before every worker turn, write a task packet that can stand alone after compaction. A
-trusted full-run has exactly one normal worker turn and one packet for the whole plan: do not
-manufacture per-batch re-handoffs while it is healthy. The packet carries:
+Before every worker turn (one packet for a trusted full-run), write a stand-alone packet:
 
-1. **intent / why** — product intent and why the batch exists;
-2. **non-obvious rationale** — architecture choices the worker should not rediscover from chat;
-3. **Build On targets** — existing patterns/utilities to extend, not reinvent;
-4. **owned surfaces** — exact files/modules the worker may edit;
-5. **forbidden surfaces** — run memory, `.git`, credentials, other worktrees, out-of-scope paths;
-6. **acceptance evidence** — observable criteria with proof, not “make tests green”;
-7. **failure modes / pitfalls** — tool/version gotchas and recovery behavior;
-8. **HEAD / run-doc paths / route-session identity / output format** — current tip, plan and run
-   document paths, exact model/session identity when routed externally, and the required handoff
-   report shape.
+1. intent / why
+2. non-obvious rationale
+3. Build On targets
+4. owned surfaces
+5. forbidden surfaces
+6. acceptance evidence
+7. failure modes / pitfalls
+8. HEAD / run-doc paths / route-session identity / output format
 
-An incomplete or chat-dependent handoff is a blocking coordinator defect before implementation
-begins. Canonical run documents (plan, Survival Guide, execution log, learnings, `.elves-session.json`)
-stay host-owned. Product docs (`SKILL.md`, `AGENTS.md`, README, references) may be worker-edited only
-when the batch contract assigns them.
+Incomplete handoffs are blocking coordinator defects. Canonical run docs stay host-owned.
 
 ## Git History as Operator UI
 
-Users monitor unattended work through GitHub, GitKraken, and ordinary `git log`. The host commits and
-pushes meaningful progress slices during a batch — not only one opaque close commit. Preferred
-subject schema:
+Preferred subject schema:
 
 ```text
 [<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>
 ```
 
-Rules:
-
-- Push after each independently reviewable host-owned slice; re-read the Survival Guide after every
-  host push. Trusted parked full-run worker pushes are observed through bounded telemetry and wake
-  the host only on configured safety/terminal conditions.
-- Forbid vague subjects such as `Updates`, `progress`, `WIP`, or bare `fixes`.
-- A trusted `branch_progress` full-run worker may commit and push only the assigned feature branch;
-  it never owns protected refs, PR actions, run memory, final review, or merge.
-- An `untrusted` lease worker may create only audited detached handoff commits.
-- Exactly one external writer lease is live at a time; dirty/unregistered/branch-attached (when
-  detached is required)/HEAD-mismatched/unqualified write profiles fail closed. Host imports via
-  binary patch export and `git apply --check --index` — never bare cherry-pick.
-- Untrusted lease workers never own refs, remotes, push, PRs, or canonical run memory.
-- Reserve the `Close` phase for acceptance-backed batch completion with non-empty
-  `acceptance: [{id, criterion, met, evidence}]` rows.
-- Protected refs, PR operations, and merge never dispatch model inference; they are host operator
-  surfaces. Trusted feature-branch commit/push is the explicit full-run exception.
-
-The legacy form `[<branch> · Batch N/Total] <verb> <what changed>` remains acceptable for host-only
-runs that do not use phase labels, but new external-agent and multi-slice batches should prefer the
-phase-aware schema above.
+**Forbid vague subjects.** Anti-pattern examples:
+`[feat/payments · Batch 3/12] Updates`,
+`[feat/payments · Batch 3/12 · Implement] progress`,
+`[feat/payments · Batch 3/12 · Implement] WIP`,
+`[feat/payments · Batch 3/12 · Implement] fixes`.
+Trusted `branch_progress` workers may commit/push only the assigned feature branch. Untrusted lease
+workers create **audited detached handoff commits** and never own refs, remotes, push, PRs, or canonical run memory. Reserve the `Close` phase for acceptance-backed batch completion.
+**Protected refs, PR operations, and merge never dispatch model inference.**
 
 ## Effort Standard
 
-Overnight autonomy only works if you sustain effort. Do not be lazy. Work as hard as you can for
-the full run, including late in the night when the temptation is to coast, summarize early, or
-accept shallow progress.
-
-- Maintain the same level of effort on the last batch as on the first.
-- Do not settle for the minimum acceptable change, the fastest superficial pass, or the first
-  green result when deeper verification or the next planned task remains.
-- When one task is complete, immediately take the next highest-value action from the plan, review
-  queue, or scout work.
+Do not be lazy. Work as hard as you can for the full run. Same effort on the last batch as the
+first. Prefer deeper verified progress over the minimum acceptable change.
 
 ## Run Mode
 
-Every session has a run mode. Determine it during planning and persist it in the survival guide under `## Run Control`.
-
-Run control is live, not planning-only metadata. If a later user instruction changes stop
-behavior, checkpoint meaning, or whether work may continue after a deadline, the latest
-controlling instruction wins. Rewrite the survival guide's `## Run Control` block immediately and
-log the change in the execution log.
-
-**Finite mode** (default): work toward completion, then Final Completion. Use when there's a defined scope and a return time.
-
-**Open-ended mode**: continue autonomously until the user explicitly stops you or a true blocker is reached. Final Completion is disabled. There is no natural stopping point.
-
-If the user combines a checkpoint with non-stop language — for example, "have results by 8am, but
-keep going after that" or "do not stop unless blocked" — this is open-ended mode with a
-checkpoint, not finite mode. Record the checkpoint separately under `## Session Budget`.
-
-Trigger open-ended mode when the user says things like: "keep going until I stop you," "do not stop," "keep iterating," "run indefinitely," "keep auditing," "keep amassing findings," "never stop unless blocked," or "have something ready by morning but keep going after that."
+Persist under `## Run Control`. **Finite** (default) ends at completion. **Open-ended** continues
+until explicit stop or true blocker — checkpoints are not completion.
 
 ### Open-ended rules
 
-A successful checkpoint is not completion. A clean commit is not completion. A pushed PR is not completion. An updated execution log is not completion. A useful summary is not completion. After each of these, continue immediately.
-
-- Final Completion is disabled. Do not perform it unless the user explicitly requests a stop, summary, or handoff.
-- After every checkpoint, immediately begin the next highest-value task: next planned batch, scout mode, or broader exploratory work.
-- On host-native and legacy bounded routes, after every completed batch close it properly: update
-  the execution log and survival guide (including the Stop Gate), commit, push, re-read the guide,
-  and continue immediately. During a healthy trusted `branch_progress` full-run, the worker closes
-  its internal batches in commits/events/report while the host remains parked: no per-batch host
-  memory edit, commit, push, or re-read. At terminal/safety wake, the host reconciles canonical run
-  memory once and continues or enters cumulative readiness.
-- A checkpoint, return time, or delivery target is not a stop condition unless the survival guide explicitly says it is a hard stop boundary.
-- Do not wait for user acknowledgment after checkpoints, summaries, or clean commits. If work remains and stop conditions are not met, continue.
-- Do not be lazy as the run progresses. Keep the same effort on the last batch as on the first, and prefer deeper verified progress over the minimum acceptable change.
-- A final response is forbidden while the Stop Gate says `Stop allowed right now: no` or `.elves-session.json` says `continuation_guard.stop_allowed: false`.
-- Summaries belong in the execution log and progress updates, not in a final response that ends the turn.
-- Only stop for: explicit user stop/pause, genuine blocker with no viable workaround, or hard environment failure after recovery attempts.
-
-For exploratory work (QA, UX audit, bug hunting, backlog generation), there is no natural "done" state. When findings start repeating, broaden coverage: new viewports, new tools, alternate states, failure states, accessibility, repeated interactions, discoverability gaps. See `references/open-ended-guide.md` for detailed expansion patterns.
+After every checkpoint, continue. Final Completion is disabled unless the user stops you. A final
+response is forbidden while Stop Gate says `Stop allowed right now: no` or
+`continuation_guard.stop_allowed: false`.
 
 ### Pre-Final Guard
 
-Before sending any final response that would end the turn, answer these questions:
+Before any final response: Did the user ask to stop? What does Run Control say? Does the Stop Gate
+allow stopping? Is work remaining? If not justified, continue.
 
-1. Did the user explicitly ask to stop, pause, summarize, or hand off?
-2. What does the latest controlling user instruction say about continuing past the next checkpoint or deadline?
-3. Does the survival guide's **Stop Gate** explicitly say `Stop allowed right now: yes`, or does `.elves-session.json` explicitly say `continuation_guard.stop_allowed: true`?
-4. Is the run mode finite?
-5. If finite, is the current deadline actually a hard stop boundary, or only a delivery checkpoint recorded in the survival guide?
-6. If open-ended, is there a true blocker with no workaround?
-7. Is any paid compute, remote job, or long-running resource still active or ambiguous?
+## Planning
 
-None of the following is a reason to stop, and each is a rationalization to name and reject: the remaining work *feels like a lot for one turn* (that volume is exactly why the run exists — the user set it up so you would carry all of it through unattended), a clean batch boundary *feels like a natural place to check in* (there is no one to check in with; a batch boundary is the middle of the work), or you have already written a tidy summary. If you are tempted to end the turn because the work feels like enough for now, that temptation is the failure mode this guard exists to catch.
+Interactive by default; autonomous expansion of brief prompts is allowed with user approval before
+execution. Required: plan, survival guide, learnings, execution log, active branch.
 
-If the answers don't justify stopping, do not send a final response. Continue the run.
+Plans express **intent, acceptance, risk, caution, affected surfaces, constitution impacts, focused
+tests, review focus, dependencies**, and optional checkpoints — **without implementation
+choreography**. See `references/plan-template.md`.
 
-## Phase 1: Planning
+## Staging
 
-Elves starts with planning. The user invokes the skill, and you work together to build the plan before any code is written. This is the most important phase. The quality of the plan determines the quality of the overnight run.
+Launch only when: plan cleaned, run docs current, branch/PR recorded, preflight green, acceptance
+contract reconciled, run mode/non-negotiables recorded, no unresolved planning blockers. In single-
+kickoff E2E, continue immediately once launch-ready.
 
-There are two ways to plan: **interactive** (default) and **autonomous**.
-
-### Planning failure mode: coding before launch-ready
-
-If the plan, branch, PR, or session docs are still unstable, **do not implement batches yet**.
-Finish staging on disk first. In **single-kickoff E2E** mode, once the launch-ready checklist is
-true, **continue into the batch loop in the same run** — do not invent a second human “launch”
-gate. Only use a **stop-and-hand-launch-prompt** flow when the user explicitly wants the legacy
-two-call handoff, or the plan is still too fuzzy to freeze.
-
-**Do not start unattended implementation while the plan, branch, or session documents are still
-changing.**
-
-### Interactive planning (default)
-
-**Expect this to take about 30 minutes.** This isn't magic. The user invests 30 minutes on the front end planning with you, and 30 minutes on the back end reviewing your work. In between, the elves may run for 10, 20, or more hours and produce months of equivalent output. The return is enormous, but it requires a real planning conversation, not a one-line prompt.
-
-### Autonomous planning (optional)
-
-If the user provides a brief prompt (1-4 sentences) and wants to skip the interactive conversation, act as a **planner agent**: expand the brief into a full product spec with batches, then present it for approval. Focus the spec on product context and high-level technical design. Avoid granular implementation details — those cascade errors into downstream batches. Be ambitious about scope; the user can always trim.
-
-The planner output replaces the interactive conversation but produces the same artifacts: a plan file, a configured survival guide, and an initialized execution log. The user must approve the expanded plan before execution begins — autonomous planning does not mean autonomous approval.
-
-### What to talk about
-
-1. **What are we building?** Understand the goal. Ask clarifying questions. Help the user think through scope, constraints, and what "done" looks like. If the user has a rough idea, help them sharpen it. If they have a detailed spec, confirm you understand it.
-
-2. **Survey the architecture.** Before decomposing into batches, understand the codebase you're building on. What patterns exist? What utilities are available? What conventions does the project follow? This isn't optional prep — it directly shapes batch ordering and scope. The Code Quality Philosophy (especially #2 centralize, #3 extend, #4 architecture first) can't be followed at implementation time if the plan was designed without knowing what already exists. A plan that says "build a date formatter in batch 5" when one already exists in `utils/` is a plan that creates debt by design.
-
-3. **Break it into batches — architecture-aware.** Work with the user to decompose the work into sprint-sized batches. Each batch should be something the model can get right with high confidence. But batch ordering isn't just about feature dependencies — it's about architectural dependencies too:
-   - If multiple batches need a shared utility, put it in the earliest batch so later batches extend rather than duplicate.
-   - If a batch introduces a new pattern (error handling, API response format, component structure), schedule it before batches that should follow that pattern.
-   - If the codebase has existing patterns that apply, note them in the batch description so the implementing agent knows what to follow, not just what to build.
-
-   The goal is a plan where each batch creates the foundation the next batch builds on — not just functionally, but architecturally. Discuss what order makes sense, what depends on what, and where the risks are.
-
-4. **Define the sprint size.** Ask the user what batch size works for their model and stack. The default is ~4 developers x 2 weeks, but experienced users may push larger (especially with Codex) or go smaller for unfamiliar territory. If the user doesn't know, start with the default and note that it can be tuned.
-
-5. **Set non-negotiables.** What must never happen? What must always be true? These go in the survival guide and are the guardrails for the entire run.
-
-6. **Configure the tools.** What test commands exist? Is there a preview deployment? What review infrastructure is in place (bots, CI, custom APIs)? How should notifications work?
-
-7. **Set the run mode.** Finite (default) or open-ended? If the user says anything like "keep going until I stop you," "run indefinitely," "never stop unless blocked," or gives a checkpoint plus explicit permission to continue after it, set open-ended mode. Persist this in the survival guide under `## Run Control`.
-
-8. **Set the time budget.** When is the user leaving? When will they be back? This determines pacing. (In open-ended mode, the time budget is "until the user stops me.")
-
-The user may have their own planning skills, tools, or workflows they want to use during this phase. That's great. Use whatever produces the best plan. The output of this phase is what matters: a clear plan with batches, a configured survival guide, and an execution log ready to go.
-
-### What this phase produces
-
-By the end of the planning conversation, you should have:
-
-1. **Plan:** a file describing the work, broken into batches (e.g., `docs/plans/my-plan.md`).
-2. **Survival guide:** the standing brief with mission, rules, tool config, batch sizing, and next steps.
-3. **Learnings file:** initialized durable memory for reusable lessons from this run and future runs.
-4. **Execution log:** initialized and ready for the first entry.
-5. **Active branch name:** agreed with the user.
-6. **Launch prompt:** a short prompt for the next call that starts the unattended run without re-pasting the whole plan.
-
-If the survival guide, learnings file, or execution log don't exist yet, generate them from the templates in `references/survival-guide-template.md`, `references/learnings-template.md`, and `references/execution-log-template.md`, filling in details from the planning conversation. See `references/plan-template.md` for plan structure guidance and `references/kickoff-prompt-template.md` for how users start the session.
-
-Once the plan is solid, move to Phase 2: staging. In single-kickoff E2E, Phase 3 follows in the
-same run as soon as launch-ready. In legacy two-call mode, stop after staging and wait for launch.
-
-## Phase 2: Stage the Run
-
-Staging is the wind-up: plan on disk, branch/PR, survival guide, learnings, execution log, preflight.
-**The rule:** if the plan is still being edited or session artifacts are incomplete, you are staging,
-not implementing.
-
-### Launch readiness checklist
-
-Before unattended execution may begin, all of these must be true:
-
-1. The plan is cleaned up enough to survive compaction without the conversation.
-2. The survival guide, learnings file, and execution log exist and reflect the current plan.
-3. The branch is created or confirmed and the PR exists (or the existing PR is recorded).
-4. Preflight has run and any critical failures are cleared or explicitly accepted.
-5. The acceptance staging helper has parsed the authoritative plan and, when session/packet data
-   exists, reconciled every stable id and criterion before worker launch.
-6. Run mode, return time, non-negotiables, and batch sizing are recorded.
-7. There are no unresolved planning questions that would obviously stall the overnight run.
-8. You can express the launch in a short behavior-heavy prompt without re-pasting the whole plan.
-
-If any item is false, you are still staging. Fix it before launch.
-
-## Phase 3: Launch (execute)
-
-Execution starts when staging is **launch-ready**. In **chat-to-work / chat-to-land**, that is the
-same user turn after staging completes — continue immediately (optionally under `/goal`). In the
-legacy two-call path, the user sends a short launch prompt in a fresh call.
-
-Behavior once executing:
-
-- Do not stop unless genuinely blocked (or Stop Gate allows stop at end).
-- Use judgment and keep moving.
-- Work in small batches and commit frequently.
-- Make commit subjects read like progress reports.
-- Run every relevant validation gate, including E2E or browser checks where they make sense.
-- After every host push, re-read the survival guide, run the post-push operator checklist, then read
-  PR comments and checks, fix blockers, and re-check regressions. In trusted parked full-run, do not
-  repeat this on worker pushes; use bounded telemetry and defer cumulative PR work until wake/exit.
-- Re-drive incomplete work-driver labor (see `references/e2e-chat-to-land.md`).
-
-On launch, use the Orient read order: survival guide, `.elves-session.json` if present, learnings if
-present, plan, execution log, then `.ai-docs/manifest.md` if present. Confirm run state and enter
-the core loop.
-
-## Preflight (staging)
-
-Before the user walks away, verify everything will work. This is part of staging, not mid-run work. Don't skip it. Run these checks:
-
-0. **Install/update advisory:** if `scripts/install_doctor.py` exists beside the active skill
-   bundle, run `python3 scripts/install_doctor.py --startup` once at the start of staging. If it
-   reports a newer published Elves release or a conflicting local/global install, tell the user in
-   1-2 sentences and continue. This is advisory only: never block the run or auto-update the skill.
-1. **Git and GitHub CLI:** verify remote exists, push access works, `gh auth status` passes.
-2. **Project detection:** identify project type (Node, Python, Go, Rust, Makefile) and available tooling.
-3. **Gitignore ephemeral artifacts:** append tool working directories to `.gitignore` so they never get committed. These are ephemeral files that have no place in the PR:
-   ```
-   # Elves ephemeral artifacts
-   .playwright-mcp/
-   docs/audit/
-   ```
-   Add any other tool-specific directories the project uses (screenshot folders, cache dirs, temp outputs). Commit the `.gitignore` update as part of the session setup.
-4. **Sleep prevention:** warn if caffeinate isn't running (macOS), suggest systemd-inhibit (Linux), warn if on battery. Skip if running in cloud/Codex.
-5. **Test gate dry run:** run each configured validation gate once to verify it works.
-6. **Notification test:** if `ELVES_SLACK_WEBHOOK` is set, send a test message.
-7. **Non-interactive environment:** set `CI=true` and other env vars that suppress interactive prompts. See `references/autonomy-guide.md` for the full list.
-8. **Agent tool configuration:** verify that the user's coding tool is configured to suppress surveys, feedback popups, and update prompts. These will break the flow. Common settings:
-   - **Claude Code:** in `.claude/settings.json`, set `"surveyOptOut": true` and `"skipUpdateCheck": true` if available. Add `"Do not show surveys, popups, or update prompts during this session."` to CLAUDE.md.
-   - **Codex:** ensure AGENTS.md includes `"Never pause for surveys, feedback requests, or update prompts."`
-   - **Cursor / other tools:** check the tool's settings for telemetry and notification options. Disable anything interactive.
-   If the user hasn't done this, warn them before they leave. A survey popup at 3am with nobody to dismiss it will stall the entire run.
-9. **Stale branch detection:** check if the branch is behind main.
-10. **Workspace ownership and collision tripwire:** confirm this run owns its branch and its checkout — no other agent (a teammate, another Elves run, or Codex running alongside Claude) is operating in this working tree or on this branch. When other agents may touch the same repo, stage the run in a dedicated git worktree so concurrent agents can't collide:
-    ```bash
-    ./scripts/preflight.sh --create-worktree <branch> --base origin/main
-    ```
-    Add `--dry-run` to print the exact command before creating anything. The helper prints the
-    branch, worktree path, base ref, and collision tripwire; it does not reuse, delete, or repair existing worktrees.
-    The bundled `scripts/preflight.sh` inspects `git worktree list --porcelain`
-    and fails if the current branch is checked out in more than one worktree. Then record the
-    branch tip as your collision tripwire: `git rev-parse HEAD`. A later move is expected only when
-    the exact registered trusted full-run session advances its assigned feature branch to a
-    descendant of the last observed tip and the supervisor verifies the process fingerprint and
-    protected refs are unchanged. Any other local or remote tip move is a collision (see **Merge
-    Conflicts**): stop and surface it to the user instead of committing on top.
-
-Resolve `ELVES_SKILL_ROOT` to the active installed Claude Code or Codex Elves bundle and run the
-acceptance staging helper before any worker launch:
+### Preflight
 
 ```bash
-# Plan-only syntax check while the session is still being staged:
-python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" validate \
-  --repo-root . --plan <plan-path>
-
-# Canonical plan/session parity check once .elves-session.json exists:
+git remote get-url origin
+git push --dry-run 2>&1 | head -3
+gh auth status 2>&1 | head -3
 python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" validate \
   --repo-root . --session .elves-session.json
-
-# Optional explicit scaffold/sync from the plan; omit --write to preview JSON:
-python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" sync-session \
-  --repo-root . --session .elves-session.json --write
 ```
 
-`sync-session` preserves matching evidence and refuses to erase or rewrite evidenced criteria.
-An explicit `--plan` used with `--session` is only an equality assertion against the session's
-repository-relative `plan_path`, regardless of the session file's location. Treat syntax,
-duplicate-id, criterion-mismatch, and plan/session batch-set
-results as hard staging failures; an explicitly declared Batch or Master Acceptance section must
-contain at least one checkbox criterion even in legacy plans. Production full-run preparation and
-launch revalidate the same contract.
+**One run owns one branch and one checkout.** Prefer a dedicated worktree when other agents may
+touch the repo (`./scripts/preflight.sh --create-worktree <branch> --base origin/main`; `--dry-run`
+first). The helper prints the branch, worktree path, base ref, and collision tripwire, and does not reuse, delete, or repair existing worktrees. `START_TIP` is the collision tripwire.
 
-If the survival guide already exists during staging, set `ELVES_SURVIVAL_GUIDE_PATH` to that file
-before running `./scripts/preflight.sh`. Preflight will run
-`python3 scripts/validate_survival_guide.py "$ELVES_SURVIVAL_GUIDE_PATH"` as a warning-only
-completeness check. Use it to catch missing Stop Gate and run-control fields early, but do not
-block launch automatically on advisory validator warnings.
+## Trusted full-run path (normal happy path)
 
-If a critical check fails (no git remote, no push access, no gh auth), stop and tell the user before they leave. Everything else is a warning.
+1. Stage once.
+2. One packet; launch trusted worker (`branch_progress`).
+3. **Park.** Follow sanitized stream by default (`full-run-await`; `--quiet` opt-out). No model
+   inference; no timed chat updates. See `references/follow-mode.md`.
+4. Worker commits/pushes meaningful progress slices with concrete subjects.
+5. Native Grok goal mode only when capability-proven; otherwise record honest one-packet fallback.
+6. Wake on death, hangs, malformed completion, safety, blockers, material scope/assumption change,
+   checkpoint, user input, or exit. Pushed progress survives recovery from the verified tip.
+7. Reconcile once. One cumulative terminal review. Consolidate blockers. Revise. Delta re-review.
+8. Attest readiness at exact HEAD. Terminal: landable PR, or merge only if authorized at that HEAD.
 
-## Time Awareness
+Host-native and legacy bounded routes still run the full per-batch loop below. Healthy trusted
+full-runs do **not** do per-batch driver review.
 
-Record the session start time. Ask the user when they'll be back (or assume 8 hours). Track how long each batch takes and use that to decide whether to start another batch or wrap up cleanly. Before each new batch, check the clock. If within 30 minutes of a finite-mode hard-stop deadline, skip to Final Completion. If the deadline is only a delivery checkpoint and work may continue after it, keep going.
-
-Record the time budget in the execution log.
-
-## Stage the Run: Branch, Plan, PR
-
-**Before writing any code**, set up the working environment. This is still staging. Do not start batch implementation in this phase.
-
-1. **Create a feature branch** if not already on one:
-   ```bash
-   git checkout -b feat/<name-from-plan>
-   ```
-   **One run owns one branch and one checkout.** Never share a working tree or branch with another active agent. If other agents may touch this repo during the run (a teammate, another Elves run, or Codex working alongside Claude), create the branch in a dedicated git worktree **instead of** the `git checkout -b` above, so concurrent agents can't overwrite each other's working tree or move your branch out from under you:
-   ```bash
-   ./scripts/preflight.sh --create-worktree <branch> --base origin/main
-   ```
-   Add `--dry-run` if you want to inspect the generated path and command first. A solo run in a
-   repo no other agent will touch can use the main checkout. Record the branch tip (`git rev-parse
-   HEAD`) as a collision tripwire. An advance is expected only when the exact registered trusted
-   full-run session advances its assigned feature branch to a descendant of the last observed tip
-   and the supervisor verifies the process fingerprint and protected refs are unchanged. Any other
-   move means another writer is in the checkout.
-
-2. **Write up the plans.** Generate the survival guide, learnings file, and execution log from templates (if they don't already exist). Read the plan and decompose it into batches. Record the batch breakdown with estimates in the execution log. Commit all planning documents:
-   ```bash
-   git add <survival-guide> <learnings> <execution-log> <plan-if-new>
-   git commit -m "[<branch> · Batch 0/N] Session setup — survival guide, learnings, execution log, batch plan"
-   ```
-
-3. **Push and open a PR immediately:**
-   ```bash
-   git push -u origin HEAD
-   gh pr create --title "<concise title from plan>" --body "<plan summary with batch list>"
-   ```
-
-4. **Capture the PR number** for later:
-   ```bash
-   gh pr view --json number -q .number
-   ```
-
-5. **Prepare the launch prompt** for the next call. Keep it short and behavior-heavy. It should point at the survival guide, learnings file, execution log, plan, and `.ai-docs/manifest.md` if present instead of re-pasting the plan.
-
-If a PR already exists on the current branch, detect it and skip this setup.
-
-**Don't wait to open the PR.** Open it after the first pushed commit — even if it's just session setup documents. Do not delay until the branch is "nearly done" or until the first implementation batch is complete. The PR is your collaboration surface, your review loop, and your visibility tool. Every hour without a PR is an hour where bots can't review, the user can't check in, and comments can't accumulate. Keep using the same PR throughout the run; do not create new PRs for subsequent batches.
-
-**Why the PR must exist before any code is written:** The PR is the review and visibility surface.
-For host-native and legacy bounded execution, read PR feedback after every host push and iterate
-until each batch is clean. For a healthy trusted full-run worker, do not reactivate the host after
-each worker push: let the worker run its internal batch loop, keep the host on bounded telemetry,
-and perform one cumulative PR/review pass at terminal or safety wake. Reviewer bots can still
-inspect every push without turning the driver into a second implementation loop.
-
-**The PR isn't the deliverable. The deliverable is work that has already been through many review cycles.** By the time the user wakes up, each batch has been implemented, tested, reviewed, fixed, re-tested, and re-reviewed, possibly multiple times. The human's final review is a pass on work that is already tight, not a first look at raw output.
-
-**The user owns whether Elves may merge. You never merge by default — the user merges when they
-return. The exceptions are an explicit merge-on-green opt-in recorded in Run Control, or the
-Reviewed PR Landing Command. Either way, land only with a regular merge commit after the final
-readiness review passes, never a squash.**
-
-When staging is complete: in **E2E single-kickoff**, continue into Phase 3 immediately; in **legacy
-two-call**, stop and hand the user a short launch prompt for the next call.
-
-### Batch Decomposition
-
-Split large programs into batches before coding. The right batch size is **what the current model can get almost certainly correct in a single focused effort**, then verified through testing, review, and deployment before moving on.
-
-A good starting benchmark is roughly **what a team of 4 developers would accomplish in a 2-week sprint** (~40 person-days of effort). This has been tested with frontier models and is large enough to make real progress while small enough to verify with confidence.
-
-But the right batch size depends on your model, your stack, and your experience. Some coding engines (e.g., Codex) can handle larger batches than others. Some tech stacks are more predictable than others. **The user defines the sprint size** in the plan or survival guide:
-
-```markdown
-## Batch Sizing
-- team-size: 6
-- sprint-length: 2 weeks
-- notes: Codex handles larger batches well in this codebase. Increase if batches are passing review cleanly on the first cycle. Decrease if review is finding too many issues.
-```
-
-Tune this over time. If your batches consistently pass validation and review on the first try, they might be too small. You're leaving capacity on the table. If the review loop is churning through many fix cycles per batch, they're too large for the model to get right in one shot. The right size is the largest batch that comes out tight after one or two review cycles.
-
-A single batch is the unit the model can get right. But the plan isn't a single batch. It might be 10, 12, or more. The power of Elves is chaining verified batches together, one after another, each building on the solid foundation of the last. A 12-batch plan running overnight is 12 sprints of work, months of human-team output, delivered by morning.
-
-This is what makes the output tight. The agent doesn't race through a huge plan and hope for the best. It does a chunk, tests it, reviews it, deploys it, confirms it works, and only then moves to the next chunk. Each batch stands on the verified foundation of the ones before it. Debt doesn't accumulate because nothing moves forward until it's right.
-
-Rules:
-- Each batch must be independently shippable: code, tests, docs, and passing review.
-- Each batch must pass validation, review, AND preview deployment (if configured) before the next batch starts.
-- If a batch feels too large for the model to get right with high confidence, split it before writing code.
-- Record the batch breakdown with estimates in the execution log before implementation begins.
-- Rollback authority depends on route. Host-native and legacy bounded runs create a host-owned
-  run/session-scoped `bN` rollback ref before each batch. A trusted parked full-run creates one
-  host-owned `b0` launch ref before handoff; worker commit SHAs are the internal rollback points.
-  The worker never creates, moves, or pushes refs other than its assigned feature branch.
-
-## Subagent Strategy
-
-For long runs, delegate heavy work to subagents to preserve context. In host-native or legacy
-bounded execution, the coordinator manages the per-batch loop and subagents do deep work. In a
-trusted full-run, the worker owns the entire internal batch loop while the coordinator parks.
-
-**Use subagents for:** implementation (coding a batch), validation (running test suites), review (reading PR comments), and scout mode (exploring improvements).
-
-**Keep in the coordinator:** canonical run memory, protected refs, PR actions, merge, launch gates,
-and cumulative final review. Trusted full-run commit/push access is the narrow exception: the exact
-registered worker may advance only its assigned feature branch under the verified session contract.
-
-If your environment doesn't support subagents, do all work directly. The core loop is the same regardless.
-
-**If subagent capacity is full**, do not silently skip delegation. Reuse an existing idle subagent, wait for one to complete, or close an idle one before spawning a new one. If none of those options work, do the work directly in the coordinator. "Subagent limit reached" is never an excuse for "no independent review." The review must happen regardless.
-
-**If process-count or session warnings appear**, stop and clean up before continuing. Close idle terminals, reuse existing processes, or consolidate work. Do not let warnings pile up — they degrade performance and eventually cause hard failures.
-
-## Core Loop
-
-Choose the execution route **before** entering this loop:
-
-- **Host-native or legacy bounded route:** the host executes this full cycle for every batch.
-- **Healthy trusted full-run route:** first create the host-owned `b0` launch rollback ref, then
-  hand one self-contained packet to the worker. The worker executes its internal batch loop and
-  commits/pushes meaningful progress on the assigned feature branch. The host performs bounded
-  supervisor telemetry only—no per-batch orient/contract/validate/review/document/push chatter—until
-  a terminal event, safety wake, explicit user intervention, or actual worker exit. Then the host
-  re-reads run memory and performs one cumulative review, recovery, and landing-readiness loop.
-
-Do not run both routes at once. The steps below are the host-owned per-batch loop for the
-host-native and legacy bounded routes; they are also quality requirements the full-run worker must
-honor internally, not instructions for the parked host to shadow every batch.
-
-### Time Allocation
-
-Do not impose equal time quotas. Plan carefully, let implementation dominate the run, verify each
-ordinary batch with the smallest evidence that proves its claims, and spend the review budget once
-on the cumulative terminal diff. Add time only when a concrete failure, declared high-risk
-checkpoint, or safety tripwire justifies it. Timing telemetry is diagnostic, not a gate.
-
-Track time per phase in the execution log (Implement Xm / Validate Xm / Review Xm) so drift is visible across the run.
+## Core Loop (host-native / legacy bounded / worker-internal quality)
 
 ### 1. Orient
 
-**Read these files in order. This is the most important step. It prevents drift after compaction.**
-
-1. Survival guide
-2. `.elves-session.json` (if it exists — fastest signal for current batch, PR number, and handled comments)
-3. Learnings file (if it exists)
-4. Plan
-5. Execution log
-6. `.ai-docs/manifest.md` (if it exists), then any linked durable docs relevant to the next batch
-7. Constitution (`docs/constitution.md` or `CONSTITUTION.md`, if it exists)
-8. Any project-level TODO or backlog file (if it exists)
-
-Then identify the first incomplete batch.
+Survival guide → `.elves-session.json` → learnings → plan → execution log → `.ai-docs/manifest.md`
+→ constitution → TODO.
 
 ### 2. Verify Green
 
-**Before starting new work, confirm the project is in a working state.** Run all validation gates (lint, typecheck, build, test). If anything is broken, fix it before proceeding — don't start a new batch on a cracked foundation.
-
-This catches edge cases where the previous batch passed gates but a subsequent push (review fixes, doc updates, merge from main) introduced a quiet regression. It's a cheap check that prevents expensive debugging later.
-
-If this is the first batch and no code exists yet, run a minimal smoke test instead: confirm the dev server starts, the test runner works, and dependencies are installed. If dependencies are missing (fresh clone or sandbox), install them first (`npm install`, `pip install -r requirements.txt`, etc.).
-
-**Capture the test baseline.** After Verify Green passes, record the test count (total, passing, skipped) in `.elves-session.json` under `test_baseline: { passed: N, total: M, skipped: K }`. This is your reference point for the entire run. At the end of each batch, compare current counts against this baseline. Record the baseline for comparison. Legitimate behavior-driven test changes and count reductions are allowed when behavioral coverage is preserved or improved and the change is explained. Only green-seeking weaken/delete/skip is forbidden.
+Run gates; capture test baseline. Fix breaks before new work.
 
 ### 3. Rollback Ref
 
-For host-native or legacy bounded execution, create a host-owned rollback safety point before the
-batch: `refs/elves/rollback/<run>/<session>/bN-<digest>`. For trusted full-run execution, this step
-was completed once before handoff with batch `0`; do not create per-batch host refs while parked.
-Worker commit SHAs provide the internal rollback points, and the worker never creates refs.
+Host-owned `refs/elves/rollback/<run-id>/<session-id>/bN-…` (or single `b0` for trusted full-run).
 
 ### 4. Contract
 
-**Before writing code, define what "done" looks like for this batch.** Write a contract with four required sections: **behaviors** (what this batch implements), **Build on** (existing patterns and utilities to extend), **acceptance criteria** (concrete, testable conditions that prove it works), and **blast radius** (what shared code this batch modifies and the risk level). This is inspired by the generator/evaluator pattern — the contract is the agreement between "build it" and "verify it" before either begins.
-
-The contract goes in the execution log under the batch entry:
-
-```markdown
-### Batch 3 [B3]: Payment Processing
-**Contract:**
-- POST /api/payments creates a charge and returns 201 with charge ID
-- Failed charges return 402 with error code
-- Webhook endpoint validates signatures and updates order status
-- E2E: user can complete checkout flow and see confirmation page
-
-**Build on:**
-- Existing request handler pattern in `src/api/handlers/` (follow the same middleware chain, error response format, and test structure)
-- Extend `src/utils/validation.ts` for payment input validation — do not create a new validator
-- Use the existing `ApiError` class for error responses — do not introduce a new error type
-- Webhook handler should follow the same pattern as the existing `github-webhook.ts` handler
-
-**Acceptance criteria:**
-- [ ] B3-A1: Unit tests for charge creation (success + failure paths)
-- [ ] [B3-A2] Integration test for webhook signature validation
-- [ ] B3-A3: E2E test: full checkout flow via browser automation
-- [ ] [B3-A4] All existing tests still pass
-- [ ] B3-A5: Existing non-payment checkout flows still behave the same way
-
-**Blast radius:**
-- Modifying `src/utils/validation.ts` (imported by 12 files), additions only, no signature changes
-- Adding new `PaymentError` subclass of existing `ApiError`, no changes to base class
-- Risk: low, all changes are additive, no existing interfaces modified
-```
-
-The **Blast radius** section forces you to think about regression risk before writing code. List every shared file this batch will modify, count its consumers (search for imports, requires, or references to the file using whatever pattern fits your stack), describe the nature of the change (additive, modified, or breaking), and assess the risk. A high-risk blast radius isn't a reason to skip the work. It's a signal to write more careful tests, verify consumers during review, and usually run the optional regression-focused review pass described in step 7.
-
-The **Build on** section makes the Code Quality Philosophy concrete for this batch. Search the codebase during contract writing to fill it in: existing utilities, established patterns, modules to extend, conventions to match. If nothing relevant exists, say so — "No existing patterns apply; this batch establishes the pattern for [X]" is a valid entry and signals to later batches what to build on.
-
-The contract keeps implementation focused and gives the validate/review steps clear targets. If you can't write concrete acceptance criteria, the batch scope is too vague — sharpen it before coding. For any batch that modifies existing behavior instead of only adding new surfaces, require at least one acceptance criterion that explicitly proves existing behavior is preserved.
-
-For trivial batches (documentation-only, config changes, dependency bumps), the contract can be a single line: "Update README with API examples. Acceptance: README contains curl examples for all endpoints." Don't let the contract become bureaucracy for obvious work.
+Behaviors, Build on, acceptance criteria, blast radius. Stable IDs `B#-A#` / `[B#-A#]`.
 
 ### 5. Implement
 
-**Start with a pre-implementation survey.** Before writing any code, read the contract's **Build on** section and verify it against the current codebase. Then search for anything else relevant: utilities you might need, patterns you should follow, conventions you must match. Document what you find in a brief note in the execution log:
-
-```markdown
-**Pre-implementation survey:**
-- Found `formatCurrency()` in `src/utils/format.ts` — will use for payment display
-- Existing handlers in `src/api/handlers/` use `withAuth` middleware → will follow same pattern
-- Error responses use `{ error: string, code: string }` format throughout → will match
-- No existing webhook handler pattern — this batch establishes it
-```
-
-This takes minutes and prevents hours of review churn. The survey makes principles #2 (centralize), #3 (extend), and #4 (architecture first) actionable: you can't extend what you haven't found, and you can't centralize if you don't know what already exists. The reviewer will check your implementation against your survey — if you documented an existing utility and then created a duplicate anyway, that's a clear finding.
-
-If the contract's **Build on** section is stale or incomplete (the codebase changed since the contract was written), update it before coding.
-
-Build the batch scope fully. Push after each meaningful chunk — and **every commit must follow the progress report format** from step 11: `[<branch> · Batch N/Total] <verb> <what changed>`. Self-check every subject line before committing. This applies to mid-implementation commits too, not just batch-end commits. Tag incidental findings as `[elves-scout]` in TODO.md for later.
-
-**Use commit messages to communicate with the reviewer.** The reviewer reads your commit history to understand not just *what* you changed but *why*. Every commit should reference which batch item is being addressed. When you make a design choice that isn't obvious — choosing one approach over another, hardcoding a value, deviating from a pattern — explain your reasoning in the commit message body. This is the communication channel between you and the reviewer. Without it, the reviewer flags something, you silently change it back, the reviewer flags it again, and you burn cycles arguing through code. With it, the reviewer reads your justification first and only flags things where the reasoning is actually wrong.
-
-**Follow the patterns you surveyed.** The pre-implementation survey identified what exists. Now use it. Extend existing utilities instead of creating new ones. Follow established patterns instead of inventing alternatives. Match conventions exactly. The fastest way to generate technical debt overnight is to write code that ignores what already exists — and after the survey, you can't claim you didn't know.
-
-Write tests for the code you write. Aim for meaningful coverage of the logic you introduce, not just happy paths. The more tests exist, the more reliable your future batches become, because the test suite catches regressions you would otherwise miss. If the project doesn't have a test infrastructure yet, consider setting one up as part of the first batch. It pays for itself immediately.
-
-**During long implementation stretches, periodically update the execution log with progress notes** — even before validation is complete. If compaction happens mid-implementation, the execution log is your lifeline. A stale log forces the next context to guess what you were doing. A current log lets it pick up exactly where you left off.
+Pre-implementation survey. Extend existing utilities. Write tests. Commit with progress subjects.
 
 ### 6. Validate
 
-**The goal is zero accumulated debt.** Every batch must be production-ready before you move to the next one. You're working overnight with no one watching. The tests are the watch.
-
-Validation has two stages: **local** (lint, typecheck, build, test, E2E) then **preview** (deploy and smoke-test if configured). Don't advance until both pass.
-
-**Browser-driven verification is strongly recommended for any project with a UI.** Unit tests verify logic; browser automation verifies the app actually works as a user would experience it. Without it, agents routinely produce code that compiles and passes unit tests but doesn't function end-to-end. If the project doesn't have Playwright or Cypress set up, consider adding it in the first batch — it catches an entire class of bugs that other gates miss. Use Playwright, Cypress, or similar browser automation to click through the running application like a user: test UI interactions, verify API responses, check database state. See `references/verification-patterns.md` for patterns.
-
-Validate against the **batch contract** from step 4. Every acceptance criterion should have a corresponding gate result. If an acceptance criterion can't be verified by the existing gates, that's a gap — add a test or verification step before moving on.
-
-See `references/validation-guide.md` for the complete validation system including auto-discovery tables, preview deployment configuration, and detailed gate explanations.
-
-Every gate must pass. If a gate fails, apply the **bug-fix protocol**: diagnose the category of failure, write a test that catches the category (not just this instance), run it to find related failures, fix them all, then re-run from the failing gate. Don't skip a gate. Debt only grows.
+Impact path: changed surface → affected consumer → selected test. Touched-surface proof by default;
+broad at high-risk checkpoints and terminal. Bug-fix protocol: category → category test → fix all.
 
 ### 7. Review
 
-**This is where the Ralph Loop does its real work.** You built something (implement). You checked it (validate). Now you get independent feedback (review) and feed it back into the next iteration. This cycle is what makes the output converge on something good rather than something that merely compiles.
+Independent feedback. Walk contract. Enforce code quality. Medium/high blast radius: regression
+pass. Fix blocking; advisory does not delay readiness. Resolve PR threads. **PENDING-DOCS** is not
+clean. **Public API surface snapshots are optional regression evidence.** Use existing structured sources before inventing scanners. If no credible source exists, record `unavailable` with the reason instead of fabricating a snapshot. A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide. `required: true` is valid only when explicitly set by the user or project survival guide. Do not infer required mode from project type, provider config, framework choice, or the presence of API files. Snapshot artifacts are run artifacts, not product docs. Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly asks. Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data. A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution. Record the public API surface delta when configured.
 
-The review has three jobs: **find bugs**, **verify the batch matches its contract**, and **enforce the Code Quality Philosophy.** A batch that is bug-free but only implements half the contract isn't done. A batch that implements the full contract but has a security hole isn't done. A batch that works perfectly but introduces duplicated utilities, ignores existing patterns, or band-aids over root causes isn't done either — it makes every future batch harder.
+### 8. Legality Check
 
-The built-in review works out of the box with zero configuration:
+If a constitution exists: PASS / WARN / FAIL / UNCHANGED per intention. FAIL blocks.
 
-1. **Read all PR feedback.** Fetch review threads, issue comments, and CI check runs via `gh api`. Every comment from every source — human reviewers, bot reviewers (CodeRabbit, Copilot, SonarCloud, etc.), and CI — must be read. Don't sample. Read all of them.
-2. **Read the commit history for the batch.** The coding agent communicates through commit messages — not just what changed but *why*. Before flagging something, check whether the commit message already justifies the choice. A hardcoded value with a documented justification in the commit body is an intentional design decision, not a finding. A deviation from pattern with a clear rationale is not a violation. The commit messages are the coding agent's side of the conversation. Read them.
-3. **Spawn a review subagent** (if supported) to read the comments, the diff, the commit history, the plan, **the batch contract from step 4 (including the Build on section), and the pre-implementation survey from step 5.** Tell the subagent today's date and instruct it to **trust the codebase as the source of truth** — the coding agent can search in real time and may be using libraries, APIs, or model versions that are newer than the reviewer's training data. The subagent produces a structured assessment covering: what's blocking, what's a warning, what's fine, whether every contract item was delivered, and whether the implementation followed the patterns and utilities identified in the Build on section and survey. If the survey identified an existing utility and the implementation created a duplicate instead of extending it, that's a blocking finding. If subagents aren't available, do this analysis directly.
-4. **Check contract completeness.** Walk through each behavior and acceptance criterion from the contract. Is it implemented? Is it tested? If something is missing, go back to Implement (step 5) and finish it before continuing the review loop. A batch that passes all gates but skips a contract item is incomplete, not clean.
-5. **Fix blocking issues** using the **bug-fix protocol:** When a bug is found — whether by the reviewer, a bot, CI, or your own analysis — don't just fix the specific instance. Follow this sequence:
+### 9–12. Document, survival guide, commit/push, re-read
 
-   **a. Diagnose the category.** What kind of bug is this? Off-by-one? Missing null check? Unvalidated input? Race condition? Incorrect type coercion? The specific bug is a symptom. The category is the disease.
+After every host-owned commit and push, re-read the survival guide before doing anything else.
+Do not wait for user acknowledgment.
 
-   **b. Write a test that catches the category, not just the instance.** If the bug is a missing null check on user input, don't write a test for that one field — write a test that exercises null/undefined/empty inputs across the relevant interface. If it's an off-by-one in pagination, test boundary conditions for all paginated endpoints. The test should be precise enough to catch this bug and every sibling bug of the same type.
+### 13. PR Loop
 
-   **c. Run the test immediately.** Before fixing anything, run the new test against the current code. It should fail for the reported bug — if it doesn't, the test isn't catching what you think it's catching. It may also fail for related bugs you haven't seen yet. Good. You've just found them before the user did.
+Outside parked full-run: nonblocking new/unresolved poll after host pushes. Terminal readiness waits
+for required checks/reviewers. Trusted parked worker pushes defer host PR polling until wake.
 
-   **d. Fix confirmed same-root failures on owned or affected shared surfaces.** Fix the original bug and every related failure the category test confirmed on surfaces this batch owns or affects. Unrelated sibling findings outside that scope are **advisory follow-up** (log under `[elves-scout]`), not batch blockers.
-
-   **e. Re-run and confirm green.** All category tests pass. All existing tests still pass. No regressions.
-
-   This is more work per bug, but it means the same category of bug never appears twice in the run. Without this protocol, agents play whack-a-mole: fix the reported bug, move on, get flagged for the same bug in a different place next batch. The category test prevents that.
-6. **Resolve addressed comments on GitHub.** After fixing an issue raised in a review thread, resolve that thread via the API so it's marked as handled. For issue comments that can't be resolved as threads, reply with a short disposition (e.g., "Fixed in abc1234" or "Dismissed: false positive, see execution log"). This is how you track what's been dealt with — unresolved threads and unreplied comments are your remaining work queue.
-7. **Record dispositions in `.elves-session.json`.** For each comment you address, log its ID, source, disposition, and the review cycle it was handled in. This survives compaction and lets the next context skip already-handled comments without re-reading and re-evaluating them. See the schema in **Structured Session Data**.
-8. **Push fixes, then re-read comments.** Use commit messages to explain your fixes and justify any decisions — the reviewer reads them on the next cycle. Only read **new and unresolved** comments — resolved threads and replied-to comments from previous cycles are done. Don't re-litigate settled findings.
-9. **Repeat until the batch is clean.** No unresolved threads, no unreplied bot comments, no missing contract items. The loop continues until there is nothing left to address.
-10. **Verify documentation is current.** Before exiting the review loop, check that any user-facing behavior changed by this batch is reflected in the project's documentation. This includes README files, API docs, inline doc comments, config references, migration guides, changelogs, `learnings.md`, and `.ai-docs/*` — whatever the project uses. If docs are stale, update them now. Don't defer this to a later batch. Stale documentation is silent debt: the code is correct but the user doesn't know how to use it correctly. A batch with good code and wrong docs is not shippable.
-
-If the code is acceptable but the surrounding docs are stale, label the finding `PENDING-DOCS`.
-This is distinct from a code bug: the implementation may be correct, but the batch is not review-ready
-until the relevant docs are updated or an immediate follow-up batch is explicitly carrying the debt.
-Typical destinations are the survival guide and execution log for run-state drift, `learnings.md`
-for reusable lessons, `.ai-docs/*` for stable repo truths, and README/CHANGELOG/config docs for
-human-facing behavior.
-
-**Check shared surfaces for regression risk.** For any modified file that's imported or used by code outside the batch scope: grep for consumers, verify backward compatibility, confirm no function signatures or interfaces changed without updating all callers. Mark BLOCKING if a shared surface was modified without verifying consumers. The review subagent includes this check (see `references/review-subagent.md`), but if you're doing the review directly, don't skip it.
-
-**Run a regression-focused review pass for high-risk batches.** If the contract's blast radius is medium or high, or the batch touches auth, billing, data models, shared utilities, public interfaces, or other widely-consumed surfaces, add one more narrow review pass after the standard review is otherwise clean. This pass is intentionally constrained: read the cumulative diff, the plan, the batch contract (especially blast radius), and the consumer evidence. Ignore style, architecture improvements, and new feature ideas. Ask only: "What existing behavior could this break?" For each changed shared surface, trace callers or dependents and name the concrete failure mode. Treat confirmed breakage as BLOCKING. Treat plausible but unproven regression risk as WARNING until you either add verification or justify why the surface is safe in the execution log and commit message.
-
-**Use public API surface snapshots when configured.** Fold them into the existing regression
-attestation, not a separate review ceremony:
-- Public API surface snapshots are optional regression evidence.
-- Use existing structured sources before inventing scanners.
-- If no credible source exists, record `unavailable` with the reason instead of fabricating a snapshot.
-- A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide.
-- `required: true` is valid only when explicitly set by the user or project survival guide.
-- Do not infer required mode from project type, provider config, framework choice, or the presence of API files.
-- Snapshot artifacts are run artifacts, not product docs.
-- Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly asks for a durable API report.
-- Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data.
-- A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.
-
-**Triage every review finding into one of five categories:**
-- **Fix now:** a real bug, security problem, quality violation, or missing contract item. Fix it before continuing.
-- **Defer:** valid finding but out of scope for the current batch. Log it in TODO.md with `[elves-scout]`, reply with the deferral reason, and move on.
-- **Intentional design:** the reviewer flagged something that is correct and deliberate. Resolve/reply with a justification explaining why it's intentional. Don't change the code.
-- **False positive:** the reviewer (usually a bot) flagged something that isn't actually an issue — a hallucination, a misunderstanding of the context, or an outdated rule. Resolve/reply with your reasoning and move on.
-- **PENDING-DOCS:** the code is acceptable, but supporting docs are stale. Update the docs before calling the batch clean, or carry the debt into the immediate next batch with an explicit note in the execution log and `.elves-session.json`.
-
-Never make unnecessary code changes just to appease a finding. If the finding is wrong, say so and document why. If the same non-actionable finding persists for 3 cycles, resolve it with your assessment — you've given it a fair hearing. (The 3-cycle threshold is a default; override in the survival guide under `## Run Control`.)
-
-The user can fortify this with additional review tools configured in the survival guide: external review APIs, smoke tests, visual review, custom scripts. See `references/tool-config-examples.md` for tool configuration and `references/review-subagent.md` for the full review subagent protocol. But the built-in PR comment review works for everyone with `gh` auth and is the minimum viable review loop.
-
-### 8. Legality Check (the Judge)
-
-**If a constitution exists, run the legality check now.** This is separate from validation (step 6) and code review (step 7). After the batch passes both, the judge verifies the app still keeps all its promises. See **Constitution and the Legality Check** for the full framework.
-
-Read the constitution, identify which intentions could be affected by the current batch, and trace flows and invariants through the code. Produce a verdict for each: **PASS**, **WARN**, **FAIL**, or **UNCHANGED**.
-
-- **All PASS or UNCHANGED:** continue to step 9.
-- **Any WARN:** review and either fix or document why it's a false positive.
-- **Any FAIL:** batch is blocked. Fix the issue, re-run validation (step 6), and re-run the judge before continuing.
-
-If a Judge skill exists, use it. If not, spawn a read-only review subagent with the constitution and the diff. If subagents aren't available, do the check directly. The check must happen regardless of tooling. See `references/review-subagent.md` for the review subagent protocol.
-
-If no constitution exists, skip this step.
-
-### 9. Document
-
-Update the execution log with a timestamped entry covering: batch name, timing breakdown, what changed, commands run, test results, review findings, decisions made, docs impacted, docs updated, docs promoted, docs deferred, regression attestation, commit SHA, rollback ref, and next steps.
-
-**Close the loop on the contract.** Mark each acceptance criterion from step 4 as met or note exceptions. If a criterion wasn't met, explain why and whether it's deferred or dropped. The contract is write-only if you don't check it off.
-
-**Write the regression attestation.** This isn't a checkbox. It's a forcing function that makes you reason about safety. Before the batch can be marked complete, include a structured regression attestation in the execution log entry:
-
-1. **Cumulative diff review:** run `git diff <default-branch>...HEAD --stat` and review the total delta from the default branch. List any files changed outside the batch scope and explain why they were touched. Flag any unexpected deletions.
-2. **Shared surfaces:** identify any shared code modified in this batch (utilities, types, interfaces, configs, middleware, or anything imported by code outside the batch scope). For each, grep for consumers and verify the change is backward-compatible. Report the consumer count and nature of change (additive / modified / breaking).
-3. **Public API surface delta:** if `api-surface-snapshot` is configured, record the status (`not_applicable`, `captured`, `changed`, `unavailable`, `invalid_config`, or `required_failed`), artifact paths, and whether any additive, planned breaking, or unexpected breaking contract changes appeared.
-4. **Test baseline comparison:** compare the current test count against the baseline captured during Verify Green (step 2). Report the delta. Compare coverage quality, not only counts. Legitimate behavior-driven reductions need explanation; green-seeking weaken/delete/skip is forbidden.
-5. **Confidence and reasoning:** state HIGH, MEDIUM, or LOW and explain *why*. "All tests pass" is necessary but not sufficient. Explain what you checked beyond tests and why you believe existing functionality is preserved. If you modified shared surfaces, explain why consumers aren't affected. If MEDIUM or LOW, describe the specific risk and what additional verification would raise confidence.
-
-Also update `.elves-session.json` — set the current batch status to `"complete"` **only after** recording a non-empty `acceptance` array (each item: stable `id`, `criterion`, `met: true`, `evidence`), record the commit SHA and completion timestamp, and capture any resolved, deferred, or dismissed review-comment dispositions. This keeps the JSON in sync with the execution log so either can be used for recovery. Do not mark `complete` because gates are green if plan Acceptance is still open.
-
-Promote durable lessons deliberately:
-- keep transient notes and one-off debugging trails in the execution log
-- add reusable, stable lessons to `learnings.md`
-- promote stable repo truths from learnings into `.ai-docs/architecture.md`, `.ai-docs/conventions.md`, or `.ai-docs/gotchas.md`
-
-Keep entries concise. If the log exceeds ~50 entries, archive older ones under `## Completed Archive`.
-
-### 10. Update the Survival Guide
-
-Update "Current Phase", "Next Exact Batch", and the **Stop Gate** to reflect the new state. If a promoted learning changes how the next batch should be approached, reflect that here too. A stale survival guide sends the next session down the wrong path.
-
-Rewrite these sections in place. The survival guide is a live operator brief, not an append-only
-history log. Keep exactly one current status, one current next action, one active compute picture,
-one Stop Gate, and one next exact batch. Historical updates belong in the execution log.
-
-### 11. Commit and Push
-
-Stage specific files (not `git add -A`), commit with a clear message that includes batch progress, push.
-
-**At the end of every completed batch, this step is mandatory before any other work begins.** A
-batch is not complete while its finished work exists only in the working tree or only in your local
-branch.
-
-**One batch per close commit (default).** Prefer a single batch id in the close commit subject
-(`[branch · Batch N/Total] ...`). Do not collapse unfinished batches into a multi-batch "close
-remaining" commit. If circumstances force a multi-batch close, the execution log must include a
-separate **Validate:** section for each batch id before any of those batches may be marked
-`complete`.
-
-**Self-check before every commit:** verify your subject line matches the format below. If it doesn't, rewrite it before committing. This is non-negotiable.
-
-#### Commit subject format
-
-Preferred phase-aware form (Git history as operator UI):
-
-```
-[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>
-```
-
-Legacy form still accepted for simple host-only commits:
-
-```
-[<branch> · Batch N/Total] <verb> <what changed>
-```
-
-Always include:
-1. **Progress prefix** with branch and batch — square brackets, space-dot-space separators.
-2. **Optional phase label** — `Contract`, `Implement`, `Validate`, `Review`, or `Close`.
-3. **Concrete outcome** — specific enough that `git log --oneline` reads as a live progress report.
-   Prefer a verb-led outcome (`Add …`, `Fix …`) unless the phase label already frames the work.
-
-Variant prefixes for non-batch commits:
-- `[<branch> · Scout]` — scout mode work
-- `[<branch> · Entropy check after Batch N]` — entropy check fixes
-- `[<branch> · Batch 0/N]` — session setup
-
-**This format applies to every commit during the run.** Implementation commits, review fix commits, doc updates, session setup commits. No exceptions. The human may check `git log` at 3am to see if you're still making progress. If they see commits without the progress prefix, they have no idea where you are.
-
-Push meaningful slices during the batch; do not hide hours of validated progress until `Close`.
-`Close` requires acceptance evidence. Trusted `branch_progress` full-run workers may commit/push
-only the assigned feature branch. Untrusted lease workers create audited detached handoff commits
-and never own refs, remotes, push, PRs, or run memory.
-
-#### Anti-patterns (never do these)
-
-```
-# BAD: no progress prefix
-Add payment endpoint
-
-# BAD: prefix exists but vague description
-[feat/payments · Batch 3/12] Updates
-[feat/payments · Batch 3/12 · Implement] progress
-[feat/payments · Batch 3/12 · Implement] WIP
-[feat/payments · Batch 3/12 · Implement] fixes
-
-# BAD: prefix exists but description is about the process, not the change
-[feat/payments · Batch 3/12] Working on batch 3
-[feat/payments · Batch 3/12] Continue implementation
-[feat/payments · Batch 3/12] More changes
-
-# BAD: description starts with a noun instead of a verb
-[feat/payments · Batch 3/12] Payment endpoint and webhook handler
-
-# BAD: too long — this wraps awkwardly in common git views
-[feat/payments · Batch 3/12] Add the charge creation endpoint with Stripe integration and also the webhook handler for processing async payment events
-```
-
-#### Good examples
-
-```
-[feat/payment-system · Batch 3/12 · Implement] Add charge endpoint and webhook handler
-```
-
-```
-[feat/payment-system · Batch 3/12] Use Stripe idempotency keys for retries
-
-Stripe already handles idempotent retries natively via the Idempotency-Key
-header. Building our own dedup table would duplicate this and add a
-consistency problem. Hardcoded 24h TTL matches Stripe's documented window.
-```
-
-```
-[feat/payment-system · Batch 3/12 · Review] Fix validation and error handling per review
-
-Fixed: email regex was anchored incorrectly (CodeRabbit #42).
-Dismissed: "extract timeout to constants" — the 30s value is Stripe's
-documented webhook timeout, not a tunable parameter. Justified in code
-comment referencing their docs.
-```
-
-```
-[feat/payment-system · Batch 3/12 · Close] Record acceptance evidence for payment batch
-```
-
-```
-[feat/payment-system · Batch 3/12] Add E2E test for checkout flow
-```
-
-**The commit log is a progress report.** Anyone watching `git log --oneline` should see a clear narrative: what batch is in progress, what's being done, and how far along the run is. If your commit log doesn't read like a timeline of the work, your messages aren't specific enough.
-
-**When a commit touches shared code (utilities, types, interfaces, configs, middleware, or anything imported outside the current batch), include a `Safe because:` line in the commit body.** This forces you to verify consumers at commit time instead of hoping the reviewer catches it later:
-
-```
-[feat/payment-system · Batch 3/12] Extend validation utility with payment rules
-
-Added payment-specific validators to src/utils/validation.ts.
-
-Safe because: only added new exported functions (validateAmount,
-validateCurrency). Existing exports (validateEmail, validatePhone)
-are unchanged. grep shows 12 importers, none affected.
-```
-
-This creates an audit trail. The reviewer can verify your claim instead of rediscovering the consumer analysis from scratch.
-
-### 12. Re-read the Survival Guide
-
-**After every host-owned commit and push, re-read the survival guide before doing anything else.** Also verify the plan file hasn't changed since session start.
-
-**Trusted full-run parked rule:** after a healthy `full-run-launch`, the host does not run any
-per-batch Core Loop step on worker commits or pushes. It reads bounded monitor/events only and does
-not re-enter implementation, validation, memory, PR, or entropy loops until a safety wake,
-blocked/stale/failed state, explicit user input, or actual worker exit. At that wake, re-read run
-memory and perform the deferred cumulative review/recovery work once. This rule keeps delegation
-from becoming a second chatty driver loop.
-
-A packet-declared high-risk wake uses the exact line `- High-risk checkpoint: <stable-id>`. The
-worker emits one matching `high_risk_checkpoint` event. After host review, acknowledge only the
-exact pending ID with `full-run-monitor --ack-high-risk-checkpoint <stable-id>`; missing or
-unacknowledged planned checkpoints block final readiness even after a clean provider exit.
-
-Immediately run this post-push operator checklist:
-
-1. What is the **single** next highest-value action?
-2. What paid compute or long-running resources are active right now?
-3. What is each active resource doing? If any resource is idle, stale, or ambiguous, shut it down or pause it now.
-4. Did the user change stop behavior, checkpoint meaning, priorities, or scope since the survival guide was last rewritten? If yes, rewrite `## Run Control`, `## Current Phase`, `## Stop Gate`, and `## Next Exact Batch` now.
-5. Does the Stop Gate still say `Stop allowed right now: no`, or does `.elves-session.json` still say `continuation_guard.stop_allowed: false`? If yes, continue immediately.
-6. Am I allowed to stop? If not, continue immediately.
-
-### 13. PR Loop — Poll After Every Push
-
-**Outside a trusted parked full-run, after every host push — including mid-implementation pushes,
-not just end-of-batch pushes — poll PR comments, inline review comments, and check status before
-starting any new work.** During a trusted parked full-run, worker pushes are intentionally excluded;
-poll all PR surfaces after terminal/safety wake before final readiness. Don't assume silence means no
-comments. Bots and CI run asynchronously.
-
-This is a lightweight check, not a full review cycle. The full review in step 7 is comprehensive (contract verification, code quality audit, documentation check). Step 13 is a quick scan for new signals:
-
-1. **Fetch new/unresolved PR comments and review threads** via `gh api` (nonblocking mid-run). Only read what's new since your last poll.
-2. **Check CI/check status only as a nonblocking signal mid-run.** Diagnose obvious reds, but do not wait for the full required matrix between ordinary progress commits. **Terminal readiness** is when you wait for required checks/reviewers.
-3. **Triage new comments** using the same four categories from step 7 (fix now / defer / intentional design / false positive). Quick fixes can be handled inline. If findings require a deeper fix-push-repoll loop, follow the full step 7 protocol.
-4. **Record dispositions** in `.elves-session.json` as described in step 7.
-
-**If `gh api` calls fail** (rate limiting, auth expiration, network issues), retry with exponential backoff (wait 30s, 60s, 120s). If the failure persists after 3 retries, log it in the execution log and continue with the batch — don't let a transient GitHub API issue block the entire run. If auth has expired (401/403 on all endpoints), log it as a **Hard Stop** — the review loop can't function without API access.
-
-This is not optional. Skipping it means review feedback piles up silently and the user returns to a PR full of unaddressed comments. The PR loop is what makes the difference between "autonomous completion" and "visible collaborative review cadence."
-
-### 14. Evidence-triggered drift check
-
-Do not stop on a fixed batch cadence for another review. Run a short cross-batch drift check only
-when the worker reports repeated friction, a focused gate exposes inconsistent shared behavior, or
-the plan is unusually long and drift is actually visible. A healthy trusted full-run defers this
-question to its one cumulative terminal review.
-
-**What to check:**
-- Scan for duplicated utilities or helpers introduced in different batches that do the same thing. Consolidate them.
-- Check for naming inconsistencies that crept in across batches (different conventions in different modules).
-- Look for patterns that diverged: error handling done one way in batch 1 and a different way in batch 4.
-- Verify that the Code Quality Philosophy principles (especially #2 centralize, #5 pattern detection, #6 progressive conditioning) are holding across the cumulative diff, not just within individual batches.
-- Spend 5 minutes on a **process retro**: review the execution log, review findings, and validation timings for repeated friction. If the same category of issue keeps coming back (for example, the same review warning twice, repeated `PENDING-DOCS`, or validation taking longer every batch), tighten the process itself by updating the survival guide, a template, `learnings.md`, or tool configuration. Keep it lightweight: tune the loop you're already running instead of inventing a new subsystem.
-- Spend 5 minutes on **memory and resource hygiene** during long runs: condense stale survival-guide state, archive old execution-log entries when the log is large, rotate oversized command logs if the project created them, and reconcile idle dev servers, local terminals, paid jobs, or remote resources. If memory pressure or app sluggishness is visible, write a fresh-thread handoff and continue from a new launch context when the platform allows it. Do not mutate Codex/Claude app databases or active session stores mid-run.
-
-If you find drift, fix it now in a small focused commit: `[<branch> · Entropy check after Batch N] Consolidate <what changed>`. Don't let it ride. The purpose is garbage collection — small, frequent corrections are cheaper than a large refactor later.
-
-If the process retro finds a real pattern, record the adjustment explicitly in the execution log (for example, "added a regression-preservation acceptance criterion after repeated regression-only review warnings"). This is how Elves gradually self-tunes across long runs without pretending to be fully autonomous process design.
-
-If no concrete signal triggered the check, skip it. If one did, keep the correction focused and
-return to implementation; do not turn it into a broad regression run or a second final review.
-
-### 15. Continue or Stop
-
-**Finite mode:** check the clock. If there's enough time for another batch, start it. Otherwise, scout mode or Final Completion. Don't pause. Don't wait for user input.
-
-**Open-ended mode:** continue automatically after every checkpoint. Do not stop because the current batch is complete, because enough findings have been collected, because a PR exists, or because the user is away. Only stop if the user explicitly says stop or you hit a blocker with no recovery path.
+### 14–15. Drift check when evidence warrants; continue or stop
 
 ## Scout Mode
 
-After all planned batches are complete, if time remains, work through `[elves-scout]` items from TODO.md. Look for adjacent improvements, test gaps, documentation holes. This is bonus work with a clean commit boundary. If the user wants to roll it back, planned work is untouched.
-
-**Prioritization:** Start with items that reduce risk for the planned work (missing test coverage, edge cases in code you touched). Then move to quality improvements (dead code, stale docs, naming consistency). Leave large refactors or ambiguous items with context notes for the user.
-
-**Scout work goes through the same quality gates.** Each scout commit must pass validation. If the project has a constitution, scout changes must not introduce FAIL verdicts. Use the same commit format: `[<branch> · Scout] <verb> <what changed>`.
-
-**When to stop scouting:** In finite mode, stop when the time budget runs out. In open-ended mode, keep scouting until the user stops you or you run out of meaningful improvements. If scout items start requiring significant design decisions, log them and move on — scout mode is for clear wins, not ambiguous tradeoffs.
+After planned batches, with time remaining: adjacent bugs, tests, docs. Commit format:
+`[<branch> · Scout] <verb> <what changed>`.
 
 ## Forbidden Commands
 
-The following commands are **never allowed** under any circumstances. They destroy work that can't be recovered, and overnight there's no one to catch the mistake.
-
-- `git reset --hard`: destroys uncommitted and committed work. Never.
-- `git checkout .`: discards all uncommitted changes. Never.
-- `git clean -fd`: deletes untracked files permanently. Never.
-- `git push --force` or `git push -f`: rewrites remote history. Never.
-- `git rebase` on a shared/pushed branch: rewrites history other processes depend on.
-- `rm -rf` on any directory outside your immediate working scope.
-- Operating in a working tree or on a branch that another active agent owns. The only exception is
-  the exact registered trusted full-run worker advancing its assigned feature branch to a
-  descendant of the last observed tip while the supervisor verifies the process fingerprint and
-  protected refs unchanged. Any other writer or tip move is a collision; stop instead of committing
-  on top.
-
-If you think you need one of these commands, you're wrong. Find another way. If there truly is no other way, stop and log the situation. The user will handle it when they return.
-
-This rule survives compaction. If you've lost context and aren't sure what is safe, re-read the survival guide. These commands are never safe.
+Never: `git reset --hard`, `git checkout .`, `git clean -fd`, force push, rebase on shared branches,
+`rm -rf` outside scope, operating on another agent's checkout. Stop on unexpected tip moves
+(collision) outside the exact registered trusted full-run exception.
 
 ## Merge Conflicts
 
-If `git push` fails because the remote branch has diverged (another process merged main, the user pushed a hotfix, CI auto-merged), handle it as follows:
-
-**First, rule out a collision.** Compare the new tip against the last observed tripwire. An advance
-is expected only when the exact registered trusted full-run session advances its assigned feature
-branch to a descendant of that tip and the supervisor verifies the process fingerprint and
-protected refs unchanged. Any other move by another agent or checkout is a collision, not a normal
-diverge: stop, log a **Hard Stop**, and surface it to the user. Do not merge on top of another
-in-flight run. (Prevent this at staging by owning a dedicated branch and worktree.)
-
-1. **Fetch and merge** the remote branch: `git fetch origin && git merge origin/<your-branch>`. Do not rebase — rebase on a shared/pushed branch is forbidden.
-2. **If the merge is clean** (no conflicts), push and continue.
-3. **If there are conflicts**, resolve them carefully. Read both sides of each conflict. Prefer the remote version for changes outside your current batch scope. For changes within your batch scope, merge intelligently — don't blindly accept either side.
-4. **After resolving**, run all validation gates to confirm the merge didn't break anything. Then push.
-5. **If the conflicts are too complex** to resolve safely (e.g., large structural changes you don't fully understand), log it as a **Hard Stop**. The user will handle it when they return.
-
-Never use `git push --force` to bypass a diverged branch. Never use `git rebase` on a pushed branch. These are forbidden regardless of the situation.
+Rule out collision first. Otherwise fetch and merge (no rebase). Complex conflicts → Hard Stop.
 
 ## Test Integrity
 
-**Never weaken or delete a test merely to obtain green.** Legitimate behavior-driven test updates are allowed with preserved/improved coverage and explicit evidence.
-
-Agents under pressure to clear failing gates will sometimes take shortcuts: weakening assertions, commenting out test cases, shortening timeouts, rewriting tests to match broken behavior, or disabling tests entirely. This is the single most dangerous thing an autonomous agent can do. It makes failures invisible.
-
-Rules:
-- If a test fails without an intentional behavior change, fix the code.
-- If a behavior change makes a test wrong or outdated, update it only with preserved or improved
-  behavioral coverage and record the reason. If product behavior is unchanged and the test appears
-  wrong, log the conflict under **Decisions made** rather than weakening it for green.
-- Never comment out, skip, weaken, or delete a test merely to obtain green.
-- Never weaken an assertion (e.g., changing `assertEquals` to `assertTrue`, removing a check).
-- Never shorten a timeout to avoid a flaky failure. Log the flake and continue.
-- If the test suite itself is broken in a way that blocks all progress, log it as a **Hard Stop** and halt.
-
-The tests are the user's insurance policy. You don't get to weaken the insurance policy.
+Never weaken, delete, or skip a test merely to obtain green. Legitimate behavior-driven updates
+with preserved/improved coverage and evidence are allowed.
 
 ## Compaction Recovery
 
-After any compaction or restart, your conversation history is gone. But your instructions aren't. They live in files on disk, not in memory. Context compaction can't erase what lives in the survival guide, learnings file, plan, execution log, and durable `.ai-docs` docs. This is why those documents exist.
-
-1. Read the survival guide first (marked with `READ THIS FILE FIRST` banners).
-2. **Read the Run Control section and Stop Gate.** Confirm the run mode, stop policy, checkpoint semantics, actual stop conditions, and whether stopping is currently allowed. If the **Run mode** is `open-ended`, you are not allowed to stop on your own. This is the most important thing to recover.
-3. Read `.elves-session.json` to quickly determine the current batch, PR number, what's complete, and the `continuation_guard`. This is the fastest signal.
-4. Read the learnings file if it exists.
-5. Read the plan.
-6. Read the execution log.
-7. Read `.ai-docs/manifest.md` if it exists, then any linked durable docs needed for the next batch.
-8. Read the constitution (`docs/constitution.md` or `CONSTITUTION.md`) if it exists.
-9. Inspect the active compute picture in the survival guide, if present. Know what live resources exist before making any new decision.
-10. Read the `continuation_guard`. If `stop_allowed` is `false`, continue without re-deciding whether the run should end.
-11. Identify the first incomplete batch or the single next action named in the survival guide or `continuation_guard.next_required_action`.
-12. Resume immediately without asking for help.
-13. Don't redo completed work.
-
-**If the survival guide is missing from the working tree** (compaction happened during Final Completion after the cleanup `git rm`), check `git log --oneline -5` for a cleanup commit. Restore the files from the parent commit: `git show HEAD~1:<survival-guide-path> > <survival-guide-path>`. Then continue the recovery protocol.
-
-Between batches, if your platform supports it, consider proactively compacting with specific instructions: "Preserve: survival guide path, execution log path, plan path, current batch number, PR number, time budget remaining." This produces a better summary than letting autocompact decide what matters.
-
-**Model-tier note:** Frontier models (Opus-class) handle long continuous sessions well and rarely exhibit context anxiety or drift after compaction. The recovery protocol above is still the safety net, but you may find you need it less often. On smaller models, the recovery protocol is critical — follow it rigorously after every compaction event.
+1. Survival guide (Stop Gate + Run Control first)
+2. `.elves-session.json` / `continuation_guard`
+3. Learnings → plan → execution log → `.ai-docs` → constitution
+4. Resume the single next required action immediately
 
 ## Completion Contract
 
-**One-line policy:** Green CI + `status: complete` is not landable. Landable is **plan Acceptance with proof.**
+Landable is **plan Acceptance with proof** — not green CI + `status: complete`.
 
-### Why acceptance evidence exists
+Before batch `status: complete`: gates green, regression attestation, non-empty
+`acceptance: [{id, criterion, met, evidence}]`, PR feedback triaged, legality clean, docs current,
+session JSON updated, commit pushed. **God-file rule:** structure locks alone do not complete a
+split batch unless plan Acceptance allows characterization-only. Prefer **one batch per close commit**.
 
-Overnight runs put pressure on models to declare victory. The cheapest victory signals are green
-CI, a structure/regex characterization test, and flipping `status: complete` in session JSON.
-Disciplined models still re-read plan Acceptance and refuse to close early. Less disciplined models
-— or any model after compaction, late-night thrash, or a multi-batch "close remaining" rush —
-satisfy the letter of the old gates while missing the plan spirit.
+Landing check (installed):
 
-These hardening steps convert self-certification into auditable proof:
-
-- **Per-batch `acceptance` rows with stable `B#-A#` ids** force a criterion → evidence link the next context (or a script)
-  can check without trusting narrative alone.
-- **The god-file rule** separates *locks* (structure already exists) from *completion* (LOC/facade
-  bar met). Locks prevent regression; they do not ship the split.
-- **One batch per close commit** keeps progress honest. Multi-batch closes hide unfinished work
-  behind a single green tip.
-- **`elves_landing_check.py`** is a machine check for Final Readiness and merge-on-green paths so
-  a tired agent cannot talk itself past open Acceptance.
-
-A batch isn't done unless:
-
-1. Code lints cleanly and type-checks with zero errors.
-2. Build succeeds.
-3. Touched-surface tests pass with no new failures. Broad regression proof runs only at a declared high-risk checkpoint or the Readiness Gate.
-4. Preview deploys and smoke tests pass (if configured).
-5. **Plan and contract Acceptance criteria marked as met with evidence** (or exceptions documented with reasoning and a hard-stop note). Self-certified complete is not enough — see **Acceptance evidence** below.
-6. Review performed. The review loop ran until no blockers remained. All review threads resolved or replied to.
-7. Legality check passed (if a constitution exists). No unresolved FAIL verdicts.
-8. No accumulated debt: no skipped gates, no "will fix later" items, no known regressions.
-9. **Regression attestation written.** The execution log entry for this batch includes: cumulative diff review (`git diff <default-branch>...HEAD --stat`), shared surfaces identified with consumers verified, public API surface delta when configured, every test-count delta explained with evidence that coverage was preserved or improved, and a confidence level with reasoning. See step 9.
-10. **Documentation is up to date.** Any user-facing behavior changed by this batch must be reflected in the relevant docs: README, API docs, inline doc comments, config references, migration guides, changelogs, `learnings.md`, `.ai-docs/*`, or whatever the project uses. Stale docs are debt. A user who reads the docs and gets wrong information is worse off than a user with no docs at all.
-11. `.elves-session.json` updated with batch status, commit SHA, completion timestamp, current batch state, `continuation_guard`, non-empty per-batch `acceptance` evidence, and `review_comments` dispositions.
-12. Memory and resource hygiene checked for long runs or large batches: live docs are concise, old log entries are archived in place when needed, idle resources are reconciled, and a fresh-thread handoff exists if memory pressure is visible.
-13. You're confident the batch is correct. Not "probably fine," but verified through testing, review, and deployment.
-14. Execution log updated with timestamps, evidence, and commit SHA. Prefer **one batch per close commit**. If you must close more than one batch in one push, the execution log must contain a separate **Validate:** section per batch id.
-15. Survival guide updated with next batch and Stop Gate.
-16. Changes committed and pushed.
-17. **God-file / split batches:** source-regex, structure-already-exists, or characterization tests may *lock* behavior. They **must not alone** complete a split batch unless the plan Acceptance explicitly allows characterization-only. LOC/facade/size bars in the plan require matching metric evidence (or a hard-stop note explaining why the bar was missed).
-
-### Acceptance evidence (required before `status: complete`)
-
-Before flipping any batch to `complete` in `.elves-session.json`, record an `acceptance` array on that batch:
-
-```json
-"acceptance": [
-  {
-    "id": "B1-A1",
-    "criterion": "facade or LOC cut as stated in plan Acceptance",
-    "met": true,
-    "evidence": "path, command transcript, metric, or commit SHA"
-  }
-]
+```bash
+python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" \
+  --session <session-path> --repo-root .
 ```
 
-Rules:
-- Every planned batch that is `status: complete` must have a non-empty `acceptance` list.
-- Every new-plan item must have its stable `B#-A#` id, `met: true`, and non-empty `evidence`.
-- Batch numbering is neutral: `B0` and `B1` are equally valid starting conventions, and canonical
-  ids are `B0` or `B1` and above. Elves must not prefer, reserve, or silently renumber one
-  convention into the other; leading-zero aliases such as `B00` and `B01` are invalid. Batch-taking
-  helper arguments accept equivalent integer and stable-id forms (`0` / `B0`, `1` / `B1`).
-- Plan checkbox rows may use either `- [ ] B0-A1: criterion text` or
-  `- [ ] [B0-A1] criterion text`; the bare and bracketed stable-id spellings are equivalent.
-  Choose one row per id—using both spellings for the same id is still a duplicate.
-- Every branch-level Master Acceptance row uses a stable `M-A#` id and must be reconciled before
-  readiness. Never renumber stable ids after staging.
-- Legacy numeric batches and unlabelled acceptance rows remain readable: assign deterministic
-  aliases by plan order (`Batch 1` → `B1`, nth batch criterion → `B1-An`, nth master criterion →
-  `M-An`) and persist the mapping before claiming completion.
-- Evidence must speak to the plan Acceptance criterion (LOC, facade, behavior), not only "tests green."
-- Gate transcripts (typecheck/lint/test/build) should be captured under the run's evidence/SCRATCH dir when configured: `{evidence-root}/batch-N/{typecheck|lint|test|build}` (or `.log` / `.txt` suffixes).
-- Resolve `ELVES_SKILL_ROOT` to the active installed Claude Code or Codex Elves bundle, then run
-  `python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session <session-path> --repo-root .`
-  before Final Readiness / landing. The session's tracked `plan_path` is authoritative; an explicit
-  `--plan <plan-path>` is only an equality assertion and must match exactly. Treat failures as
-  blockers. A source-checkout shorthand is for Elves development only, never the installed-run
-  contract.
-- Before any worker launch, staging must parse the authoritative plan, reject malformed
-  acceptance rows with a targeted line-level correction, reconcile the session's id-to-criterion
-  mapping against the plan, and validate the worker packet against that same mapping. Missing,
-  duplicate, or text-mismatched criteria block launch instead of failing at Final Readiness.
-
-Every batch must be tight before you move on. The next batch builds on this one. If this one is shaky, everything after it is shaky. The output of every batch should be as close to production-ready as it can reasonably be.
+Session `plan_path` is authoritative; explicit `--plan` is only an equality assertion. An installed
+Elves bundle never requires a repo-only helper.
 
 ## Constitution and the Legality Check
 
-The elves loop has three quality layers, each asking a different question:
+Correctness (gates) ≠ plan compliance (review) ≠ legality (judge). The human owns constitutional
+intentions. Agent drafts; human owns.
 
-1. **Correctness** (validation gates): Is this code valid and well-written? Syntax, types, style, tests. This is what linters, type checkers, and test suites do.
-2. **Plan compliance** (the review step): Does this code do what the plan said to do? The reviewer reads the plan alongside the diff and checks whether the batch matches its contract.
-3. **Legality** (the judge): Does the app still keep all its promises? Not just "does this batch look right?" but "is the whole app still sound?"
+## Proof and convergent review (v2.3)
 
-Levels 2 and 3 require input from the human. The tool can't infer the plan by looking at the code. The tool can't infer the app's promises by looking at the app. The plan provides level 2. The constitution provides level 3.
+See `references/proof-and-review.md`.
 
-### The gaming problem
-
-Agents can write code that passes every deterministic test layer and still miss the point. When the agent writes both the code and the tests, it can satisfy them in the narrowest possible way. It tests the letter of the law, not the spirit. When a test fails, the agent's instinct is to make it pass by the shortest path — narrowing the test, weakening an assertion, adding a special case — rather than fixing the underlying problem.
-
-The constitution breaks through this ceiling by providing success criteria the agent didn't author. Intentions are written by humans in natural language at a level of abstraction that requires genuine understanding to verify. You can game a unit test. You can't game "a failed payment never results in a fulfilled order."
-
-### The constitution
-
-If `docs/constitution.md` (or `CONSTITUTION.md`) exists in the repository, read it during every Orient step (step 1) and during compaction recovery. It contains the app's deal-breaker behaviors — the things that, if broken, would make the user revert the entire PR without reading further.
-
-Each intention in the constitution should be:
-- **Specific enough to verify.** "A failed payment never results in a fulfilled order." Not "the payment system works correctly."
-- **Abstract enough to survive refactoring.** "A user can reset their password via email." Not "the resetPassword function in auth.service.ts sends an email via SendGrid."
-- **Stated as behaviors, not implementation details.** "No API endpoint exposes another user's private data." Not "we use row-level security in PostgreSQL."
-
-The constitution contains three kinds of intentions:
-- **Flows.** User flows, data flows, auth flows, payment flows. Mermaid diagrams make these unambiguous in a way prose alone can't.
-- **Business logic.** Pricing calculations, eligibility checks, approval workflows, notification triggers, statistical formulas and their conditions.
-- **Invariants.** Things that must always be true regardless of what else changes. "An unauthenticated user can never access a protected route." "A deleted record is never returned by the API."
-
-What doesn't go in the constitution: implementation details, specific UI layouts, test cases with exact values, features that are experimental, nice-to-haves that wouldn't be deal-breakers if they broke.
-
-### The judge
-
-The legality check runs as step 8 in the Core Loop, after validation (step 6) and review (step 7). This section describes the judge in detail; step 8 is the operational integration.
-
-The judge is a **read-only subagent**. It doesn't modify code. It reads the constitution, identifies which intentions could be affected by the current batch, and traces the flows and invariants through the code. It produces a structured verdict for each intention:
-
-- **PASS:** the intention is satisfied.
-- **WARN:** the intention appears satisfied but something is ambiguous or fragile.
-- **FAIL:** the intention is broken.
-- **UNCHANGED:** the batch doesn't affect this intention.
-
-**All PASS or UNCHANGED:** batch continues. **Any WARN:** review it and either fix the issue or document why it's a false positive. **Any FAIL:** the batch is blocked until the issue is fixed.
-
-If a Judge skill exists in the skill registry, use it. If not, spawn a read-only review subagent with the constitution and the current diff. If subagents aren't available, do the legality check directly. The check must happen regardless of tooling.
-
-Judge findings are triaged using the same four categories from step 7 (fix now / defer / intentional design / false positive). Do not call a branch review-ready with unresolved judge FAIL findings (see **Readiness Gate** below).
-
-### The flywheel
-
-The constitution grows over time:
-
-- **During planning:** when reading a new plan, propose new intentions. "This plan introduces payment handling. Should we add: a failed payment never results in a fulfilled order?" The human approves, edits, or declines.
-- **After mistakes:** when the human comes back and says "you broke X," propose adding it to the constitution. Every mistake becomes a permanent safeguard.
-- **After incidents:** when something breaks in production, ask "should there have been an intention that prevented this?" If yes, add it.
-
-The agent can draft intentions. **The human must own them.** If the agent generates intentions and the human rubber-stamps them, you've recreated the problem — the AI is both writing the code and defining the success criteria.
-
-
-## Risk tiers and thin safety kernel (v2.2)
-
-Elves 2.2 keeps a **thin safety kernel** and risk-tiers everything else:
-
-**Safety kernel (must not weaken):** exact plan/session/packet acceptance identity; credential,
-protected-ref, origin, branch, worktree, ancestry, and clean-tip invariants; explicit host
-acknowledgement for declared high-risk checkpoints; no worker merge or protected-ref authority;
-test integrity, one live broad current-runtime proof before readiness, one independent terminal
-cumulative review, and required final CI; strict detached/import evidence for untrusted writers.
-
-**Four risk tiers:** `trivial/docs`, `standard trusted`, `high-risk trusted`, `untrusted`.
-
-**Proof budget:** validate once, verify changes, attest final. Per-batch proof defaults to
-**touched surfaces**. Broad proof is required at **risk checkpoints** and **terminal readiness**,
-not before every ordinary batch.
-
-**Trusted delegation sequence:** plan well, hand off once, and let the worker own implementation,
-internal validation, commits, and course correction for the whole run. The parked host performs no
-per-batch code review or acceptance gate; it observes only cheap operational tripwires. Then it
-performs one strong cumulative review, fixes concrete loose ends, and proceeds to readiness without
-reopening settled design or rerunning unchanged proof.
-Intermediate report shape, commit cosmetics, and run-memory neatness are advisory while useful work
-is advancing; reconcile them at terminal unless they threaten safety, scope, or recoverability.
-
-**PR feedback:** host-native and legacy mid-run pushes use one **nonblocking** new/unresolved fetch.
-Trusted parked worker pushes trigger no host PR polling; the terminal wake reads all feedback and
-waits for required checks/reviewers once.
-
-**Bug-category expansion:** block only confirmed same-root failures on owned or affected shared
-surfaces; record unrelated siblings as advisory follow-up.
-
-## Proof Scope
-
-Not all proof is equal. Distinguish between:
-
-- **Touched-surface proof:** validation focused on the code and behaviors this batch actually changed. This is the minimum required for every batch.
-- **Broad regression proof:** running the full test suite, all E2E scenarios, all viewports, etc. This is valuable but expensive and can be blocked by known issues in unrelated areas.
-
-**Default to touched-surface proof** (validate once, verify changes, attest final). Run broad regression proof only at declared high-risk checkpoints and before calling the branch review-ready (see **Readiness Gate** below). If a broad regression run is blocked by an unrelated known issue, record it in the execution log and fall back to narrower touched-surface proof instead of thrashing. Don't waste hours debugging a pre-existing flake in an area you didn't touch.
-
-**Preview proof must be on the exact current runtime tip.** After pushing review fixes, re-deploying, or any commit that changes deployed behavior, re-verify on the current deployed version. Proof from a prior commit does not carry forward after subsequent changes. Don't inherit proof — re-earn it.
-
-**When export or artifact behavior changes, inspect the actual artifact.** Don't just verify that the export succeeded — download and inspect the output file. A successful HTTP 200 on an export endpoint doesn't mean the CSV/PDF/ZIP contains correct data.
+- Impact-selected verification; evidence inputs + invalidation scope for reuse
+- One cumulative review: completeness, constitution, declared risks, concrete regressions
+- Consolidate blockers before revision; advisory does not delay readiness
+- Re-review = revision delta + unresolved blockers only
+- New blockers need serious regression / acceptance or constitution breach / security / data
+  integrity / revision-introduced failure
+- Cleanup-only operational changes do not invalidate product proof
+- Stop on sufficient exact-tip evidence, not absence of reviewer suggestions
 
 ## Readiness Gate
 
-The **Completion Contract** governs individual batches — each batch must pass it before you move on. The **Readiness Gate** governs the branch as a whole before declaring it review-ready for the human. It includes everything in the Completion Contract plus branch-level concerns (legality check, cumulative proof).
+Branch-level: execution log current, local proof green on current tip, preview/artifact proof when
+applicable, plan Acceptance with proof, landing check clean, final cumulative review clean, PR
+comments/checks polled, legality clean, strategic forgetting done, git clean.
 
-**Landing policy:** Green CI + every batch `status: complete` is **not** sufficient. Landable means every plan Acceptance criterion is met **with proof** in session JSON (and plan checkboxes / execution-log validate sections where applicable).
-
-Do not call a branch review-ready unless ALL of the following are true:
-
-1. **Execution log is current.** All batches documented with timestamps, evidence, and commit SHAs. Multi-batch "close remaining" commits without per-batch Validate sections are not ready.
-2. **Local proof is green on the current tip.** All validation gates pass on the latest commit, not on an earlier commit that has since been amended by review fixes.
-3. **Preview proof is green on the current tip** (if deployed behavior was touched). Re-verify after every push that changes deployed code.
-4. **Artifact inspection done** for any export/download behavior changes. The actual output was inspected, not just the success status.
-5. **Plan Acceptance with proof.** Every planned batch 1–N has `status: complete` **and** a non-empty `acceptance` array with each item `met: true` and non-empty `evidence`. Walk plan Acceptance checkboxes; none may remain open unless a hard-stop note documents the miss. God-file / split batches must not be completed on structure/regex locks alone.
-6. **Landing check clean.** Resolve `ELVES_SKILL_ROOT` to the active installed Claude Code or Codex
-   Elves bundle and run `python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session
-   <session-path> --repo-root .` (optionally with an exact matching `--plan <plan-path>` and the
-   session's evidence options). The session's tracked `plan_path` is authoritative; `--plan` is an
-   equality assertion, not a substitute. Failures block review-ready and merge-on-green /
-   reviewed-PR landing. A repo-relative source-checkout shorthand is not the installed-run
-   contract.
-7. **Final cumulative review is clean.** A fresh review subagent, if supported by the platform, has reviewed `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, and every PR comment and check (resolved and unresolved), and has run every test that makes sense. If subagents are unavailable, do this review directly. Fix blockers, push, and repeat until the cumulative review is clean.
-8. **PR comments and checks have been polled.** No unresolved threads, no unreplied bot comments, no failing checks.
-9. **Legality check is clean.** If a constitution exists, the judge has run on the final tip with no unresolved FAIL verdicts. WARN findings are documented with reasoning.
-10. **Strategic forgetting is complete.** The survival guide is concise, long execution logs are archived in place, durable lessons are promoted or pruned, and a reactivation handoff exists for any remaining work.
-11. **Git status is clean.** No uncommitted changes, no untracked files that should be committed.
-
-If any gate fails, fix it before declaring readiness. This checklist is the final quality gate between "autonomous run complete" and "ready for human review."
+Complete-without-merge and complete-and-merge share **one** readiness pipeline.
 
 ## Elves Report
 
-For substantial finite runs, the returning human needs more than a PR link and a raw execution log.
-Generate a **temporary static HTML Elves Report** as the workers' morning report to their manager:
-what happened overnight, what was found, what changed, what was verified, what reviewers caught,
-what lessons were learned, and what risks remain. This is a trust artifact, not a marketing page.
-
-Generate an Elves Report automatically when all of these are true:
-
-- the Stop Gate says stopping is allowed, or the user explicitly asks for a checkpoint report;
-- the run had multiple batches, many commits, subagents, PR review cycles, or broad verification;
-- the execution log, survival guide, and learnings file are current;
-- PR comments/checks have been polled, or the report clearly labels pending checks.
-
-Default path:
-
-```text
-/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html
-```
-
-For checkpoint reports before final completion, include `checkpoint` in the filename. Do not commit
-the report by default. Commit it only when the user or survival guide explicitly requests a durable
-artifact.
-
-The Elves Report must be derived from durable sources, not memory:
-
-- survival guide: current status, Stop Gate, branch, PR, run mode, active compute;
-- `.elves-session.json`: batch status, continuation guard, review-comment dispositions;
-- execution log: batch timeline, commands, validations, review fixes, decisions, residual risks;
-- learnings file: reusable lessons, repeated problems found, process adjustments;
-- plan: intended scope and batch names;
-- live `gh`/CI checks when available.
-
-Include these sections:
-
-1. **Final or checkpoint status:** branch, PR, head SHA, merge/readiness state, CI/check status.
-2. **Executive summary:** original user request, actual scope completed, current recommendation.
-3. **Problems found:** the major bugs, UX gaps, architectural risks, review blockers, and repeated
-   failure patterns discovered during the run.
-4. **Lessons learned:** durable implementation, testing, product, or process lessons promoted to
-   `learnings.md` or `.ai-docs/*`.
-5. **Batch timeline:** one concise entry per batch with scope, key fixes, validation, review result,
-   and residual risk. Use collapsible `<details>` sections so the manager can scan the whole night
-   and expand the batches that need closer review.
-6. **Validation and review proof:** local gates, E2E/browser checks, PR checks, review loops,
-   subagent findings, and known non-fatal warnings.
-7. **Human next steps:** what the user should review, merge, deploy, re-run, or plan next.
-8. **Source links:** local paths to the plan, survival guide, execution log, learnings file, PR, and
-   commits when known.
-
-Keep the report static and lightweight:
-
-- inline CSS only; no external assets, scripts, build step, or network dependency;
-- match the project's visual identity and use existing local brand assets when available;
-- make the page feel intentionally designed for this repository, not like a generic AI dashboard;
-- use distinctive typography, varied spacing, and collapsible batch `<details>` sections for
-  skimmability;
-- use `references/elves-report-template.html` as a starting point when this repo provides it;
-- quote or summarize logs sparingly; link back to source files for full details;
-- distinguish facts verified with tools from inferred interpretation;
-- make residual risks visible instead of burying them;
-- keep committed examples and reusable templates non-identifying; avoid private product names,
-  client names, people, or project-specific workflows outside actual run reports in `/tmp`;
-- prefer HTML/Markdown for dense accountability. Generate image infographics only if the user asks,
-  because image generation consumes runtime usage limits more quickly and is worse for precise audit
-  detail.
-
-Refresh the report if final review fixes, CI results, or PR status changes while the source
-documents are still present. After operational-artifact cleanup, update only live status/check
-facts from PR/CI and the already generated report, or recover the source documents from branch
-history before regenerating. Do not depend on session files that cleanup has removed. Mention the
-path in the final response.
+For substantial finite runs, generate static HTML before handoff covering **problems found**,
+**lessons learned**, batch timeline, verification proof, residual risks, and human next steps.
+Default path: `/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html`. Use collapsible `<details>` sections for batch timelines. Keep committed examples and reusable templates non-identifying.
+Surface the **Elves Report path** in the final notification. No external assets/scripts. See
+`references/elves-report-template.html`.
 
 ## Final Completion
 
-**This section applies only in finite mode.** If the **Run mode** is `open-ended`, do not perform Final Completion unless the user explicitly requests a stop, summary, or handoff, or a true blocker forces termination.
-
-When all batches are done or time is up:
-
-1. Add a Session Summary to the execution log.
-2. Update `.elves-session.json`.
-3. Do a final TODO.md pass.
-4. Update the survival guide and perform strategic forgetting: condense live state, archive old execution-log entries in place if the log is large, promote durable lessons, prune superseded lessons, and leave a concise reactivation handoff for any remaining work or future follow-up.
-5. **Run the acceptance-bearing Final Readiness Review before operational-artifact cleanup; never skip it.** With the run documents committed, the target repository as the working directory, and the worktree clean, run the project's own broad gates (tests, lint/typecheck/build, links, secret/API checks, and any E2E or browser checks that apply), then run the installed acceptance checker: `python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session <session-path> --repo-root .`. The session must record its tracked in-repo plan path; an explicit `--plan <plan-path>` is only an equality assertion and must match that recorded path exactly. Repository-specific aggregate helpers are additional gates only when the target checkout itself provides them; an installed Elves bundle never requires a repo-only helper. Fix any acceptance-evidence failures. Poll all PR review threads, issue comments, and checks. Spawn a fresh review subagent if the platform supports it; otherwise do the same review directly. The reviewer must read `git diff <default-branch>...HEAD`, the full commit history, the plan, the execution log, `.elves-session.json` (including per-batch `acceptance` proof), and **every** PR review comment (resolved and unresolved, from humans, bots, and CI). Fix blocking findings, resolve or reply to addressed comments, update `.elves-session.json`, push, and repeat until no blockers, unresolved threads, unreplied bot comments, failing checks, or memory-workspace findings remain. If any review fix changes docs or run-state files, rerun this acceptance-bearing review.
-6. **Generate the Elves Report** for substantial runs. Use the current survival guide, execution log, `.elves-session.json`, learnings file, plan, and live PR/CI state. Include problems found, lessons learned, batch timeline, verification proof, residual risks, and human next steps. Save it under `/tmp` by default and do not commit it unless explicitly configured. This is the last normal point where all operational source documents are guaranteed present; fully regenerate the report here before cleanup if its content changed. The report is the user's morning briefing: surface its path in the final notification and explicitly tell them to read it before reviewing or merging the PR.
-7. **Clean up operational artifacts.** Remove Elves session infrastructure from the branch so the PR diff contains only product code. Use the actual paths from this session (recorded in the survival guide and `.elves-session.json`), not hard-coded defaults:
-   ```bash
-   git rm <survival-guide-path> <execution-log-path> .elves-session.json
-   git commit -m "[<branch> · Batch N/N] Remove elves session artifacts from PR"
-   ```
-   These files were needed during the run for compaction recovery, but they're noise in the final PR. The plan file is kept by default since it documents what was built. If the user configured `cleanup.keep_plan: false` in `config.json`, add the plan path to the `git rm` command as well.
-   
-   **Important:** the execution log and survival guide still exist in the branch history if you need to reference them. This commit just removes them from the final diff.
-8. Push.
-9. **Run a post-cleanup current-tip attestation.** First inspect `git diff --name-status HEAD^..HEAD` and confirm the cleanup commit removed only the exact operational paths recorded in the session (plus the plan only when `cleanup.keep_plan: false`). From a clean worktree, rerun the target project's broad non-landing gates on the current tip, run any aggregate verifier the target checkout itself provides, require `git status --porcelain` to be empty, and poll PR comments and checks one last time. This re-earns test/build/type/link/secret/API and cumulative-diff proof as applicable; the pre-cleanup Final Readiness gate remains the authoritative acceptance/landing proof. If cleanup contains any other change, proof fails, or new feedback requires a fix, restore the run documents from the pre-cleanup commit, make and document the fix, rerun the acceptance-bearing Final Readiness review, regenerate the report, and clean up again. Do not silently carry pre-cleanup proof across a product or documentation change.
-10. Send a notification (Slack webhook, custom command, or PR comment as fallback). Include the
-    Elves Report path and tell the user to review it, or write `Elves Report: not generated` if the
-    run did not meet report criteria.
-
-**Merge decision — the user's preference governs.** By default you do not merge: the PR is green and ready for the user to review and merge when they return. Merge yourself only if the user has set a merge-on-green preference in Run Control or explicitly invoked the Reviewed PR Landing Command — and then only after the acceptance-bearing Final Readiness Review and any required post-cleanup current-tip attestation are clean, using a regular merge commit (never a squash). Together, that two-stage proof and the delivered Elves Report make the final branch tip trustworthy to merge.
+Finite mode only. Acceptance-bearing Final Readiness Review **before** operational-artifact
+cleanup. Independent review subagent when available. Then remove survival guide / execution log /
+`.elves-session.json` from the PR (keep plan by default; keep learnings). Post-cleanup tip
+attestation. Notify with report path. Merge only if authorized — regular merge commit only.
 
 ## Staying Unattended
 
-**The user isn't there.** Any pause, prompt, or confirmation dialog will stall the run with no one to respond. This is the most common failure mode.
-
-Key rules:
-- Never ask questions after the session starts. Make decisions, document them.
-- Use non-interactive flags on every command (`--yes`, `--force`, `CI=true`).
-- Suppress surveys, update prompts, and telemetry dialogs.
-
-See `references/autonomy-guide.md` for the complete guide including environment variables and technical details.
+Never block on prompts. Non-interactive flags. Document decisions. See
+`references/autonomy-guide.md`.
 
 ## Ride-Along Protocol
 
-The user doesn't have to leave. They can watch, check in, or ride along for the whole run. The challenge is that any user message can cause the agent to pause, ask follow-up questions, or lose momentum. The ride-along protocol prevents this.
-
-### The ride-along prefix
-
-When the user prefixes a message with **`[ride-along]`**, `ride-along:`, or `ra:`, it means: "Handle this and keep going. Do not stop, do not ask follow-up questions, do not pause for confirmation." These prefixes are unambiguous non-stop signals.
-
-**Agent behavior on any ride-along message:**
-
-1. Read the message fully.
-2. Respond in 1-3 sentences max. No lengthy explanations, no summaries of what you've been doing.
-3. If it's a question, answer it directly.
-4. If it's new information, acknowledge and incorporate it.
-5. If it's a priority change, update the survival guide and execution log.
-6. If it contains an adjustment or correction, apply it immediately.
-7. Log anything significant under **Decisions made** in the execution log.
-8. **Resume the loop immediately.** Do not wait for follow-up. Do not ask "does that make sense?" Do not offer options. Just keep going.
-
-The only exception: if the message explicitly says **"stop"** — even with a ride-along prefix — perform a clean halt.
-
-### Synonyms
-
-Any of these are equivalent and trigger the same behavior:
-- `[ride-along]` (preferred)
-- `ride-along:` at the start of the message
-- `ra:` at the start of the message
-
-### Examples
-
-Good:
-- `[ride-along] The payment tests are expected to fail. Ignore them.`
-- `[ride-along] Skip batch 4, do batch 6 next.`
-- `[ride-along] Quick question: did you update the migration?`
-- `[ride-along] Looks good so far, keep it up.`
-- `[ride-along] I changed the DB schema manually. Re-read src/db/schema.ts before your next batch.`
-- `ra: did you update the migration?`
-
-Bad (no tag, no "do not stop" — agent may pause):
-- "What do you think we should do about the schema?" (open-ended, invites pause)
-- "Walk me through what you've done." (long answer, breaks flow)
-- "Looks good so far." (no instruction to continue — agent may pause waiting for more)
-
-**For users:** `ra:` is the fastest way to interact during a run. Use `[ride-along]` if you want maximum clarity, but `ra:` is the everyday shorthand.
+Messages prefixed `[ride-along]`, `ride-along:`, or `ra:`: handle in 1–3 sentences and continue.
+Explicit **stop** still halts.
 
 ## Hard Stops
 
-Stop only when:
-
-1. Genuinely blocked with no viable path. Not a decision, but a dependency you can't resolve.
-2. A merge is requested and the user has neither set a merge-on-green preference nor invoked the Reviewed PR Landing Command. By default you do not merge; hand off and let the user merge. (Only in those explicit opt-in cases, and only after a clean Final Readiness Review, do you land a regular merge commit yourself (never a squash) instead of stopping.)
-3. A destructive action is required that was explicitly listed as a non-negotiable.
-4. The branch tip moved outside the trusted full-run exception: the exact registered session did
-   not advance its assigned feature branch to a descendant of the last observed tip, or the
-   supervisor could not verify its process fingerprint and unchanged protected refs. Stop and
-   surface the collision (see **Merge Conflicts**).
-
-Everything else: ambiguous requirements, minor design decisions, unexpected tool behavior. Resolve with your best judgment and document in the execution log.
-
-**If in doubt, keep going.** A batch with a documented judgment call is more valuable than a stalled session with a polite question nobody is awake to answer.
+Genuine blocker; merge requested without authorization; destructive action listed as non-negotiable;
+collision on branch tip. Everything else: judgment + Decisions made.
 
 ## Structured Session Data
 
-Maintain a `.elves-session.json` file with machine-readable session data (session ID, timing, batch status, commits, rollback refs, review findings, and continuation guard state). The compatibility field is still named `rollback_tag`, but its value is a scoped `refs/elves/rollback/...` ref, not a Git tag. Host-native/legacy batch entries use their `bN` ref; trusted full-run batch entries may share the host-created `b0` launch ref while each `commit` SHA identifies the internal rollback point. This enables future tooling and analytics.
-
-**Batch status tracking belongs in JSON, not just Markdown.** Models are less likely to corrupt structured JSON during updates. The `.elves-session.json` file should include a `batches` array that tracks the status of each batch plus a `continuation_guard` object that makes "keep going or stop?" explicit:
-
-New plans use stable batch ids `B#`, per-batch acceptance ids `B#-A#`, and branch-level
-`master_acceptance` ids `M-A#`. `B0` and `B1` are equally valid starts; canonical ids are `B0` or
-`B1` and above, and Elves has no preferred starting convention. Plan rows may spell the same
-criterion as `- [ ] B0-A1: criterion text` or `- [ ] [B0-A1] criterion text`. Never renumber stable
-ids after staging. During staging—and before any worker launch—parse the authoritative plan,
-surface targeted syntax corrections, and require the session and packet id-to-criterion mappings
-to match it. For legacy plans, derive aliases deterministically by plan order and persist the
-mapping before completion so old numeric batches and unlabelled criteria remain compatible.
-
-```json
-{
-  "session_id": "elves-2026-03-24-auth-system",
-  "version": "2.2.0",
-  "status": "in_progress",
-  "branch": "feat/auth-system",
-  "plan_path": "docs/plans/auth-system.md",
-  "survival_guide_path": "docs/elves/survival-guide.md",
-  "learnings_path": "docs/elves/learnings.md",
-  "execution_log_path": "docs/elves/execution-log.md",
-  "pr_number": 42,
-  "cobbler": {
-    "default_for_session": true,
-    "activated_by": "elves invocation",
-    "mode": "run",
-    "scope": "current Elves run",
-    "exit_phrases": [
-      "Cobbler Mode: off",
-      "leave Cobbler Mode",
-      "stop using Cobbler by default"
-    ]
-  },
-  "continuation_guard": {
-    "remaining_batches": 3,
-    "stop_allowed": false,
-    "checkpoint_is_stop": false,
-    "next_required_action": "Start B1: Auth endpoints"
-  },
-  "test_baseline": {
-    "passed": 847,
-    "total": 850,
-    "skipped": 3,
-    "status": "captured",
-    "reason": null
-  },
-  "current_batch": {
-    "id": "B1",
-    "name": "Auth endpoints",
-    "status": "in_progress"
-  },
-  "model_routes": [
-    {
-      "batch": "B1",
-      "phase": "review",
-      "requested_route": "independent-lens",
-      "actual_route": "native-subagent",
-      "fallback_reason": "Provider-backed council unavailable; native-first fallback used"
-    }
-  ],
-  "batches": [
-    {
-      "id": "B0",
-      "name": "Database schema and models",
-      "status": "complete",
-      "commit": "abc1234",
-      "rollback_tag": "refs/elves/rollback/<run-digest>/<session-digest>/b0-<id-digest>",
-      "started_at": "2026-03-24T22:00:00Z",
-      "completed_at": "2026-03-24T23:15:00Z",
-      "acceptance": [
-        {
-          "id": "B0-A1",
-          "criterion": "migrations apply cleanly on empty DB",
-          "met": true,
-          "evidence": "scratch/batch-0/test.log + commit abc1234"
-        }
-      ]
-    },
-    {
-      "id": "B1",
-      "name": "Auth endpoints",
-      "status": "in_progress",
-      "commit": null,
-      "rollback_tag": "refs/elves/rollback/<run-digest>/<session-digest>/b1-<id-digest>",
-      "started_at": "2026-03-24T23:16:00Z",
-      "completed_at": null,
-      "acceptance": []
-    }
-  ],
-  "master_acceptance": [
-    {
-      "id": "M-A1",
-      "criterion": "the complete authentication flow is ready for operator review",
-      "met": false,
-      "evidence": "pending final cumulative validation"
-    }
-  ],
-  "review_comments": [
-    {
-      "id": 1234567890,
-      "type": "review_comment",
-      "source": "coderabbit",
-      "batch": "B0",
-      "cycle": 1,
-      "summary": "Missing input validation on email field",
-      "disposition": "fixed",
-      "fix_commit": "def5678"
-    },
-    {
-      "id": 1234567891,
-      "type": "issue_comment",
-      "source": "sonarcloud",
-      "batch": "B0",
-      "cycle": 2,
-      "summary": "Cognitive complexity of handleAuth() is 18 (threshold 15)",
-      "disposition": "dismissed",
-      "reason": "Function is a straightforward switch; splitting would reduce readability"
-    },
-    {
-      "id": 1234567892,
-      "type": "review_thread",
-      "source": "copilot",
-      "batch": "B1",
-      "cycle": 1,
-      "summary": "Consider extracting retry logic into shared utility",
-      "disposition": "deferred",
-      "reason": "Valid but scope is too large for this batch — added to TODO.md [elves-scout]"
-    }
-  ]
-}
-```
-
-The `review_comments` array is the compaction-safe record of every comment handled during the session. After compaction, it tells the next context exactly which comments have been dealt with and how — no need to re-read and re-evaluate hundreds of bot comments.
-
-The optional `model_routes` array records material full-run routing changes only. Use snake_case
-JSON keys: `requested_route`, `actual_route`, and `fallback_reason`. Omit it when routing matches
-the native-first default and does not change risk or confidence.
-
-The `cobbler` object records durable run-level Cobbler session state. Use it when Elves has been
-invoked for a staged or active run and follow-up prompts should remain Cobbler-mediated across
-compaction. Do not add it for one-off Quick Cobbler answers. The required key is
-`default_for_session`; include `activated_by`, `mode`, `scope`, and `exit_phrases` when they help a
-future context recover the intended posture.
-
-The `continuation_guard` is the compaction-safe answer to "am I allowed to stop?" While work remains, `stop_allowed` should normally be `false`. Set it to `true` only when the recorded stop conditions are actually met.
-
-**Comment types and how to track them:**
-- `review_comment` / `review_thread`: Inline PR review feedback. Resolve the thread on GitHub when thread IDs are available; otherwise reply or record the disposition in JSON so later cycles know it was handled.
-- `issue_comment`: Cannot be "resolved" on GitHub. Reply with a disposition. The JSON tracks that it was handled.
-- `check_run`: Pass/fail is inherent. No tracking needed — just re-run after fixes.
-
-After compaction, this file is the fastest way to determine exactly where the run stands. Read it before the execution log when recovering state.
+`.elves-session.json` holds `batches` with per-id acceptance evidence, `master_acceptance`,
+`continuation_guard`, optional `cobbler` session state, `model_routes`, `review_comments`. After
+compaction, trust this file for status.
 
 ## Persistent Preferences
 
-If the skill directory contains a `config.json`, read it at session start. This stores preferences the user has set in previous sessions so they don't have to reconfigure every time:
-
-```json
-{
-  "batch_sizing": { "team_size": 4, "sprint_weeks": 2 },
-  "notification": { "method": "slack" },
-  "review": { "method": "github-pr-comments" },
-  "default_branch": "main",
-  "cleanup": { "keep_plan": true },
-  "memory_hygiene": {
-    "archive_execution_log_after_entries": 50,
-    "create_reactivation_handoff": true,
-    "local_app_cleanup": "inspect-only-unless-user-requests-maintenance"
-  }
-}
-```
-
-Cobbler preferences belong under the top-level `cobbler` block in `config.json`. The legacy
-`council` block remains a compatibility surface for older projects; if both blocks are present,
-`cobbler` wins.
-
-If `config.json` doesn't exist and the user provides preferences during the planning conversation, offer to save them for future sessions. See `config.json.example` for the template.
+`config.json` when present: batch sizing, notifications, review method, default branch, cleanup.
+Cobbler under top-level `cobbler` (wins over legacy `council`). See `config.json.example`.
 
 ## Skill Memory
 
-The execution log is a form of memory that improves over time. Each session's log records what worked, what failed, what decisions were made, and how long things took. Over multiple sessions, the logs build a history that makes future planning better: you learn realistic batch timing, which tests are flaky, which review findings are recurring false positives, and where the model struggles.
+Learnings and `.ai-docs` outlive a single run. Keep them curated.
 
-The `.elves-session.json` files serve the same purpose in machine-readable form. Together, these files make every Elves run smarter than the last because the human uses them to tune the plan and the survival guide.
+## Optional surfaces (outside normal critical path)
 
-Also see `references/verification-patterns.md` for product verification techniques (headless browser drivers, video recording, state assertions) that strengthen the validate step beyond basic test gates.
+Reports, notifications, provider routes, media generation, legacy bounded execution, and untrusted
+lanes remain useful but are not the default happy path.
+
+## Host parity
+
+Claude Code and Codex provide the same workflow and safety. See `references/host-parity.md`.
+**Codex Goals** are optional continuation plumbing — distinct from **Grok Build goal mode**.
+
+## Compatibility notes
+
+- Missing optional provider access never blocks a native run.
+- Record `implementation_lane: fast | untrusted` when using external work drivers.
+- Supported main drivers are Claude Code and Codex only.
+- Compatibility: `$elves setup-council` remains supported.
