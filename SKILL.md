@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "2.1.0"
+  version: "2.1.1"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -604,9 +604,11 @@ Before unattended execution may begin, all of these must be true:
 2. The survival guide, learnings file, and execution log exist and reflect the current plan.
 3. The branch is created or confirmed and the PR exists (or the existing PR is recorded).
 4. Preflight has run and any critical failures are cleared or explicitly accepted.
-5. Run mode, return time, non-negotiables, and batch sizing are recorded.
-6. There are no unresolved planning questions that would obviously stall the overnight run.
-7. You can express the launch in a short behavior-heavy prompt without re-pasting the whole plan.
+5. The acceptance staging helper has parsed the authoritative plan and, when session/packet data
+   exists, reconciled every stable id and criterion before worker launch.
+6. Run mode, return time, non-negotiables, and batch sizing are recorded.
+7. There are no unresolved planning questions that would obviously stall the overnight run.
+8. You can express the launch in a short behavior-heavy prompt without re-pasting the whole plan.
 
 If any item is false, you are still staging. Fix it before launch.
 
@@ -672,6 +674,30 @@ Before the user walks away, verify everything will work. This is part of staging
     descendant of the last observed tip and the supervisor verifies the process fingerprint and
     protected refs are unchanged. Any other local or remote tip move is a collision (see **Merge
     Conflicts**): stop and surface it to the user instead of committing on top.
+
+Resolve `ELVES_SKILL_ROOT` to the active installed Claude Code or Codex Elves bundle and run the
+acceptance staging helper before any worker launch:
+
+```bash
+# Plan-only syntax check while the session is still being staged:
+python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" validate \
+  --repo-root . --plan <plan-path>
+
+# Canonical plan/session parity check once .elves-session.json exists:
+python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" validate \
+  --repo-root . --session .elves-session.json
+
+# Optional explicit scaffold/sync from the plan; omit --write to preview JSON:
+python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" sync-session \
+  --repo-root . --session .elves-session.json --write
+```
+
+`sync-session` preserves matching evidence and refuses to erase or rewrite evidenced criteria.
+An explicit `--plan` used with `--session` is only an equality assertion against the session's
+recorded `plan_path`. Treat syntax, duplicate-id, criterion-mismatch, and plan/session batch-set
+results as hard staging failures; an explicitly declared Batch or Master Acceptance section must
+contain at least one checkbox criterion even in legacy plans. Production full-run preparation and
+launch revalidate the same contract.
 
 If the survival guide already exists during staging, set `ELVES_SURVIVAL_GUIDE_PATH` to that file
 before running `./scripts/preflight.sh`. Preflight will run
@@ -868,7 +894,7 @@ Worker commit SHAs provide the internal rollback points, and the worker never cr
 The contract goes in the execution log under the batch entry:
 
 ```markdown
-### Batch 3: Payment Processing
+### Batch 3 [B3]: Payment Processing
 **Contract:**
 - POST /api/payments creates a charge and returns 201 with charge ID
 - Failed charges return 402 with error code
@@ -882,11 +908,11 @@ The contract goes in the execution log under the batch entry:
 - Webhook handler should follow the same pattern as the existing `github-webhook.ts` handler
 
 **Acceptance criteria:**
-- [ ] Unit tests for charge creation (success + failure paths)
-- [ ] Integration test for webhook signature validation
-- [ ] E2E test: full checkout flow via browser automation
-- [ ] All existing tests still pass
-- [ ] Existing non-payment checkout flows still behave the same way
+- [ ] B3-A1: Unit tests for charge creation (success + failure paths)
+- [ ] [B3-A2] Integration test for webhook signature validation
+- [ ] B3-A3: E2E test: full checkout flow via browser automation
+- [ ] [B3-A4] All existing tests still pass
+- [ ] B3-A5: Existing non-payment checkout flows still behave the same way
 
 **Blast radius:**
 - Modifying `src/utils/validation.ts` (imported by 12 files), additions only, no signature changes
@@ -1394,6 +1420,13 @@ Before flipping any batch to `complete` in `.elves-session.json`, record an `acc
 Rules:
 - Every planned batch that is `status: complete` must have a non-empty `acceptance` list.
 - Every new-plan item must have its stable `B#-A#` id, `met: true`, and non-empty `evidence`.
+- Batch numbering is neutral: `B0` and `B1` are equally valid starting conventions, and canonical
+  ids are `B0` or `B1` and above. Elves must not prefer, reserve, or silently renumber one
+  convention into the other; leading-zero aliases such as `B00` and `B01` are invalid. Batch-taking
+  helper arguments accept equivalent integer and stable-id forms (`0` / `B0`, `1` / `B1`).
+- Plan checkbox rows may use either `- [ ] B0-A1: criterion text` or
+  `- [ ] [B0-A1] criterion text`; the bare and bracketed stable-id spellings are equivalent.
+  Choose one row per id—using both spellings for the same id is still a duplicate.
 - Every branch-level Master Acceptance row uses a stable `M-A#` id and must be reconciled before
   readiness. Never renumber stable ids after staging.
 - Legacy numeric batches and unlabelled acceptance rows remain readable: assign deterministic
@@ -1407,6 +1440,10 @@ Rules:
   `--plan <plan-path>` is only an equality assertion and must match exactly. Treat failures as
   blockers. A source-checkout shorthand is for Elves development only, never the installed-run
   contract.
+- Before any worker launch, staging must parse the authoritative plan, reject malformed
+  acceptance rows with a targeted line-level correction, reconcile the session's id-to-criterion
+  mapping against the plan, and validate the worker packet against that same mapping. Missing,
+  duplicate, or text-mismatched criteria block launch instead of failing at Final Readiness.
 
 Every batch must be tight before you move on. The next batch builds on this one. If this one is shaky, everything after it is shaky. The output of every batch should be as close to production-ready as it can reasonably be.
 
@@ -1690,14 +1727,18 @@ Maintain a `.elves-session.json` file with machine-readable session data (sessio
 **Batch status tracking belongs in JSON, not just Markdown.** Models are less likely to corrupt structured JSON during updates. The `.elves-session.json` file should include a `batches` array that tracks the status of each batch plus a `continuation_guard` object that makes "keep going or stop?" explicit:
 
 New plans use stable batch ids `B#`, per-batch acceptance ids `B#-A#`, and branch-level
-`master_acceptance` ids `M-A#`. Never renumber them after staging. For legacy plans, derive aliases
-deterministically by plan order and persist the mapping before completion so old numeric batches and
-unlabelled criteria remain compatible.
+`master_acceptance` ids `M-A#`. `B0` and `B1` are equally valid starts; canonical ids are `B0` or
+`B1` and above, and Elves has no preferred starting convention. Plan rows may spell the same
+criterion as `- [ ] B0-A1: criterion text` or `- [ ] [B0-A1] criterion text`. Never renumber stable
+ids after staging. During staging—and before any worker launch—parse the authoritative plan,
+surface targeted syntax corrections, and require the session and packet id-to-criterion mappings
+to match it. For legacy plans, derive aliases deterministically by plan order and persist the
+mapping before completion so old numeric batches and unlabelled criteria remain compatible.
 
 ```json
 {
   "session_id": "elves-2026-03-24-auth-system",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "status": "in_progress",
   "branch": "feat/auth-system",
   "plan_path": "docs/plans/auth-system.md",
@@ -1720,7 +1761,7 @@ unlabelled criteria remain compatible.
     "remaining_batches": 3,
     "stop_allowed": false,
     "checkpoint_is_stop": false,
-    "next_required_action": "Start Batch 2: Auth endpoints"
+    "next_required_action": "Start B1: Auth endpoints"
   },
   "test_baseline": {
     "passed": 847,
@@ -1730,13 +1771,13 @@ unlabelled criteria remain compatible.
     "reason": null
   },
   "current_batch": {
-    "id": "B2",
+    "id": "B1",
     "name": "Auth endpoints",
     "status": "in_progress"
   },
   "model_routes": [
     {
-      "batch": "B2",
+      "batch": "B1",
       "phase": "review",
       "requested_route": "independent-lens",
       "actual_route": "native-subagent",
@@ -1745,28 +1786,28 @@ unlabelled criteria remain compatible.
   ],
   "batches": [
     {
-      "id": "B1",
+      "id": "B0",
       "name": "Database schema and models",
       "status": "complete",
       "commit": "abc1234",
-      "rollback_tag": "refs/elves/rollback/<run-digest>/<session-digest>/b1-<id-digest>",
+      "rollback_tag": "refs/elves/rollback/<run-digest>/<session-digest>/b0-<id-digest>",
       "started_at": "2026-03-24T22:00:00Z",
       "completed_at": "2026-03-24T23:15:00Z",
       "acceptance": [
         {
-          "id": "B1-A1",
+          "id": "B0-A1",
           "criterion": "migrations apply cleanly on empty DB",
           "met": true,
-          "evidence": "scratch/batch-1/test.log + commit abc1234"
+          "evidence": "scratch/batch-0/test.log + commit abc1234"
         }
       ]
     },
     {
-      "id": "B2",
+      "id": "B1",
       "name": "Auth endpoints",
       "status": "in_progress",
       "commit": null,
-      "rollback_tag": "refs/elves/rollback/<run-digest>/<session-digest>/b2-<id-digest>",
+      "rollback_tag": "refs/elves/rollback/<run-digest>/<session-digest>/b1-<id-digest>",
       "started_at": "2026-03-24T23:16:00Z",
       "completed_at": null,
       "acceptance": []
@@ -1785,7 +1826,7 @@ unlabelled criteria remain compatible.
       "id": 1234567890,
       "type": "review_comment",
       "source": "coderabbit",
-      "batch": "B1",
+      "batch": "B0",
       "cycle": 1,
       "summary": "Missing input validation on email field",
       "disposition": "fixed",
@@ -1795,7 +1836,7 @@ unlabelled criteria remain compatible.
       "id": 1234567891,
       "type": "issue_comment",
       "source": "sonarcloud",
-      "batch": "B1",
+      "batch": "B0",
       "cycle": 2,
       "summary": "Cognitive complexity of handleAuth() is 18 (threshold 15)",
       "disposition": "dismissed",
@@ -1805,7 +1846,7 @@ unlabelled criteria remain compatible.
       "id": 1234567892,
       "type": "review_thread",
       "source": "copilot",
-      "batch": "B2",
+      "batch": "B1",
       "cycle": 1,
       "summary": "Consider extracting retry logic into shared utility",
       "disposition": "deferred",

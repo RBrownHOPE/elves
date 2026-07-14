@@ -61,6 +61,8 @@ the runtime surfaces, and the checks that usually matter before editing.
 - `scripts/preflight_worktree.py`: explicit dedicated-worktree helper used by
   `./scripts/preflight.sh --create-worktree`.
 - `scripts/validate_survival_guide.py`: advisory validator for required survival-guide sections.
+- `scripts/acceptance_contract.py`: pre-launch stable-ID syntax, plan/session synchronization, and
+  exact criterion-parity validation.
 - `scripts/elves_landing_check.py`: acceptance/readiness proof gate for a live session.
 - `scripts/cobbler_agents.py`: thin CLI for onboarding, routing, sessions, trusted full-run
   supervision, legacy bounded implementation, and untrusted writer leases.
@@ -83,8 +85,9 @@ the runtime surfaces, and the checks that usually matter before editing.
   `test_cobbler_agents_leases.py`, `test_worker_cli_lifecycle.py`,
   `test_storage_isolation_git.py`, and `test_public_api_snapshot.py`.
 - Operator surfaces: `test_elves_landing_check.py`, `test_preflight_sh.py`,
-  `test_preflight_worktree.py`, `test_validate_survival_guide.py`, `test_workspace_guard.py`,
-  `test_notify_sh.py`, `test_pr_portfolio_report.py`, and `test_openrouter_lens.py`.
+  `test_preflight_worktree.py`, `test_acceptance_contract.py`,
+  `test_validate_survival_guide.py`, `test_workspace_guard.py`, `test_notify_sh.py`,
+  `test_pr_portfolio_report.py`, and `test_openrouter_lens.py`.
 
 ## Common Survey Paths
 
@@ -104,6 +107,9 @@ the runtime surfaces, and the checks that usually matter before editing.
   sections, and `.ai-docs/gotchas.md`.
 - Release/version change: read `SKILL.md` metadata, `AGENTS.md` front matter, `CHANGELOG.md`,
   README release/install sections, `config.json.example`, and release helper/checker scripts.
+- Acceptance contract change: read `scripts/cobbler_runtime/acceptance.py`,
+  `scripts/acceptance_contract.py`, `scripts/elves_landing_check.py`, full-run prepare/launch,
+  preflight, plan/session/packet templates, and their focused tests.
 
 ## Validation Baseline
 
@@ -111,13 +117,13 @@ For this repo, use the canonical aggregate verifier instead of maintaining a dup
 list:
 
 ```bash
-python3 scripts/verify_repo.py --version 2.1.0
+python3 scripts/verify_repo.py --version 2.1.1
 ```
 
 Before final readiness on an active run, use:
 
 ```bash
-python3 scripts/verify_repo.py --version 2.1.0 --final-readiness --session <session-path>
+python3 scripts/verify_repo.py --version 2.1.1 --final-readiness --session <session-path>
 ```
 
 The aggregate verifier includes `git diff --check`; focused tests remain useful while iterating.

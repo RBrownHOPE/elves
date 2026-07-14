@@ -10,7 +10,7 @@ multi-batch runs — implement, test, review, document — that survive context 
 **Cobbler** is the default coordinator. **Claude Code or Codex** is the main driver; optional work
 drivers and lenses help when you already have them.
 
-**Current release: v2.1.0.** You write the plan and own the merge decision. The agent does the middle.
+**Current release: v2.1.1.** You write the plan and own the merge decision. The agent does the middle.
 
 **Default (v2.0+): one kickoff** after conceptual agreement — chat to agreement, then one
 **Chat-to-work** or **Chat-to-land** (`chat-to-work` / `chat-to-land`) prompt stages and runs.
@@ -59,12 +59,12 @@ python3 ~/.claude/skills/elves/scripts/install_doctor.py --startup
 # Codex (use this instead):
 python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.1.0
+python3 scripts/verify_repo.py --version 2.1.1
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.1.0 --final-readiness \
+python3 scripts/verify_repo.py --version 2.1.1 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.1.0 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.1.1 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 
@@ -242,7 +242,8 @@ shadow them. Full examples: [`references/runtime-helper-paths.md`](references/ru
 The sync helper intentionally ships the installable bundle only: `SKILL.md`, `AGENTS.md` (Codex),
 `config.json.example`, `references/`, and the runtime scripts `scripts/preflight.sh`,
 `scripts/preflight_worktree.py`, `scripts/notify.sh`, `scripts/install_doctor.py`,
-`scripts/validate_survival_guide.py`, `scripts/elves_landing_check.py`,
+`scripts/validate_survival_guide.py`, `scripts/acceptance_contract.py`,
+`scripts/elves_landing_check.py`,
 `scripts/cobbler_agents.py`, `scripts/openrouter_lens.py`, `scripts/workspace_guard.py`, and
 `scripts/cobbler_runtime/*`. Repo-only maintenance helpers such as
 `scripts/check_repo_consistency.py`, `scripts/release_checklist.py`,
@@ -336,18 +337,22 @@ python3 scripts/cobbler_agents.py onboard plan|show|apply|probe --json
 - Parked mode overrides per-push driver re-entry until a wake condition.
 - `full_run` or `overnight` alone is **not** a Grok signal.
 
+Batch-taking helpers use the same neutral numbering contract: `--batch 0` and `--batch B0` name
+the same batch, as do `--batch 1` and `--batch B1`. Canonical stable ids are `B0` or
+`B1` and above; negative values and leading-zero aliases are rejected.
+
 ### Exact full-run recipe (primary)
 
 ```bash
 # 1) Create the single host-owned launch rollback ref before handoff
 python3 scripts/cobbler_agents.py implement rollback-ref --json \
-  --run-id <run-id> --session-id <exact-uuid> --batch 0 \
+  --run-id <run-id> --session-id <exact-uuid> --batch B0 \
   --head <start-head> --push
 
 # 2) Prepare supervisor artifacts for one exact session
 python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --session-id <exact-uuid> --branch <feature-branch> --start-head <sha> \
-  --worktree <path> --packet <packet.json>
+  --worktree <path> --packet <packet.json> --session .elves-session.json
 
 # 3) Background-launch Grok with exactly one explicit auth strategy.
 # Existing Grok subscription/OAuth login (trusted Lane A only): share only canonical auth.json.
@@ -372,6 +377,10 @@ python3 scripts/cobbler_agents.py implement full-run-logs --json --session-id <e
 # Cancellation/recovery only — never a normal successful close step
 python3 scripts/cobbler_agents.py implement full-run-stop --json --session-id <exact-uuid>
 ```
+
+`full-run-prepare` parses the session's recorded `plan_path` and reconciles the plan, session, and
+packet before it creates worker state. Optional `--plan <plan-path>` is an equality assertion, not
+an alternate plan. `full-run-launch` revalidates the bound contract before credentials or spawn.
 
 `full-run-stop` is an explicit cancellation/recovery command for a live or wedged worker. Do not
 run it after normal completion and do not use it to manufacture a clean exit.
@@ -1004,7 +1013,9 @@ Bad: "Looks good so far." (no tag, no instruction to continue)
 - **Readiness Gate**: branch-level checklist before declaring review-ready (plan Acceptance with proof, `elves_landing_check.py` clean, local proof on current tip, preview proof on exact runtime tip, final cumulative review, PR comments polled, legality check clean, strategic forgetting complete, git status clean, execution log current). Green CI + `status: complete` alone is not landable.
 - **Acceptance evidence (v1.19+/v2.0+)**: each complete batch records criterion-to-proof rows in
   `.elves-session.json`; v2.1 new plans use stable batch `B#`, batch-acceptance `B#-A#`, and
-  branch-level `M-A#` ids, while legacy rows receive deterministic document-order aliases. God-file
+  branch-level `M-A#` ids. `B0` and `B1` are equally valid starts—Elves has no preferred starting
+  convention—and both bare `- [ ] B0-A1: …` and bracketed `- [ ] [B0-A1] …` rows are accepted.
+  Legacy rows receive deterministic document-order aliases. God-file
   splits cannot close on structure/regex locks alone; prefer one batch per close commit. v1.20
   added optional external-agent orchestration under Cobbler; v1.20.1 hardened that runtime so
   green tests cannot stand in for real model/session/write evidence; **v2.0.0** is Cobbler-managed
@@ -1262,6 +1273,7 @@ elves/
 │   ├── pr_portfolio_report.py            # Repo-only PR health sweep helper
 │   ├── sync_installed_skills.py          # Local Claude/Codex install sync helper
 │   ├── validate_survival_guide.py        # Advisory survival-guide completeness check
+│   ├── acceptance_contract.py            # Pre-launch plan/session Acceptance sync + validation
 │   ├── elves_landing_check.py            # Pre-land plan Acceptance + acceptance evidence check
 │   ├── cobbler_agents.py                 # Cobbler onboarding, routing, worker, and full-run CLI
 │   ├── cobbler_runtime/                  # Typed routing, delegated-git, isolation, and full-run runtime
@@ -1450,7 +1462,10 @@ and on any model after context compaction or late-run thrash:
 So v1.19+ hardens both skill surfaces (Claude `SKILL.md` and Codex `AGENTS.md`) the same way:
 
 1. **Per-batch acceptance rows** — `acceptance: [{id: "B#-A#", criterion, met, evidence}]` before
-   complete; reconcile branch-level `M-A#` rows too, and give legacy rows deterministic aliases
+   complete; reconcile branch-level `M-A#` rows too, and give legacy rows deterministic aliases.
+   `B0` and `B1` are equally valid starts, with no preferred convention. Plan rows may be written
+   as either `- [ ] B0-A1: criterion text` or `- [ ] [B0-A1] criterion text`; they mean the same
+   thing
 2. **God-file rule** — locks lock; they do not complete a split unless the plan allows characterization-only  
 3. **One batch per close commit** (or labeled **Validate:** sections per batch id)  
 4. **`scripts/elves_landing_check.py`** — machine check before Final Readiness / merge-on-green  
@@ -1463,6 +1478,14 @@ bundle, keep the target repository as the working directory, and pass the exact 
 path:
 
 ```bash
+# During staging, before any worker launch:
+python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" validate \
+  --repo-root . --session .elves-session.json
+# Optional explicit plan-to-session sync; omit --write to preview the derived JSON:
+python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" sync-session \
+  --repo-root . --session .elves-session.json --write
+
+# During Final Readiness:
 python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" \
   --session <session-path> --repo-root .
 python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" \
@@ -1472,9 +1495,22 @@ python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" \
 
 The session's `plan_path` is authoritative. An explicit `--plan <plan-path>` is only an equality
 assertion and must match it; do not substitute generic plan, survival-guide, or execution-log paths.
+Before the session exists, use `acceptance_contract.py validate --repo-root . --plan <plan-path>`
+for a plan-only syntax check. `sync-session` preserves matching proof and refuses to erase or
+rewrite evidenced criteria.
+During staging, before any host-native or delegated worker launch, parse that plan and report bad
+acceptance syntax with the line and expected replacement. Reconcile the session and worker packet
+against the plan's exact id-to-criterion mapping at the same point, and require the session batch
+set to match the plan's declared Batch headings. Missing, extra, duplicate, or text-mismatched rows
+or batches block launch instead of surfacing only at Final Readiness. An explicitly declared Batch
+or Master Acceptance section must contain at least one checkbox criterion, including in legacy
+plans without stable IDs.
 
-It fails when batches are marked `complete` without plan Acceptance evidence, when plan checkboxes
-are still open, when god-file splits are closed on structure/regex locks alone, or when multi-batch
+The same parser accepts both `- [ ] B0-A1: criterion text` and
+`- [ ] [B0-A1] criterion text`. The staging helper validates syntax and exact plan/session mapping;
+it does not certify completion evidence. At Final Readiness, `elves_landing_check.py` separately
+fails when batches are marked `complete` without plan Acceptance evidence, when plan checkboxes are
+still open, when god-file splits are closed on structure/regex locks alone, or when multi-batch
 "close remaining" commits lack per-batch Validate sections.
 
 **The validation gates** will be different for every project. A Python data pipeline has different gates than a React web app. Edit the survival guide's `## Tool Configuration` section to match your stack. See [`references/tool-config-examples.md`](references/tool-config-examples.md) for examples across Node, Python, Go, Rust, and monorepos.

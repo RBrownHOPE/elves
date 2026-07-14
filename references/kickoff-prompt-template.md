@@ -275,7 +275,12 @@ Elves E2E: chat-to-work (no merge).
    lenses). Reach conceptual agreement; synthesize one plan on disk.
 2. Stage fully (you own staging quality): survival guide, learnings, execution log, branch, PR,
    preflight, Cobbler session state. Set Run Control: `e2e mode: chat-to-work`,
-   `merge policy: never-merge`, labor re-drive budget 3.
+   `merge policy: never-merge`, labor re-drive budget 3. Treat `B0` and `B1` as equally valid
+   batch starts and accept both bare `- [ ] B0-A1: …` and bracketed `- [ ] [B0-A1] …` stable-id
+   rows. Before any worker launch, parse the authoritative plan with targeted syntax errors and
+   require session and packet acceptance ids/text to match it using the installed
+   `acceptance_contract.py validate` helper; use explicit `sync-session --write` when deriving
+   pending session rows from the plan is useful.
 3. **Do not stop for a second human “launch” message.** For host-native or bounded delegation,
    execute the ordinary per-batch loop. If `work driver: grok-build` and `delegation scope:
    full_run`, create the host-owned run/session `b0` rollback ref at the launch head before the
@@ -322,7 +327,12 @@ Elves E2E: chat-to-land (merge when green).
    agreement; synthesize one plan on disk.
 2. Stage fully (you own staging quality): survival guide, learnings, execution log, branch, PR,
    preflight, Cobbler session state. Set Run Control: `e2e mode: chat-to-land`,
-   `merge policy: reviewed-pr-landing-command`, labor re-drive budget 3.
+   `merge policy: reviewed-pr-landing-command`, labor re-drive budget 3. Treat `B0` and `B1` as
+   equally valid batch starts and accept both bare `- [ ] B0-A1: …` and bracketed
+   `- [ ] [B0-A1] …` stable-id rows. Before any worker launch, parse the authoritative plan with
+   targeted syntax errors and require session and packet acceptance ids/text to match it using the
+   installed `acceptance_contract.py validate` helper; use explicit `sync-session --write` when
+   deriving pending session rows from the plan is useful.
 3. **Do not stop for a second human “launch” message.** For host-native or bounded delegation,
    execute every batch end-to-end. If `work driver: grok-build` and `delegation scope: full_run`,
    create the host-owned run/session `b0` rollback ref at the launch head before the packet/launch,

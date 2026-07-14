@@ -1,5 +1,5 @@
 ---
-version: "2.1.0"
+version: "2.1.1"
 ---
 
 # Elves: Autonomous Development Agent (Codex)
@@ -500,9 +500,11 @@ Launch only when all of these are true:
 2. The survival guide, learnings file, and execution log exist and reflect the current plan.
 3. The branch is created or confirmed and the PR exists, or the existing PR is recorded.
 4. Preflight has run and critical failures are cleared.
-5. Run mode, return time, and non-negotiables are recorded.
-6. There are no unresolved planning questions that would obviously stall the overnight run.
-7. You can start from a short launch prompt without re-pasting the whole plan.
+5. The acceptance staging helper has parsed the authoritative plan and reconciled stable session
+   and packet ids/text before worker launch.
+6. Run mode, return time, and non-negotiables are recorded.
+7. There are no unresolved planning questions that would obviously stall the overnight run.
+8. You can start from a short launch prompt without re-pasting the whole plan.
 
 If any item is false, keep staging. Once all are true, continue immediately in single-kickoff E2E;
 wait for a fresh short launch prompt only in the explicit legacy two-call path.
@@ -530,7 +532,25 @@ BEHIND=$(git rev-list HEAD..origin/main --count 2>/dev/null || echo 0)
 # Workspace ownership + collision tripwire
 git worktree list
 START_TIP=$(git rev-parse HEAD); echo "Collision tripwire (branch tip at staging): $START_TIP"
+
+# Resolve ELVES_SKILL_ROOT to the active installed Claude Code or Codex Elves bundle.
+# Plan-only syntax check while staging:
+python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" validate \
+  --repo-root . --plan <plan-path>
+# Plan/session parity once the canonical session exists:
+python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" validate \
+  --repo-root . --session .elves-session.json
+# Optional explicit sync; omit --write to preview the derived session JSON:
+python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" sync-session \
+  --repo-root . --session .elves-session.json --write
 ```
+
+`sync-session` derives pending rows from the plan, preserves matching proof, and refuses to erase
+or rewrite evidenced criteria. With `--session`, an explicit `--plan` is only an equality assertion
+against the recorded `plan_path`. Syntax, duplicate-id, criterion-mismatch, and plan/session
+batch-set results are hard staging failures; an explicitly declared Batch or Master Acceptance
+section must contain at least one checkbox criterion even in legacy plans. Production full-run
+preparation and launch revalidate the same contract.
 
 **Own your branch and checkout.** One run owns one branch and one checkout — never share a working tree or branch with another active agent (a teammate, another Elves run, or Claude running alongside Codex). When other agents may touch the same repo, stage in a dedicated git worktree with `./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` first to inspect the generated command. The helper prints the branch, worktree path, base ref, and collision tripwire, and it does not reuse, delete, or repair existing worktrees. The bundled `scripts/preflight.sh` inspects `git worktree list --porcelain` and fails if the current branch is checked out in more than one worktree. `START_TIP` is your collision tripwire. An advance is expected only when the exact registered trusted full-run session advances its assigned feature branch to a descendant of the last observed tip and the supervisor verifies the process fingerprint and protected refs unchanged. Any other local or remote tip move is a collision; stop and surface it (see **Merge Conflicts**).
 
@@ -656,9 +676,9 @@ commit SHAs are the internal rollback points, and the worker never creates refs.
 - [Existing pattern/utility to extend, not reinvent]
 - [Convention to follow — naming, error format, test structure]
 **Acceptance criteria:**
-- [ ] [B#-A1] [Testable criterion 1]
+- [ ] B#-A1: [Testable criterion 1]
 - [ ] [B#-A2] [Testable criterion 2]
-- [ ] [B#-A3] [Existing behavior still verified if this batch changes a shared surface]
+- [ ] B#-A3: [Existing behavior still verified if this batch changes a shared surface]
 
 **Blast radius:**
 - [Shared file modified] ([N] consumers), [additive / modified / breaking]
@@ -670,6 +690,19 @@ The **Blast radius** section identifies shared code at risk. List modified share
 The **Build on** section makes the Code Quality Philosophy concrete: what existing patterns, utilities, and modules should this batch extend? Search the codebase during contract writing to fill this in. If nothing relevant exists, note that this batch establishes the pattern.
 
 If you can't write concrete acceptance criteria, the batch scope is too vague — sharpen it before coding. For any batch that modifies existing behavior instead of only adding new surfaces, require at least one acceptance criterion that explicitly proves existing behavior is preserved. For trivial batches (docs, config), the contract can be a single line.
+
+Stable batch numbering is neutral: `B0` and `B1` are equally valid starting conventions. Canonical
+ids are `B0` or `B1` and above; leading-zero aliases are invalid. Elves does not reserve or prefer
+either start. Batch-taking helper arguments accept equivalent integer and stable-id forms (`0` /
+`B0`, `1` / `B1`). Acceptance rows may use either `- [ ] B0-A1: criterion text` or
+`- [ ] [B0-A1] criterion text`; these bare and bracketed stable-id spellings are equivalent, while
+two rows with the same id remain a duplicate.
+During staging, before any worker launch, parse the authoritative plan, report malformed rows with
+a targeted replacement, and require the session and worker packet id-to-criterion mappings to
+match the plan. The normalized session batch set must also exactly match the plan's Batch headings.
+Missing, extra, duplicate, or text-mismatched criteria or batches block launch, and any explicitly
+declared Batch or Master Acceptance section must contain at least one checkbox criterion even in a
+legacy plan without stable IDs.
 
 ### 5. Implement
 **Start with a pre-implementation survey.** Before writing any code, read the contract's **Build on** section, then search for relevant utilities, patterns, and conventions. Log what you find in the execution log. This makes principles #2 (centralize), #3 (extend), and #4 (architecture first) actionable — you can't extend what you haven't found. The reviewer checks your implementation against your survey.
@@ -1000,7 +1033,7 @@ full rationale.
 1. Touched-surface validation gates passed (lint, typecheck, build, test, preview if configured). Broad regression runs at entropy checks and before the Readiness Gate.
 2. No accumulated debt: no skipped gates, no "will fix later" items, no known regressions.
 3. **Regression attestation written.** Execution log entry includes: cumulative diff review, shared surfaces with consumers verified, public API surface delta when configured, test baseline comparison, and confidence level with reasoning. See step 9.
-4. Plan and contract acceptance criteria marked as met **with evidence** (or exceptions + hard-stop note). Record per-batch `acceptance: [{id: "B#-A#", criterion, met, evidence}]` and reconcile `master_acceptance: [{id: "M-A#", ...}]` before readiness. New plans never renumber stable ids; legacy numeric/unlabelled plans receive deterministic document-order aliases before completion.
+4. Plan and contract acceptance criteria marked as met **with evidence** (or exceptions + hard-stop note). Record per-batch `acceptance: [{id: "B#-A#", criterion, met, evidence}]` and reconcile `master_acceptance: [{id: "M-A#", ...}]` before readiness. `B0` and `B1` are equally valid starts; new plans never renumber stable ids, and legacy numeric/unlabelled plans receive deterministic document-order aliases before completion. Staging must catch plan/session/packet acceptance mismatches before worker launch.
 5. PR comments read; findings triaged. Review loop ran until no blockers remained. All review threads resolved or replied to.
 6. Legality check passed (if a constitution exists). No unresolved FAIL verdicts.
 7. **Documentation is up to date.** Any user-facing behavior changed by this batch is reflected in the relevant docs (README, API docs, inline doc comments, config references, changelogs, `learnings.md`, `.ai-docs/*`). Stale docs are debt.

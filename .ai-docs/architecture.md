@@ -111,6 +111,11 @@ This repo now treats documentation as a maintained surface:
 Because this repo *is* a skill, changes almost always cross multiple surfaces. Updating one file in
 isolation is usually not sufficient.
 
+Acceptance identity is a cross-surface staging contract. The plan is authoritative; `B0` and `B1`
+are equally valid starts, and bare or bracketed stable-id checkbox rows are equivalent. Before any
+worker launch, staging parses the plan and reconciles session and packet criteria by id and text so
+syntax or drift failures are returned to the coordinator immediately rather than at landing.
+
 
 ## v2.1.0 full-run note
 

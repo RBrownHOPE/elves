@@ -37,6 +37,7 @@ TOP_LEVEL_RUNTIME_SCRIPT_PATHS = [
     "scripts/notify.sh",
     "scripts/install_doctor.py",
     "scripts/validate_survival_guide.py",
+    "scripts/acceptance_contract.py",
     "scripts/elves_landing_check.py",
     "scripts/cobbler_agents.py",
     "scripts/openrouter_lens.py",

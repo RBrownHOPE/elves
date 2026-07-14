@@ -243,6 +243,12 @@ implementer, see
 as historical context in
 [`docs/plans/smart-plan-grok-implement.md`](plans/smart-plan-grok-implement.md).
 
+Before trusted full-run prepare, derive or validate the session Acceptance rows against its
+authoritative plan with `scripts/acceptance_contract.py`, build the worker packet from those exact
+rows, and pass the canonical `--session` (or use the repo-root `.elves-session.json`). Prepare binds
+the plan, session, and packet mapping and launch revalidates it before Grok can spawn. The linked
+Grok recipe is the normative command sequence for both Claude Code and Codex hosts.
+
 Trusted GitHub branch progress uses a canonical HTTPS origin plus an explicit launch-scoped push
 route (`--grant-github-push`, `GH_TOKEN`, or `GITHUB_TOKEN`); it never inherits the host Git config
 or SSH agent. Packet-declared high-risk checkpoint IDs are exact host wake gates and must be

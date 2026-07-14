@@ -997,7 +997,7 @@ Cobbler
         self.assertIn("fetch-depth: 0", phrases)
         self.assertIn("--base-ref", phrases)
         self.assertIn(
-            "python3 scripts/verify_repo.py --ci --version 2.1.0",
+            "python3 scripts/verify_repo.py --ci --version 2.1.1",
             phrases,
         )
 

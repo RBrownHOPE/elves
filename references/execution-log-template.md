@@ -109,17 +109,23 @@
 **Continuation guard:** stop_allowed=[yes / no] | remaining_batches=[N] | checkpoint_is_stop=[yes / no] | next_required_action=[one sentence]
 
 **Batch breakdown:**
-1. [B1: Batch 1 name] — [one-line scope]
-2. [B2: Batch 2 name] — [one-line scope]
-3. [B3: Batch 3 name] — [one-line scope]
+1. [B0 or B1: first batch name] — [one-line scope]
+2. [next stable batch id: second batch name] — [one-line scope]
+3. [next stable batch id: third batch name] — [one-line scope]
 
-**Stable acceptance identity:** [B1-A1, B1-A2, …; M-A1, M-A2, …]. For a legacy plan without
-explicit ids, record deterministic aliases by document order before completion and never renumber
-them afterward.
+**Stable acceptance identity:** [B0-A1 or B1-A1, …; M-A1, M-A2, …]. `B0` and `B1` are equally
+valid starts; Elves does not reserve or prefer either convention. Bare
+`- [ ] B0-A1: criterion` and bracketed `- [ ] [B0-A1] criterion` rows are equivalent. For a legacy
+plan without explicit ids, record deterministic aliases by document order before completion and
+never renumber them afterward.
 
 **Preflight:**
 - Git remote / push / `gh` auth: [PASS / WARN / FAIL]
 - Validation gate dry run: [PASS / WARN / FAIL]
+- Acceptance staging validation: [PASS — plan syntax parsed and session/packet id/text mappings
+  match / BLOCKED — targeted diagnostic]
+- Acceptance staging command: [`acceptance_contract.py validate`; optional explicit
+  `sync-session --write` used / not needed]
 - Environment / sleep / notification checks: [PASS / WARN / N/A]
 - Notes: [single-kickoff continues after launch-ready; legacy two-call only if explicit]
 
@@ -146,7 +152,7 @@ them afterward.
 - [Existing convention to follow]
 
 **Acceptance criteria:**
-- [ ] [B#-A1] [Criterion 1]
+- [ ] B#-A1: [Criterion 1]
 - [ ] [B#-A2] [Criterion 2]
 
 **Blast radius:**

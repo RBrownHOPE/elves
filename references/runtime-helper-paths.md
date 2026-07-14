@@ -32,11 +32,13 @@ Keep the target repository as the working directory. Do not `cd` into the instal
 make a relative helper path work. When the working directory is not the target repository, pass the
 helper's `--repo-root <target-repository>` option where supported.
 
-## Final-readiness tools
+## Staging and final-readiness tools
 
-The installed bundle ships `scripts/elves_landing_check.py`. Generic Elves runs combine that
-acceptance check with the target project's own broad gates: tests, lint, type checking, builds,
-links, secret scanning, API checks, or other checks appropriate to that repository.
+The installed bundle ships `scripts/acceptance_contract.py` for prelaunch plan/session validation
+and proof-preserving session scaffolding, plus `scripts/elves_landing_check.py` for final readiness.
+Invoke both from the active skill root. Generic Elves runs combine final acceptance checking with
+the target project's own broad gates: tests, lint, type checking, builds, links, secret scanning,
+API checks, or other checks appropriate to that repository.
 
 Repository-maintenance helpers such as `scripts/verify_repo.py`, `scripts/release_checklist.py`,
 and `scripts/check_repo_consistency.py` are intentionally not part of an installed bundle. Use one

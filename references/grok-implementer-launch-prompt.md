@@ -46,12 +46,13 @@ Primary trusted full-run (one launch, one persistent session, bounded driver mon
 ```bash
 # Create the one host-owned launch rollback ref before preparing or launching the worker.
 python3 scripts/cobbler_agents.py implement rollback-ref --json \
-  --run-id <run-id> --session-id <exact-uuid> --batch 0 \
+  --run-id <run-id> --session-id <exact-uuid> --batch B0 \
   --head <start-head> --push
 
 python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --session-id <exact-uuid> --branch <feature-branch> --start-head <sha> \
   --packet <absolute-full-run-packet> --worktree <absolute-worktree> \
+  --session <canonical-.elves-session.json> \
   --adapter grok-build --model grok-4.5 --permission-mode auto \
   --effort medium --max-turns 80
 
@@ -72,6 +73,10 @@ python3 scripts/cobbler_agents.py implement full-run-logs --json \
 python3 scripts/cobbler_agents.py implement full-run-stop --json \
   --session-id <exact-uuid>
 ```
+
+`full-run-prepare` uses the canonical session's recorded `plan_path`; optional `--plan` is only an
+equality assertion. It reconciles plan, session, and packet criteria before creating worker state,
+and `full-run-launch` revalidates that bound contract before credentials or spawn.
 
 The host creates no per-batch refs while parked. Worker commit SHAs are the internal rollback
 points. Grok never creates, moves, or pushes refs other than its assigned feature branch.
@@ -122,6 +127,10 @@ explicitly requested.
 
 Legacy bounded-batch path (use only when the user selected a bounded task or legacy batch resume):
 
+All batch-taking helpers accept equivalent integer and stable-id spellings (`0` / `B0`, `1` /
+`B1`, and so on). Canonical stable ids are `B0` or `B1` and above; negatives and leading-zero
+aliases fail before state changes or launch.
+
 ```bash
 python3 scripts/cobbler_agents.py implement prepare \
   --branch <b> --worktree <path> --model grok-4.5 --session-id <uuid>
@@ -131,10 +140,10 @@ python3 scripts/cobbler_agents.py implement launch \
 # Prints exact Grok argv. Current supported OSes have no qualified recursive
 # boundary for legacy --exec, so that option fails closed before spawn.
 
-python3 scripts/cobbler_agents.py implement gate --batch 1
+python3 scripts/cobbler_agents.py implement gate --batch B0
 
 python3 scripts/cobbler_agents.py implement resume-batch \
-  --batch 2 --packet .elves/runtime/packets/batch-2.md
+  --batch 1 --packet .elves/runtime/packets/batch-1.md
 
 python3 scripts/cobbler_agents.py implement status
 ```
@@ -230,7 +239,10 @@ A full-run packet must stand alone after compaction and include:
 4. **owned surfaces** — exact files/modules the implementer may edit
 5. **forbidden surfaces** — run memory, credentials, other worktrees, out-of-scope paths
 6. **acceptance** — concrete criteria and what evidence looks like, defined as canonical bullet rows
-   such as `- B1-A1 — Driver remains parked` or `- [ ] M-A1 — One launch completes the run`;
+   such as `- B0-A1 — Driver remains parked`, `- [ ] B0-A1: Driver remains parked`,
+   `- [ ] [B0-A1] Driver remains parked`, or `- [ ] M-A1 — One launch completes the run`;
+   `B0` and `B1` are equally valid batch starts, with no preferred convention, and bare or
+   bracketed stable-id checkbox rows are equivalent;
    production preparation rejects missing or duplicate definition rows, and inline mentions/examples
    do not stage criteria
 7. **validation commands** — focused + full suite the implementer must run
@@ -245,6 +257,13 @@ A full-run packet must stand alone after compaction and include:
 
 Store packets under `.elves/runtime/packets/` (ignored runtime tree). Prefer absolute `--prompt-file`
 paths when the process CWD is not the host runtime directory.
+
+Production preparation validates acceptance before launch: it parses the authoritative plan with
+targeted line-level syntax diagnostics, then requires the session and packet id-to-criterion maps
+to match that plan. Missing, duplicate, or text-mismatched rows stop preparation before a worker is
+spawned; do not defer these errors to the terminal report or landing check. The coordinator may
+run the installed `acceptance_contract.py validate` helper earlier in staging and use explicit
+`sync-session --write` to derive pending session rows; production prepare/launch still revalidate.
 
 ## Trusted full-run event and report schema (v1)
 
@@ -318,10 +337,10 @@ and non-empty string `evidence`; the final report id set must exactly equal the 
   "final_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "status": "complete",
   "batches": [
-    {"id": "B1", "status": "complete", "evidence": "focused and broad gates passed"}
+    {"id": "B0", "status": "complete", "evidence": "focused and broad gates passed"}
   ],
   "acceptance": [
-    {"id": "B1-A1", "criterion": "Driver stays parked during worker batches", "met": true, "evidence": "bounded event log and supervisor status"},
+    {"id": "B0-A1", "criterion": "Driver stays parked during worker batches", "met": true, "evidence": "bounded event log and supervisor status"},
     {"id": "M-A1", "criterion": "One launch completes the delegated run", "met": true, "evidence": "supervisor exit and reconciled commit chain"}
   ],
   "commits": ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],

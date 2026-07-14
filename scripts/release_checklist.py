@@ -69,6 +69,7 @@ EXPECTED_CLAUDE_ALIASES = frozenset(
 )
 
 REQUIRED_RUNTIME_HELPERS = (
+    Path("scripts/acceptance_contract.py"),
     Path("scripts/openrouter_lens.py"),
     Path("scripts/workspace_guard.py"),
 )
@@ -276,7 +277,8 @@ def build_release_checklist(
                         )
                 result.notes.append(
                     "Alias inventory (7) + required runtime helpers "
-                    "(openrouter_lens.py, workspace_guard.py) + recursive compile smoke: OK"
+                    "(acceptance_contract.py, openrouter_lens.py, workspace_guard.py) "
+                    "+ recursive compile smoke: OK"
                 )
             except py_compile.PyCompileError as exc:
                 result.failures.append(f"installed-import compile smoke failed: {exc}")
