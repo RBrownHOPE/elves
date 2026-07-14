@@ -360,3 +360,10 @@ Authority remains Stop Gate until Readiness; then landing rules above.
 **Codex tip:** after stage inside the same E2E run (or in an explicit legacy second call), you can wrap the
 execution tail with `/goal` using the short launch body from [`codex-goals.md`](codex-goals.md),
 plus the e2e mode and merge policy from the survival guide.
+
+
+<!-- v2.2 risk policy pins -->
+- thin safety kernel and four risk tiers (trivial/docs, standard trusted, high-risk trusted, untrusted)
+- validate once, verify changes, attest final
+- touched-surface per batch; broad proof at risk checkpoints and terminal readiness
+- mid-run nonblocking new/unresolved PR feedback; terminal waits for required checks

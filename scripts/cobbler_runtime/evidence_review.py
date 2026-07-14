@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping, Sequence
 
+from .risk_policy import classify_risk_tier, proof_budget_for_tier
+
 
 HIGH_RISK_PATH_MARKERS: tuple[str, ...] = (
     "auth",
@@ -149,6 +151,36 @@ def plan_review(
     if not ordered:
         ordered = ["unit:focused"]
         reasons.append("default_focused_unit")
+
+    tier = classify_risk_tier(
+        changed_paths=paths,
+        is_final_readiness=is_final_readiness,
+        is_high_risk_checkpoint=risk == "high" and is_final_readiness is False and (
+            batch_blast_radius == "high" or security_hit
+        ),
+        batch_blast_radius=batch_blast_radius,
+        risk_hints=hints,
+    )
+    budget = proof_budget_for_tier(tier.tier, is_final_readiness=is_final_readiness)
+    # Risk-tier policy *escalates* broad at checkpoints/terminal and records the
+    # tier. It does not clear existing safety escalations (security, unmapped
+    # surfaces, runtime) that the focused planner already required.
+    if budget["broad_required_now"]:
+        broad = True
+        if "full_unittest" not in ordered:
+            ordered.append("full_unittest")
+        if f"risk_tier={tier.tier}" not in reasons:
+            reasons.append(f"risk_tier={tier.tier}")
+    elif docs_only and not is_final_readiness:
+        # Ordinary docs-only batches stay on touched-surface proof.
+        broad = False
+        if "full_unittest" in ordered:
+            ordered = [c for c in ordered if c != "full_unittest"]
+        if "full_unittest_deferred_to_entropy_or_final" not in skipped:
+            skipped.append("full_unittest_deferred_to_entropy_or_final")
+        reasons.append(f"risk_tier={tier.tier};proof=touched")
+    else:
+        reasons.append(f"risk_tier={tier.tier}")
 
     return ReviewPlan(
         focused_checks=tuple(ordered),

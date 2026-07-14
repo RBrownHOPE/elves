@@ -500,6 +500,16 @@ def main() -> int:
             "progress commit anti-pattern example",
         )
     )
+    risk_texts = {
+        label: read_text(REPO_ROOT / label) for label in RISK_TIER_PHRASES
+    }
+    errors.extend(
+        find_missing_phrases(
+            risk_texts,
+            RISK_TIER_PHRASES,
+            "risk tier safety kernel",
+        )
+    )
 
     public_texts = public_wording_texts()
     errors.extend(

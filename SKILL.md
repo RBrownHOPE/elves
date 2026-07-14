@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "2.1.1"
+  version: "2.2.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -277,7 +277,7 @@ native overnight run:
 - **Work drivers (batch labor)** — only when the user has the CLI and wants it. Record
   `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
   `.elves-session.json`). Grok Build via
-  `python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`
+  `python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-logs`
   (`full-run-stop` is explicit cancellation/recovery only)
   for trusted full-run, or `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`
   for legacy bounded batches (Lane A;
@@ -989,7 +989,7 @@ The built-in review works out of the box with zero configuration:
 
    **c. Run the test immediately.** Before fixing anything, run the new test against the current code. It should fail for the reported bug — if it doesn't, the test isn't catching what you think it's catching. It may also fail for related bugs you haven't seen yet. Good. You've just found them before the user did.
 
-   **d. Fix all failures, not just the reported one.** Fix the original bug and every related failure the category test surfaced. This is the root-cause principle applied to bugs: if one endpoint has a missing null check, the odds are good that others do too. Fix them all now.
+   **d. Fix confirmed same-root failures on owned or affected shared surfaces.** Fix the original bug and every related failure the category test confirmed on surfaces this batch owns or affects. Unrelated sibling findings outside that scope are **advisory follow-up** (log under `[elves-scout]`), not batch blockers.
 
    **e. Re-run and confirm green.** All category tests pass. All existing tests still pass. No regressions.
 
@@ -1234,8 +1234,8 @@ comments. Bots and CI run asynchronously.
 
 This is a lightweight check, not a full review cycle. The full review in step 7 is comprehensive (contract verification, code quality audit, documentation check). Step 13 is a quick scan for new signals:
 
-1. **Fetch new PR comments and review threads** via `gh api`. Only read what's new since your last poll.
-2. **Check CI/check status.** If checks are failing, diagnose and fix before moving on.
+1. **Fetch new/unresolved PR comments and review threads** via `gh api` (nonblocking mid-run). Only read what's new since your last poll.
+2. **Check CI/check status only as a nonblocking signal mid-run.** Diagnose obvious reds, but do not wait for the full required matrix between ordinary progress commits. **Terminal readiness** is when you wait for required checks/reviewers.
 3. **Triage new comments** using the same four categories from step 7 (fix now / defer / intentional design / false positive). Quick fixes can be handled inline. If findings require a deeper fix-push-repoll loop, follow the full step 7 protocol.
 4. **Record dispositions** in `.elves-session.json` as described in step 7.
 
@@ -1507,6 +1507,29 @@ The constitution grows over time:
 
 The agent can draft intentions. **The human must own them.** If the agent generates intentions and the human rubber-stamps them, you've recreated the problem — the AI is both writing the code and defining the success criteria.
 
+
+## Risk tiers and thin safety kernel (v2.2)
+
+Elves 2.2 keeps a **thin safety kernel** and risk-tiers everything else:
+
+**Safety kernel (must not weaken):** exact plan/session/packet acceptance identity; credential,
+protected-ref, origin, branch, worktree, ancestry, and clean-tip invariants; explicit host
+acknowledgement for declared high-risk checkpoints; no worker merge or protected-ref authority;
+test integrity, one live broad current-runtime proof before readiness, one independent terminal
+cumulative review, and required final CI; strict detached/import evidence for untrusted writers.
+
+**Four risk tiers:** `trivial/docs`, `standard trusted`, `high-risk trusted`, `untrusted`.
+
+**Proof budget:** validate once, verify changes, attest final. Per-batch proof defaults to
+**touched surfaces**. Broad proof is required at **risk checkpoints** and **terminal readiness**,
+not before every ordinary batch.
+
+**PR feedback:** mid-run pushes use one **nonblocking** new/unresolved feedback fetch; only
+**terminal readiness** waits for required checks/reviewers.
+
+**Bug-category expansion:** block only confirmed same-root failures on owned or affected shared
+surfaces; record unrelated siblings as advisory follow-up.
+
 ## Proof Scope
 
 Not all proof is equal. Distinguish between:
@@ -1514,7 +1537,7 @@ Not all proof is equal. Distinguish between:
 - **Touched-surface proof:** validation focused on the code and behaviors this batch actually changed. This is the minimum required for every batch.
 - **Broad regression proof:** running the full test suite, all E2E scenarios, all viewports, etc. This is valuable but expensive and can be blocked by known issues in unrelated areas.
 
-**Default to touched-surface proof.** Run broad regression proof at entropy check intervals (see step 14) and before calling the branch review-ready (see **Readiness Gate** below). If a broad regression run is blocked by an unrelated known issue, record it in the execution log and fall back to narrower touched-surface proof instead of thrashing. Don't waste hours debugging a pre-existing flake in an area you didn't touch.
+**Default to touched-surface proof** (validate once, verify changes, attest final). Run broad regression proof at risk checkpoints, entropy check intervals (see step 14), and before calling the branch review-ready (see **Readiness Gate** below). If a broad regression run is blocked by an unrelated known issue, record it in the execution log and fall back to narrower touched-surface proof instead of thrashing. Don't waste hours debugging a pre-existing flake in an area you didn't touch.
 
 **Preview proof must be on the exact current runtime tip.** After pushing review fixes, re-deploying, or any commit that changes deployed behavior, re-verify on the current deployed version. Proof from a prior commit does not carry forward after subsequent changes. Don't inherit proof — re-earn it.
 
@@ -1739,7 +1762,7 @@ mapping before completion so old numeric batches and unlabelled criteria remain 
 ```json
 {
   "session_id": "elves-2026-03-24-auth-system",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "status": "in_progress",
   "branch": "feat/auth-system",
   "plan_path": "docs/plans/auth-system.md",

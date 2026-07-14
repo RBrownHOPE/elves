@@ -1,5 +1,5 @@
 ---
-version: "2.1.1"
+version: "2.2.0"
 ---
 
 # Elves: Autonomous Development Agent (Codex)
@@ -246,7 +246,7 @@ native overnight run:
 - **Work drivers (batch labor)** — only when the user has the CLI and wants it. Record
   `implementation_lane: fast | untrusted` in the Survival Guide (and optionally
   `.elves-session.json`). Grok Build via
-  `python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`
+  `python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-logs`
   (`full-run-stop` is explicit cancellation/recovery only)
   for trusted full-run, or `python3 scripts/cobbler_agents.py implement prepare|launch|gate|resume-batch|status`
   for legacy bounded batches (Lane A;
@@ -918,8 +918,8 @@ run asynchronously.
 
 This is a lightweight check, not a full review cycle. The full review in step 7 is comprehensive. Step 13 is a quick scan for new signals:
 
-1. **Fetch new PR comments and review threads** via `gh api`. Only read what's new since your last poll.
-2. **Check CI/check status.** If checks are failing, diagnose and fix before moving on.
+1. **Fetch new/unresolved PR comments and review threads** via `gh api` (nonblocking mid-run). Only read what's new since your last poll.
+2. **Check CI/check status only as a nonblocking signal mid-run.** Diagnose obvious reds, but do not wait for the full required matrix between ordinary progress commits. **Terminal readiness** is when you wait for required checks/reviewers.
 3. **Triage new comments** using the same four categories from step 7 (fix now / defer / intentional design / false positive). Quick fixes can be handled inline. If findings require a deeper fix-push-repoll loop, follow the full step 7 protocol.
 4. **Record dispositions** in `.elves-session.json`.
 
@@ -1072,6 +1072,29 @@ Use a read-only judge or review subagent when the platform supports it; otherwis
 ### The flywheel
 
 The constitution grows over time: during planning (propose new intentions for new features), after mistakes (every regression becomes a permanent safeguard), and after incidents (ask "should there have been an intention?"). The agent can draft intentions. **The human must own them.**
+
+
+## Risk tiers and thin safety kernel (v2.2)
+
+Elves 2.2 keeps a **thin safety kernel** and risk-tiers everything else:
+
+**Safety kernel (must not weaken):** exact plan/session/packet acceptance identity; credential,
+protected-ref, origin, branch, worktree, ancestry, and clean-tip invariants; explicit host
+acknowledgement for declared high-risk checkpoints; no worker merge or protected-ref authority;
+test integrity, one live broad current-runtime proof before readiness, one independent terminal
+cumulative review, and required final CI; strict detached/import evidence for untrusted writers.
+
+**Four risk tiers:** `trivial/docs`, `standard trusted`, `high-risk trusted`, `untrusted`.
+
+**Proof budget:** validate once, verify changes, attest final. Per-batch proof defaults to
+**touched surfaces**. Broad proof is required at **risk checkpoints** and **terminal readiness**,
+not before every ordinary batch.
+
+**PR feedback:** mid-run pushes use one **nonblocking** new/unresolved feedback fetch; only
+**terminal readiness** waits for required checks/reviewers.
+
+**Bug-category expansion:** block only confirmed same-root failures on owned or affected shared
+surfaces; record unrelated siblings as advisory follow-up.
 
 ## Proof Scope
 

@@ -289,7 +289,7 @@ REPO_CONSISTENCY_WORKFLOW_PHRASES = {
         '"docs/openapi.json"',
         '"scripts/**"',
         "fetch-depth: 0",
-        "python3 scripts/verify_repo.py --ci --version 2.1.1",
+        "python3 scripts/verify_repo.py --ci --version 2.2.0",
         "--base-ref",
         "actions/checkout@v6",
         "actions/setup-python@v6",
@@ -2056,6 +2056,40 @@ IMPLEMENTER_HANDOFF_PHRASES = {
         "owned surfaces",
         "forbidden surfaces",
         "acceptance evidence",
+    ],
+}
+
+
+RISK_TIER_PHRASES = {
+    "SKILL.md": [
+        "thin safety kernel",
+        "Four risk tiers",
+        "validate once, verify changes, attest final",
+        "trivial/docs",
+        "standard trusted",
+        "high-risk trusted",
+        "untrusted",
+        "touched surfaces",
+        "risk checkpoints",
+        "terminal readiness",
+        "nonblocking",
+        "new/unresolved",
+        "confirmed same-root",
+    ],
+    "AGENTS.md": [
+        "thin safety kernel",
+        "Four risk tiers",
+        "validate once, verify changes, attest final",
+        "trivial/docs",
+        "standard trusted",
+        "high-risk trusted",
+        "untrusted",
+        "touched surfaces",
+        "risk checkpoints",
+        "terminal readiness",
+        "nonblocking",
+        "new/unresolved",
+        "confirmed same-root",
     ],
 }
 
