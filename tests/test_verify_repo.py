@@ -658,7 +658,7 @@ class VerifyRepoUnitTests(unittest.TestCase):
         unit.assert_not_called()
         smokes.assert_not_called()
 
-    def test_untracked_change_invalidates_reuse_and_main_runs_live_broad_gates(self) -> None:
+    def test_untracked_change_invalidates_reuse_and_runs_its_focused_test(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
@@ -707,6 +707,9 @@ class VerifyRepoUnitTests(unittest.TestCase):
                     self.verify, "check_unit_tests", return_value=success
                 ) as unit,
                 mock.patch.object(
+                    self.verify, "check_unit_test_modules", return_value=success
+                ) as focused,
+                mock.patch.object(
                     self.verify, "check_installed_smokes", return_value=success
                 ) as smokes,
                 mock.patch.object(self.verify, "check_git_diff", return_value=success),
@@ -717,8 +720,9 @@ class VerifyRepoUnitTests(unittest.TestCase):
                 code = self.verify.main(["--repo-root", str(root), "--json"])
 
             self.assertEqual(code, 0)
-            unit.assert_called_once_with(root.resolve())
-            smokes.assert_called_once_with(root.resolve())
+            focused.assert_called_once_with(root.resolve(), ["new_untracked_test"])
+            unit.assert_not_called()
+            smokes.assert_not_called()
 
     def test_non_broad_plan_keeps_default_verify_focused(self) -> None:
         success = (True, "ok")

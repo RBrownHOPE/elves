@@ -341,6 +341,11 @@ def _focused_unit_modules(changed_paths: list[str]) -> list[str]:
     for path in normalized:
         if path.startswith("tests/test_") and path.endswith(".py"):
             modules.append(path[:-3].replace("/", "."))
+        elif path.endswith(".py") and (
+            Path(path).name.startswith("test_")
+            or Path(path).name.endswith("_test.py")
+        ):
+            modules.append(path[:-3].replace("/", "."))
         if not path.startswith("scripts/"):
             continue
         name = Path(path).stem
