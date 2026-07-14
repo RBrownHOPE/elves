@@ -341,6 +341,11 @@ def _focused_unit_modules(changed_paths: list[str]) -> list[str]:
     for path in normalized:
         if path.startswith("tests/test_") and path.endswith(".py"):
             modules.append(path[:-3].replace("/", "."))
+        elif path.endswith(".py") and (
+            Path(path).name.startswith("test_")
+            or Path(path).name.endswith("_test.py")
+        ):
+            modules.append(path[:-3].replace("/", "."))
         if not path.startswith("scripts/"):
             continue
         name = Path(path).stem
@@ -1779,6 +1784,7 @@ def main(argv: list[str] | None = None) -> int:
         else probe_preflight_reuse(repo_root)
     )
     preflight_reused = bool(preflight_probe.get("reuse"))
+    product_tests_reused = bool(preflight_probe.get("reuse_product_tests"))
 
     def cached(name: str, runner: Callable[[], tuple[bool, str]]) -> tuple[bool, str]:
         return evidence_results.get(name) or runner()
@@ -1790,8 +1796,10 @@ def main(argv: list[str] | None = None) -> int:
         return True if marker is None else bool(marker[0])
 
     def maybe_live_unit_tests() -> tuple[bool, str]:
-        if preflight_reused and not strict:
-            return True, "unit-test broad gate reused from exact preflight evidence"
+        if (preflight_reused or product_tests_reused) and not strict:
+            return True, (
+                "unit-test broad gate reused from unchanged product/test inputs"
+            )
         if not review_broad_required():
             return True, "unit-test broad gate skipped by evidence-aware focused plan"
         return cached("unit-tests", lambda: check_unit_tests(repo_root))

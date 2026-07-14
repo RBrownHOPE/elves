@@ -1121,6 +1121,157 @@ def humanize_grok_failure(
     return first_useful
 
 
+
+def detect_native_grok_goal(
+    executable: str = "grok",
+    *,
+    help_text: str | None = None,
+) -> dict[str, object]:
+    """Capability-detect native Grok goal orchestration.
+
+    Installed Grok may expose `/goal` as a TUI skill without a public headless
+    ``--goal`` flag. Detection is honest: native_goal only when a real headless
+    goal flag or documented noninteractive goal entrypoint is present.
+    """
+    import re
+    import shutil
+    import subprocess
+    import tempfile
+
+    text = help_text
+    if text is None:
+        resolved = shutil.which(executable) or executable
+        try:
+            with tempfile.TemporaryDirectory(prefix="elves-grok-goal-probe-") as tmp:
+                probe_env = {
+                    "HOME": tmp,
+                    "GROK_HOME": str(Path(tmp) / "grok"),
+                    "XDG_CONFIG_HOME": str(Path(tmp) / "config"),
+                    "XDG_CACHE_HOME": str(Path(tmp) / "cache"),
+                    "XDG_DATA_HOME": str(Path(tmp) / "data"),
+                    "PATH": os.environ.get("PATH") or os.defpath,
+                    "LANG": os.environ.get("LANG") or "C.UTF-8",
+                }
+                proc = subprocess.run(
+                    [resolved, "--help"],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                    check=False,
+                    env=probe_env,
+                )
+            text = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        except (OSError, subprocess.TimeoutExpired):
+            text = ""
+    lower = text.lower()
+    # Public headless flag (preferred).
+    has_goal_flag = bool(re.search(r"--goal\s+<[^>]+>", lower))
+    # Explicit noninteractive goal subcommand (not TUI-only /goal mention).
+    has_goal_subcommand = bool(
+        re.search(r"(?m)^\s*goal\s+", text)
+        and "noninteractive" in lower
+    )
+    # TUI skill mention alone is not headless native goal.
+    tui_only = ("/goal" in lower or "goal mode" in lower) and not (
+        has_goal_flag or has_goal_subcommand
+    )
+    if has_goal_flag:
+        return {
+            "native_goal": True,
+            "mode": "native_goal",
+            "fallback": None,
+            "detail": "Installed Grok advertises a headless goal entrypoint",
+            "tui_goal_mentioned": "/goal" in lower or "goal mode" in lower,
+        }
+    return {
+        "native_goal": False,
+        "mode": "headless_compatible_fallback",
+        "fallback": "packet_prompt_headless",
+        "detail": (
+            "No public headless --goal flag; use compatible headless prompt/packet "
+            "launch without claiming native goal orchestration"
+            + ("; TUI /goal is present but not a headless API" if tui_only else "")
+            + (
+                "; an advertised goal subcommand is not used without a packet-path contract"
+                if has_goal_subcommand
+                else ""
+            )
+        ),
+        "tui_goal_mentioned": tui_only or ("/goal" in lower),
+    }
+
+
+def resolve_phase_route(
+    *,
+    phase: str,
+    requested_model: str | None = None,
+    requested_effort: str | None = None,
+    capability_available: bool = True,
+    host: str = "native",
+) -> dict[str, object]:
+    """Record requested/actual/fallback for phase model + reasoning effort."""
+    requested = {
+        "phase": phase,
+        "model": requested_model,
+        "effort": requested_effort,
+        "host": host,
+    }
+    if capability_available and (requested_model or requested_effort):
+        return {
+            "requested_route": requested,
+            "actual_route": {
+                "phase": phase,
+                "model": requested_model,
+                "effort": requested_effort,
+                "host": host,
+            },
+            "fallback_reason": None,
+        }
+    return {
+        "requested_route": requested,
+        "actual_route": {
+            "phase": phase,
+            "model": None,
+            "effort": None,
+            "host": "native",
+            "route": "host-native",
+        },
+        "fallback_reason": "capability_missing_or_unconfigured; native fallback",
+    }
+
+
+def optional_media_capabilities(
+    *,
+    image_available: bool | None = None,
+    video_available: bool | None = None,
+) -> dict[str, object]:
+    """Grok image/video are optional discoverable capabilities."""
+    def _one(name: str, available: bool | None) -> dict[str, object]:
+        if available is True:
+            status = "available"
+            detail = f"{name} generation capability present"
+        elif available is False:
+            status = "unavailable"
+            detail = f"{name} unavailable on this tier; graceful no-op fallback"
+        else:
+            status = "unknown"
+            detail = f"{name} not probed; treat as optional non-fatal"
+        return {
+            "name": name,
+            "status": status,
+            "required": False,
+            "default_report_format": False,
+            "bounded_ownership": "worker_artifact_host_review",
+            "detail": detail,
+        }
+
+    return {
+        "image": _one("image", image_available),
+        "video": _one("video", video_available),
+        "policy": "optional_non_fatal_unavailable_tier_fallback",
+    }
+
+
 def build_launch_argv(
     *,
     session_id: str | None = None,
@@ -1136,6 +1287,7 @@ def build_launch_argv(
     output_format: str | None = "json",
     adapter: str = "grok-build",
     check: bool = False,
+    native_goal: bool = False,
 ) -> list[str]:
     """Build headless implementer argv for Grok Build (Lane A) or OpenCode.
 
@@ -1218,8 +1370,12 @@ def build_launch_argv(
         argv.extend(["--session-id", sid])
     elif sid:
         argv.extend(["--resume", sid])
-    # Headless packet delivery (mutually exclusive with -p).
-    argv.extend(["--prompt-file", str(packet_path)])
+    # A capability-probed native goal flag receives the immutable packet path.
+    # Otherwise use the ordinary headless packet contract without claiming goal.
+    if native_goal:
+        argv.extend(["--goal", str(packet_path)])
+    else:
+        argv.extend(["--prompt-file", str(packet_path)])
     argv.extend(
         [
             "--cwd",

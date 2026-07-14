@@ -10,7 +10,7 @@ Commands:
   session list|probe|resume  Exact persistent session registry helpers
   worker prepare|audit|export|refresh
                              Single external writer lease lifecycle (host-owned)
-  implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop
+  implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs|full-run-stop
                              Trusted persistent external full-run supervisor
   implement prepare|launch|gate|resume-batch|status
                              Legacy bounded external batch implementer
@@ -96,6 +96,8 @@ from cobbler_runtime.full_run import (  # noqa: E402
     launch_full_run,
     logs_full_run,
     monitor_full_run,
+    await_full_run,
+    reconstruct_missing_report,
     prepare_full_run,
     stop_full_run,
 )
@@ -1388,6 +1390,8 @@ def cmd_implement(args: argparse.Namespace) -> int:
             )
             return 0 if payload.get("ok") else 1
 
+        if action == "full-run-monitor" and getattr(args, "wait", False):
+            action = "full-run-await"
         if action == "full-run-monitor":
             payload = monitor_full_run(
                 repo_root,
@@ -1396,6 +1400,7 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 acknowledge_high_risk_checkpoint=getattr(
                     args, "ack_high_risk_checkpoint", None
                 ),
+                force_full=bool(getattr(args, "full", False)),
             )
             if args.json:
                 return _emit_json(payload, exit_code=0)
@@ -1405,6 +1410,42 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 f"next={payload.get('next_action')}"
             )
             return 0
+
+        if action == "full-run-await":
+            payload = await_full_run(
+                repo_root,
+                session_id=args.session_id,
+                stale_after_seconds=int(getattr(args, "stale_after", 300) or 300),
+                timeout_seconds=(
+                    float(args.timeout) if getattr(args, "timeout", None) is not None else None
+                ),
+                acknowledge_high_risk_checkpoint=getattr(
+                    args, "ack_high_risk_checkpoint", None
+                ),
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0)
+            print(
+                f"full-run await: state={payload.get('state')} "
+                f"next={payload.get('next_action')} "
+                f"material={payload.get('material_transition')}"
+            )
+            return 0
+
+        if action == "full-run-reconcile":
+            payload = reconstruct_missing_report(
+                repo_root,
+                session_id=args.session_id,
+                host_tests_pass=bool(getattr(args, "host_tests_pass", False)),
+            )
+            if args.json:
+                return _emit_json(payload, exit_code=0 if payload.get("ok") else 1)
+            print(
+                f"full-run reconcile: ok={payload.get('ok')} "
+                f"next={payload.get('next_action')} "
+                f"provenance={payload.get('provenance')}"
+            )
+            return 0 if payload.get("ok") else 1
 
         if action == "full-run-logs":
             payload = logs_full_run(
@@ -2036,7 +2077,7 @@ def build_parser() -> argparse.ArgumentParser:
     implement = sub.add_parser(
         "implement",
         help=(
-            "Optional external implementer: trusted full-run-prepare/launch/monitor/logs/stop "
+            "Optional external implementer: trusted full-run-prepare/launch/monitor/await/reconcile/logs/stop "
             "or legacy bounded prepare/launch/gate/resume-batch/status; Grok Build or OpenCode"
         ),
     )
@@ -2151,7 +2192,55 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Acknowledge the exact pending staged checkpoint after host review",
     )
+    i_fr_monitor.add_argument(
+        "--full",
+        action="store_true",
+        help="Force full remote-ref audit and deep reconciliation depth",
+    )
+    i_fr_monitor.add_argument(
+        "--wait",
+        action="store_true",
+        help="Alias: block like full-run-await until a material transition",
+    )
     i_fr_monitor.set_defaults(func=cmd_implement)
+
+    i_fr_await = implement_sub.add_parser(
+        "full-run-await",
+        help="Block until material progress, checkpoint, stale/failure, user input, or exit",
+    )
+    _add_common_flags(i_fr_await)
+    i_fr_await.add_argument("--session-id", required=True)
+    i_fr_await.add_argument(
+        "--stale-after",
+        type=int,
+        default=300,
+        help="Seconds without heartbeat before stale (default: 300)",
+    )
+    i_fr_await.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="Optional max seconds to block before returning current status",
+    )
+    i_fr_await.add_argument(
+        "--ack-high-risk-checkpoint",
+        default=None,
+        help="Acknowledge the exact pending staged checkpoint after host review",
+    )
+    i_fr_await.set_defaults(func=cmd_implement)
+
+    i_fr_reconcile = implement_sub.add_parser(
+        "full-run-reconcile",
+        help="Host-reconstruct a missing trusted report from independently proved facts",
+    )
+    _add_common_flags(i_fr_reconcile)
+    i_fr_reconcile.add_argument("--session-id", required=True)
+    i_fr_reconcile.add_argument(
+        "--host-tests-pass",
+        action="store_true",
+        help="Explicitly attest that host-run acceptance tests passed",
+    )
+    i_fr_reconcile.set_defaults(func=cmd_implement)
 
     i_fr_logs = implement_sub.add_parser(
         "full-run-logs",

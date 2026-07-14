@@ -892,3 +892,10 @@ complete. Don't re-implement it.
 ---
 
 # READ THIS FILE FIRST AFTER ANY COMPACTION OR RESTART
+
+
+<!-- v2.2 risk policy pins -->
+- thin safety kernel and four risk tiers (trivial/docs, standard trusted, high-risk trusted, untrusted)
+- validate once, verify changes, attest final
+- touched-surface per batch; broad proof at risk checkpoints and terminal readiness
+- mid-run nonblocking new/unresolved PR feedback; terminal waits for required checks

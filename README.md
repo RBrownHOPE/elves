@@ -10,7 +10,7 @@ multi-batch runs — implement, test, review, document — that survive context 
 **Cobbler** is the default coordinator. **Claude Code or Codex** is the main driver; optional work
 drivers and lenses help when you already have them.
 
-**Current release: v2.1.1.** You write the plan and own the merge decision. The agent does the middle.
+**Current release: v2.2.0.** You write the plan and own the merge decision. The agent does the middle.
 
 **Default (v2.0+): one kickoff** after conceptual agreement — chat to agreement, then one
 **Chat-to-work** or **Chat-to-land** (`chat-to-work` / `chat-to-land`) prompt stages and runs.
@@ -59,12 +59,12 @@ python3 ~/.claude/skills/elves/scripts/install_doctor.py --startup
 # Codex (use this instead):
 python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.1.1
+python3 scripts/verify_repo.py --version 2.2.0
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.1.1 --final-readiness \
+python3 scripts/verify_repo.py --version 2.2.0 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.1.1 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.2.0 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 
@@ -757,7 +757,7 @@ and configured — same native-first rule as the rest of Cobbler and the math mo
 
 **Optional external work driver** (e.g. Grok Build, only if you have it): record
 `implementation_lane: fast` and use
-`python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`
+`python3 scripts/cobbler_agents.py implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs`
 for the primary trusted full-run path; `full-run-stop` is cancellation/recovery only.
 `prepare|launch|gate|resume-batch|status` is the explicit legacy/bounded-batch path.
 See [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
@@ -977,10 +977,9 @@ Bad: "Looks good so far." (no tag, no instruction to continue)
 - **Rollback safety**: host-native/legacy runs use host-owned `bN` refs; trusted parked full-runs
   use one host-owned `b0` launch ref plus worker commit SHAs as internal rollback points
 - **Scout mode**: after all planned work is done, the agent looks for adjacent improvements, test gaps, and documentation holes. Prioritizes risk-reducing fixes first, then quality, then leaves ambiguous items. Commits tagged `[branch · Scout]`, with validation gates required and clear stop rules.
-- **Proof scope**: touched-surface proof per batch (only test what you changed), broad regression at entropy checks and before readiness. Re-earn proof after each push; don't inherit from prior commits.
-- **High-risk regression pass**: batches with medium/high blast radius can trigger a second,
-  regression-only review pass that traces changed shared surfaces to their consumers and asks only
-  "what could this break?"
+- **Proof scope**: touched-surface proof per batch, with broad regression only at declared high-risk checkpoints and once before readiness. Reuse unchanged evidence instead of rerunning it after metadata-only commits.
+- **High-risk regression pass**: only declared high-risk checkpoints or concrete safety signals
+  trigger a deeper mid-run regression pass; ordinary trusted batches keep moving on focused proof.
 - **Public API surface snapshots**: optional regression evidence for REST, GraphQL, exported
   library, CLI, event, and configuration contracts. `enabled: auto` stays advisory when no credible
   source exists; `required: true` is only an explicit survival-guide opt-in.

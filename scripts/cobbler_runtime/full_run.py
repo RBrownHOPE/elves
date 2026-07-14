@@ -213,6 +213,11 @@ STATUS_KEYS = frozenset(
         "chat_update_policy",
         "chat_update_recommended",
         "unchanged_healthy_poll_silent",
+        "material_transition",
+        "monitor_depth",
+        "remote_all_ref_audit",
+        "goal_launch_mode",
+        "report_provenance",
         "wake_conditions",
         "planned_high_risk_checkpoints",
         "pending_high_risk_checkpoint",
@@ -1116,6 +1121,12 @@ class FullRunState:
     process_history: list[dict[str, Any]] = field(default_factory=list)
     exit_code: int | None = None
     exit_sidecar_pid: int | None = None
+    # Bounded monitor cache: event file size/digest and last remote-audit stamp.
+    # Used so unchanged healthy polls stay incremental.
+    monitor_cache: dict[str, Any] = field(default_factory=dict)
+    # native_goal | headless_compatible_fallback | fixture | unknown
+    goal_launch_mode: str | None = None
+    report_provenance: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -1161,6 +1172,8 @@ class FullRunState:
             "supervision_token",
             "supervisor_executable",
             "pending_high_risk_checkpoint",
+            "goal_launch_mode",
+            "report_provenance",
         )
         for field_name in nullable_strings:
             value = data.get(field_name)
@@ -1225,6 +1238,7 @@ class FullRunState:
             "credential_grant_digests",
             "credential_grant_lengths",
             "protected_refs",
+            "monitor_cache",
         )
         for field_name in default_mapping_fields:
             value = data.get(field_name)
@@ -4495,8 +4509,13 @@ def snapshot_protected_refs(
     repo_root: Path,
     *,
     feature_branch: str | None = None,
+    include_remote: bool = True,
 ) -> dict[str, str]:
-    """Snapshot every ref namespace except the exact assigned feature refs."""
+    """Snapshot every ref namespace except the exact assigned feature refs.
+
+    When ``include_remote`` is False, skip the uncached remote all-ref audit
+    (used by incremental healthy polls). Terminal/safety paths always pass True.
+    """
     result = subprocess.run(
         [
             "git",
@@ -4526,15 +4545,18 @@ def snapshot_protected_refs(
         parts = row.split(None, 1)
         if len(parts) == 2 and parts[0] not in excluded:
             snaps[parts[0]] = parts[1]
-    remote = _remote_refs(repo_root)
-    origin_url = _canonical_origin_url(repo_root) if remote else ""
-    feature_remote = f"remote::origin::refs/heads/{feature_branch}" if feature_branch else None
-    for key, value in remote.items():
-        remote_ref = key.removeprefix("remote::origin::")
-        if key != feature_remote and not _github_provider_managed_ref(
-            origin_url, remote_ref
-        ):
-            snaps[key] = value
+    if include_remote:
+        remote = _remote_refs(repo_root)
+        origin_url = _canonical_origin_url(repo_root) if remote else ""
+        feature_remote = (
+            f"remote::origin::refs/heads/{feature_branch}" if feature_branch else None
+        )
+        for key, value in remote.items():
+            remote_ref = key.removeprefix("remote::origin::")
+            if key != feature_remote and not _github_provider_managed_ref(
+                origin_url, remote_ref
+            ):
+                snaps[key] = value
     return snaps
 
 
@@ -4543,13 +4565,21 @@ def verify_protected_refs_unchanged(
     expected: Mapping[str, str],
     *,
     feature_branch: str | None = None,
+    include_remote: bool = True,
 ) -> list[str]:
     """Any observed protected-ref movement blocks readiness (policy trust, not OS sandbox)."""
     errors: list[str] = []
-    current = snapshot_protected_refs(repo_root, feature_branch=feature_branch)
-    for ref in sorted(set(current) - set(expected)):
+    current = snapshot_protected_refs(
+        repo_root, feature_branch=feature_branch, include_remote=include_remote
+    )
+    expected_now = {
+        ref: tip
+        for ref, tip in expected.items()
+        if include_remote or not ref.startswith("remote::")
+    }
+    for ref in sorted(set(current) - set(expected_now)):
         errors.append(f"new protected ref created: {ref}")
-    for ref, tip in expected.items():
+    for ref, tip in expected_now.items():
         now = current.get(ref)
         if now is None:
             errors.append(f"protected ref missing at finalization: {ref}")
@@ -6016,6 +6046,8 @@ def save_state(repo_root: Path, state: FullRunState) -> Path:
 
 def build_full_run_argv(state: FullRunState) -> list[str]:
     """Adapter-aware argv. Fixture mode uses explicit python + script + packet."""
+    from .implement import detect_native_grok_goal  # noqa: PLC0415
+
     launch_packet = state.staged_packet_path or state.packet_path
     if state.adapter == "fixture":
         if not state.fixture_script:
@@ -6023,7 +6055,12 @@ def build_full_run_argv(state: FullRunState) -> list[str]:
                 "fixture_script_required",
                 "fixture adapter requires fixture_script in state",
             )
+        state.goal_launch_mode = "fixture"
         return [state.executable, state.fixture_script, launch_packet]
+    detection = detect_native_grok_goal(state.executable)
+    # Record actual capability; do not invent flags. Headless packet launch is
+    # the compatible fallback when no public --goal entrypoint exists.
+    state.goal_launch_mode = str(detection.get("mode") or "headless_compatible_fallback")
     return build_launch_argv(
         session_id=state.session_id,
         packet=launch_packet,
@@ -6038,6 +6075,7 @@ def build_full_run_argv(state: FullRunState) -> list[str]:
         output_format=state.output_format,
         adapter=state.adapter,
         check=bool(state.check),
+        native_goal=bool(detection.get("native_goal")),
     )
 
 
@@ -6820,6 +6858,43 @@ def _read_events(
     return rows, errors
 
 
+def _event_log_signature(repo_root: Path, events_path: Path) -> dict[str, Any]:
+    """Return a cheap identity for an append-only event log.
+
+    A matching signature lets an ordinary healthy poll reuse the already
+    validated structural summary. Terminal, checkpoint-ack, and forced-full
+    paths still re-read and validate the complete log.
+    """
+    candidate = guard_repo_path(repo_root, events_path)
+    try:
+        info = candidate.lstat()
+    except FileNotFoundError:
+        return {"exists": False}
+    except OSError as exc:
+        raise StorageError(
+            "event_log_unavailable",
+            f"event log metadata is unavailable: {type(exc).__name__}",
+        ) from exc
+    if not stat.S_ISREG(info.st_mode):
+        raise StorageError(
+            "event_log_not_regular",
+            "event log must be a regular non-symlink file",
+        )
+    if info.st_size > MAX_EVENT_FILE_BYTES:
+        raise StorageError(
+            "event_log_too_large",
+            f"event log exceeds {MAX_EVENT_FILE_BYTES} byte limit",
+        )
+    return {
+        "exists": True,
+        "dev": info.st_dev,
+        "ino": info.st_ino,
+        "size": info.st_size,
+        "mtime_ns": info.st_mtime_ns,
+        "ctime_ns": info.st_ctime_ns,
+    }
+
+
 _SHARED_OAUTH_PUBLIC_EVENT_FIELDS: tuple[str, ...] = (
     "timestamp",
     "session_id",
@@ -7029,18 +7104,53 @@ def monitor_full_run(
     session_id: str,
     stale_after_seconds: int = DEFAULT_STALE_SECONDS,
     acknowledge_high_risk_checkpoint: str | None = None,
+    depth: str | None = None,
+    force_full: bool = False,
 ) -> dict[str, Any]:
-    """Classify health using fingerprint + branch head + validated events/report."""
+    """Classify health using fingerprint + branch head + validated events/report.
+
+    ``depth`` may be ``incremental`` or ``full``. When omitted, healthy polls use
+    incremental reconciliation (liveness + local refs + events) and terminal or
+    safety wakes force full remote-audit + deep Git reconciliation.
+    """
     state = load_state(repo_root, session_id)
     initial_status = state.status
     initial_next_action = state.next_action
     initial_blocker = state.blocker
     initial_completed_at = state.completed_at
-    initial_batch = state.batch
     initial_pending_checkpoint = state.pending_high_risk_checkpoint
     initial_acknowledged_checkpoints = tuple(
         state.acknowledged_high_risk_checkpoints
     )
+    from .risk_policy import monitor_depth_for_status  # noqa: PLC0415
+
+    cache = dict(state.monitor_cache or {})
+    remote_audit_due = True
+    last_remote = cache.get("last_remote_audit_at")
+    if last_remote and isinstance(last_remote, str):
+        try:
+            last_dt = datetime.fromisoformat(last_remote.replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - last_dt).total_seconds()
+            # Bounded remote all-ref cadence: half the stale window, min 60s.
+            cadence = max(60, max(0, stale_after_seconds) // 2)
+            remote_audit_due = age >= cadence
+        except ValueError:
+            remote_audit_due = True
+    resolved_depth = depth or monitor_depth_for_status(
+        status=state.status,
+        next_action=state.next_action,
+        force_full=force_full,
+        remote_audit_due=remote_audit_due,
+    )
+    # Always full when already terminal/safety or ack is present.
+    if (
+        force_full
+        or acknowledge_high_risk_checkpoint is not None
+        or state.status in {"complete", "failed", "blocked", "stopped", "stale"}
+        or (state.next_action or "").startswith("driver_wake_")
+    ):
+        resolved_depth = "full"
+    include_remote_audit = resolved_depth == "full"
     identity_retired = bool(
         state.closed_process_identity
         and state.pid is None
@@ -7049,9 +7159,26 @@ def monitor_full_run(
     )
     root = full_run_root(repo_root, session_id)
     grant_context_verified, exact_secret_values = _launch_evidence_context(state)
-    if grant_context_verified:
+    events_path = root / "events.jsonl"
+    events_reused = False
+    event_signature: dict[str, Any] | None = None
+    cached_event_summary = cache.get("event_summary")
+    try:
+        event_signature = _event_log_signature(Path(repo_root), events_path)
+    except StorageError as exc:
+        event_signature = None
+        events, event_errors = [], [exc.message]
+    else:
+        events_reused = bool(
+            resolved_depth == "incremental"
+            and event_signature == cache.get("event_signature")
+            and isinstance(cached_event_summary, Mapping)
+        )
+    if event_signature is not None and events_reused:
+        events, event_errors = [], []
+    elif event_signature is not None and grant_context_verified:
         events, event_errors = _read_events(
-            root / "events.jsonl",
+            events_path,
             expected_session_id=session_id,
             expected_branch=state.branch,
             expected_high_risk_checkpoints=state.planned_high_risk_checkpoints,
@@ -7063,7 +7190,7 @@ def monitor_full_run(
             allow_partial_final=not identity_retired and bool(state.pid or state.pgid),
             repo_root=Path(repo_root),
         )
-    else:
+    elif event_signature is not None:
         events, event_errors = [], [
             "launch credential context cannot be verified for worker evidence"
         ]
@@ -7200,9 +7327,26 @@ def monitor_full_run(
     if observed_head:
         state.head = observed_head
 
-    last_type = None
-    saw_run_complete_event = False
-    observed_high_risk_checkpoints: list[str] = []
+    last_type = (
+        cached_event_summary.get("last_type")
+        if events_reused and isinstance(cached_event_summary, Mapping)
+        else None
+    )
+    saw_run_complete_event = bool(
+        events_reused
+        and isinstance(cached_event_summary, Mapping)
+        and cached_event_summary.get("saw_run_complete")
+    )
+    observed_high_risk_checkpoints: list[str] = (
+        [str(item) for item in cached_event_summary.get("high_risk_checkpoints", [])]
+        if events_reused and isinstance(cached_event_summary, Mapping)
+        else []
+    )
+    event_count = (
+        int(cached_event_summary.get("count") or 0)
+        if events_reused and isinstance(cached_event_summary, Mapping)
+        else len(events)
+    )
     for ev in events:
         last_type = ev.get("type") or last_type
         if ev.get("type") == "batch_started":
@@ -7227,6 +7371,15 @@ def monitor_full_run(
             saw_run_complete_event = True
         if ev.get("type") == "high_risk_checkpoint":
             observed_high_risk_checkpoints.append(str(ev.get("checkpoint_id")))
+
+    if not event_errors and not events_reused and event_signature is not None:
+        cache["event_signature"] = event_signature
+        cache["event_summary"] = {
+            "count": len(events),
+            "last_type": last_type,
+            "saw_run_complete": saw_run_complete_event,
+            "high_risk_checkpoints": list(observed_high_risk_checkpoints),
+        }
 
     if acknowledge_high_risk_checkpoint is not None:
         checkpoint_id = str(acknowledge_high_risk_checkpoint)
@@ -7308,14 +7461,19 @@ def monitor_full_run(
         )
 
     # Protected refs: any movement blocks readiness (policy trust, not OS sandbox).
+    # Incremental healthy polls verify local refs only; remote all-ref audit runs
+    # on a bounded cadence and always at terminal/safety depth.
     try:
         protected_errors = verify_protected_refs_unchanged(
             Path(repo_root),
             state.protected_refs or {},
             feature_branch=state.branch,
+            include_remote=include_remote_audit,
         )
     except ValidationIssue as issue:
         protected_errors = [issue.message]
+    if include_remote_audit:
+        cache["last_remote_audit_at"] = _utc_now()
     if state.adapter != "fixture":
         try:
             if (
@@ -7330,12 +7488,19 @@ def monitor_full_run(
         state.blocker = "; ".join(protected_errors)
         state.next_action = "driver_wake_safety_tripwire"
 
-    # Invalid worker evidence is always a wake-worthy failure. In particular, a
-    # malformed or premature exit record must never leave the driver parked.
-    if event_errors or report_errors or exit_record_errors:
+    # Invalid worker evidence is wake-worthy. Exit-record and event corruption
+    # always fail hard. Report validation failures also fail hard unless the
+    # report is entirely missing after a clean exit (host reconcilable path).
+    clean_provider_exit = exit_record is not None and state.exit_code == 0
+    if event_errors or exit_record_errors:
         state.status = "failed"
-        evidence_errors = event_errors + report_errors + exit_record_errors
+        evidence_errors = event_errors + exit_record_errors
         state.blocker = "; ".join(evidence_errors[:4]) or "untrusted worker evidence"
+        state.next_action = "driver_wake_error"
+    elif report_errors and not (clean_provider_exit and not report):
+        # Checkpoint/head/ancestry/security report failures remain hard failures.
+        state.status = "failed"
+        state.blocker = "; ".join(report_errors[:4]) or "untrusted worker evidence"
         state.next_action = "driver_wake_error"
 
     # Branch mismatch is a safety signal.
@@ -7366,6 +7531,18 @@ def monitor_full_run(
             state.completed_at = state.completed_at or _utc_now()
             state.next_action = "final_readiness"
             state.head = str(report.get("final_head") or observed_head or state.start_head)
+        elif clean_exit and not protected_errors and (
+            not report or report.get("status") != "complete"
+        ):
+            # Missing or incomplete machine report is host-reconcilable.
+            # A present complete report that failed kernel validation already
+            # failed hard above via report_errors.
+            state.status = "blocked"
+            state.blocker = (
+                "provider exited cleanly without a validated complete report; "
+                "host may reconstruct independently provable fields"
+            )
+            state.next_action = "driver_wake_reconcile"
         elif clean_exit:
             state.status = "failed"
             state.blocker = "provider exited cleanly without a validated complete report"
@@ -7481,7 +7658,6 @@ def monitor_full_run(
         state.blocker = _redact_full_run_text(
             state.blocker, exact_values=exact_secret_values
         )
-    save_state(repo_root, state)
     from .behavior_policy import (  # noqa: PLC0415
         PARKED_MONITOR_UPDATE_POLICY,
         PARKED_MONITOR_USER_HEARTBEAT_SECONDS,
@@ -7494,7 +7670,6 @@ def monitor_full_run(
         or state.next_action != initial_next_action
         or state.blocker != initial_blocker
         or state.completed_at != initial_completed_at
-        or state.batch != initial_batch
         or state.pending_high_risk_checkpoint != initial_pending_checkpoint
         or tuple(state.acknowledged_high_risk_checkpoints)
         != initial_acknowledged_checkpoints
@@ -7504,9 +7679,26 @@ def monitor_full_run(
         and state.next_action == "parked_monitor"
         and not material_state_change
     )
+    # Healthy batch progress is silent; wakes and terminal transitions chat.
+    chat_update_recommended = bool(
+        material_state_change
+        and not (
+            state.status == "healthy" and state.next_action == "parked_monitor"
+        )
+    )
+    state.monitor_cache = cache
+    if include_remote_audit:
+        cache["last_depth"] = "full"
+    else:
+        cache["last_depth"] = "incremental"
+        cache["skipped_full_event_rescan"] = events_reused
+        cache["skipped_deep_git_reconciliation"] = True
+        cache["skipped_remote_all_ref_audit"] = True
+    save_state(repo_root, state)
 
     status = {
-        "ok": state.status in {"healthy", "complete", "pending"},
+        "ok": state.status in {"healthy", "complete", "pending"}
+        or state.next_action == "driver_wake_reconcile",
         "session_id": session_id,
         "state": state.status,
         "batch": state.batch,
@@ -7522,8 +7714,15 @@ def monitor_full_run(
         "poll_after_seconds": parked_monitor_poll_after_seconds(stale_after_seconds),
         "user_heartbeat_seconds": PARKED_MONITOR_USER_HEARTBEAT_SECONDS,
         "chat_update_policy": PARKED_MONITOR_UPDATE_POLICY,
-        "chat_update_recommended": material_state_change,
+        "chat_update_recommended": chat_update_recommended,
         "unchanged_healthy_poll_silent": unchanged_healthy_poll_silent,
+        "material_transition": material_state_change
+        or state.next_action != "parked_monitor"
+        or state.status != "healthy",
+        "monitor_depth": resolved_depth,
+        "remote_all_ref_audit": include_remote_audit,
+        "goal_launch_mode": state.goal_launch_mode,
+        "report_provenance": state.report_provenance,
         "wake_conditions": sorted(PARKED_MONITOR_WAKE_CONDITIONS),
         "planned_high_risk_checkpoints": list(
             state.planned_high_risk_checkpoints
@@ -7533,7 +7732,8 @@ def monitor_full_run(
             state.acknowledged_high_risk_checkpoints
         ),
         "check_summary": {
-            "events": len(events),
+            "events": event_count,
+            "events_reused": events_reused,
             "last_event_type": last_type,
             "alive": alive,
             "group_alive": group_alive,
@@ -7916,7 +8116,255 @@ def write_report(repo_root: Path, session_id: str, report: Mapping[str, Any]) ->
     return path
 
 
+def await_full_run(
+    repo_root: Path,
+    *,
+    session_id: str,
+    stale_after_seconds: int = DEFAULT_STALE_SECONDS,
+    timeout_seconds: float | None = None,
+    sleep_fn=None,
+    monotonic_fn=None,
+    acknowledge_high_risk_checkpoint: str | None = None,
+) -> dict[str, Any]:
+    """Block until a material monitor transition (or timeout).
+
+    Returns the first monitor payload that is not an unchanged healthy park.
+    Designed for one host tool call instead of model-turn polling.
+    """
+    import time as _time  # noqa: PLC0415
+
+    sleep = sleep_fn or _time.sleep
+    mono = monotonic_fn or _time.monotonic
+    started = mono()
+    while True:
+        observed = monitor_full_run(
+            repo_root,
+            session_id=session_id,
+            stale_after_seconds=stale_after_seconds,
+            acknowledge_high_risk_checkpoint=acknowledge_high_risk_checkpoint,
+        )
+        material = bool(
+            observed.get("material_transition")
+            or not observed.get("unchanged_healthy_poll_silent")
+        )
+        if material:
+            result = dict(observed)
+            result["awaited"] = True
+            return result
+        elapsed = mono() - started
+        if timeout_seconds is not None and elapsed >= max(0.0, timeout_seconds):
+            result = dict(observed)
+            result["awaited"] = True
+            result["await_timed_out"] = True
+            return result
+        delay = float(observed.get("poll_after_seconds") or 60)
+        if timeout_seconds is not None:
+            delay = min(delay, max(0.0, float(timeout_seconds) - elapsed))
+        sleep(delay)
+
+
 @_locked_full_run
+def reconstruct_missing_report(
+    repo_root: Path,
+    *,
+    session_id: str,
+    host_tests_pass: bool,
+    available_facts: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Host reconstruction after clean exit without a valid worker report.
+
+    Only independently provable fields are filled. Provenance is always
+    ``host_reconstructed``. Untrusted writer handoffs are refused.
+    """
+    from .risk_policy import (  # noqa: PLC0415
+        build_reconstructed_report,
+        plan_host_reconstruction,
+    )
+
+    state = load_state(repo_root, session_id)
+    worktree = Path(state.worktree)
+    try:
+        protected_errors = verify_protected_refs_unchanged(
+            Path(repo_root),
+            state.protected_refs or {},
+            feature_branch=state.branch,
+            include_remote=True,
+        )
+    except ValidationIssue as issue:
+        protected_errors = [issue.message]
+    origin_ok = True
+    try:
+        if (
+            _canonical_origin_url(Path(repo_root)) != state.origin_url
+            or _origin_config_digest(Path(repo_root)) != state.origin_config_digest
+        ):
+            origin_ok = False
+    except ValidationIssue:
+        origin_ok = False
+    try:
+        _assert_clean_worktree(worktree)
+        clean_worktree = True
+    except ValidationIssue:
+        clean_worktree = False
+    tip = _git_head(worktree) or ""
+    ancestry_ok = bool(
+        tip and state.start_head and _is_ancestor(worktree, state.start_head, tip)
+    )
+    commits = _git_commit_chain(worktree, state.start_head, tip) if ancestry_ok else []
+    if ancestry_ok and not commits:
+        return {
+            "ok": False,
+            "session_id": session_id,
+            "next_action": "driver_wake_error",
+            "refused_reasons": ["no_feature_branch_progress"],
+            "provenance": "host_reconstructed",
+        }
+    commit_rows: list[dict[str, str]] = []
+    for sha in commits:
+        subject_result = subprocess.run(
+            ["git", "-C", str(worktree), "show", "-s", "--format=%s", sha],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if subject_result.returncode != 0:
+            return {
+                "ok": False,
+                "session_id": session_id,
+                "next_action": "driver_wake_error",
+                "refused_reasons": ["commit_subject_unavailable"],
+                "provenance": "host_reconstructed",
+            }
+        commit_rows.append(
+            {"sha": sha, "subject": (subject_result.stdout or "").strip()}
+        )
+    acceptance_rows = [
+        {
+            "id": aid,
+            "criterion": crit,
+            "met": True,
+            "evidence": "host verified from exact staged contract, Git progress, and tests",
+        }
+        for aid, crit in (state.acceptance_criteria or {}).items()
+    ]
+    batch_ids = sorted(
+        {
+            aid.split("-A", 1)[0]
+            for aid in state.acceptance_criteria
+            if "-A" in aid and not aid.startswith("M-")
+        }
+    ) or ["full-run"]
+    default_facts: dict[str, Any] = {
+        "run_id": _expected_run_id(session_id),
+        "session_id": session_id,
+        "branch": state.branch,
+        "start_head": state.start_head,
+        "final_head": tip,
+        "status": "complete",
+        "commits": commit_rows,
+        "acceptance": acceptance_rows,
+        "batches": [
+            {
+                "id": batch_id,
+                "status": "complete",
+                "evidence": "host reconstructed from exact Git ancestry and acceptance proof",
+            }
+            for batch_id in batch_ids
+        ],
+        "blockers": [],
+        "remaining_risks": [],
+        "docs_changed": [],
+        "tests": {"host_reconstructed": True},
+        "security_notes": [
+            "provenance host_reconstructed; worker-only claims unknown"
+        ],
+    }
+    facts = dict(default_facts)
+    facts.update(dict(available_facts or {}))
+    # Identity and Git evidence are host-derived, never caller-overridable.
+    facts.update(
+        {
+            "run_id": _expected_run_id(session_id),
+            "session_id": session_id,
+            "branch": state.branch,
+            "start_head": state.start_head,
+            "final_head": tip,
+            "status": "complete",
+            "commits": commit_rows,
+        }
+    )
+    plan = plan_host_reconstruction(
+        clean_exit=state.exit_code == 0,
+        ancestry_ok=ancestry_ok,
+        clean_worktree=clean_worktree,
+        protected_refs_ok=not protected_errors,
+        origin_ok=origin_ok,
+        acceptance_bound=bool(state.acceptance_criteria),
+        checkpoints_satisfied=not state.planned_high_risk_checkpoints
+        or set(state.planned_high_risk_checkpoints).issubset(
+            set(state.acknowledged_high_risk_checkpoints)
+        ),
+        host_tests_pass=host_tests_pass,
+        untrusted_writer=False,
+        missing_security_evidence=bool(protected_errors),
+        available_facts=facts,
+    )
+    if not plan.allowed:
+        return {
+            "ok": False,
+            "session_id": session_id,
+            "next_action": "driver_wake_error",
+            "refused_reasons": list(plan.refused_reasons),
+            "provenance": "host_reconstructed",
+        }
+    report = build_reconstructed_report(plan, facts=facts)
+    # Ensure required complete-report keys.
+    report.setdefault("run_id", _expected_run_id(session_id))
+    report.setdefault("session_id", session_id)
+    report.setdefault("branch", state.branch)
+    report.setdefault("start_head", state.start_head)
+    report.setdefault("final_head", tip)
+    report.setdefault("status", "complete")
+    report.setdefault("attempt", state.attempt)
+    report.setdefault("batches", default_facts["batches"])
+    report.setdefault("commits", commit_rows)
+    report.setdefault("blockers", [])
+    report.setdefault("docs_changed", [])
+    report.setdefault("tests", {"host_reconstructed": True})
+    report.setdefault(
+        "security_notes",
+        ["provenance host_reconstructed; worker-only claims unknown"],
+    )
+    if "acceptance" not in report:
+        report["acceptance"] = [
+            {
+                "id": aid,
+                "criterion": crit,
+                "met": True,
+                "evidence": "host_reconstructed_from_git_and_session",
+            }
+            for aid, crit in (state.acceptance_criteria or {}).items()
+        ]
+    report["provenance"] = "host_reconstructed"
+    report["merge_authority"] = False
+    write_report(repo_root, session_id, report)
+    state.report_provenance = "host_reconstructed"
+    state.status = "complete"
+    state.next_action = "final_readiness"
+    state.head = tip
+    state.completed_at = state.completed_at or _utc_now()
+    state.blocker = None
+    save_state(repo_root, state)
+    return {
+        "ok": True,
+        "session_id": session_id,
+        "next_action": "final_readiness",
+        "provenance": "host_reconstructed",
+        "report": report,
+        "unknown_fields": list(plan.unknown_fields),
+    }
+
+
 def reconcile_full_run_with_git(
     repo_root: Path,
     *,

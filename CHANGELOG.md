@@ -4,6 +4,34 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-07-13
+
+### Faster trusted Grok full-runs
+
+- Risk-tiered execution policy with a thin safety kernel and four tiers
+  (trivial/docs, standard trusted, high-risk trusted, untrusted).
+- Proof budget: validate once, verify changes, attest final — touched-surface
+  per batch; broad proof at risk checkpoints and terminal readiness.
+- Removed equal-thirds time quotas and fixed-cadence entropy reviews: trusted workers keep moving,
+  intermediate process polish is advisory, and the host spends deep-review effort once at terminal.
+- Host-native/legacy mid-run PR feedback is one nonblocking new/unresolved fetch; trusted parked
+  worker pushes trigger no host PR polling, and terminal readiness reads/waits once.
+- Bug-category expansion blocks only confirmed same-root failures on owned or
+  affected shared surfaces; unrelated siblings are advisory.
+- Capability-detected native Grok goal with honest headless-compatible fallback.
+- Blocking `full-run-await` / monitor `--wait` until material transition.
+- Incremental healthy monitor polls (skip deep remote all-ref audit and deep Git
+  reconciliation); full safety kernel at terminal/safety wakes.
+- Clean exit without a valid machine report wakes `driver_wake_reconcile` with
+  `provenance: host_reconstructed` reconstruction constraints; `full-run-reconcile` exposes the
+  host-owned recovery path instead of rejecting otherwise verifiable trusted work.
+- Gate evidence keyed by product/test input digest (docs-only commits may reuse);
+  cleanup-only tip attestation reuses live broad proof when safe.
+- Phase model + reasoning-effort routing with requested/actual/fallback recording.
+- Optional Grok image/video capabilities with graceful unavailable-tier fallback.
+- GitHub Actions concurrency cancellation for superseded workflow runs.
+- Parallel unittest remains deferred pending sequential parity evidence.
+
 ## [2.1.1] - 2026-07-13
 
 ### Acceptance contract compatibility and staging diagnostics

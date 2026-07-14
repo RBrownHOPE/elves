@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping
 
 
-POLICY_VERSION = "2.1.1"
+POLICY_VERSION = "2.2.0"
 
 # Driver monitor wake conditions once a full-run is healthy.
 PARKED_MONITOR_WAKE_CONDITIONS: frozenset[str] = frozenset(
@@ -30,6 +30,7 @@ PARKED_MONITOR_WAKE_CONDITIONS: frozenset[str] = frozenset(
         "user_input",
         "worker_exit",
         "final_readiness",
+        "reconcile",
     }
 )
 
@@ -451,6 +452,14 @@ def policy_snapshot() -> dict[str, Any]:
         "policy_version": POLICY_VERSION,
         "parked_monitor_wake_conditions": sorted(PARKED_MONITOR_WAKE_CONDITIONS),
         "forbidden_full_run_wake_triggers": sorted(FORBIDDEN_FULL_RUN_WAKE_TRIGGERS),
+        "risk_policy_version": "2.2.0",
+        "proof_budget": "validate once, verify changes, attest final",
+        "risk_tiers": [
+            "trivial_docs",
+            "standard_trusted",
+            "high_risk_trusted",
+            "untrusted",
+        ],
         "parked_monitor_quiet_policy": {
             "min_poll_seconds": PARKED_MONITOR_MIN_POLL_SECONDS,
             "max_poll_seconds": PARKED_MONITOR_MAX_POLL_SECONDS,

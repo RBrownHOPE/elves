@@ -357,3 +357,10 @@ paths. Review carefully.
 - The `ioredis` mock library is already installed as a dev dependency (`ioredis-mock`)
 - JWT secret is already in `.env.example` as `JWT_SECRET`. Do not hardcode.
 - Refresh token cookie name should be `__Host-refresh` for security (prefix enforces Secure + no domain)
+
+
+<!-- v2.2 risk policy pins -->
+- thin safety kernel and four risk tiers (trivial/docs, standard trusted, high-risk trusted, untrusted)
+- validate once, verify changes, attest final
+- touched-surface per batch; broad proof at risk checkpoints and terminal readiness
+- mid-run nonblocking new/unresolved PR feedback; terminal waits for required checks

@@ -411,7 +411,7 @@ class EvidenceReviewTests(unittest.TestCase):
             changed_paths=["scripts/cobbler_runtime/leases.py", "tests/test_x.py"]
         )
         self.assertIn("unit:runtime", plan.focused_checks)
-        self.assertTrue(plan.broad_gate_required)
+        self.assertFalse(plan.broad_gate_required)
         self.assertTrue(plan.reasons)
         self.assertIn(plan.risk_level, {"medium", "high"})
 
@@ -428,16 +428,16 @@ class EvidenceReviewTests(unittest.TestCase):
         b = plan_review(changed_paths=["a.py", "b.py"]).to_dict()
         self.assertEqual(a, b)
 
-    def test_unmappable_test_fixture_and_unknown_source_require_broad_gate(self) -> None:
+    def test_unmappable_test_fixture_and_unknown_source_stay_focused(self) -> None:
         fixture = plan_review(changed_paths=["tests/fixture.txt"])
-        self.assertTrue(fixture.broad_gate_required)
+        self.assertFalse(fixture.broad_gate_required)
         self.assertIn("tests_changed", fixture.reasons)
-        self.assertIn("full_unittest", fixture.focused_checks)
+        self.assertIn("unit:focused", fixture.focused_checks)
 
         unknown = plan_review(changed_paths=["new_untracked_test.py"])
-        self.assertTrue(unknown.broad_gate_required)
+        self.assertFalse(unknown.broad_gate_required)
         self.assertIn("unmapped_or_nondoc_surface_changed", unknown.reasons)
-        self.assertIn("full_unittest", unknown.focused_checks)
+        self.assertIn("unit:focused", unknown.focused_checks)
 
         docs = plan_review(changed_paths=["README.md"])
         self.assertFalse(docs.broad_gate_required)
