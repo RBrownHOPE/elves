@@ -1,0 +1,224 @@
+{
+  "batches": [
+    {
+      "acceptance": [
+        {
+          "criterion": "SKILL.md, AGENTS.md, templates, examples, and consistency guards agree on the thin safety kernel and four risk tiers.",
+          "evidence": "",
+          "id": "B0-A1",
+          "met": false
+        },
+        {
+          "criterion": "Per-batch proof defaults to touched surfaces; broad proof is required at risk checkpoints and terminal readiness, not before every ordinary batch.",
+          "evidence": "",
+          "id": "B0-A2",
+          "met": false
+        },
+        {
+          "criterion": "Mid-run pushes use one nonblocking new/unresolved feedback fetch; only terminal readiness waits for required checks/reviewers.",
+          "evidence": "",
+          "id": "B0-A3",
+          "met": false
+        },
+        {
+          "criterion": "Bug-category review blocks only confirmed same-root failures in owned or affected shared surfaces and records unrelated siblings as advisory follow-up.",
+          "evidence": "",
+          "id": "B0-A4",
+          "met": false
+        }
+      ],
+      "commit": null,
+      "completed_at": null,
+      "id": "B0",
+      "name": "Risk-tiered execution policy",
+      "rollback_tag": null,
+      "started_at": null,
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Trusted Grok launch capability-detects and records actual native goal use or an explicit compatible fallback; Claude Code and Codex docs are honest about the invocation surface.",
+          "evidence": "",
+          "id": "B1-A1",
+          "met": false
+        },
+        {
+          "criterion": "A healthy driver can block in one await/monitor call until material progress, checkpoint, stale/failure, user input, or exit without model-turn polling.",
+          "evidence": "",
+          "id": "B1-A2",
+          "met": false
+        },
+        {
+          "criterion": "Unchanged healthy polls do not rescan the full event history, repeat deep Git reconciliation, or run an uncached remote all-ref audit.",
+          "evidence": "",
+          "id": "B1-A3",
+          "met": false
+        },
+        {
+          "criterion": "Terminal/safety reconciliation still proves the complete safety kernel before readiness.",
+          "evidence": "",
+          "id": "B1-A4",
+          "met": false
+        },
+        {
+          "criterion": "Trusted workers are instructed and tested to commit and push independently reviewable progress slices with concrete subjects.",
+          "evidence": "",
+          "id": "B1-A5",
+          "met": false
+        }
+      ],
+      "commit": null,
+      "completed_at": null,
+      "id": "B1",
+      "name": "Native Grok goal and truly parked supervision",
+      "rollback_tag": null,
+      "started_at": null,
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Clean trusted exit without a valid report wakes for host reconciliation and can reach readiness only through the independently verified reconstruction path.",
+          "evidence": "",
+          "id": "B2-A1",
+          "met": false
+        },
+        {
+          "criterion": "Reconstructed reports have explicit provenance, never invent worker claims, and cannot bypass missing checkpoint/security evidence or untrusted-writer handoffs.",
+          "evidence": "",
+          "id": "B2-A2",
+          "met": false
+        },
+        {
+          "criterion": "Gate evidence survives docs-only or run-metadata-only commits when its complete input digest is unchanged, while runtime/dependency/security changes invalidate the relevant proof.",
+          "evidence": "",
+          "id": "B2-A3",
+          "met": false
+        },
+        {
+          "criterion": "Cleanup-only current-tip attestation avoids a second broad suite; any non-operational change forces live proof again.",
+          "evidence": "",
+          "id": "B2-A4",
+          "met": false
+        }
+      ],
+      "commit": null,
+      "completed_at": null,
+      "id": "B2",
+      "name": "Recoverable reports and incremental proof",
+      "rollback_tag": null,
+      "started_at": null,
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Phase model plus reasoning-effort downshift is configurable, capability-detected, recorded, and equivalent across Claude Code and Codex hosts with native fallback.",
+          "evidence": "",
+          "id": "B3-A1",
+          "met": false
+        },
+        {
+          "criterion": "Grok image/video capabilities are discoverable and optional, with bounded ownership, review, and graceful unavailable-tier fallback.",
+          "evidence": "",
+          "id": "B3-A2",
+          "met": false
+        },
+        {
+          "criterion": "Superseded GitHub workflow runs cancel without weakening the final required matrix.",
+          "evidence": "",
+          "id": "B3-A3",
+          "met": false
+        },
+        {
+          "criterion": "Parallel unittest execution ships only with deterministic parity evidence or is explicitly deferred with benchmark evidence; no optimistic concurrency change.",
+          "evidence": "",
+          "id": "B3-A4",
+          "met": false
+        },
+        {
+          "criterion": "README, SKILL.md, AGENTS.md, references, examples, templates, tests, consistency policy, version metadata, and CHANGELOG agree on 2.2.0 behavior.",
+          "evidence": "",
+          "id": "B3-A5",
+          "met": false
+        }
+      ],
+      "commit": null,
+      "completed_at": null,
+      "id": "B3",
+      "name": "Phase routing, optional media, CI economy, and release",
+      "rollback_tag": null,
+      "started_at": null,
+      "status": "pending"
+    }
+  ],
+  "branch": "codex/faster-goal-runs",
+  "cobbler": {
+    "activated_by": "Elves performance run",
+    "default_for_session": true,
+    "mode": "run",
+    "scope": "current Elves run"
+  },
+  "continuation_guard": {
+    "checkpoint_is_stop": false,
+    "next_required_action": "Launch one native Grok goal for B0-B3",
+    "remaining_batches": 4,
+    "stop_allowed": false
+  },
+  "current_batch": {
+    "id": "B0",
+    "name": "Risk-tiered execution policy",
+    "status": "pending"
+  },
+  "execution_log_path": "docs/elves/faster-goal-runs-execution.md",
+  "learnings_path": "docs/elves/faster-goal-runs-learnings.md",
+  "master_acceptance": [
+    {
+      "criterion": "A trusted Grok full run can be launched as one real goal, observed through worker commits, and supervised without active driver chatter or repeated deep audits.",
+      "evidence": "pending",
+      "id": "M-A1",
+      "met": false
+    },
+    {
+      "criterion": "Standard runs do at most one live broad local suite per unchanged product/test input tree, plus required final CI; targeted failures are fixed and rerun precisely.",
+      "evidence": "pending",
+      "id": "M-A2",
+      "met": false
+    },
+    {
+      "criterion": "Missing presentation/report ceremony cannot discard otherwise verifiable trusted work, while security, acceptance, and untrusted provenance failures still block.",
+      "evidence": "pending",
+      "id": "M-A3",
+      "met": false
+    },
+    {
+      "criterion": "Claude Code and Codex remain fully supported without Grok or any external provider.",
+      "evidence": "pending",
+      "id": "M-A4",
+      "met": false
+    },
+    {
+      "criterion": "Focused tests, consistency/release checks, installed-bundle smoke, one broad local suite, and the final GitHub matrix are green.",
+      "evidence": "pending",
+      "id": "M-A5",
+      "met": false
+    }
+  ],
+  "model_routes": [
+    {
+      "actual_route": "pending capability-confirmed launch",
+      "batch": "B0-B3",
+      "fallback_reason": null,
+      "phase": "implementation",
+      "requested_route": "grok-build-native-goal:grok-4.5:medium"
+    }
+  ],
+  "plan_path": "docs/plans/faster-goal-runs.md",
+  "pr_number": null,
+  "review_comments": [],
+  "session_id": "elves-2026-07-13-faster-goal-runs",
+  "status": "in_progress",
+  "survival_guide_path": "docs/elves/faster-goal-runs-survival.md",
+  "version": "2.1.1"
+}
