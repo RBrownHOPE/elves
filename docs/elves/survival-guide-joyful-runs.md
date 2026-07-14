@@ -92,7 +92,7 @@ pleasant without weakening final quality.
 
 ## Active Compute
 
-- None until the single trusted Grok full-run launches.
+- None; PR #70 is open and the single trusted Grok full-run is next.
 
 ## Next Exact Batch
 
@@ -122,7 +122,7 @@ pleasant without weakening final quality.
 - [x] Dedicated branch and worktree are owned by this run.
 - [x] Stop Gate initialized with `Stop allowed right now: no`.
 - [x] Focused staging tests are green.
-- [ ] Staging commit pushed and PR recorded.
+- [x] Staging commit pushed and PR recorded.
 - [ ] Production full-run prepare and launch validation pass.
 
 ## Authority

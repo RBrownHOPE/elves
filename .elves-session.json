@@ -343,12 +343,12 @@
     }
   ],
   "plan_path": "docs/plans/v2.3.0-joyful-runs-rewrite.md",
-  "pr_number": null,
+  "pr_number": 70,
   "review_comments": [],
   "run_id": "elves-2026-07-14-joyful-runs-rewrite",
   "session_id": "4d6b5560-c9a7-430a-b72a-a0dba1d18f69",
   "start_head": "6ec138f1c22a5d9c309a2d3bdcf42c07691a018f",
-  "status": "staging",
+  "status": "launch_ready",
   "survival_guide_path": "docs/elves/survival-guide-joyful-runs.md",
   "version": "2.2.0"
 }
