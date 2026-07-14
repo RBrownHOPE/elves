@@ -34,6 +34,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from cobbler_runtime.acceptance import (
+    BATCH_NUMBER_PATTERN,
+    STABLE_ACCEPTANCE_ID_PATTERN,
+    STABLE_BATCH_ACCEPTANCE_ID_RE,
+    AcceptanceIssue,
+    active_markdown as _shared_active_markdown,
+    find_acceptance_section,
+    normalize_batch_id,
+    parse_markdown_acceptance_rows,
+)
+
 
 DEFAULT_SESSION = ".elves-session.json"
 
@@ -72,22 +83,19 @@ CHARACTERIZATION_ALLOW_PATTERNS = re.compile(
 )
 
 BATCH_HEADING = re.compile(
-    r"^###?\s+Batch\s+\[?(\d+)\]?\s*[:.\-–—]?\s*(.*)$",
+    rf"^###?\s+Batch\s+\[?({BATCH_NUMBER_PATTERN})\]?\s*[:.\-–—]?\s*(.*)$",
     re.IGNORECASE | re.MULTILINE,
 )
-ACCEPTANCE_SECTION = re.compile(
-    r"(?ims)^[ ]{0,3}\*\*Acceptance criteria:\*\*(.*?)(?=\n[ ]{0,3}\*\*[A-Z]|\n### |\n## |\Z)"
+LOOSE_BATCH_HEADING = re.compile(
+    r"^###?\s+Batch\s+\[?([0-9]+)\]?\s*[:.\-–—]?\s*(.*)$",
+    re.IGNORECASE | re.MULTILINE,
 )
 CHECKBOX = re.compile(r"^[ ]{0,3}[\-\*]\s+\[([ xX])\]\s+(.+)$", re.MULTILINE)
-STABLE_ACCEPTANCE_CHECKBOX = re.compile(
-    r"^[ ]{0,3}[-*]\s+\[([ xX])\]\s+((?:B\d+-A\d+|M-A\d+))\s*[—–:-]\s*(.+?)\s*$",
-    re.MULTILINE,
-)
 MASTER_ACCEPTANCE_HEADING = re.compile(
     r"(?im)^(#{1,6})\s+Master\s+Acceptance\s*$"
 )
 MARKDOWN_HEADING = re.compile(r"(?m)^(#{1,6})\s+.+$")
-STABLE_BATCH_ACCEPTANCE_ID = re.compile(r"^B(\d+)-A\d+$")
+STABLE_BATCH_ACCEPTANCE_ID = STABLE_BATCH_ACCEPTANCE_ID_RE
 VALIDATE_SECTION = re.compile(
     r"(?im)^\*\*Validate(?:\s+section)?(?:\s+for\s+batch\s+(\d+))?:\*\*"
 )
@@ -212,18 +220,9 @@ def batch_id(batch: dict[str, Any]) -> str:
 
 
 def numeric_batch_id(batch: dict[str, Any]) -> int | None:
-    """Resolve canonical ``B#`` or legacy positive-integer batch identities."""
-    raw = batch.get("id")
-    if isinstance(raw, bool):
-        return None
-    if isinstance(raw, int):
-        return raw if raw > 0 else None
-    if not isinstance(raw, str):
-        return None
-    match = re.fullmatch(r"(?:B)?([1-9][0-9]*)", raw)
-    if match is None:
-        return None
-    return int(match.group(1))
+    """Resolve canonical ``B#`` or legacy non-negative batch identities."""
+
+    return normalize_batch_id(batch.get("id"))
 
 
 def acceptance_items(batch: dict[str, Any]) -> list[dict[str, Any]]:
@@ -275,8 +274,9 @@ def check_session_batches(session: dict[str, Any], report: Report) -> None:
         if numeric_id is None:
             report.error(
                 "batch_id_invalid",
-                f"Batch {bid!r} must have a canonical `B#` or legacy positive-integer "
-                "`id` matching a plan Batch heading.",
+                f"Batch {bid!r} must have a canonical `B#` or an unambiguous "
+                "legacy non-negative integer `id` matching a plan Batch heading; "
+                "both B0 and B1+ are valid.",
             )
         elif numeric_id in seen_batch_ids:
             report.error("batch_id_duplicate", f"Duplicate session batch id: {numeric_id}")
@@ -391,39 +391,10 @@ def normalize_criterion(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip().casefold()
 
 
-def _blank_markdown_span(value: str) -> str:
-    return "".join("\n" if char == "\n" else " " for char in value)
-
-
 def active_markdown(plan_text: str) -> str:
-    """Blank fenced code and HTML comments while preserving source offsets."""
-    without_comments = re.sub(
-        r"<!--.*?(?:-->|\Z)",
-        lambda match: _blank_markdown_span(match.group(0)),
-        plan_text,
-        flags=re.DOTALL,
-    )
-    rendered: list[str] = []
-    fence_char: str | None = None
-    fence_length = 0
-    for line in without_comments.splitlines(keepends=True):
-        match = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
-        if fence_char is None:
-            if match is None:
-                rendered.append(line)
-                continue
-            marker = match.group(1)
-            fence_char = marker[0]
-            fence_length = len(marker)
-            rendered.append(_blank_markdown_span(line))
-            continue
-        rendered.append(_blank_markdown_span(line))
-        if match is not None:
-            marker = match.group(1)
-            if marker[0] == fence_char and len(marker) >= fence_length:
-                fence_char = None
-                fence_length = 0
-    return "".join(rendered)
+    """Compatibility wrapper around the shared active-Markdown lexer."""
+
+    return _shared_active_markdown(plan_text)
 
 
 def _parse_checkboxes(section: str) -> list[dict[str, Any]]:
@@ -436,34 +407,26 @@ def _parse_checkboxes(section: str) -> list[dict[str, Any]]:
     ]
 
 
-def _parse_stable_checkboxes(section: str) -> list[dict[str, Any]]:
+def _parse_stable_checkboxes(
+    section: str,
+    *,
+    base_line: int = 1,
+) -> list[dict[str, Any]]:
     """Parse stable-ID checkboxes, including wrapped criterion continuation lines."""
-    starts = list(STABLE_ACCEPTANCE_CHECKBOX.finditer(section))
-    items: list[dict[str, Any]] = []
-    for index, match in enumerate(starts):
-        end = starts[index + 1].start() if index + 1 < len(starts) else len(section)
-        continuation: list[str] = []
-        for raw_line in section[match.end() : end].splitlines():
-            stripped = raw_line.strip()
-            if not stripped:
-                continue
-            if stripped.startswith(("#", "**")) or re.match(
-                r"^[-*]\s+\[[ xX]\]", stripped
-            ):
-                break
-            if raw_line[:1].isspace():
-                continuation.append(stripped)
-                continue
-            break
-        criterion = " ".join([match.group(3).strip(), *continuation]).strip()
-        items.append(
-            {
-                "checked": match.group(1).lower() == "x",
-                "id": match.group(2),
-                "criterion": criterion,
-            }
-        )
-    return items
+    rows, _ = parse_markdown_acceptance_rows(
+        section,
+        require_checkbox=True,
+        base_line=base_line,
+    )
+    return [
+        {
+            "checked": bool(row.checked),
+            "id": row.id,
+            "criterion": row.criterion,
+            "line": row.line,
+        }
+        for row in rows
+    ]
 
 
 def parse_master_acceptance(plan_text: str) -> tuple[bool, list[dict[str, Any]]]:
@@ -484,8 +447,18 @@ def parse_master_acceptance(plan_text: str) -> tuple[bool, list[dict[str, Any]]]
 
 def parse_master_stable_acceptance(plan_text: str) -> tuple[bool, list[dict[str, Any]]]:
     """Parse stable-ID rows only from explicit Master Acceptance sections."""
+    found, acceptance, _ = parse_master_stable_acceptance_details(plan_text)
+    return found, acceptance
+
+
+def parse_master_stable_acceptance_details(
+    plan_text: str,
+) -> tuple[bool, list[dict[str, Any]], list[AcceptanceIssue]]:
+    """Parse Master Acceptance rows and retain line-specific syntax issues."""
+
     found = False
     acceptance: list[dict[str, Any]] = []
+    issues: list[AcceptanceIssue] = []
     for match in MASTER_ACCEPTANCE_HEADING.finditer(plan_text):
         found = True
         level = len(match.group(1))
@@ -494,8 +467,24 @@ def parse_master_stable_acceptance(plan_text: str) -> tuple[bool, list[dict[str,
             if len(heading.group(1)) <= level:
                 end = heading.start()
                 break
-        acceptance.extend(_parse_stable_checkboxes(plan_text[match.end() : end]))
-    return found, acceptance
+        section = plan_text[match.end() : end]
+        base_line = plan_text.count("\n", 0, match.end()) + 1
+        rows, section_issues = parse_markdown_acceptance_rows(
+            section,
+            require_checkbox=True,
+            base_line=base_line,
+        )
+        acceptance.extend(
+            {
+                "checked": bool(row.checked),
+                "id": row.id,
+                "criterion": row.criterion,
+                "line": row.line,
+            }
+            for row in rows
+        )
+        issues.extend(section_issues)
+    return found, acceptance, issues
 
 
 def parse_plan_batches(plan_text: str) -> dict[int, dict[str, Any]]:
@@ -506,17 +495,34 @@ def parse_plan_batches(plan_text: str) -> dict[int, dict[str, Any]]:
         start = match.end()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(plan_text)
         body = plan_text[start:end]
-        bid = int(match.group(1))
+        bid = normalize_batch_id(match.group(1))
+        if bid is None:
+            continue
         title = match.group(2).strip()
-        section_match = ACCEPTANCE_SECTION.search(body)
-        acceptance_section = section_match.group(1) if section_match else ""
-        acceptance = _parse_checkboxes(acceptance_section) if section_match else []
+        body_line = plan_text.count("\n", 0, start) + 1
+        section = find_acceptance_section(body, base_line=body_line)
+        acceptance_section = section.text if section is not None else ""
+        acceptance = _parse_checkboxes(acceptance_section) if section is not None else []
+        stable_rows, syntax_issues = parse_markdown_acceptance_rows(
+            acceptance_section,
+            require_checkbox=True,
+            base_line=section.content_line if section is not None else body_line,
+        )
         result[bid] = {
             "title": title,
             "acceptance": acceptance,
-            "stable_acceptance": _parse_stable_checkboxes(acceptance_section),
+            "stable_acceptance": [
+                {
+                    "checked": bool(row.checked),
+                    "id": row.id,
+                    "criterion": row.criterion,
+                    "line": row.line,
+                }
+                for row in stable_rows
+            ],
+            "acceptance_syntax_issues": syntax_issues,
             "acceptance_section": acceptance_section,
-            "has_acceptance_section": section_match is not None,
+            "has_acceptance_section": section is not None,
             "body": body,
         }
     return result
@@ -614,6 +620,24 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
         report.error("plan_unparseable", f"Plan file could not be parsed: {plan_path}: {exc}")
         return
     text = active_markdown(text)
+    for match in LOOSE_BATCH_HEADING.finditer(text):
+        raw_batch = match.group(1)
+        if (
+            re.fullmatch(BATCH_NUMBER_PATTERN, raw_batch) is not None
+            and normalize_batch_id(raw_batch) is not None
+        ):
+            continue
+        reason = (
+            "uses an ambiguous leading-zero id; use Batch 0 or a nonzero "
+            "number without leading zeros"
+            if re.fullmatch(BATCH_NUMBER_PATTERN, raw_batch) is None
+            else "exceeds the supported numeric bound"
+        )
+        report.error(
+            "batch_id_invalid",
+            f"Plan Batch {raw_batch[:80]} {reason}.",
+        )
+
     plan_batches = parse_plan_batches(text)
     if not plan_batches:
         report.error(
@@ -623,7 +647,11 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
         )
         return
 
-    heading_ids = [int(match.group(1)) for match in BATCH_HEADING.finditer(text)]
+    heading_ids = [
+        batch_number
+        for match in BATCH_HEADING.finditer(text)
+        if (batch_number := normalize_batch_id(match.group(1))) is not None
+    ]
     if len(heading_ids) != len(set(heading_ids)):
         report.error(
             "plan_duplicate_batch_heading",
@@ -631,11 +659,15 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
         )
 
     master_present, master_acceptance = parse_master_acceptance(text)
+    _, master_stable, master_syntax_issues = parse_master_stable_acceptance_details(text)
+    for issue in master_syntax_issues:
+        report.error(issue.code, issue.message)
     if master_present and not master_acceptance:
-        report.error(
-            "master_acceptance_unparseable",
-            "Master Acceptance heading has no parseable checkboxes.",
-        )
+        if not master_syntax_issues:
+            report.error(
+                "master_acceptance_unparseable",
+                "Master Acceptance heading has no parseable checkboxes.",
+            )
     for item in master_acceptance:
         if not item["checked"]:
             report.error(
@@ -656,16 +688,23 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
             f"Session Batch {bid} has no matching Batch heading in the authoritative plan.",
         )
     for bid, info in sorted(plan_batches.items()):
+        syntax_issues = info["acceptance_syntax_issues"]
+        for issue in syntax_issues:
+            report.error(issue.code, issue.message)
         if not info["has_acceptance_section"]:
             report.error(
                 "plan_acceptance_section_missing",
-                f"Plan Batch {bid} has no explicit `**Acceptance criteria:**` section.",
+                f"Plan Batch {bid} has no explicit Acceptance criteria section. "
+                "Accepted labels include `**Acceptance criteria:**`, "
+                "`**Acceptance criteria**:`, `### Acceptance criteria`, and "
+                "`Acceptance criteria:`.",
             )
         elif not info["acceptance"]:
-            report.error(
-                "plan_acceptance_unparseable",
-                f"Plan Batch {bid} has no parseable Acceptance criteria checkboxes.",
-            )
+            if not syntax_issues:
+                report.error(
+                    "plan_acceptance_unparseable",
+                    f"Plan Batch {bid} has no parseable Acceptance criteria checkboxes.",
+                )
         open_boxes = [a for a in info["acceptance"] if not a["checked"]]
         if open_boxes:
             titles = "; ".join(a["text"][:80] for a in open_boxes[:5])
@@ -719,9 +758,18 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
         for item in acceptance_items(batch)
     ]
     all_evidence_items.extend((None, item) for item in session_master)
-    global_id_mentions = re.findall(r"\b(?:B\d+-A\d+|M-A\d+)\b", text)
     evidence_has_ids = any(str(item.get("id") or "").strip() for _, item in all_evidence_items)
-    stable_mode = bool(global_id_mentions) or evidence_has_ids
+    batch_stable_rows = [
+        item
+        for info in plan_batches.values()
+        for item in info["stable_acceptance"]
+    ]
+    stable_syntax_issues = [
+        issue
+        for info in plan_batches.values()
+        for issue in info["acceptance_syntax_issues"]
+    ] + master_syntax_issues
+    stable_mode = bool(batch_stable_rows or master_stable or stable_syntax_issues) or evidence_has_ids
     if not stable_mode:
         check_legacy_acceptance_mapping(
             plan_batches,
@@ -732,24 +780,15 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
         )
         return
 
-    _, master_stable = parse_master_stable_acceptance(text)
     plan_items: list[dict[str, Any]] = []
     for bid, info in sorted(plan_batches.items()):
         parsed = info["stable_acceptance"]
-        if len(parsed) != len(info["acceptance"]):
+        syntax_issues = info["acceptance_syntax_issues"]
+        if len(parsed) != len(info["acceptance"]) and not syntax_issues:
             report.error(
                 "plan_acceptance_id_missing",
                 f"Stable-ID mode requires every Acceptance checkbox in Batch {bid} "
                 "to have a B#-A# id and separator.",
-            )
-        section_mentions = re.findall(
-            r"\b(?:B\d+-A\d+|M-A\d+)\b", info["acceptance_section"]
-        )
-        if section_mentions and len(parsed) != len(section_mentions):
-            report.error(
-                "plan_acceptance_unparseable",
-                f"Plan Batch {bid} mentions stable Acceptance IDs that are not all "
-                "parseable checked-list rows with an ID separator.",
             )
         for item in parsed:
             aid = item["id"]
@@ -760,12 +799,19 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
                     f"Master acceptance id {aid} must appear under `## Master Acceptance`, "
                     f"not Batch {bid}.",
                 )
-            elif int(match.group(1)) != bid:
-                report.error(
-                    "plan_acceptance_wrong_batch",
-                    f"Plan acceptance {aid} appears under Batch {bid}; it belongs under "
-                    f"Batch {match.group(1)}.",
-                )
+            else:
+                acceptance_batch = normalize_batch_id(match.group(1))
+                if acceptance_batch is None:
+                    report.error(
+                        "acceptance_id_invalid",
+                        f"Plan acceptance {aid[:80]} exceeds the supported numeric bound.",
+                    )
+                elif acceptance_batch != bid:
+                    report.error(
+                        "plan_acceptance_wrong_batch",
+                        f"Plan acceptance {aid} appears under Batch {bid}; it belongs under "
+                        f"Batch {match.group(1)}.",
+                    )
             plan_items.append({**item, "batch_id": bid})
 
     if not master_present:
@@ -794,11 +840,11 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
             )
         plan_items.append({**item, "batch_id": None})
 
-    if global_id_mentions and not plan_items:
+    if stable_syntax_issues and not plan_items:
         report.error(
             "plan_acceptance_unparseable",
-            "Plan mentions stable Acceptance IDs but none were parsed from explicit "
-            "Batch or Master Acceptance sections.",
+            "Plan contains stable-looking Acceptance rows but none could be parsed "
+            "from explicit Batch or Master Acceptance sections.",
         )
 
     plan_by_id: dict[str, dict[str, Any]] = {}
@@ -847,7 +893,7 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
                 f"Stable-ID plan requires an id on every evidence row in {scope}.",
             )
             continue
-        if not re.fullmatch(r"(?:B\d+-A\d+|M-A\d+)", aid):
+        if not re.fullmatch(STABLE_ACCEPTANCE_ID_PATTERN, aid):
             report.error(
                 "acceptance_id_invalid",
                 f"Session evidence id {aid!r} is not a B#-A# or M-A# stable id.",
@@ -863,7 +909,12 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
                 )
             else:
                 expected_batch = numeric_batch_id(batch)
-                if expected_batch is None or int(batch_match.group(1)) != expected_batch:
+                acceptance_batch = normalize_batch_id(batch_match.group(1))
+                if (
+                    expected_batch is None
+                    or acceptance_batch is None
+                    or acceptance_batch != expected_batch
+                ):
                     report.error(
                         "acceptance_id_wrong_batch",
                         f"Evidence {aid} is stored in session Batch {batch_id(batch)}; "
@@ -893,13 +944,14 @@ def check_plan(plan_path: Path, session: dict[str, Any], report: Report) -> None
             )
             continue
         _, evidence_item = observed
-        if normalize_criterion(evidence_item.get("criterion")) != normalize_criterion(
-            plan_item["criterion"]
-        ):
+        observed_criterion = str(evidence_item.get("criterion") or "").strip()
+        expected_criterion = str(plan_item["criterion"]).strip()
+        if observed_criterion != expected_criterion:
             report.error(
                 "acceptance_criterion_mismatch",
                 f"Session evidence criterion for {aid} does not exactly match the "
-                "authoritative plan criterion.",
+                f"authoritative plan: expected {expected_criterion[:160]!r}, "
+                f"got {observed_criterion[:160]!r}.",
             )
 
     for aid in sorted(set(evidence_by_id) - set(plan_by_id)):
@@ -956,12 +1008,17 @@ def check_evidence_dirs(
     for batch in as_batches(session):
         if str(batch.get("status", "")).strip().lower() != "complete":
             continue
-        bid = batch_id(batch)
-        batch_dir = root / f"batch-{bid}"
-        if not batch_dir.is_dir():
-            # also accept batch_N
-            alt = root / f"batch_{bid}"
-            batch_dir = alt if alt.is_dir() else batch_dir
+        raw_bid = batch_id(batch)
+        numeric_bid = numeric_batch_id(batch)
+        bid = numeric_bid if numeric_bid is not None else raw_bid
+        candidate_names = [f"batch-{bid}", f"batch_{bid}"]
+        if raw_bid != str(bid):
+            candidate_names.extend((f"batch-{raw_bid}", f"batch_{raw_bid}"))
+        candidates = [root / name for name in candidate_names]
+        batch_dir = next(
+            (candidate for candidate in candidates if candidate.is_dir()),
+            candidates[0],
+        )
         if not batch_dir.is_dir():
             msg = f"Missing evidence dir for batch {bid}: expected {root}/batch-{bid}/"
             if required:

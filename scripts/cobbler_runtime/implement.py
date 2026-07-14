@@ -25,6 +25,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
 
+from .acceptance import normalize_batch_id
 from .context import is_secret_env_name, redact_text
 from .executables import resolve_executable_for_launch
 from .isolation import _managed_implement_env
@@ -54,6 +55,16 @@ MODEL_ALIASES: dict[str, dict[str, str]] = {
     "fast": {"model": "grok-composer-2.5-fast"},
     "deep": {"model": "grok-4.5", "effort": "high"},
 }
+
+
+def _require_nonnegative_batch(batch: Any) -> int:
+    normalized = normalize_batch_id(batch)
+    if normalized is None:
+        raise ValidationIssue(
+            "implement_batch_invalid",
+            "Batch must be B0, B1+, or an unambiguous non-negative integer",
+        )
+    return normalized
 
 RUNTIME_REL = Path(".elves") / "runtime" / "implement"
 STATE_NAME = "state.json"
@@ -1571,6 +1582,9 @@ def launch_payload(
     check: bool = False,
 ) -> dict[str, Any]:
     """Build (and optionally exec) Lane A launch argv. Default is print-only."""
+    normalized_batch = (
+        _require_nonnegative_batch(batch) if batch is not None else None
+    )
     state = load_state(repo_root)
     sid = (session_id or (state.session_id if state else None) or "").strip()
     adapter_name = (state.adapter if state else "grok-build") or "grok-build"
@@ -1630,8 +1644,8 @@ def launch_payload(
         state.permission_mode = perm if is_opencode else _normalize_permission(perm)
         state.executable = exe
     state.last_packet = str(Path(packet).expanduser().resolve())
-    if batch is not None:
-        state.last_batch = int(batch)
+    if normalized_batch is not None:
+        state.last_batch = normalized_batch
     save_state(repo_root, state)
 
     notes = [
@@ -1751,6 +1765,7 @@ def resume_batch_payload(
     check: bool = False,
 ) -> dict[str, Any]:
     """Print launch argv for the next batch packet (same session, resume)."""
+    normalized_batch = _require_nonnegative_batch(batch)
     payload = launch_payload(
         repo_root,
         session_id=session_id,
@@ -1760,13 +1775,13 @@ def resume_batch_payload(
         permission_mode=permission_mode,
         executable=executable,
         create=False,
-        batch=batch,
+        batch=normalized_batch,
         exec_process=exec_process,
         effort=effort,
         check=check,
     )
     payload["action"] = "resume-batch"
-    payload["batch"] = int(batch)
+    payload["batch"] = normalized_batch
     return payload
 
 
@@ -1927,6 +1942,7 @@ def run_gate(
     cwd: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run tests, record tip + counts under gates/batch-N.json. Non-zero on fail."""
+    batch = _require_nonnegative_batch(batch)
     ensure_implement_dirs(repo_root)
     work_cwd = Path(cwd).expanduser().resolve() if cwd else Path(repo_root).resolve()
     exact_secret_values = _inherited_secret_values()

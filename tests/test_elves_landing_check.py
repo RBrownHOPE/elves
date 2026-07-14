@@ -126,24 +126,31 @@ class ElvesLandingCheckTests(unittest.TestCase):
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0].group(1), "3")
 
-    def test_batch_ids_accept_canonical_and_legacy_positive_integers(self) -> None:
-        for raw, expected in (("B1", 1), ("B42", 42), (1, 1), (42, 42), ("1", 1)):
+    def test_batch_ids_accept_canonical_and_legacy_nonnegative_integers(self) -> None:
+        for raw, expected in (
+            ("B0", 0),
+            (0, 0),
+            ("0", 0),
+            ("B1", 1),
+            ("B42", 42),
+            (1, 1),
+            (42, 42),
+            ("1", 1),
+        ):
             with self.subTest(raw=raw):
                 self.assertEqual(self.mod.numeric_batch_id({"id": raw}), expected)
 
-    def test_batch_ids_reject_malformed_zero_or_ambiguous_forms(self) -> None:
+    def test_batch_ids_reject_malformed_or_ambiguous_forms(self) -> None:
         invalid = (
             None,
             True,
             False,
-            0,
             -1,
             1.0,
             "",
-            "0",
             "00",
             "01",
-            "B0",
+            "B00",
             "B01",
             "b1",
             " B1",
@@ -209,33 +216,73 @@ class ElvesLandingCheckTests(unittest.TestCase):
 
             self.assertEqual(self.mod.main(["--session", str(session_path)]), 0)
 
+    def test_batch_zero_maps_exactly_to_plan_and_acceptance(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": "B0",
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B0-A1",
+                                "criterion": "Staging contract",
+                                "met": True,
+                                "evidence": "staging proof",
+                            }
+                        ],
+                    }
+                ],
+                "master_acceptance": [
+                    {
+                        "id": "M-A1",
+                        "criterion": "Master contract",
+                        "met": True,
+                        "evidence": "cumulative proof",
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 0: Staging\n\n**Acceptance criteria:**\n"
+                "- [x] B0-A1: Staging contract\n\n"
+                "## Master Acceptance\n\n- [x] M-A1: Master contract\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.mod.main(["--session", str(session_path)]), 0)
+
     def test_canonical_and_legacy_alias_collision_is_duplicate_batch(self) -> None:
-        session = {
-            "batches": [
-                {
-                    "id": "B1",
-                    "status": "complete",
-                    "acceptance": [
-                        {"criterion": "first", "met": True, "evidence": "proof"}
-                    ],
-                },
-                {
-                    "id": 1,
-                    "status": "complete",
-                    "acceptance": [
-                        {"criterion": "duplicate", "met": True, "evidence": "proof"}
-                    ],
-                },
-            ]
-        }
-        report = self.mod.Report()
+        for canonical, legacy in (("B0", 0), ("B1", 1)):
+            with self.subTest(canonical=canonical):
+                session = {
+                    "batches": [
+                        {
+                            "id": canonical,
+                            "status": "complete",
+                            "acceptance": [
+                                {"criterion": "first", "met": True, "evidence": "proof"}
+                            ],
+                        },
+                        {
+                            "id": legacy,
+                            "status": "complete",
+                            "acceptance": [
+                                {"criterion": "duplicate", "met": True, "evidence": "proof"}
+                            ],
+                        },
+                    ]
+                }
+                report = self.mod.Report()
 
-        self.mod.check_session_batches(session, report)
+                self.mod.check_session_batches(session, report)
 
-        self.assertIn(
-            "batch_id_duplicate",
-            {finding.code for finding in report.errors},
-        )
+                self.assertIn(
+                    "batch_id_duplicate",
+                    {finding.code for finding in report.errors},
+                )
 
     def test_acceptance_missing_evidence_fails(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -729,38 +776,49 @@ class ElvesLandingCheckTests(unittest.TestCase):
             self.assertIn("master_acceptance_no_evidence", codes)
 
     def test_delegated_and_landing_parsers_join_wrapped_criteria_identically(self) -> None:
-        plan = (
-            "### Batch 1: Contract\n\n**Acceptance criteria:**\n"
-            "- [ ] B1-A1 — Batch contract continues\n"
-            "  on the next line with `code` and punctuation.\n\n"
-            "## Master Acceptance\n\n"
-            "* [x] M-A1: Master contract continues\n"
-            "  across a wrapped line.\n"
-        )
-
-        delegated = parse_plan_acceptance(plan)
-        landing = [
-            {"id": item["id"], "criterion": item["criterion"]}
-            for item in self.mod._parse_stable_checkboxes(plan)
+        expected = [
+            {
+                "id": "B0-A1",
+                "criterion": (
+                    "Batch contract continues on the next line with `code` "
+                    "and punctuation."
+                ),
+            },
+            {
+                "id": "M-A1",
+                "criterion": "Master contract continues across a wrapped line.",
+            },
         ]
+        forms = {
+            "bare": (
+                "- [ ] B0-A1: Batch contract continues\n",
+                "* [x] M-A1: Master contract continues\n",
+            ),
+            "bracketed": (
+                "- [ ] [B0-A1] Batch contract continues\n",
+                "* [x] [M-A1] Master contract continues\n",
+            ),
+        }
 
-        self.assertEqual(delegated, landing)
-        self.assertEqual(
-            delegated,
-            [
-                {
-                    "id": "B1-A1",
-                    "criterion": (
-                        "Batch contract continues on the next line with `code` "
-                        "and punctuation."
-                    ),
-                },
-                {
-                    "id": "M-A1",
-                    "criterion": "Master contract continues across a wrapped line.",
-                },
-            ],
-        )
+        for style, (batch_row, master_row) in forms.items():
+            with self.subTest(style=style):
+                plan = (
+                    "### Batch 0: Contract\n\n**Acceptance criteria:**\n"
+                    f"{batch_row}"
+                    "  on the next line with `code` and punctuation.\n\n"
+                    "## Master Acceptance\n\n"
+                    f"{master_row}"
+                    "  across a wrapped line.\n"
+                )
+
+                delegated = parse_plan_acceptance(plan)
+                landing = [
+                    {"id": item["id"], "criterion": item["criterion"]}
+                    for item in self.mod._parse_stable_checkboxes(plan)
+                ]
+
+                self.assertEqual(delegated, landing)
+                self.assertEqual(delegated, expected)
 
     def test_stable_mode_rejects_unidentified_batch_or_master_checkboxes(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -842,6 +900,90 @@ class ElvesLandingCheckTests(unittest.TestCase):
             )
 
             self.assertEqual(self.mod.main(["--session", str(session_path)]), 0)
+
+    def test_stable_criterion_may_reference_its_own_id_in_prose(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            criterion = "Preserve the literal B0-A1 identifier"
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": "B0",
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B0-A1",
+                                "criterion": criterion,
+                                "met": True,
+                                "evidence": "parser regression passed",
+                            }
+                        ],
+                    }
+                ],
+                "master_acceptance": [
+                    {
+                        "id": "M-A1",
+                        "criterion": "Landing remains exact",
+                        "met": True,
+                        "evidence": "landing regression passed",
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 0: Staging\n\n**Acceptance criteria:**\n"
+                f"- [x] B0-A1: {criterion}\n\n"
+                "## Master Acceptance\n\n"
+                "- [x] [M-A1] Landing remains exact\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(self.mod.main(["--session", str(session_path)]), 0)
+
+    def test_leading_zero_plan_batch_heading_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            session = {
+                "plan_path": "plan.md",
+                "batches": [
+                    {
+                        "id": "B0",
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B0-A1",
+                                "criterion": "Staging is explicit",
+                                "met": True,
+                                "evidence": "proof",
+                            }
+                        ],
+                    }
+                ],
+                "master_acceptance": [
+                    {
+                        "id": "M-A1",
+                        "criterion": "Ready",
+                        "met": True,
+                        "evidence": "proof",
+                    }
+                ],
+            }
+            session_path = self._write_session(tmp, session)
+            (tmp / "plan.md").write_text(
+                "### Batch 00: Staging\n\n**Acceptance criteria:**\n"
+                "- [x] B0-A1: Staging is explicit\n\n"
+                "## Master Acceptance\n\n- [x] M-A1: Ready\n",
+                encoding="utf-8",
+            )
+
+            report = self.mod.run_checks(
+                self.mod.parse_args(["--session", str(session_path)])
+            )
+            self.assertIn(
+                "batch_id_invalid",
+                {finding.code for finding in report.errors},
+            )
 
     def test_plan_id_must_match_actual_batch_heading_and_extra_session_batch_fails(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -1205,6 +1347,41 @@ class ElvesLandingCheckTests(unittest.TestCase):
                 ]
             )
             self.assertEqual(code, 1)
+
+    def test_b0_evidence_uses_numeric_batch_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            evidence = tmp / "scratch"
+            batch_dir = evidence / "batch-0"
+            batch_dir.mkdir(parents=True)
+            for gate in self.mod.GATE_NAMES:
+                (batch_dir / f"{gate}.log").write_text("ok\n", encoding="utf-8")
+            session = {
+                "batches": [
+                    {
+                        "id": "B0",
+                        "status": "complete",
+                        "acceptance": [
+                            {
+                                "id": "B0-A1",
+                                "criterion": "Staging evidence exists",
+                                "met": True,
+                                "evidence": "scratch/batch-0",
+                            }
+                        ],
+                    }
+                ]
+            }
+            report = self.mod.Report()
+
+            self.mod.check_evidence_dirs(
+                evidence,
+                session,
+                report,
+                required=True,
+            )
+
+            self.assertEqual(report.errors, [])
 
     def test_advisory_exits_zero_on_errors(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

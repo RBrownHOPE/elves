@@ -989,7 +989,7 @@ class CliIntegrationTests(unittest.TestCase):
                 "--cwd",
                 str(root),
                 "--batch",
-                "1",
+                "B0",
             )
             self.assertEqual(launch.returncode, 0, launch.stderr)
             line = launch.stdout.strip()
@@ -1003,6 +1003,19 @@ class CliIntegrationTests(unittest.TestCase):
             self.assertEqual(status.returncode, 0, status.stderr)
             st = json.loads(status.stdout)
             self.assertTrue(st["present"])
+            self.assertEqual(st["state"]["last_batch"], 0)
+
+            rejected = _run_cli(
+                root,
+                "implement",
+                "launch",
+                "--packet",
+                str(packet),
+                "--batch",
+                "-1",
+            )
+            self.assertEqual(rejected.returncode, 2)
+            self.assertIn("non-negative", rejected.stderr)
 
     def test_cli_launch_rejects_dontask(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

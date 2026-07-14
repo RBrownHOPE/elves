@@ -2,10 +2,34 @@
   "schema_version": 1,
   "approvals": [
     {
-      "surface": "cli:cobbler_agents session list",
-      "release": "2.1.0",
-      "reason": "Read-only session listing now reports corrupt or unsafe session-store state as a structured exit 1, preserving fail-closed behavior without creating runtime directories.",
-      "plan_path": "docs/plans/v2.1.0-delegated-worker-stabilization.md"
+      "surface": "cli:cobbler_agents implement gate",
+      "release": "2.1.1",
+      "reason": "The batch selector intentionally expands from positive batches to canonical Batch 0 plus positive batches while continuing to reject negatives and leading-zero aliases.",
+      "plan_path": "docs/plans/v2.1.1-b0-acceptance-contracts.md"
+    },
+    {
+      "surface": "cli:cobbler_agents implement launch",
+      "release": "2.1.1",
+      "reason": "The batch selector intentionally expands from positive batches to canonical Batch 0 plus positive batches while continuing to reject negatives and leading-zero aliases.",
+      "plan_path": "docs/plans/v2.1.1-b0-acceptance-contracts.md"
+    },
+    {
+      "surface": "cli:cobbler_agents implement resume-batch",
+      "release": "2.1.1",
+      "reason": "The batch selector intentionally expands from positive batches to canonical Batch 0 plus positive batches while continuing to reject negatives and leading-zero aliases.",
+      "plan_path": "docs/plans/v2.1.1-b0-acceptance-contracts.md"
+    },
+    {
+      "surface": "cli:cobbler_agents implement rollback-ref",
+      "release": "2.1.1",
+      "reason": "The batch selector intentionally expands from positive batches to canonical Batch 0 plus positive batches while continuing to reject negatives and leading-zero aliases.",
+      "plan_path": "docs/plans/v2.1.1-b0-acceptance-contracts.md"
+    },
+    {
+      "surface": "schema:references/implement-done-report.schema.json",
+      "release": "2.1.1",
+      "reason": "The worker done-report schema intentionally lowers the batch minimum from 1 to 0 so staging Batch 0 is valid end to end.",
+      "plan_path": "docs/plans/v2.1.1-b0-acceptance-contracts.md"
     }
   ]
 }

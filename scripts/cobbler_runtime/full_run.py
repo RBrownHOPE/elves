@@ -37,6 +37,12 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
+from .acceptance import (
+    STABLE_ACCEPTANCE_ID_RE,
+    parse_plan_acceptance_contract,
+    parse_markdown_acceptance_rows,
+    validate_contract_mapping,
+)
 from .context import redact_text, validate_credential_grant_names
 from .implement import (
     DEFAULT_EFFORT,
@@ -86,12 +92,7 @@ EXIT_RECORD_SETTLE_SECONDS = 0.75 if sys.platform == "darwin" else 0.25
 _SHA1_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 _REPORT_STATUSES = frozenset({"running", "complete", "blocked", "failed", "stopped"})
-_ACCEPTANCE_DEFINITION_RE = re.compile(
-    r"(?m)^\s*[-*]\s+(?:\[[ xX]\]\s+)?"
-    r"(?P<id>B\d+-A\d+|M-A\d+)\s*(?:—|--?|:)\s*"
-    r"(?P<criterion>\S(?:.*\S)?)\s*$"
-)
-_ACCEPTANCE_ID_RE = re.compile(r"^(?:B\d+-A\d+|M-A\d+)$")
+_ACCEPTANCE_ID_RE = STABLE_ACCEPTANCE_ID_RE
 _HIGH_RISK_CHECKPOINT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _HIGH_RISK_CHECKPOINT_DEFINITION_RE = re.compile(
     r"(?im)^\s*[-*]\s+high-risk\s+checkpoint\s*:\s*"
@@ -1043,6 +1044,11 @@ class FullRunState:
     packet_size: int | None = None
     packet_contract_sha256: str | None = None
     acceptance_criteria: dict[str, str] = field(default_factory=dict)
+    acceptance_plan_path: str | None = None
+    acceptance_plan_sha256: str | None = None
+    acceptance_session_path: str | None = None
+    acceptance_session_sha256: str | None = None
+    acceptance_contract_sha256: str | None = None
     # Packet-bound driver wake gates. Worker events may only name staged IDs;
     # acknowledgements are host-owned and one-shot within an attempt.
     planned_high_risk_checkpoints: list[str] = field(default_factory=list)
@@ -1133,6 +1139,11 @@ class FullRunState:
             "staged_packet_path",
             "packet_sha256",
             "packet_contract_sha256",
+            "acceptance_plan_path",
+            "acceptance_plan_sha256",
+            "acceptance_session_path",
+            "acceptance_session_sha256",
+            "acceptance_contract_sha256",
             "credential_grant_metadata_mac",
             "grok_auth_strategy",
             "github_push_auth_strategy",
@@ -4701,11 +4712,17 @@ def _acceptance_criteria_from_packet(
         ) from exc
     if packet_path.suffix.lower() == ".json":
         try:
-            payload = json.loads(text)
-        except json.JSONDecodeError as exc:
+            payload = _loads_bounded_json(text, label="JSON full-run packet")
+            _assert_bounded_json_structure(payload, label="JSON full-run packet")
+        except (
+            StorageError,
+            json.JSONDecodeError,
+            ValueError,
+            RecursionError,
+        ) as exc:
             raise ValidationIssue(
                 "full_run_packet_invalid_json",
-                "JSON full-run packet must contain one valid object",
+                "JSON full-run packet must contain one bounded valid object",
                 path=str(packet_path),
             ) from exc
         if not isinstance(payload, Mapping):
@@ -4748,10 +4765,19 @@ def _acceptance_criteria_from_packet(
         return criteria
     # Count only canonical definition rows. Inline references and the required
     # report example may repeat ids without defining a second criterion.
-    return [
-        (match.group("id"), match.group("criterion").strip())
-        for match in _ACCEPTANCE_DEFINITION_RE.finditer(text)
-    ]
+    rows, syntax_issues = parse_markdown_acceptance_rows(
+        text,
+        require_checkbox=False,
+    )
+    if syntax_issues:
+        issue = syntax_issues[0]
+        raise ValidationIssue(
+            "full_run_acceptance_syntax",
+            issue.message,
+            path=str(packet_path),
+            hint=issue.message,
+        )
+    return [(row.id, row.criterion) for row in rows]
 
 
 def _staged_acceptance_criteria(packet_path: Path) -> list[tuple[str, str]]:
@@ -4765,6 +4791,176 @@ def _staged_acceptance_criteria(packet_path: Path) -> list[tuple[str, str]]:
 def _staged_acceptance_ids(packet_path: Path) -> list[str]:
     """Compatibility projection for callers that only need stable IDs."""
     return [item[0] for item in _staged_acceptance_criteria(packet_path)]
+
+
+def _resolve_acceptance_contract_path(
+    repo_root: Path,
+    raw: str | Path,
+    *,
+    base: Path,
+    label: str,
+) -> Path:
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = base / candidate
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(repo_root)
+    except (OSError, ValueError) as exc:
+        raise ValidationIssue(
+            "full_run_acceptance_contract_path_invalid",
+            f"{label} must be an existing file inside the repository",
+            path=str(candidate),
+        ) from exc
+    if not resolved.is_file():
+        raise ValidationIssue(
+            "full_run_acceptance_contract_path_invalid",
+            f"{label} must be a regular file",
+            path=str(resolved),
+        )
+    return resolved
+
+
+def _acceptance_contract_binding(
+    repo_root: Path,
+    *,
+    session_path: str | Path,
+    plan_path: str | Path | None,
+    packet_rows: Sequence[tuple[str, str]],
+) -> dict[str, str]:
+    """Bind the canonical plan, session, and packet before worker launch."""
+
+    repo = Path(repo_root).expanduser().resolve(strict=True)
+    session = _resolve_acceptance_contract_path(
+        repo,
+        session_path,
+        base=repo,
+        label="Elves session",
+    )
+    try:
+        session_raw = _read_bounded_regular_bytes(
+            session,
+            max_bytes=MAX_PACKET_BYTES,
+            label="Elves session",
+            repo_root=repo,
+        )
+        session_data = _loads_bounded_json(
+            session_raw.decode("utf-8"),
+            label="Elves session",
+        )
+        _assert_bounded_json_structure(session_data, label="Elves session")
+    except (
+        StorageError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+        RecursionError,
+    ) as exc:
+        message = exc.message if isinstance(exc, StorageError) else str(exc)
+        raise ValidationIssue(
+            "full_run_acceptance_session_invalid",
+            f"Elves session is not bounded valid JSON: {message}",
+            path=str(session),
+        ) from exc
+    if not isinstance(session_data, Mapping):
+        raise ValidationIssue(
+            "full_run_acceptance_session_invalid",
+            "Elves session must contain one JSON object",
+            path=str(session),
+        )
+    recorded_plan = session_data.get("plan_path")
+    if not isinstance(recorded_plan, str) or not recorded_plan.strip():
+        raise ValidationIssue(
+            "full_run_acceptance_plan_missing",
+            "Elves session must record a non-empty plan_path before full-run prepare",
+            path=str(session),
+        )
+    authoritative_plan = _resolve_acceptance_contract_path(
+        repo,
+        recorded_plan,
+        base=session.parent,
+        label="authoritative plan",
+    )
+    if plan_path is not None:
+        explicit_plan = _resolve_acceptance_contract_path(
+            repo,
+            plan_path,
+            base=repo,
+            label="explicit plan",
+        )
+        if explicit_plan != authoritative_plan:
+            raise ValidationIssue(
+                "full_run_acceptance_plan_mismatch",
+                "Explicit plan does not match session plan_path",
+                path=str(explicit_plan),
+            )
+    try:
+        plan_raw = _read_bounded_regular_bytes(
+            authoritative_plan,
+            max_bytes=MAX_PACKET_BYTES,
+            label="authoritative plan",
+            repo_root=repo,
+        )
+        plan_text = plan_raw.decode("utf-8")
+    except (StorageError, UnicodeDecodeError) as exc:
+        message = exc.message if isinstance(exc, StorageError) else str(exc)
+        raise ValidationIssue(
+            "full_run_acceptance_plan_invalid",
+            f"Authoritative plan is not bounded UTF-8 text: {message}",
+            path=str(authoritative_plan),
+        ) from exc
+    contract = parse_plan_acceptance_contract(plan_text)
+    if contract.issues:
+        first = contract.issues[0]
+        raise ValidationIssue(
+            "full_run_acceptance_contract_invalid",
+            first.message,
+            path=str(authoritative_plan),
+            hint=first.message,
+        )
+    if not contract.rows:
+        raise ValidationIssue(
+            "full_run_acceptance_contract_invalid",
+            "Production full-run requires stable B#-A#/M-A# rows in the authoritative plan",
+            path=str(authoritative_plan),
+        )
+    mapping_issues = validate_contract_mapping(
+        contract.rows,
+        session_data,
+        plan_batch_ids=contract.batch_ids,
+        packet_rows=packet_rows,
+    )
+    if mapping_issues:
+        first = mapping_issues[0]
+        raise ValidationIssue(
+            "full_run_acceptance_contract_mismatch",
+            first.message,
+            path=str(session),
+            hint=(
+                "Run the active Elves skill's `acceptance_contract.py sync-session "
+                f"--repo-root {repo} --session {session} --write`, then update the "
+                "packet from the same plan rows."
+            ),
+        )
+    canonical_rows = {row.id: row.criterion for row in contract.rows}
+    digest_payload = json.dumps(
+        {
+            "plan": str(authoritative_plan),
+            "plan_sha256": hashlib.sha256(plan_raw).hexdigest(),
+            "session": str(session),
+            "session_sha256": hashlib.sha256(session_raw).hexdigest(),
+            "acceptance": canonical_rows,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return {
+        "plan_path": str(authoritative_plan),
+        "plan_sha256": hashlib.sha256(plan_raw).hexdigest(),
+        "session_path": str(session),
+        "session_sha256": hashlib.sha256(session_raw).hexdigest(),
+        "contract_sha256": hashlib.sha256(digest_payload).hexdigest(),
+    }
 
 
 def _high_risk_checkpoints_from_packet(
@@ -5052,6 +5248,49 @@ def _revalidate_staged_packet_binding(
             "full_run_packet_binding_changed",
             "Staged packet acceptance contract no longer matches prepared state",
         )
+    binding_values = (
+        state.acceptance_plan_path,
+        state.acceptance_plan_sha256,
+        state.acceptance_session_path,
+        state.acceptance_session_sha256,
+        state.acceptance_contract_sha256,
+    )
+    if state.adapter != "fixture" and not any(
+        value is not None for value in binding_values
+    ):
+        raise ValidationIssue(
+            "full_run_acceptance_contract_binding_missing",
+            "Production full-run state lacks the required plan/session acceptance binding",
+            hint="Prepare a fresh full-run session from the canonical Elves session before launch or reconciliation",
+        )
+    if any(value is not None for value in binding_values):
+        if any(
+            not isinstance(value, str) or not value
+            for value in binding_values
+        ):
+            raise ValidationIssue(
+                "full_run_acceptance_contract_binding_missing",
+                "Prepared plan/session acceptance binding is incomplete",
+            )
+        observed_binding = _acceptance_contract_binding(
+            repo_root,
+            session_path=state.acceptance_session_path or "",
+            plan_path=state.acceptance_plan_path,
+            packet_rows=parsed_rows,
+        )
+        expected_binding = {
+            "plan_path": state.acceptance_plan_path,
+            "plan_sha256": state.acceptance_plan_sha256,
+            "session_path": state.acceptance_session_path,
+            "session_sha256": state.acceptance_session_sha256,
+            "contract_sha256": state.acceptance_contract_sha256,
+        }
+        if observed_binding != expected_binding:
+            raise ValidationIssue(
+                "full_run_acceptance_contract_changed",
+                "Plan/session/packet Acceptance contract changed after preparation",
+                hint="Re-run full-run-prepare after reconciling the canonical session.",
+            )
     parsed_checkpoints = _high_risk_checkpoints_from_packet(
         staged_raw,
         packet_path=source_path,
@@ -5407,6 +5646,8 @@ def prepare_full_run(
     start_head: str,
     worktree: str | Path,
     packet_path: str | Path,
+    session_path: str | Path | None = None,
+    plan_path: str | Path | None = None,
     adapter: str = "grok-build",
     model: str = DEFAULT_MODEL,
     permission_mode: str = DEFAULT_PERMISSION_MODE,
@@ -5499,6 +5740,32 @@ def prepare_full_run(
                 path=str(packet_path),
             )
 
+        if session_path is None:
+            default_session = Path(repo_root).expanduser().resolve() / ".elves-session.json"
+            if default_session.is_file():
+                session_path = default_session
+            else:
+                raise ValidationIssue(
+                    "full_run_acceptance_session_required",
+                    "Production full-run prepare requires a canonical Elves session so plan/session/packet Acceptance can be reconciled before launch",
+                    path=str(default_session),
+                )
+
+    if plan_path is not None and session_path is None:
+        raise ValidationIssue(
+            "full_run_acceptance_session_required",
+            "--plan is an equality assertion and requires the canonical --session",
+            path=str(plan_path),
+        )
+    acceptance_binding: dict[str, str] | None = None
+    if session_path is not None:
+        acceptance_binding = _acceptance_contract_binding(
+            Path(repo_root),
+            session_path=session_path,
+            plan_path=plan_path,
+            packet_rows=staged_acceptance_rows,
+        )
+
     root = full_run_root(repo_root, sid)
     state_path = root / "state.json"
     if repo_regular_file_exists(Path(repo_root), state_path) and not allow_overwrite:
@@ -5564,6 +5831,21 @@ def prepare_full_run(
         packet_size=len(packet_raw),
         packet_contract_sha256=packet_contract_sha256,
         acceptance_criteria=acceptance_criteria,
+        acceptance_plan_path=(
+            acceptance_binding.get("plan_path") if acceptance_binding else None
+        ),
+        acceptance_plan_sha256=(
+            acceptance_binding.get("plan_sha256") if acceptance_binding else None
+        ),
+        acceptance_session_path=(
+            acceptance_binding.get("session_path") if acceptance_binding else None
+        ),
+        acceptance_session_sha256=(
+            acceptance_binding.get("session_sha256") if acceptance_binding else None
+        ),
+        acceptance_contract_sha256=(
+            acceptance_binding.get("contract_sha256") if acceptance_binding else None
+        ),
         planned_high_risk_checkpoints=sorted(staged_high_risk_checkpoints),
         adapter=adapter_name,
         model=model,
