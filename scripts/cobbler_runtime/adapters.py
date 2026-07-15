@@ -1539,17 +1539,21 @@ def build_session_create_invocation(
             "host-native does not create external provider sessions",
         )
     if name == "claude-code":
+        import uuid as _uuid  # noqa: PLC0415
+
+        sid = str(_uuid.uuid4())
         argv = [exe or "claude", "--print", "--output-format", "json"]
         if requested_model:
             argv.extend(["--model", requested_model])
-        argv.extend(["--session-create"])
+        argv.extend(["--session-id", sid])
         argv.extend(extras)
         inv = AdapterInvocation(
             adapter="claude-code",
             executable=argv[0],
             argv=tuple(argv),
             read_only=True,
-            notes="exact session create; no --continue/--last",
+            notes="exact caller-assigned session create; no --continue/--last",
+            session_id=sid,
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
@@ -1568,7 +1572,7 @@ def build_session_create_invocation(
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
     if name == "codex-fugu":
-        argv = [exe or "codex", "exec", "--json", "--session-create"]
+        argv = [exe or "codex", "exec", "--json"]
         if requested_model:
             argv.extend(["--model", requested_model])
         argv.extend(extras)
@@ -1577,7 +1581,7 @@ def build_session_create_invocation(
             executable=argv[0],
             argv=tuple(argv),
             read_only=True,
-            notes="exact session create for fugu/codex path",
+            notes="fresh Codex session; capture exact thread.started.thread_id before resume",
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
@@ -1723,8 +1727,6 @@ def build_session_resume_invocation(
         argv = [exe or "claude", "--print", "--output-format", "json", "--resume", sid]
         if requested_model:
             argv.extend(["--model", requested_model])
-        if cwd:
-            argv.extend(["--cwd", cwd])
         argv.extend(extras)
         inv = AdapterInvocation(
             adapter="claude-code",
@@ -1733,6 +1735,7 @@ def build_session_resume_invocation(
             read_only=True,
             notes="exact --resume <session-id>",
             session_id=sid,
+            cwd=cwd,
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
@@ -1754,19 +1757,19 @@ def build_session_resume_invocation(
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
     if name == "codex-fugu":
-        argv = [exe or "codex", "exec", "--json", "--session-id", sid]
+        argv = [exe or "codex", "exec", "resume", "--json"]
         if requested_model:
             argv.extend(["--model", requested_model])
-        if cwd:
-            argv.extend(["--cwd", cwd])
+        argv.append(sid)
         argv.extend(extras)
         inv = AdapterInvocation(
             adapter="codex-fugu",
             executable=argv[0],
             argv=tuple(argv),
             read_only=True,
-            notes="exact --session-id <id>",
+            notes="exact `codex exec resume <session-id>`; supervisor sets OS cwd",
             session_id=sid,
+            cwd=cwd,
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv

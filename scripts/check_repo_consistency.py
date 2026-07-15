@@ -113,6 +113,16 @@ def main() -> int:
         )
     )
     errors.extend(
+        find_missing_phrases(
+            {
+                label: read_text(REPO_ROOT / label)
+                for label in ADAPTIVE_WORKER_ROUTING_PHRASES
+            },
+            ADAPTIVE_WORKER_ROUTING_PHRASES,
+            "adaptive worker routing",
+        )
+    )
+    errors.extend(
         find_unscoped_patterns(
             single_kickoff_texts
             | {

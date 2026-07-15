@@ -2,10 +2,10 @@
   "schema_version": 1,
   "approvals": [
     {
-      "surface": "export:cobbler_runtime.BUILTIN_ADAPTER_NAMES",
-      "release": "2.4.0",
-      "reason": "Add devin-cli as an optional built-in worker adapter alongside existing routes",
-      "plan_path": "docs/plans/devin-cli-worker-adapter.md"
+      "surface": "cli:cobbler_agents implement full-run-prepare",
+      "release": "Unreleased",
+      "reason": "Make Composer 2.5 Fast the intentional default for regular Grok Build work while retaining explicit deep routing to Grok 4.5",
+      "plan_path": "docs/plans/adaptive-worker-routing.md"
     }
   ]
 }

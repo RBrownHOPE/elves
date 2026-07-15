@@ -87,6 +87,18 @@ EXTERNAL_LINK_SCHEMES = frozenset({"http", "https", "mailto", "tel"})
 # Commands run against an installed cobbler_agents.py (cwd is outside the bundle).
 SMOKE_COMMANDS: list[tuple[str, list[str]]] = [
     ("help", ["--help"]),
+    ("preferences-show", ["preferences", "show", "--json"]),
+    (
+        "route-worker",
+        [
+            "route-worker", "--host", "codex", "--execution-reasoning", "medium",
+            "--review-risk", "standard", "--json",
+        ],
+    ),
+    (
+        "native-worker",
+        ["native-worker", "spec", "--host", "codex", "--worktree", ".", "--effort", "low", "--model", "fixture-current-model", "--json"],
+    ),
     ("validate-config", ["validate-config", "--json"]),
     ("doctor", ["doctor", "--json"]),
     ("setup-dry-run", ["setup", "--dry-run", "--json"]),

@@ -17,7 +17,14 @@ identity are identical to Claude Code.
 This file is a **thin Codex adapter**; the compact **canonical workflow is** in `SKILL.md`
 (SKILL.md wins on workflow). Default user path **v2.0+** / **v2.1** / **v2.3**. Use Cobbler via
 `$elves cobbler: <task>` or natural language. **Codex Goals** are continuation plumbing only;
-**Grok Build goal mode** is a separate worker capability. Default landing remains **chat-to-work**
+**Grok Build goal mode** is a separate worker capability. Default work routing is a separate
+subscription-native Codex/Claude worker at plan-matched effort; permitted Grok is optional and
+capability-probed. Safe preferences are shared at
+`${XDG_CONFIG_HOME:-~/.config}/elves/config.json`. Repository safety vetoes win; convenience order
+is explicit run intent, repository defaults, global preferences, then built-ins. Repository allow
+is not Grok consent. Regular clear Grok work pins Composer 2.5 Fast; genuinely complex work may
+explicitly pin Grok 4.5.
+Default landing remains **chat-to-work**
 (or **chat-to-land** when authorized); aliases `\land-pr` / `/land-pr`. Honor **Stop Gate** /
 `continuation_guard`. Landable is **plan Acceptance with proof**. Installed helpers use the
 **active Elves skill root** and **source-checkout shorthand** while keeping the **target repository as the working directory**;
@@ -63,6 +70,8 @@ plan → execution log → `.ai-docs/manifest.md` → constitution. Honor
 - Default user path (v2.0+): one kickoff; v2.1 adds trusted Grok full-run; v2.3 joyful parked
   follow path; **chat-to-work** / **chat-to-land**; full-run parked-monitor; legacy two-call handoff
   only when explicit
+- Adaptive worker route: separate exact native session by default, optional permitted Grok,
+  deterministic inspectable fallback, and no transferable parent/worker prompt-cache promise
 - Landable is **plan Acceptance with proof** (`elves_landing_check.py`); one batch per close commit;
   God-file rule
 - Installed helpers use the **active Elves skill root** / `$ELVES_SKILL_ROOT` (**source-checkout shorthand**: `python3 scripts/...`). Paths: `~/.claude/skills/elves`, `~/.codex/skills/elves`, `$ELVES_SKILL_ROOT/scripts/acceptance_contract.py`, `$ELVES_SKILL_ROOT/scripts/elves_landing_check.py`. An installed Elves bundle never requires a repo-only helper

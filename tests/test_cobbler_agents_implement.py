@@ -298,6 +298,11 @@ class HumanizeGrokFailureTests(unittest.TestCase):
 
 
 class PrepareImplementTests(unittest.TestCase):
+    def test_regular_default_model_is_composer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = prepare_implement(Path(tmp), session_id="composer-default")
+            self.assertEqual(payload["state"]["model"], "grok-composer-2.5-fast")
+
     def test_prepare_writes_state_and_private_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

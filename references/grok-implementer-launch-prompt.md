@@ -53,7 +53,7 @@ python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --session-id <exact-uuid> --branch <feature-branch> --start-head <sha> \
   --packet <absolute-full-run-packet> --worktree <absolute-worktree> \
   --session <canonical-.elves-session.json> \
-  --adapter grok-build --model grok-4.5 --permission-mode auto \
+  --adapter grok-build --model grok-composer-2.5-fast --permission-mode auto \
   --effort medium --max-turns 80
 
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
@@ -133,7 +133,7 @@ aliases fail before state changes or launch.
 
 ```bash
 python3 scripts/cobbler_agents.py implement prepare \
-  --branch <b> --worktree <path> --model grok-4.5 --session-id <uuid>
+  --branch <b> --worktree <path> --model grok-composer-2.5-fast --session-id <uuid>
 
 python3 scripts/cobbler_agents.py implement launch \
   --session-id <uuid> --packet .elves/runtime/packets/batch-1.md --cwd <worktree>
@@ -161,7 +161,7 @@ for `prepare` / `status` / argv emission.
 | Subagents | enabled | never pass `--no-subagents` |
 | Unit of work | whole delegated run per full-run packet | avoid per-batch host tax |
 | Prompt | `--prompt-file` packet **or** `-p` text — never both | CLI rejects combining them |
-| Model default | `grok-4.5` | product default for this path |
+| Model default | `grok-composer-2.5-fast` | regular/default Grok Build work |
 | Model aliases | `fast` → `grok-composer-2.5-fast`; `deep` → `grok-4.5` + `--effort high` | operator shorthand on `implement prepare/launch --model` (re-check `grok models`) |
 | Optional verify | `--check` on `full-run-prepare` (or legacy `launch` / `resume-batch`) | passes Grok CLI `--check` (post-work verification; higher latency — opt-in) |
 | Git default | `branch_progress` (Mode A1) | Grok commits/pushes progress slices on the feature branch |
@@ -187,7 +187,7 @@ Whole-batch implement (~3 minutes for docs+CLI+tests on this repo):
 ```bash
 grok --prompt-file .elves/runtime/packets/batch-1.md \
   --cwd <worktree> \
-  --model grok-4.5 \
+  --model grok-composer-2.5-fast \
   --yolo \
   --effort medium \
   --max-turns 80 \
@@ -200,7 +200,7 @@ Resume next batch in the same session (use `sessionId` from prior JSON):
 grok --resume <sessionId> \
   --prompt-file .elves/runtime/packets/batch-N.md \
   --cwd <worktree> \
-  --model grok-4.5 \
+  --model grok-composer-2.5-fast \
   --yolo \
   --effort medium \
   --max-turns 80 \
@@ -213,7 +213,7 @@ Positional prompt, **no** `-p` / `--prompt-file` headless flags:
 
 ```bash
 cd <worktree>
-grok --model grok-4.5 \
+grok --model grok-composer-2.5-fast \
   "Read and execute .elves/runtime/packets/batch-1.md end-to-end."
 ```
 
@@ -424,10 +424,11 @@ write status=blocked, populate blockers with concrete bounded and redacted reaso
 ```
 
 
-## Native Grok goal (v2.2)
+## Native Grok goal evidence (v2.2)
 
-Capability-detect native headless goal (`--goal` or documented noninteractive goal entrypoint).
-If only TUI `/goal` is present, record `headless_compatible_fallback` and use the packet/prompt
-launch path without claiming native goal orchestration. Claude Code and Codex remain complete
-without Grok. Drivers should prefer `full-run-await` (or `full-run-monitor --wait`) so one tool
-call blocks until a material transition.
+Help detection records only an `advertised_headless_entrypoint`. Set goal mode true only after a
+separate recorded behavioral verification proves the noninteractive packet contract. If only TUI
+`/goal` is present—or advertisement remains unverified—use `headless_compatible_fallback` and the
+packet/prompt launch path. Claude Code and Codex remain complete without Grok. Drivers should
+prefer `full-run-await` (or `full-run-monitor --wait`) so one tool call blocks until a material
+transition.

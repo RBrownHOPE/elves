@@ -20,9 +20,14 @@ return. Exceptions: explicit merge-on-green in Run Control, chat-to-land, or the
 Command (`/land-pr` / `\land-pr`). Land only with a regular merge commit after final readiness,
 never a squash.
 
-**Default user path (v2.0+): one kickoff.** v2.1 adds trusted Grok full-run. **v2.3** makes that path
+**Default user path (v2.0+): one kickoff.** Ask naturally; the capable live driver plans and reviews,
+a separate subscription-native worker inherits the current model by default at plan-matched effort.
+Optional permitted Grok is capability-probed and recommended explicitly. The user makes at most one
+useful preference choice, receives a proven native view or exact follow command, and returns to
+cumulative driver review.
+v2.1 adds trusted Grok full-run. **v2.3** makes that path
 fast and calm: one risk-aware plan, one autonomous worker goal, meaningful worker commits/pushes, a
-parked driver, a visible non-model follow stream, one cumulative terminal review, consolidated fixes,
+parked driver, a capability-bound non-model follow surface, one cumulative terminal review, consolidated fixes,
 delta-only re-review, impact-selected proof, and a host-owned **landable PR** or authorized merge.
 Prefer **chat-to-work** or **chat-to-land** (`references/e2e-chat-to-land.md`). **Legacy two-call**
 handoff remains valid for huge/unstable plans.
@@ -128,8 +133,19 @@ Invocation:
 
 ### Who implements (native default, optional extras)
 
-**Default: host-native only** (Claude Code or Codex). No Grok, OpenRouter, or external implement CLI
-required.
+**Default: subscription-native worker** (Claude Code or Codex). It receives one packet in a
+separate exact session, inherits the live driver's model unless explicitly routed otherwise, and
+uses the plan-matched effort without changing the live driver. No Grok, OpenRouter, or external
+implement CLI is required. Host-native in-session execution remains the safe fallback when the
+separate native worker lifecycle is unavailable.
+
+Optional Grok Build is selected only when available **and permitted**. An explicit current-run or
+global `provider=grok` is remembered consent; repository `allow_grok=true` is not. Repository
+`allow_grok=false` remains an absolute veto. Regular clear work pins
+`grok-composer-2.5-fast`; genuinely complex execution may explicitly pin `grok-4.5`. Advertised
+goal syntax is recorded separately and goal mode requires behavioral verification. Missing
+auth/model/goal capability or repository prohibition falls back honestly to native. See
+`references/adaptive-worker-routing.md`.
 
 **Optional work drivers:** trusted Grok Build full-run
 (`implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs`;
@@ -425,7 +441,13 @@ compaction, trust this file for status.
 
 ## Persistent Preferences
 
-`config.json` when present: batch sizing, notifications, review method, default branch, cleanup.
+Safe worker convenience is shared by both hosts at
+`${XDG_CONFIG_HOME:-~/.config}/elves/config.json`. Use `cobbler_agents.py preferences
+show|set|reset`; writes are private and atomic. Repository safety vetoes outrank everything;
+convenience precedence is explicit run intent, repository defaults, global preferences, then
+built-ins. Credentials or merge/destructive/protected-ref/approval-bypass authority are rejected.
+`config.json` when present also carries legacy batch sizing, notifications, review method,
+default branch, and cleanup.
 Cobbler under top-level `cobbler` (wins over legacy `council`). See `config.json.example`.
 
 ## Skill Memory

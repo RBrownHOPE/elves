@@ -2382,3 +2382,35 @@ if isinstance(SINGLE_KICKOFF_PHRASES, dict) and 'SKILL.md' in SINGLE_KICKOFF_PHR
 if isinstance(WORKSPACE_ISOLATION_PHRASES, dict) and 'SKILL.md' in WORKSPACE_ISOLATION_PHRASES:
     WORKSPACE_ISOLATION_PHRASES = dict(WORKSPACE_ISOLATION_PHRASES)
     WORKSPACE_ISOLATION_PHRASES['SKILL.md'] = ['One run owns one branch and one checkout', './scripts/preflight.sh --create-worktree <branch> --base origin/main', '--dry-run', 'branch, worktree path, base ref, and collision tripwire', 'does not reuse, delete, or repair existing worktrees']
+
+ADAPTIVE_WORKER_ROUTING_PHRASES = {
+    "SKILL.md": [
+        "subscription-native worker",
+        "grok-composer-2.5-fast",
+        "${XDG_CONFIG_HOME:-~/.config}/elves/config.json",
+        "approval-bypass authority",
+    ],
+    "AGENTS.md": [
+        "subscription-native Codex/Claude worker",
+        "Composer 2.5 Fast",
+        "${XDG_CONFIG_HOME:-~/.config}/elves/config.json",
+        "prompt-cache promise",
+    ],
+    "README.md": [
+        "subscription-native worker",
+        "preferences show|set|reset",
+        "Repository safety vetoes always win",
+        "never merge permission",
+    ],
+    "references/adaptive-worker-routing.md": [
+        "repository safety veto > explicit run intent > repository defaults > global convenience",
+        "grok-composer-2.5-fast",
+        "codex exec resume <thread-id>",
+        "a session ID is not such an object",
+    ],
+    "CHANGELOG.md": [
+        "Adaptive subscription-native workers",
+        "grok-composer-2.5-fast",
+        "prompt/KV cache",
+    ],
+}

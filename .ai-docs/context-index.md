@@ -66,6 +66,8 @@ the runtime surfaces, and the checks that usually matter before editing.
 - `scripts/elves_landing_check.py`: acceptance/readiness proof gate for a live session.
 - `scripts/cobbler_agents.py`: thin CLI for onboarding, routing, sessions, trusted full-run
   supervision, legacy bounded implementation, and untrusted writer leases.
+- `scripts/cobbler_runtime/preferences.py`, `worker_routing.py`, `native_worker.py`: safe global
+  worker preferences, deterministic adaptive route decisions, and host-native worker specs.
 - `scripts/cobbler_runtime/`: typed provider-neutral runtime for routing, isolation, delegated Git,
   full-run supervision, evidence review, sessions, storage, and public API snapshots.
 - `scripts/openrouter_lens.py`: optional read-only OpenRouter role wrapper.

@@ -90,6 +90,9 @@
   explicitly `required=true` and blocks when unmet after fallback.
 - Never use bare `--resume`, `--continue`, or `--last` for session selection. Exact session IDs only.
   Canonical disk state (plan/Survival Guide/session registry) outranks chat memory.
+- A driver session ID is not a transferable cache handle. Preserve the exact worker session when
+  resuming, but never promise that a separate native/Grok worker inherits the driver's prompt/KV
+  cache or hidden state.
 - Grok parent→worktree child lineage uses a **new** child UUID. Headless `--worktree --resume` on
   Grok Build 0.2.93 is broken (retains source CWD); fail closed without verified CWD/worktree
   registration, then resume the discovered child exactly from that worktree.

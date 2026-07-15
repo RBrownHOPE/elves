@@ -4,6 +4,27 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Adaptive subscription-native workers
+
+- Add one deterministic route decision for Codex and Claude Code: a separate subscription-native
+  worker by default, with inherited model policy, plan-matched effort, provenance, advisory driver
+  upgrades, and honest fallback.
+- Add private atomic machine-global preferences at
+  `${XDG_CONFIG_HOME:-~/.config}/elves/config.json`; management preserves safe unknown fields and
+  rejects credentials, dangerous permission fields/values, relative XDG roots, and
+  merge/destructive/protected-ref/approval-bypass authority.
+- Correct native session grammar and exact identity capture: caller-assigned Claude UUIDs and
+  Codex `thread.started.thread_id` resumed only through `codex exec resume <id>` from the registered
+  worktree working directory.
+- Probe optional Grok without inference. Regular clear work pins `grok-composer-2.5-fast`; genuinely
+  complex execution explicitly pins `grok-4.5`; repository vetoes remain absolute, remembered
+  current-run/global Grok selection supplies consent, and advertised goal syntax remains distinct
+  from behavioral verification.
+- Add a supervised native-worker launch/status/follow lifecycle with private per-run structured
+  logs, exact process/session/worktree binding, and an exact watcher command before driver parking.
+- Document that independent worker sessions may receive provider-managed cache hits, but Elves
+  cannot transfer the live driver's prompt/KV cache or hidden model state.
+
 ## [2.4.0] - 2026-07-15
 
 ### Devin CLI worker adapter
