@@ -68,6 +68,12 @@ class GlobalPreferencesTests(unittest.TestCase):
             reset_preferences(path=path)
             with self.assertRaises(ValidationIssue):
                 set_preference("credentials.api_key", "secret", path=path)
+            path.write_text(
+                json.dumps({"version": 1, "future": {"github_token_value": "secret"}}),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValidationIssue):
+                load_preferences(path)
 
 
 class RouteDecisionMatrixTests(unittest.TestCase):
@@ -132,6 +138,17 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         self.assertEqual(decision.provenance["provider"], "explicit_run_intent")
         self.assertIsNotNone(decision.advisory_driver_upgrade)
 
+    def test_repository_policy_overrides_explicit_convenience_fields(self) -> None:
+        decision = self.decide(
+            global_preferences={"worker": {"provider": "grok", "native_effort": "low"}},
+            explicit_intent={"worker": {"provider": "grok", "native_effort": "medium", "allow_grok": True}},
+            repo_policy={"worker": {"provider": "native", "native_effort": "high", "allow_grok": False}},
+        )
+        self.assertEqual(decision.provider, "native")
+        self.assertEqual(decision.worker_effort, "high")
+        self.assertEqual(decision.provenance["provider"], "repository_policy")
+        self.assertEqual(decision.provenance["worker_effort"], "repository_policy")
+
     @mock.patch("cobbler_runtime.worker_routing.shutil.which", return_value="/usr/bin/grok")
     def test_silent_grok_probe_separates_auth_models_and_goal_qualification(self, _which) -> None:
         def runner(argv, **_kwargs):
@@ -150,13 +167,15 @@ class RouteDecisionMatrixTests(unittest.TestCase):
 
 class NativeWorkerGrammarTests(unittest.TestCase):
     def test_codex_create_resume_and_thread_capture_are_exact(self) -> None:
-        spec = build_native_worker_spec(host="codex", worktree=REPO_ROOT, effort="low")
+        spec = build_native_worker_spec(
+            host="codex", worktree=REPO_ROOT, effort="low", requested_model="current-model"
+        )
         self.assertEqual(spec.argv[:3], ("codex", "exec", "--json"))
         self.assertIn("-C", spec.argv)
         self.assertNotIn("--last", spec.argv)
         thread = parse_codex_thread_id('{"type":"thread.started","thread_id":"thread-123"}\n')
         resumed = build_native_worker_spec(
-            host="codex", worktree=REPO_ROOT, effort="medium", session_id=thread
+            host="codex", worktree=REPO_ROOT, effort="medium", requested_model="current-model", session_id=thread
         )
         self.assertEqual(resumed.argv[:3], ("codex", "exec", "resume"))
         self.assertIn("thread-123", resumed.argv)
@@ -164,12 +183,15 @@ class NativeWorkerGrammarTests(unittest.TestCase):
         self.assertEqual(resumed.cwd, str(REPO_ROOT.resolve()))
 
     def test_claude_create_resume_profiles_are_separate_and_exact(self) -> None:
-        created = build_native_worker_spec(host="claude", worktree=REPO_ROOT, effort="low")
+        created = build_native_worker_spec(
+            host="claude", worktree=REPO_ROOT, effort="low", requested_model="current-model"
+        )
         self.assertIn("--session-id", created.argv)
+        self.assertNotIn("-", created.argv)
         self.assertIn("--effort", created.argv)
         sid = created.argv[created.argv.index("--session-id") + 1]
         resumed = build_native_worker_spec(
-            host="claude", worktree=REPO_ROOT, effort="high", session_id=sid
+            host="claude", worktree=REPO_ROOT, effort="high", requested_model="current-model", session_id=sid
         )
         self.assertIn("--resume", resumed.argv)
         self.assertNotIn("--continue", resumed.argv)
@@ -178,6 +200,11 @@ class NativeWorkerGrammarTests(unittest.TestCase):
         profiles = native_worker_profiles()
         self.assertEqual(profiles["codex"]["model_policy"], profiles["claude"]["model_policy"])
         self.assertFalse(profiles["codex"]["worker_merge_authority"])
+
+    def test_supervised_fallback_refuses_to_infer_the_driver_model(self) -> None:
+        with self.assertRaises(ValidationIssue) as caught:
+            build_native_worker_spec(host="codex", worktree=REPO_ROOT, effort="low")
+        self.assertEqual(caught.exception.code, "current_worker_model_required")
 
     def test_generic_session_builders_match_supported_native_grammar(self) -> None:
         claude = build_session_create_invocation(adapter="claude-code", profile="claude-code")

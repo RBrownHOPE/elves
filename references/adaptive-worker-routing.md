@@ -80,9 +80,12 @@ When Grok Build is explicitly permitted and silently qualifies:
 | Effort | `--effort <level>` | `model_reasoning_effort=<level>` |
 | Stream | native background/structured stream | JSONL thread stream |
 
-Build an inspectable launch specification with `native-worker --host claude|codex --worktree <path>
---effort <level> --json`. It always describes a separate session, never uses `--last`, and never
-claims a cross-session cache handoff.
+Build an inspectable CLI-fallback launch specification with `native-worker --host claude|codex
+--worktree <path> --effort <level> --model <observed-current-model> --json`. Native custom agents
+inherit the live model. A supervised CLI child cannot safely infer a parent invocation override, so
+the host must supply the observed current model (or an explicit routed model) and the command pins
+it. Every path uses a separate session, never uses `--last`, and never claims a cross-session cache
+handoff.
 
 ## Cache and authority limits
 

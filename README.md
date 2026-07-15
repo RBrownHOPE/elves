@@ -12,8 +12,8 @@ drivers and lenses help when you already have them.
 
 **Current release: v2.4.0.** You write the plan and own the merge decision. The agent does the middle.
 
-**Default (v2.0+): one kickoff — ask naturally, then let Elves route the labor.** Say “implement this plan while I’m
-offline” from Claude Code or Codex. The capable live driver plans and reviews; a separate
+**Default (v2.0+): one kickoff — ask naturally, then let Elves route the labor.** Say “implement
+this plan while I’m offline” from Claude Code or Codex. The capable live driver plans and reviews; a separate
 subscription-native worker inherits its model by default at the plan-matched effort. If permitted
 Grok Build is a better fit, Elves recommends it explicitly. You can make one useful choice, watch
 the worker stream, and return to the driver’s cumulative review. **Chat-to-work** stops at a

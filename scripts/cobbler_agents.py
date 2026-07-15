@@ -1919,7 +1919,7 @@ def build_parser() -> argparse.ArgumentParser:
     native_worker.add_argument("--host", choices=("codex", "claude"), required=True)
     native_worker.add_argument("--worktree", required=True)
     native_worker.add_argument("--effort", choices=("low", "medium", "high"), required=True)
-    native_worker.add_argument("--model")
+    native_worker.add_argument("--model", required=True, help="Current driver model observed by the host, or an explicit routed model")
     native_worker.add_argument("--session-id")
     native_worker.add_argument("--json", action="store_true")
     native_worker.set_defaults(func=cmd_native_worker)

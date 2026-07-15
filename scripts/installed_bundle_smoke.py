@@ -97,7 +97,7 @@ SMOKE_COMMANDS: list[tuple[str, list[str]]] = [
     ),
     (
         "native-worker",
-        ["native-worker", "--host", "codex", "--worktree", ".", "--effort", "low", "--json"],
+        ["native-worker", "--host", "codex", "--worktree", ".", "--effort", "low", "--model", "fixture-current-model", "--json"],
     ),
     ("validate-config", ["validate-config", "--json"]),
     ("doctor", ["doctor", "--json"]),

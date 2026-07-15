@@ -30,12 +30,16 @@ SAFE_PATHS: dict[str, tuple[type, set[str] | None]] = {
     "worker.native_effort": (str, {"auto", "low", "medium", "high"}),
 }
 
-_FORBIDDEN_TOKENS = frozenset(
+_FORBIDDEN_SEGMENTS = frozenset(
     {
-        "credential", "credentials", "secret", "token", "api_key", "apikey",
-        "password", "merge", "merge_authority", "destructive", "force_push",
-        "protected_ref", "protected_refs", "approval_bypass", "bypass_approval",
-        "permission_bypass", "authorization", "auth",
+        "credential", "credentials", "secret", "token", "apikey", "password",
+        "merge", "destructive", "authorization", "auth",
+    }
+)
+_FORBIDDEN_COMPOUNDS = frozenset(
+    {
+        "api_key", "merge_authority", "force_push", "protected_ref",
+        "approval_bypass", "bypass_approval", "permission_bypass",
     }
 )
 
@@ -56,9 +60,9 @@ def _reject_unsafe_keys(value: Any, *, path: str = "") -> None:
         for key, child in value.items():
             key_path = f"{path}.{key}" if path else str(key)
             token = _normalized_token(key)
-            if token in _FORBIDDEN_TOKENS or any(
-                token.startswith(f"{unsafe}_") or token.endswith(f"_{unsafe}")
-                for unsafe in _FORBIDDEN_TOKENS
+            segments = set(token.split("_"))
+            if segments & _FORBIDDEN_SEGMENTS or any(
+                unsafe in token for unsafe in _FORBIDDEN_COMPOUNDS
             ):
                 raise ValidationIssue(
                     "unsafe_global_preference",

@@ -132,17 +132,26 @@ def decide_worker_route(
         raise ValidationIssue("invalid_route_policy", "Worker intent/policy must be objects")
 
     provider, provider_source = _choice(
-        (("explicit_run_intent", explicit_worker), ("global_preferences", global_worker)),
+        (
+            ("repository_policy", repo_worker),
+            ("explicit_run_intent", explicit_worker),
+            ("global_preferences", global_worker),
+        ),
         "provider",
         "auto",
     )
     effort, effort_source = _choice(
-        (("explicit_run_intent", explicit_worker), ("global_preferences", global_worker)),
+        (
+            ("repository_policy", repo_worker),
+            ("explicit_run_intent", explicit_worker),
+            ("global_preferences", global_worker),
+        ),
         "native_effort",
         "auto",
     )
     provider = str(provider).lower()
-    effort = execution if effort == "auto" else str(effort).lower()
+    effort_is_auto = effort == "auto"
+    effort = execution if effort_is_auto else str(effort).lower()
     if provider not in {"auto", "native", "grok"}:
         raise ValidationIssue("invalid_provider_preference", f"Unknown worker provider `{provider}`")
     if effort not in REASONING_LEVELS:
@@ -195,7 +204,7 @@ def decide_worker_route(
         review_risk=risk,
         provenance={
             "provider": provider_source,
-            "worker_effort": effort_source if effort_source != "built_in_default" else "plan_execution_reasoning",
+            "worker_effort": "plan_execution_reasoning" if effort_is_auto else effort_source,
             "grok_permission": "repository_policy" if prohibited else ("explicit_run_intent" if permitted else "none"),
         },
         fallback=fallback,

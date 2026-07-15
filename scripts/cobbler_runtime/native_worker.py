@@ -69,23 +69,29 @@ def build_native_worker_spec(
     effort_token = effort.strip().lower()
     if effort_token not in {"low", "medium", "high"}:
         raise ValidationIssue("invalid_worker_effort", f"Invalid worker effort `{effort}`")
+    if not requested_model or not requested_model.strip():
+        raise ValidationIssue(
+            "current_worker_model_required",
+            "Supervised CLI fallback requires the host to pass its observed current model",
+            path="requested_model",
+        )
+    requested_model = requested_model.strip()
     cwd = str(worktree.resolve())
-    model_policy = "explicit_model_pin" if requested_model else "inherit_live_driver_model"
+    model_policy = "host_pinned_current_model"
 
     if host_token == "codex":
         common = [
             "codex", "exec", "--json", "--ignore-user-config", "--ignore-rules",
             "--sandbox", "workspace-write", "-c", f'model_reasoning_effort="{effort_token}"',
         ]
-        if requested_model:
-            common.extend(["--model", requested_model])
+        common.extend(["--model", requested_model])
         if session_id is None:
             argv = (*common, "-C", cwd, "-")
             resume = None
         else:
             sid = _exact_session_id(session_id)
             # `exec resume` has no -C; the supervisor must set the OS cwd exactly.
-            argv = tuple(["codex", "exec", "resume", "--json", "--ignore-user-config", "--ignore-rules", "-c", f'model_reasoning_effort="{effort_token}"'] + (["--model", requested_model] if requested_model else []) + [sid, "-"])
+            argv = tuple(["codex", "exec", "resume", "--json", "--ignore-user-config", "--ignore-rules", "-c", f'model_reasoning_effort="{effort_token}"', "--model", requested_model, sid, "-"])
             resume = argv
         return NativeWorkerSpec(
             host="codex", profile="elves-native-worker", effort=effort_token,
@@ -99,16 +105,15 @@ def build_native_worker_spec(
             "claude", "--print", "--output-format", "stream-json", "--input-format", "text",
             "--effort", effort_token, "--permission-mode", "acceptEdits",
         ]
-        if requested_model:
-            common.extend(["--model", requested_model])
+        common.extend(["--model", requested_model])
         if session_id is None:
             # Claude accepts a caller-generated UUID, providing exact identity before launch.
             import uuid
             sid = str(uuid.uuid4())
-            argv = tuple(common + ["--session-id", sid, "-"])
+            argv = tuple(common + ["--session-id", sid])
         else:
             sid = _exact_session_id(session_id)
-            argv = tuple(common + ["--resume", sid, "-"])
+            argv = tuple(common + ["--resume", sid])
         return NativeWorkerSpec(
             host="claude-code", profile="elves-native-worker", effort=effort_token,
             model_policy=model_policy, requested_model=requested_model,
