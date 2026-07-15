@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,7 @@ from cobbler_runtime.adapters import (  # noqa: E402
 )
 from cobbler_runtime.native_worker import (  # noqa: E402
     build_native_worker_spec,
+    native_worker_profiles,
     parse_codex_thread_id,
 )
 from cobbler_runtime.preferences import (  # noqa: E402
@@ -34,6 +36,7 @@ from cobbler_runtime.worker_routing import (  # noqa: E402
     GROK_COMPOSER_MODEL,
     GrokCapabilities,
     decide_worker_route,
+    probe_grok_capabilities,
 )
 
 
@@ -129,6 +132,21 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         self.assertEqual(decision.provenance["provider"], "explicit_run_intent")
         self.assertIsNotNone(decision.advisory_driver_upgrade)
 
+    @mock.patch("cobbler_runtime.worker_routing.shutil.which", return_value="/usr/bin/grok")
+    def test_silent_grok_probe_separates_auth_models_and_goal_qualification(self, _which) -> None:
+        def runner(argv, **_kwargs):
+            if argv[-1] == "--version":
+                return subprocess.CompletedProcess(argv, 0, "Grok Build 0.2.101\n", "")
+            if argv[-1] == "models":
+                return subprocess.CompletedProcess(argv, 0, f"{GROK_COMPOSER_MODEL}\n{GROK_COMPLEX_MODEL}\n", "")
+            return subprocess.CompletedProcess(argv, 0, "Options:\n  /goal TUI only\n", "")
+        result = probe_grok_capabilities(runner=runner)
+        self.assertTrue(result.installed)
+        self.assertTrue(result.authenticated)
+        self.assertEqual(result.version, "0.2.101")
+        self.assertIn(GROK_COMPOSER_MODEL, result.models)
+        self.assertFalse(result.goal_mode_qualified)
+
 
 class NativeWorkerGrammarTests(unittest.TestCase):
     def test_codex_create_resume_and_thread_capture_are_exact(self) -> None:
@@ -157,6 +175,9 @@ class NativeWorkerGrammarTests(unittest.TestCase):
         self.assertNotIn("--continue", resumed.argv)
         self.assertTrue(resumed.separate_session)
         self.assertFalse(resumed.cache_handoff)
+        profiles = native_worker_profiles()
+        self.assertEqual(profiles["codex"]["model_policy"], profiles["claude"]["model_policy"])
+        self.assertFalse(profiles["codex"]["worker_merge_authority"])
 
     def test_generic_session_builders_match_supported_native_grammar(self) -> None:
         claude = build_session_create_invocation(adapter="claude-code", profile="claude-code")

@@ -126,9 +126,11 @@ from cobbler_runtime.preferences import (  # noqa: E402
 from cobbler_runtime.worker_routing import (  # noqa: E402
     GrokCapabilities,
     decide_worker_route,
+    probe_grok_capabilities,
 )
 from cobbler_runtime.native_worker import (  # noqa: E402
     build_native_worker_spec,
+    native_worker_profiles,
 )
 
 
@@ -361,12 +363,16 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
     if args.allow_grok:
         explicit["worker"]["allow_grok"] = True
     repo_policy = {"worker": {"allow_grok": False}} if args.prohibit_grok else None
-    grok = GrokCapabilities(
-        installed=args.grok_installed,
-        authenticated=args.grok_authenticated,
-        models=tuple(args.grok_model or ()),
-        goal_mode_qualified=args.grok_goal_qualified,
-        version=args.grok_version,
+    grok = (
+        probe_grok_capabilities(args.grok_executable)
+        if args.probe_grok
+        else GrokCapabilities(
+            installed=args.grok_installed,
+            authenticated=args.grok_authenticated,
+            models=tuple(args.grok_model or ()),
+            goal_mode_qualified=args.grok_goal_qualified,
+            version=args.grok_version,
+        )
     )
     try:
         decision = decide_worker_route(
@@ -404,7 +410,12 @@ def cmd_native_worker(args: argparse.Namespace) -> int:
         )
     except ValidationIssue as issue:
         return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
-    payload = {"ok": True, "worker": spec.to_dict(), "model_calls_made": False}
+    payload = {
+        "ok": True,
+        "worker": spec.to_dict(),
+        "profiles": native_worker_profiles(),
+        "model_calls_made": False,
+    }
     if args.json:
         return _emit_json(payload, exit_code=0)
     print(" ".join(spec.argv))
@@ -1888,6 +1899,8 @@ def build_parser() -> argparse.ArgumentParser:
     route_worker.add_argument("--grok-model", action="append")
     route_worker.add_argument("--grok-goal-qualified", action="store_true")
     route_worker.add_argument("--grok-version")
+    route_worker.add_argument("--probe-grok", action="store_true", help="Silently probe installed Grok version, auth, models, and goal capability")
+    route_worker.add_argument("--grok-executable", default="grok")
     route_worker.add_argument("--json", action="store_true")
     route_worker.set_defaults(func=cmd_route_worker)
 

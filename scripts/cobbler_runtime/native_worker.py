@@ -22,6 +22,7 @@ class NativeWorkerSpec:
     argv: tuple[str, ...]
     stdin_packet: bool
     session_id_source: str
+    session_id: str | None = None
     resume_argv: tuple[str, ...] | None = None
     cache_handoff: bool = False
 
@@ -30,6 +31,23 @@ class NativeWorkerSpec:
         payload["argv"] = list(self.argv)
         payload["resume_argv"] = list(self.resume_argv) if self.resume_argv else None
         return payload
+
+
+def native_worker_profiles() -> dict[str, dict[str, Any]]:
+    """Semantically matched profiles; transport syntax stays host-specific."""
+    common = {
+        "model_policy": "inherit_live_driver_model",
+        "effort_policy": "plan_execution_reasoning",
+        "separate_session": True,
+        "full_packet": True,
+        "live_stream": True,
+        "worker_merge_authority": False,
+        "cache_handoff": False,
+    }
+    return {
+        "codex": {**common, "transport": "codex_exec", "worktree_binding": "-C create; OS cwd resume", "session_identity": "thread.started.thread_id"},
+        "claude": {**common, "transport": "claude_code", "worktree_binding": "supervisor cwd or native isolated worktree", "session_identity": "caller-assigned UUID"},
+    }
 
 
 def _exact_session_id(session_id: str) -> str:
@@ -73,7 +91,7 @@ def build_native_worker_spec(
             host="codex", profile="elves-native-worker", effort=effort_token,
             model_policy=model_policy, requested_model=requested_model,
             separate_session=True, cwd=cwd, argv=tuple(argv), stdin_packet=True,
-            session_id_source="thread.started.thread_id", resume_argv=resume,
+            session_id_source="thread.started.thread_id", session_id=session_id, resume_argv=resume,
         )
 
     if host_token in {"claude", "claude-code"}:
@@ -95,7 +113,7 @@ def build_native_worker_spec(
             host="claude-code", profile="elves-native-worker", effort=effort_token,
             model_policy=model_policy, requested_model=requested_model,
             separate_session=True, cwd=cwd, argv=argv, stdin_packet=True,
-            session_id_source="requested_session_id", resume_argv=argv if session_id else None,
+            session_id_source="requested_session_id", session_id=sid, resume_argv=argv if session_id else None,
         )
     raise ValidationIssue("unsupported_host", f"Unsupported native worker host `{host}`")
 

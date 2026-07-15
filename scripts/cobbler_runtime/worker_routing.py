@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import re
+import shutil
+import subprocess
 from typing import Any, Mapping
 
 from .schema import ValidationIssue
@@ -24,6 +27,49 @@ class GrokCapabilities:
 
     def supports(self, model: str) -> bool:
         return self.installed and self.authenticated and model in self.models
+
+
+def probe_grok_capabilities(
+    executable: str = "grok",
+    *,
+    runner: Any = subprocess.run,
+) -> GrokCapabilities:
+    """Silently inventory Grok without launching an inference turn.
+
+    `grok models` is the authentication/model qualification. Goal support is
+    delegated to the repository's existing behavioral help probe; a TUI-only
+    `/goal` mention is never upgraded into headless goal support.
+    """
+    located = shutil.which(executable)
+    if not located:
+        return GrokCapabilities()
+    common = {"check": False, "capture_output": True, "text": True, "timeout": 5}
+    try:
+        version_result = runner([located, "--version"], **common)
+        models_result = runner([located, "models"], **common)
+        help_result = runner([located, "--help"], **common)
+    except (OSError, subprocess.SubprocessError):
+        return GrokCapabilities(installed=True)
+    version_text = (version_result.stdout or version_result.stderr or "").strip()
+    version_match = re.search(r"\d+\.\d+(?:\.\d+)?", version_text)
+    model_text = models_result.stdout or ""
+    models = tuple(sorted(set(re.findall(r"\bgrok-[a-z0-9][a-z0-9._-]*", model_text.lower()))))
+    goal_qualified = False
+    if getattr(help_result, "returncode", 1) == 0:
+        from .implement import detect_native_grok_goal
+
+        goal_qualified = bool(
+            detect_native_grok_goal(help_text=help_result.stdout or help_result.stderr or "").get(
+                "native_goal"
+            )
+        )
+    return GrokCapabilities(
+        installed=True,
+        authenticated=getattr(models_result, "returncode", 1) == 0,
+        models=models,
+        goal_mode_qualified=goal_qualified,
+        version=version_match.group(0) if version_match else None,
+    )
 
 
 @dataclass(frozen=True)
