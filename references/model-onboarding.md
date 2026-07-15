@@ -118,7 +118,7 @@ Guide. Env var **names** only.
 | Purpose | Default | Typical optional routes |
 | --- | --- | --- |
 | Planning / design | host-native | `claude-code-planning`, `codex-fugu-planning`, Gemini CLI, Antigravity CLI |
-| Implementation (labor) | host-native | `claude-code-labor`, `codex-fugu-labor`, grok-build |
+| Implementation (labor) | host-native | `claude-code-labor`, `codex-fugu-labor`, grok-build, devin-cli |
 | Independent review | host-native | planning-tier Claude/Codex, Gemini CLI, Antigravity CLI, OpenRouter, Muse |
 | Lightweight review | host-native | labor-tier Claude/Codex, Gemini CLI |
 | Scout / discovery | host-native | Gemini CLI, Antigravity CLI, OpenRouter, Muse |

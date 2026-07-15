@@ -75,6 +75,7 @@ BUILTIN_ADAPTER_NAMES: tuple[str, ...] = (
     "gemini-cli",
     "antigravity-cli",
     "opencode-cli",
+    "devin-cli",
     "custom-cli",
     "host-native",
 )

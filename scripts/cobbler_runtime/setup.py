@@ -148,6 +148,16 @@ PROFILE_RECIPES: dict[str, dict[str, Any]] = {
         "tier": "labor",
     },
     "grok-build": {"adapter": "grok-build"},
+    "devin-cli": {
+        "adapter": "devin-cli",
+        "executable": "devin",
+        "notes": (
+            "Devin CLI (Cognition) — optional implement worker pinned to "
+            "SWE-1.7 Lightning by default. Host captures the exact provider "
+            "session id after create; resume uses --resume <id>. "
+            "Permission mode auto maps to dangerous for unattended labor."
+        ),
+    },
     "codex-fugu": {"adapter": "codex-fugu"},
     "codex-fugu-planning": {
         "adapter": "codex-fugu",

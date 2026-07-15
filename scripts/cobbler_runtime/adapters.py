@@ -160,6 +160,14 @@ _BUILTIN: dict[str, StubAdapter] = {
         # Not host-import write-lease qualified; experimental implement via opencode run --auto.
         supports_isolated_write=False,
     ),
+    "devin-cli": StubAdapter(
+        name="devin-cli",
+        executable_hint="devin",
+        # Exact --resume <id> only (never bare --continue / -c or latest).
+        supports_persistent_sessions=True,
+        # Full-run capable isolated write implementer; host captures provider session id.
+        supports_isolated_write=True,
+    ),
     "custom-cli": StubAdapter(
         name="custom-cli",
         executable_hint="(user-defined)",
@@ -294,6 +302,24 @@ _RESERVED_CONTROL_FLAGS: dict[str, frozenset[str]] = {
             "--prompt",
         }
     ),
+    "devin-cli": frozenset(
+        {
+            "-m",
+            "--model",
+            "--permission-mode",
+            "-c",
+            "--continue",
+            "-r",
+            "--resume",
+            "-p",
+            "--print",
+            "--prompt-file",
+            "--export",
+            "--config",
+            "--sandbox",
+            "--respect-workspace-trust",
+        }
+    ),
     "custom-cli": frozenset(),
 }
 
@@ -397,6 +423,8 @@ def default_profiles() -> dict[str, HarnessProfile]:
             input_c, output_c = "stdin", "codex-jsonl"
         elif name in {"gemini-cli", "antigravity-cli", "opencode-cli"}:
             input_c, output_c = "none", "custom-json-envelope"
+        elif name == "devin-cli":
+            input_c, output_c = "prompt-file", "custom-json-envelope"
         elif name == "custom-cli":
             input_c, output_c = "json-stdio", "custom-json-envelope"
         else:
@@ -422,6 +450,7 @@ def default_decoder_for_adapter(adapter: str) -> str:
         "claude-code": "claude-json",
         "grok-build": "grok-json",
         "codex-fugu": "codex-jsonl",
+        "devin-cli": "custom-json-envelope",
         "custom-cli": "custom-json-envelope",
         "host-native": "host-injected",
     }.get(name, "custom-json-envelope")
@@ -485,6 +514,7 @@ ADAPTER_CONTRACT_PAIRS: dict[str, tuple[str, str]] = {
     "gemini-cli": ("none", "custom-json-envelope"),
     "antigravity-cli": ("none", "custom-json-envelope"),
     "opencode-cli": ("none", "custom-json-envelope"),
+    "devin-cli": ("prompt-file", "custom-json-envelope"),
     "custom-cli": ("json-stdio", "custom-json-envelope"),
     "host-native": ("host-injected", "host-injected"),
 }
@@ -766,6 +796,42 @@ def build_readonly_invocation(
             input_mode="none",
             decoder="custom-json-envelope",
             cwd=work_cwd,
+            session_id=exact_session,
+        )
+
+    if name == "devin-cli":
+        if not exe:
+            exe = "devin"
+        argv_list = [
+            exe,
+            "--prompt-file",
+            str(prompt_path),
+            "--print",
+            "--permission-mode",
+            "auto",
+        ]
+        if exact_session:
+            argv_list.extend(["--resume", exact_session])
+        if requested_model:
+            argv_list.extend(["--model", str(requested_model)])
+        argv_list.extend(extras)
+        return AdapterInvocation(
+            adapter=name,
+            executable=exe,
+            argv=tuple(argv_list),
+            read_only=True,
+            tool_scope="read-only",
+            sandbox_scope="ephemeral",
+            notes=(
+                "Devin CLI headless --print with --prompt-file; exact --resume <id> only; "
+                "never bare --continue/-c. Host captures the provider session id from "
+                "`devin list --format json` after create."
+            ),
+            stdin_text=None,
+            input_mode="prompt-file",
+            decoder="custom-json-envelope",
+            cwd=work_cwd,
+            prompt_file_body=full_prompt,
             session_id=exact_session,
         )
 
@@ -1545,6 +1611,29 @@ def build_session_create_invocation(
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
+    if name == "devin-cli":
+        # Devin does not preallocate a session id. Launch a minimal --print turn so the
+        # host can capture the exact provider session id from `devin list --format json`
+        # and register it before any resume.
+        argv = [exe or "devin", "--print", "Reply with exactly: session-created"]
+        if requested_model:
+            argv.extend(["--model", str(requested_model)])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="devin-cli",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes=(
+                "Devin session create is host-mediated: after the first turn, capture the "
+                "exact session id (not --continue/-c) from `devin list --format json`, "
+                "then resume with --resume <id>. No session_id is authoritative until "
+                "the provider UUID is captured."
+            ),
+            session_id=None,
+        )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
     if name == "gemini-cli":
         # Host supplies exact UUID; Gemini creates under --session-id.
         import uuid as _uuid  # noqa: PLC0415
@@ -1694,6 +1783,24 @@ def build_session_resume_invocation(
             notes=(
                 "exact opencode --session <id> only — never bare --continue/-c; "
                 "resume planning session when reviewing"
+            ),
+            session_id=sid,
+        )
+        assert_no_ambiguous_session_flags(inv.argv)
+        return inv
+    if name == "devin-cli":
+        argv = [exe or "devin", "--resume", sid, "--print", "Continue the prior session."]
+        if requested_model:
+            argv.extend(["--model", str(requested_model)])
+        argv.extend(extras)
+        inv = AdapterInvocation(
+            adapter="devin-cli",
+            executable=argv[0],
+            argv=tuple(argv),
+            read_only=True,
+            notes=(
+                "exact Devin --resume <id> only — never bare --continue/-c; "
+                "resume the same conversation that did planning when reviewing"
             ),
             session_id=sid,
         )

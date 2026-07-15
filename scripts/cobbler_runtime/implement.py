@@ -927,6 +927,7 @@ def prepare_implement(
     if adapter_name in {"opencode", "opencode-labor"}:
         adapter_name = "opencode-cli"
     is_opencode = adapter_name == "opencode-cli"
+    is_devin = adapter_name == "devin-cli"
     if mode == FORBIDDEN_DEFAULT_PERMISSION and not is_opencode:
         # Explicit dontAsk is allowed only if the operator forces it; prepare still
         # warns by refusing to treat it as the lane default — block as product rule.
@@ -939,15 +940,29 @@ def prepare_implement(
     existing = load_state(repo_root)
     now = _utc_now()
     default_model = (
-        "openrouter/qwen/qwen3-max" if is_opencode else DEFAULT_MODEL
+        "openrouter/qwen/qwen3-max" if is_opencode else
+        "swe-1-7-lightning" if is_devin else
+        DEFAULT_MODEL
     )
-    default_exe = "opencode" if is_opencode else DEFAULT_EXECUTABLE
+    default_exe = (
+        "opencode" if is_opencode else
+        "devin" if is_devin else
+        DEFAULT_EXECUTABLE
+    )
     raw_model = (model or "").strip() or default_model
     resolved_model, _resolved_effort, alias_notes = resolve_implement_model(
         raw_model, adapter=adapter_name
     )
     model_value = resolved_model
     exe_value = (executable or "").strip() or default_exe
+    default_note = {
+        "opencode-cli": "OpenCode implement labor (Claude Code–like agent; OpenRouter/other models)",
+        "devin-cli": "Devin CLI implement labor (SWE-1.7 Lightning; exact --resume only)",
+    }.get(adapter_name, "Lane A fast implementer (default for optional Grok Build)")
+    session_note = {
+        "opencode-cli": "OpenCode: exact --session preferred; never bare --continue; use --auto carefully",
+        "devin-cli": "Devin: host captures provider session id; never bare --continue/-c; never --cwd",
+    }.get(adapter_name, "Never pass --no-subagents; never default permission to dontAsk")
     state = ImplementState(
         lane=(lane or DEFAULT_LANE).strip() or DEFAULT_LANE,
         git_mode=(git_mode or DEFAULT_GIT_MODE).strip() or DEFAULT_GIT_MODE,
@@ -965,17 +980,9 @@ def prepare_implement(
         last_batch=existing.last_batch if existing else None,
         last_packet=existing.last_packet if existing else None,
         notes=[
-            (
-                "OpenCode implement labor (Claude Code–like agent; OpenRouter/other models)"
-                if is_opencode
-                else "Lane A fast implementer (default for optional Grok Build)"
-            ),
+            default_note,
             "Host/human launches; CLI prints argv unless --exec",
-            (
-                "OpenCode: exact --session preferred; never bare --continue; use --auto carefully"
-                if is_opencode
-                else "Never pass --no-subagents; never default permission to dontAsk"
-            ),
+            session_note,
             *alias_notes,
         ],
     )
@@ -1004,6 +1011,42 @@ def _normalize_permission(mode: str | None) -> str:
     return value
 
 
+def _normalize_devin_permission(mode: str | None) -> str:
+    """Map Elves permission-mode vocabulary to Devin CLI modes.
+
+    Devin CLI modes are ``auto``, ``accept-edits``, ``smart``, and ``dangerous``.
+    Elves ``auto`` means unattended worker, so it normalizes to ``dangerous``
+    (auto-approve all tools) for headless implement. ``acceptEdits`` maps to
+    ``accept-edits``; ``bypass`` and ``dangerous`` map to ``dangerous``.
+    ``normal`` is accepted as ``auto`` (read-only tools only) but will not
+    complete unattended edits.
+    """
+    value = (mode or DEFAULT_PERMISSION_MODE).strip() or DEFAULT_PERMISSION_MODE
+    if value == FORBIDDEN_DEFAULT_PERMISSION:
+        raise ValidationIssue(
+            "implement_dontask_forbidden",
+            "permission_mode=dontAsk is forbidden for Devin CLI",
+            hint="Use auto, acceptEdits, smart, or dangerous",
+        )
+    mapping = {
+        "auto": "dangerous",
+        "dangerous": "dangerous",
+        "bypass": "dangerous",
+        "acceptedits": "accept-edits",
+        "accept-edits": "accept-edits",
+        "smart": "smart",
+        "normal": "auto",
+    }
+    normalized = mapping.get(value.lower())
+    if normalized is None:
+        raise ValidationIssue(
+            "implement_devin_permission_unsupported",
+            f"Devin CLI does not support permission-mode `{value}`",
+            hint="Use auto, acceptEdits, smart, or dangerous",
+        )
+    return normalized
+
+
 def resolve_implement_model(
     model: str | None,
     *,
@@ -1013,7 +1056,8 @@ def resolve_implement_model(
     """Resolve operator model input to (model_id, effort_or_None, notes).
 
     Grok aliases ``fast`` / ``deep`` expand to concrete slugs. OpenCode and
-    explicit provider/model ids pass through unchanged. Alias idea adapted from
+    explicit provider/model ids pass through unchanged. Devin defaults to
+    ``swe-1-7-lightning`` and skips Grok aliases. Alias idea adapted from
     stdevMac/grok-in-claude and grok-in-codex companion presets (Apache-2.0).
 
     When ``effort`` is ``None``, aliases may supply a default (e.g. deep → high);
@@ -1023,10 +1067,15 @@ def resolve_implement_model(
     adapter_name = (adapter or "grok-build").strip().lower() or "grok-build"
     explicit_effort = (effort or "").strip() or None
     raw = (model or "").strip()
-    if not raw:
+    if not raw or raw == DEFAULT_MODEL:
+        if adapter_name == "devin-cli":
+            return "swe-1-7-lightning", explicit_effort or DEFAULT_EFFORT, notes
         if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
             return "openrouter/qwen/qwen3-max", explicit_effort, notes
         return DEFAULT_MODEL, explicit_effort or DEFAULT_EFFORT, notes
+
+    if adapter_name == "devin-cli":
+        return raw, explicit_effort or DEFAULT_EFFORT, notes
 
     if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
         return raw, explicit_effort, notes
@@ -1044,6 +1093,71 @@ def resolve_implement_model(
         return resolved_model, resolved_effort, notes
 
     return raw, explicit_effort or DEFAULT_EFFORT, notes
+
+
+def _build_devin_launch_argv(
+    *,
+    session_id: str,
+    packet_path: Path,
+    cwd_path: Path,
+    model: str | None,
+    permission_mode: str,
+    executable: str,
+    create: bool,
+    effort: str | None,
+    export_path: str | None,
+) -> list[str]:
+    """Build Devin CLI implement argv for Lane A / full-run worker.
+
+    The returned argv always includes ``--print`` so the real CLI runs in
+    non-interactive mode and the background supervisor does not block on the TUI.
+    """
+    exe_hint = (executable or "devin").strip() or "devin"
+    exe = resolve_executable_for_launch(exe_hint) or exe_hint
+    model_name, _effort_name, _alias_notes = resolve_implement_model(
+        model, effort=effort, adapter="devin-cli"
+    )
+    perm = _normalize_devin_permission(permission_mode)
+
+    argv = [exe]
+    if not create:
+        if not session_id:
+            raise ValidationIssue(
+                "missing_session_id",
+                "Devin resume requires an exact captured provider session id",
+            )
+        argv.extend(["--resume", session_id])
+    # Devin does not accept a pre-allocated session id on create; the host captures
+    # the provider UUID from `devin list --format json` after launch.
+    argv.extend(["--prompt-file", str(packet_path)])
+    # --print is the real non-interactive transport. Without it, devin starts its
+    # interactive TUI and the background supervisor may hang.
+    argv.append("--print")
+    argv.extend(["--model", model_name])
+    argv.extend(["--permission-mode", perm])
+    if export_path:
+        argv.extend(["--export", export_path])
+
+    # Product invariants: no ambiguous session flags.
+    if "-c" in argv or "--continue" in argv:
+        raise ValidationIssue(
+            "ambiguous_session_flag",
+            "Devin implement launch must not use bare --continue/-c",
+        )
+    if "--resume" in argv:
+        idx = argv.index("--resume")
+        if idx + 1 >= len(argv) or argv[idx + 1].startswith("-"):
+            raise ValidationIssue(
+                "ambiguous_session_flag",
+                "Devin --resume requires an exact session id",
+            )
+    # working directory is enforced via Popen cwd, not a --cwd flag.
+    if "--cwd" in argv:
+        raise ValidationIssue(
+            "implement_devin_unsupported_flag",
+            "Devin CLI does not support --cwd; use Popen cwd instead",
+        )
+    return argv
 
 
 def humanize_grok_failure(
@@ -1277,9 +1391,9 @@ def build_launch_argv(
     session_id: str | None = None,
     packet: str | Path,
     cwd: str | Path,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     permission_mode: str = DEFAULT_PERMISSION_MODE,
-    executable: str = DEFAULT_EXECUTABLE,
+    executable: str | None = None,
     create: bool = False,
     effort: str | None = None,
     yolo: bool = True,
@@ -1288,8 +1402,9 @@ def build_launch_argv(
     adapter: str = "grok-build",
     check: bool = False,
     native_goal: bool = False,
+    export_path: str | None = None,
 ) -> list[str]:
-    """Build headless implementer argv for Grok Build (Lane A) or OpenCode.
+    """Build headless implementer argv for Grok Build (Lane A), OpenCode, or Devin.
 
     Grok Build dogfood (0.2.93):
     - ``--prompt-file`` or ``-p`` both trigger headless multi-turn with tools.
@@ -1301,6 +1416,16 @@ def build_launch_argv(
     - ``opencode run`` with packet contents as message; ``--auto`` for unattended tools.
     - Model format ``provider/model`` (often via OpenRouter).
     - Exact ``--session <id>`` only (never bare ``--continue``).
+
+    Devin CLI:
+    - ``--prompt-file`` for non-interactive initial prompt.
+    - ``--print`` is required so the real CLI runs in non-interactive mode and
+      the background supervisor does not block on the interactive TUI.
+    - Exact ``--resume <id>`` only (never ``--continue`` / bare ``--resume``).
+    - ``--model`` pins the model; default ``swe-1-7-lightning``.
+    - ``--permission-mode`` is explicit; Elves ``auto`` maps to ``dangerous`` for
+      unattended execution.
+    - ``--export <path>`` is optional ATIF export.
     """
     packet_path = Path(packet).expanduser().resolve()
     if not packet_path.is_file():
@@ -1316,6 +1441,19 @@ def build_launch_argv(
             "ambiguous_session_id",
             f"Session id `{sid}` is ambiguous and forbidden for implement launch",
             hint="Use an exact UUID/session id from the registry",
+        )
+
+    if adapter_name == "devin-cli":
+        return _build_devin_launch_argv(
+            session_id=sid,
+            packet_path=packet_path,
+            cwd_path=cwd_path,
+            model=model,
+            permission_mode=permission_mode,
+            executable=executable,
+            create=create,
+            effort=effort,
+            export_path=export_path,
         )
 
     if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
@@ -1744,23 +1882,30 @@ def launch_payload(
     state = load_state(repo_root)
     sid = (session_id or (state.session_id if state else None) or "").strip()
     adapter_name = (state.adapter if state else "grok-build") or "grok-build"
-    # OpenCode may start without a pre-allocated session id (host captures after first run).
-    if not sid and adapter_name not in {"opencode-cli", "opencode-labor", "opencode"}:
+    # OpenCode and Devin may start without a pre-allocated session id (host captures after first run).
+    if not sid and adapter_name not in {
+        "opencode-cli", "opencode-labor", "opencode", "devin-cli"
+    }:
         raise ValidationIssue(
             "missing_session_id",
             "session_id required (pass --session-id or run prepare first)",
         )
     worktree = cwd or (state.worktree if state else None) or str(Path(repo_root).resolve())
     is_opencode = adapter_name in {"opencode-cli", "opencode-labor", "opencode"}
+    is_devin = adapter_name == "devin-cli"
     raw_model = model or (state.model if state else None) or (
-        "openrouter/qwen/qwen3-max" if is_opencode else DEFAULT_MODEL
+        "openrouter/qwen/qwen3-max" if is_opencode else
+        "swe-1-7-lightning" if is_devin else
+        DEFAULT_MODEL
     )
     model_name, effort_name, alias_notes = resolve_implement_model(
         raw_model, effort=effort, adapter=adapter_name
     )
     perm = permission_mode or (state.permission_mode if state else None) or DEFAULT_PERMISSION_MODE
     exe = executable or (state.executable if state else None) or (
-        "opencode" if is_opencode else DEFAULT_EXECUTABLE
+        "opencode" if is_opencode else
+        "devin" if is_devin else
+        DEFAULT_EXECUTABLE
     )
 
     argv = build_launch_argv(

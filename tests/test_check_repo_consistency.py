@@ -1012,8 +1012,10 @@ Cobbler
         self.assertIn('"scripts/**"', phrases)
         self.assertIn("fetch-depth: 0", phrases)
         self.assertIn("--base-ref", phrases)
+        self.assertIn("Unreleased", phrases)
+        self.assertIn("post-merge main are development state", phrases)
         self.assertIn(
-            "python3 scripts/verify_repo.py --ci --version 2.3.0",
+            "python3 scripts/verify_repo.py --ci --version Unreleased",
             phrases,
         )
 

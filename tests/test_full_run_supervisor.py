@@ -130,6 +130,130 @@ report.write_text(json.dumps({
 emit("run_complete", 3, "fake multi-batch run complete", head=head)
 '''
 
+FAKE_DEVIN = r'''#!/usr/bin/env python3
+"""Fake Devin CLI fixture: supports `list --format json` and prompt-file runs."""
+import json, os, subprocess, sys, time
+from pathlib import Path
+
+def utc():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+args = sys.argv[1:]
+if args[:2] == ["list", "--format"] and len(args) >= 3 and args[2] == "json":
+    cwd = str(Path.cwd().resolve())
+    print(json.dumps([{
+        "id": "devin-sess-123",
+        "working_directory": cwd,
+        "last_activity_at": int(time.time()),
+    }], separators=(",", ":")))
+    raise SystemExit(0)
+
+prompt_file = None
+export_path = None
+for i, arg in enumerate(args):
+    if arg == "--prompt-file" and i + 1 < len(args):
+        prompt_file = args[i + 1]
+    elif arg == "--export" and i + 1 < len(args):
+        export_path = args[i + 1]
+
+session = os.environ["ELVES_FULL_RUN_SESSION"]
+events = Path(os.environ["ELVES_FULL_RUN_EVENTS"])
+report = Path(os.environ["ELVES_FULL_RUN_REPORT"])
+transcript = Path(os.environ["ELVES_FULL_RUN_TRANSCRIPT"])
+branch = os.environ.get("ELVES_FULL_RUN_BRANCH", "feature")
+head = os.environ.get("ELVES_FULL_RUN_START_HEAD", "deadbeef")
+worktree = Path(os.environ.get("ELVES_FULL_RUN_WORKTREE", str(Path.cwd())))
+
+if prompt_file:
+    prompt = Path(prompt_file).read_text(encoding="utf-8")
+else:
+    prompt = ""
+
+def emit(etype, batch, summary, **extra):
+    row = {
+        "timestamp": utc(),
+        "session_id": session,
+        "branch": branch,
+        "head": head,
+        "batch": batch,
+        "type": etype,
+        "summary": summary,
+    }
+    row.update(extra)
+    with events.open("a") as f:
+        f.write(json.dumps(row, separators=(",", ":")) + "\n")
+    with transcript.open("a") as f:
+        f.write(summary + "\n")
+
+emit("run_started", 0, "fake devin worker started", prompt_head=prompt[:40])
+emit("batch_started", 1, "devin batch started")
+(worktree / "devin-progress.txt").write_text("ok\n", encoding="utf-8")
+subprocess.run(["git", "-C", str(worktree), "add", "devin-progress.txt"], check=True)
+subprocess.run(["git", "-C", str(worktree), "commit", "-q", "-m", "devin progress"], check=True)
+new_head = subprocess.run(
+    ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+    check=True, capture_output=True, text=True,
+).stdout.strip()
+subprocess.run(
+    ["git", "-C", str(worktree), "push", "-q", "origin", f"HEAD:refs/heads/{branch}"],
+    check=True,
+)
+emit("commit_pushed", 1, "devin commit", head=new_head)
+emit("gate_result", 1, "devin gates ok", head=new_head)
+emit("batch_complete", 1, "devin batch complete", head=new_head)
+report.write_text(json.dumps({
+    "run_id": os.environ["ELVES_FULL_RUN_RUN_ID"],
+    "attempt": int(os.environ["ELVES_FULL_RUN_ATTEMPT"]),
+    "session_id": session,
+    "branch": branch,
+    "start_head": head,
+    "final_head": new_head,
+    "status": "complete",
+    "batches": [{"id": "batch-1", "status": "complete", "evidence": "devin gates passed"}],
+    "acceptance": [
+        {"id": "B1-A1", "criterion": "criterion for B1-A1", "met": True, "evidence": new_head},
+        {"id": "M-A1", "criterion": "criterion for M-A1", "met": True, "evidence": new_head},
+    ],
+    "commits": [new_head],
+    "blockers": [],
+    "merge_authority": False,
+}, indent=2) + "\n")
+pause = os.environ.get("ELVES_FAKE_DEVIN_PAUSE")
+if pause:
+    time.sleep(float(pause))
+emit("run_complete", 1, "fake devin run complete", head=new_head)
+if export_path:
+    Path(export_path).write_text(json.dumps({"exported": True, "model": "swe-1-7-lightning", "session_id": "devin-sess-123"}, indent=2), encoding="utf-8")
+'''
+
+FAKE_DEVIN_EMPTY_LIST = FAKE_DEVIN.replace(
+    """    print(json.dumps([{
+        "id": "devin-sess-123",
+        "working_directory": cwd,
+        "last_activity_at": int(time.time()),
+    }], separators=(",", ":")))""",
+    '    print("[]")',
+).replace(
+    'if export_path:\n    Path(export_path).write_text',
+    'if False and export_path:\n    Path(export_path).write_text',
+)
+
+FAKE_DEVIN_AMBIGUOUS_LIST = FAKE_DEVIN.replace(
+    """    print(json.dumps([{
+        "id": "devin-sess-123",
+        "working_directory": cwd,
+        "last_activity_at": int(time.time()),
+    }], separators=(",", ":")))""",
+    """    print(json.dumps([
+        {"id": "devin-sess-a", "working_directory": cwd, "last_activity_at": int(time.time())},
+        {"id": "devin-sess-b", "working_directory": cwd, "last_activity_at": int(time.time())},
+    ], separators=(",", ":")))""",
+).replace(
+    'if export_path:\n    Path(export_path).write_text',
+    'if False and export_path:\n    Path(export_path).write_text',
+)
+
 LONG_SLEEPER = r'''#!/usr/bin/env python3
 import os, time
 from pathlib import Path
@@ -358,10 +482,12 @@ def _init_feature_repo(path: Path, branch: str = "feat/x") -> str:
 def _attach_origin(repo: Path, remote: Path, branch: str) -> None:
     subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
     subprocess.run(
-        ["git", "-C", str(repo), "remote", "add", "origin", str(remote)], check=True
+        ["git", "-C", str(repo), "remote", "add", "origin", str(remote)],
+        check=True,
     )
     subprocess.run(
-        ["git", "-C", str(repo), "push", "-q", "-u", "origin", branch], check=True
+        ["git", "-C", str(repo), "push", "-q", "-u", "origin", branch],
+        check=True,
     )
 
 
@@ -2015,6 +2141,52 @@ class FullRunGrokArgvTests(unittest.TestCase):
             resume_argv = build_full_run_argv(state)
             self.assertIn("--resume", resume_argv)
             self.assertNotIn("--session-id", resume_argv)
+
+    def test_devin_create_and_resume_argv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            packet = repo / "packet.md"
+            _write_production_packet(packet)
+            start_head = _init_feature_repo(repo)
+            remote = Path(tmp) / "origin.git"
+            devin_env = {
+                k: v
+                for k, v in os.environ.items()
+                if not k.startswith("GIT_CONFIG_KEY_") and not k.startswith("GIT_CONFIG_VALUE_")
+            }
+            devin_env["GIT_CONFIG_COUNT"] = "0"
+            with mock.patch.dict(os.environ, devin_env, clear=True):
+                _attach_origin(repo, remote, "feat/x")
+                prep = prepare_full_run(
+                    repo,
+                    session_id="22222222-2222-2222-2222-222222222222",
+                    branch="feat/x",
+                    start_head=start_head,
+                    worktree=repo,
+                    packet_path=packet,
+                    session_path=_write_production_acceptance_contract(repo, packet),
+                    adapter="devin-cli",
+                    executable="devin",
+                )
+            self.assertTrue(prep["ok"])
+            state = load_state(repo, "22222222-2222-2222-2222-222222222222")
+            create_argv = build_full_run_argv(state)
+            self.assertEqual(create_argv[0], "devin")
+            self.assertIn("--prompt-file", create_argv)
+            self.assertIn("--print", create_argv)
+            self.assertNotIn("--session-id", create_argv)
+            self.assertNotIn("--resume", create_argv)
+            self.assertIn("swe-1-7-lightning", create_argv)
+            state.create_session = False
+            state.provider_session_id = "devin-sess-resume"
+            resume_argv = build_full_run_argv(state)
+            self.assertIn("--resume", resume_argv)
+            index = resume_argv.index("--resume")
+            self.assertEqual(resume_argv[index + 1], "devin-sess-resume")
+            self.assertIn("--print", resume_argv)
+            self.assertNotIn("--session-id", resume_argv)
+            self.assertIn("--prompt-file", resume_argv)
 
     def test_production_grok_launch_fails_before_spawn_without_explicit_auth(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -4190,6 +4362,24 @@ class FullRunLifecycleTests(unittest.TestCase):
             capture_output=True,
             text=True,
         ).stdout.strip()
+        # Isolated fake Devin CLI auth directories for full-run tests.
+        self.devin_config_dir = Path(self.tmp.name) / "devin-config"
+        self.devin_data_dir = Path(self.tmp.name) / "devin-data"
+        (self.devin_config_dir / "devin").mkdir(parents=True)
+        (self.devin_data_dir / "devin").mkdir(parents=True)
+        (self.devin_config_dir / "devin" / "config.json").write_text(
+            json.dumps({"version": 1, "devin": {"org_id": "test-org"}}, indent=2),
+            encoding="utf-8",
+        )
+        (self.devin_config_dir / "devin" / "config.json").chmod(0o600)
+        (self.devin_data_dir / "devin" / "credentials.toml").write_text(
+            'windsurf_api_key = "devin-test-key-do-not-use"\n'
+            'api_server_url = "https://server.codeium.com"\n'
+            'devin_webapp_host = "https://app.devin.ai"\n'
+            'devin_api_url = "https://api.devin.ai"\n',
+            encoding="utf-8",
+        )
+        (self.devin_data_dir / "devin" / "credentials.toml").chmod(0o600)
 
     def tearDown(self) -> None:
         try:
@@ -6160,6 +6350,365 @@ class FullRunLifecycleTests(unittest.TestCase):
                     p.wait(timeout=1)
                 except Exception:
                     pass
+
+    def _devin_clean_env(self) -> dict[str, str]:
+        base = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith("GIT_CONFIG_KEY_") and not k.startswith("GIT_CONFIG_VALUE_")
+        }
+        base["GIT_CONFIG_COUNT"] = "0"
+        base["XDG_CONFIG_HOME"] = str(self.devin_config_dir)
+        base["XDG_DATA_HOME"] = str(self.devin_data_dir)
+        return base
+
+    def test_devin_fixture_create_and_capture(self) -> None:
+        remote = Path(self.tmp.name) / "devin-origin.git"
+        _write_production_packet(self.packet, "B1-A1")
+        devin = Path(self.tmp.name) / "fake_devin.py"
+        devin.write_text(FAKE_DEVIN, encoding="utf-8")
+        devin.chmod(devin.stat().st_mode | stat.S_IXUSR)
+        with mock.patch.dict(os.environ, self._devin_clean_env(), clear=True):
+            _attach_origin(self.repo, remote, self.branch)
+            prepare_full_run(
+                self.repo,
+                session_id=self.session,
+                branch=self.branch,
+                start_head=self.start_head,
+                worktree=self.repo,
+                packet_path=self.packet,
+                session_path=_write_production_acceptance_contract(self.repo, self.packet),
+                adapter="devin-cli",
+                executable=str(devin),
+            )
+            state = load_state(self.repo, self.session)
+            self.assertEqual(state.adapter, "devin-cli")
+            self.assertEqual(state.model, "swe-1-7-lightning")
+            self.assertEqual(state.executable, str(devin))
+            self.assertIsNone(state.provider_session_id)
+
+            launched = launch_full_run(
+                self.repo,
+                session_id=self.session,
+                grant_devin_auth=True,
+            )
+            self.assertFalse(launched["merge_authority"])
+            self.assertIn("--prompt-file", launched["argv"])
+            self.assertIn("--print", launched["argv"])
+            self.assertNotIn("--resume", launched["argv"])
+
+            deadline = time.time() + 10
+            status = monitor_full_run(self.repo, session_id=self.session, stale_after_seconds=60)
+            while status.get("state") not in {"complete", "failed"} and time.time() < deadline:
+                time.sleep(0.05)
+                status = monitor_full_run(self.repo, session_id=self.session, stale_after_seconds=60)
+            logs = logs_full_run(
+                self.repo, session_id=self.session, raw_tail=True, tail_lines=50
+            ) if status["state"] == "failed" else None
+            self.assertEqual(status["state"], "complete", logs or status)
+
+            state = load_state(self.repo, self.session)
+            self.assertEqual(state.provider_session_id, "devin-sess-123")
+            self.assertEqual(state.devin_auth_strategy, "projected_files")
+            self.assertIsInstance(state.devin_auth_identity, dict)
+            events_path = full_run_root(self.repo, self.session) / "events.jsonl"
+            event_types = [
+                json.loads(line).get("type")
+                for line in events_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertIn("devin_session_captured", event_types)
+            state_json = json.dumps(state.to_dict(), indent=2, sort_keys=True)
+            events_text = events_path.read_text(encoding="utf-8")
+            self.assertNotIn("devin-test-key", state_json)
+            self.assertNotIn("devin-test-key", events_text)
+            worker_home = full_run_root(self.repo, self.session) / "worker-home"
+            self.assertEqual(
+                (worker_home / ".config" / "devin" / "config.json").stat().st_mode & 0o777,
+                0o600,
+            )
+            self.assertEqual(
+                (worker_home / ".local" / "share" / "devin" / "credentials.toml").stat().st_mode & 0o777,
+                0o600,
+            )
+        export = full_run_root(self.repo, self.session) / "devin-export.atif"
+        self.assertTrue(export.is_file())
+        self.assertIn("swe-1-7-lightning", export.read_text(encoding="utf-8"))
+
+    def _run_devin_until_terminal(
+        self,
+        *,
+        devin_script: str,
+        deadline_seconds: float = 10.0,
+    ) -> dict[str, object]:
+        remote = Path(self.tmp.name) / "devin-terminal-origin.git"
+        _write_production_packet(self.packet, "B1-A1")
+        devin = Path(self.tmp.name) / "fake_devin_terminal.py"
+        devin.write_text(devin_script, encoding="utf-8")
+        devin.chmod(devin.stat().st_mode | stat.S_IXUSR)
+        with mock.patch.dict(os.environ, self._devin_clean_env(), clear=True):
+            _attach_origin(self.repo, remote, self.branch)
+            prepare_full_run(
+                self.repo,
+                session_id=self.session,
+                branch=self.branch,
+                start_head=self.start_head,
+                worktree=self.repo,
+                packet_path=self.packet,
+                session_path=_write_production_acceptance_contract(self.repo, self.packet),
+                adapter="devin-cli",
+                executable=str(devin),
+            )
+            launch_full_run(
+                self.repo,
+                session_id=self.session,
+                grant_devin_auth=True,
+            )
+            deadline = time.time() + deadline_seconds
+            status: dict[str, object] = {"state": "pending"}
+            while status.get("state") not in {
+                "complete",
+                "failed",
+                "blocked",
+            } and time.time() < deadline:
+                time.sleep(0.05)
+                status = monitor_full_run(
+                    self.repo,
+                    session_id=self.session,
+                    stale_after_seconds=60,
+                )
+        return status
+
+    def test_devin_clean_exit_without_capture_stays_blocked(self) -> None:
+        status = self._run_devin_until_terminal(devin_script=FAKE_DEVIN_EMPTY_LIST)
+        self.assertEqual(status["state"], "blocked", status)
+        self.assertIn("provider session id", str(status.get("blocker") or "").lower())
+
+        state = load_state(self.repo, self.session)
+        self.assertIsNone(state.provider_session_id)
+        events_path = full_run_root(self.repo, self.session) / "events.jsonl"
+        event_types = [
+            json.loads(line).get("type")
+            for line in events_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertIn("devin_capture_failed", event_types)
+
+    def test_devin_clean_exit_with_ambiguous_capture_stays_blocked(self) -> None:
+        status = self._run_devin_until_terminal(
+            devin_script=FAKE_DEVIN_AMBIGUOUS_LIST
+        )
+        self.assertEqual(status["state"], "blocked", status)
+        self.assertIn("provider session id", str(status.get("blocker") or "").lower())
+
+        state = load_state(self.repo, self.session)
+        self.assertIsNone(state.provider_session_id)
+        events_path = full_run_root(self.repo, self.session) / "events.jsonl"
+        event_types = [
+            json.loads(line).get("type")
+            for line in events_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertIn("devin_capture_failed", event_types)
+
+    def test_devin_fixture_resume_exact_session(self) -> None:
+        remote = Path(self.tmp.name) / "devin-resume-origin.git"
+        _write_production_packet(self.packet, "B1-A1")
+        devin = Path(self.tmp.name) / "fake_devin.py"
+        # Keep the fixture alive beyond the ten-second observation window so
+        # loaded CI runners cannot turn the intended stop/resume case into a
+        # clean completion before stop_full_run records interruption evidence.
+        # Bake the delay into the fixture because production launch correctly
+        # does not inherit arbitrary ELVES_FAKE_* environment variables.
+        devin.write_text(
+            FAKE_DEVIN.replace(
+                'pause = os.environ.get("ELVES_FAKE_DEVIN_PAUSE")',
+                'pause = "30"',
+            ),
+            encoding="utf-8",
+        )
+        devin.chmod(devin.stat().st_mode | stat.S_IXUSR)
+        with mock.patch.dict(os.environ, self._devin_clean_env(), clear=True):
+            _attach_origin(self.repo, remote, self.branch)
+            prepare_full_run(
+                self.repo,
+                session_id=self.session,
+                branch=self.branch,
+                start_head=self.start_head,
+                worktree=self.repo,
+                packet_path=self.packet,
+                session_path=_write_production_acceptance_contract(self.repo, self.packet),
+                adapter="devin-cli",
+                executable=str(devin),
+            )
+            launch_full_run(
+                self.repo,
+                session_id=self.session,
+                grant_devin_auth=True,
+            )
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                time.sleep(0.05)
+                monitor_full_run(self.repo, session_id=self.session, stale_after_seconds=60)
+                state = load_state(self.repo, self.session)
+                events_path = full_run_root(self.repo, self.session) / "events.jsonl"
+                if state.provider_session_id and events_path.is_file():
+                    text = events_path.read_text(encoding="utf-8")
+                    if any(
+                        json.loads(line).get("type") == "commit_pushed"
+                        for line in text.splitlines()
+                        if line.strip()
+                    ):
+                        break
+            state = load_state(self.repo, self.session)
+            self.assertEqual(state.provider_session_id, "devin-sess-123")
+
+            stop_full_run(self.repo, session_id=self.session, grace_seconds=0.2)
+            resumed = launch_full_run(
+                self.repo,
+                session_id=self.session,
+                resume=True,
+                grant_devin_auth=True,
+            )
+            self.assertIn("--resume", resumed["argv"])
+            index = resumed["argv"].index("--resume")
+            self.assertEqual(resumed["argv"][index + 1], "devin-sess-123")
+            self.assertIn("--print", resumed["argv"])
+            self.assertNotIn("--session-id", resumed["argv"])
+            self.assertEqual(resumed["adapter"], "devin-cli")
+
+    def test_devin_auth_missing_grant_fails_before_spawn(self) -> None:
+        remote = Path(self.tmp.name) / "devin-missing-origin.git"
+        _write_production_packet(self.packet, "B1-A1")
+        devin = Path(self.tmp.name) / "fake_devin_missing.py"
+        devin.write_text(FAKE_DEVIN, encoding="utf-8")
+        devin.chmod(devin.stat().st_mode | stat.S_IXUSR)
+        with mock.patch.dict(os.environ, self._devin_clean_env(), clear=True):
+            _attach_origin(self.repo, remote, self.branch)
+            prepare_full_run(
+                self.repo,
+                session_id=self.session,
+                branch=self.branch,
+                start_head=self.start_head,
+                worktree=self.repo,
+                packet_path=self.packet,
+                session_path=_write_production_acceptance_contract(self.repo, self.packet),
+                adapter="devin-cli",
+                executable=str(devin),
+            )
+            with self.assertRaises(ValidationIssue) as ctx:
+                launch_full_run(self.repo, session_id=self.session)
+            self.assertEqual(ctx.exception.code, "full_run_devin_auth_required")
+
+    def test_devin_auth_rejects_unsafe_source_permissions(self) -> None:
+        remote = Path(self.tmp.name) / "devin-unsafe-origin.git"
+        _write_production_packet(self.packet, "B1-A1")
+        devin = Path(self.tmp.name) / "fake_devin_unsafe.py"
+        devin.write_text(FAKE_DEVIN, encoding="utf-8")
+        devin.chmod(devin.stat().st_mode | stat.S_IXUSR)
+        env = self._devin_clean_env()
+        with mock.patch.dict(os.environ, env, clear=True):
+            _attach_origin(self.repo, remote, self.branch)
+            prepare_full_run(
+                self.repo,
+                session_id=self.session,
+                branch=self.branch,
+                start_head=self.start_head,
+                worktree=self.repo,
+                packet_path=self.packet,
+                session_path=_write_production_acceptance_contract(self.repo, self.packet),
+                adapter="devin-cli",
+                executable=str(devin),
+            )
+            (self.devin_data_dir / "devin" / "credentials.toml").chmod(0o644)
+            with self.assertRaises(ValidationIssue) as ctx:
+                launch_full_run(
+                    self.repo,
+                    session_id=self.session,
+                    grant_devin_auth=True,
+                )
+            self.assertEqual(ctx.exception.code, "full_run_devin_auth_source_unsafe")
+
+    def test_devin_auth_projection_replaces_worker_symlink_without_following_it(self) -> None:
+        run_root = full_run_root(self.repo, self.session)
+        worker_home = run_root / "worker-home"
+        target = worker_home / ".local" / "share" / "devin" / "credentials.toml"
+        target.parent.mkdir(parents=True)
+        outside = Path(self.tmp.name) / "outside-credentials"
+        outside.write_text("leave-me-alone\n", encoding="utf-8")
+        target.symlink_to(outside)
+        state = full_run_module.FullRunState(
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=str(self.repo),
+            packet_path=str(self.packet),
+            adapter="devin-cli",
+            executable=sys.executable,
+        )
+        with mock.patch.dict(os.environ, self._devin_clean_env(), clear=True):
+            full_run_module._configure_devin_auth(
+                self.repo,
+                run_root,
+                state,
+                {},
+                grant_devin_auth=True,
+            )
+        self.assertEqual(outside.read_text(encoding="utf-8"), "leave-me-alone\n")
+        self.assertFalse(target.is_symlink())
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+
+    def test_devin_host_capture_event_may_follow_worker_terminal_event(self) -> None:
+        base = {
+            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "session_id": self.session,
+            "branch": self.branch,
+            "head": self.start_head,
+            "batch": 1,
+            "summary": "terminal",
+        }
+        terminal = dict(base, type="run_complete")
+        capture = dict(
+            base,
+            type="devin_session_captured",
+            summary="Devin session captured from ATIF after fast worker exit",
+            provider_session_id="devin-sess-123",
+            candidate_count=0,
+        )
+        events = full_run_root(self.repo, self.session) / "events.jsonl"
+        events.parent.mkdir(parents=True, exist_ok=True)
+        events.write_text(
+            json.dumps(terminal) + "\n" + json.dumps(capture) + "\n",
+            encoding="utf-8",
+        )
+        rows, errors = full_run_module._read_events(
+            events,
+            expected_session_id=self.session,
+            expected_branch=self.branch,
+            repo_root=self.repo,
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual([row["type"] for row in rows], ["run_complete", "devin_session_captured"])
+
+    def test_devin_auth_adapter_mismatch(self) -> None:
+        state = full_run_module.FullRunState(
+            session_id="devin-auth-mismatch",
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=str(self.repo),
+            packet_path=str(self.packet),
+            adapter="fixture",
+            executable=sys.executable,
+        )
+        with self.assertRaises(ValidationIssue) as ctx:
+            full_run_module._configure_devin_auth(
+                self.repo,
+                full_run_root(self.repo, state.session_id),
+                state,
+                {},
+                grant_devin_auth=True,
+            )
+        self.assertEqual(ctx.exception.code, "full_run_devin_auth_adapter_mismatch")
 
 
 if __name__ == "__main__":

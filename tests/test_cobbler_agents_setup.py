@@ -44,6 +44,7 @@ class InventoryTests(unittest.TestCase):
                 "gemini-cli": False,
                 "antigravity-cli": False,
                 "opencode-cli": False,
+                "devin-cli": False,
             }
         )
         by_name = {i.adapter: i for i in items}

@@ -366,6 +366,11 @@ python3 scripts/cobbler_agents.py implement full-run-launch --json \
 # python3 scripts/cobbler_agents.py implement full-run-launch --json \
 #   --session-id <exact-uuid> --grant-env XAI_API_KEY --grant-github-push
 
+# 3b) Or background-launch Devin CLI (swe-1-7-lightning, --print non-interactive transport).
+# Prepare with --adapter devin-cli --executable devin; then:
+python3 scripts/cobbler_agents.py implement full-run-launch --json \
+  --session-id <exact-uuid> --grant-devin-auth --grant-github-push
+
 # 4) Parked monitor (no per-push re-entry)
 python3 scripts/cobbler_agents.py implement full-run-monitor --json \
   --session-id <exact-uuid>
@@ -398,6 +403,14 @@ output, and raw transcript tails are disabled for shared OAuth because historica
 rotate. Shared OAuth requires Grok Build 0.2.93+ with the native capability marker; unsupported
 builds fail before spawn and must upgrade or use the named API-key route. Prefer that API-key route
 for CI or any lane that is not trusted.
+
+For `devin-cli`, `--grant-devin-auth` validates the host's canonical `~/.config/devin/config.json`
+and `~/.local/share/devin/credentials.toml` (or the equivalent `XDG_*` paths), checks owner-only
+permissions and file identity, and projects copies into the isolated worker `HOME`. Resume
+revalidates the same source identity. `--grant-devin-auth` is only valid with `--adapter devin-cli`;
+the launch fails before spawn for any other adapter or for unsafe/missing Devin auth. Some Devin
+CLI installs create `credentials.toml` with broader permissions; correct that once with
+`chmod 600 ~/.local/share/devin/credentials.toml` before launch.
 
 GitHub feature-branch pushes have a separate explicit auth boundary. For a non-credentialed
 `https://github.com/...` origin, use `--grant-github-push` to obtain the current authenticated
@@ -490,7 +503,7 @@ Native-only runs need none of this. When present, Cobbler may route:
 | Kind | Examples | Role in Elves |
 | --- | --- | --- |
 | **Main driver** | Claude Code, Codex | Only supported skill hosts / overnight orchestrators |
-| **Work drivers** | Grok Build (`implement …`), OpenCode labor | Trusted full-run or legacy bounded labor under host packets + gates |
+| **Work drivers** | Grok Build (`implement …`), OpenCode labor, Devin CLI (`swe-1-7-lightning`) | Trusted full-run or legacy bounded labor under host packets + gates |
 | **Plan/review lenses** | OpenRouter lens, Gemini CLI, Antigravity (`agy`), Muse Spark | Independent read-only evidence |
 | **Math domain tools** | OpenRouter math roles, Google **AlphaEvolve** (`evolutionary_search`) | Discovery / examples / counterexample *signals* — not proofs |
 | **Writer boundary** | Host-import `worker …` lease | Advanced isolation; not the default overnight path |

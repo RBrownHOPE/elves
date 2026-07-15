@@ -69,6 +69,7 @@ PURPOSE_CATALOG: tuple[dict[str, Any], ...] = (
             "claude-code-labor",
             "codex-fugu-labor",
             "grok-build",
+            "devin-cli",
             "claude-code",
             "codex-fugu",
             "antigravity-labor",
@@ -185,6 +186,10 @@ ROUTE_HELP: dict[str, str] = {
     "claude-code-planning": "Claude Code high-quality tier for plan/review (pin requested_model in TOML)",
     "claude-code-labor": "Claude Code labor tier for implement volume (pin requested_model in TOML)",
     "grok-build": "Grok Build CLI for optional external implement batches",
+    "devin-cli": (
+        "Devin CLI (Cognition) — optional implement worker pinned to SWE-1.7 Lightning; "
+        "host captures exact session id; exact --resume <id> only"
+    ),
     "codex-fugu": "Codex/Fugu CLI (default model for the install)",
     "codex-fugu-planning": "Codex high-quality tier for plan/review (pin requested_model in TOML)",
     "codex-fugu-labor": "Codex labor tier for implement volume (pin requested_model in TOML)",
