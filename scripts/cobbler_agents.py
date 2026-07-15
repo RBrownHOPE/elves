@@ -1378,6 +1378,9 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 resume=bool(getattr(args, "resume", False)),
                 credential_grant_names=list(getattr(args, "grant_env", None) or []) or None,
                 grant_grok_auth=bool(getattr(args, "grant_grok_auth", False)),
+                grant_devin_auth=bool(
+                    getattr(args, "grant_devin_auth", False)
+                ),
                 grant_github_push=bool(
                     getattr(args, "grant_github_push", False)
                 ),
@@ -2130,7 +2133,7 @@ def build_parser() -> argparse.ArgumentParser:
     i_fr_prepare.add_argument(
         "--adapter",
         default="grok-build",
-        help="grok-build (default) or fixture (explicit test mode only)",
+        help="grok-build (default), devin-cli, or fixture (explicit test mode only)",
     )
     i_fr_prepare.add_argument("--model", default="grok-4.5")
     i_fr_prepare.add_argument("--permission-mode", default="auto")
@@ -2185,6 +2188,14 @@ def build_parser() -> argparse.ArgumentParser:
             "Trusted Lane A only: isolated credential-free Grok probe plus one "
             "exact bound native executable + ancestor chain and validated host auth.json "
             "(owner/mode/ancestor/ACL) through native GROK_AUTH_PATH"
+        ),
+    )
+    i_fr_launch.add_argument(
+        "--grant-devin-auth",
+        action="store_true",
+        help=(
+            "Trusted Lane A only: project validated host Devin CLI config and "
+            "credentials into the isolated worker HOME (XDG_CONFIG_HOME/XDG_DATA_HOME)"
         ),
     )
     i_fr_launch.add_argument(

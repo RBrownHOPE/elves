@@ -1865,7 +1865,7 @@ def main(argv: list[str] | None = None) -> int:
                 repo_root,
                 required=strict,
                 base_ref=args.base_ref,
-                release_version=args.version,
+                release_version=args.version or "Unreleased",
             ),
         ),
     ]

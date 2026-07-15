@@ -83,6 +83,8 @@ EVENT_TYPES = frozenset(
         "material_scope_or_assumption_change",
         "blocked",
         "run_complete",
+        "devin_session_captured",
+        "devin_capture_failed",
     }
 )
 TERMINAL_EVENT_TYPES = frozenset({"run_complete", "blocked"})
@@ -158,6 +160,9 @@ GROK_AUTH_PATH_MIN_VERSION = (0, 2, 93)
 MAX_GROK_EXECUTABLE_PROBE_BYTES = 512 * 1024 * 1024
 MAX_GITHUB_TOKEN_BYTES = 64 * 1024
 MAX_GIT_IDENTITY_BYTES = 4096
+MAX_DEVIN_AUTH_BYTES = 64 * 1024
+DEVIN_CONFIG_FILE_NAME = "config.json"
+DEVIN_CREDENTIALS_FILE_NAME = "credentials.toml"
 _GROK_VERSION_RE = re.compile(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)")
 _GITHUB_PUSH_TOKEN_NAMES = ("GH_TOKEN", "GITHUB_TOKEN")
 _GITHUB_PUSH_AUTH_STRATEGIES = frozenset(
@@ -1122,6 +1127,10 @@ class FullRunState:
     # Exact resolved provider identity proven during auth/capability preflight
     # and rechecked by the child supervisor immediately before process spawn.
     grok_executable_identity: dict[str, Any] | None = None
+    devin_auth_strategy: str | None = None
+    # Private state only. Binds the canonical source path identity for Devin CLI
+    # config and credentials. Raw credential bytes are never stored here.
+    devin_auth_identity: dict[str, Any] | None = None
     status: str = "pending"
     batch: int | None = None
     head: str | None = None
@@ -1161,9 +1170,13 @@ class FullRunState:
     # Bounded monitor cache: event file size/digest and last remote-audit stamp.
     # Used so unchanged healthy polls stay incremental.
     monitor_cache: dict[str, Any] = field(default_factory=dict)
-    # native_goal | headless_compatible_fallback | fixture | unknown
+    # native_goal | headless_compatible_fallback | fixture | devin_prompt_file | unknown
     goal_launch_mode: str | None = None
     report_provenance: str | None = None
+    # Devin CLI: exact provider session id captured from `devin list --format json`.
+    provider_session_id: str | None = None
+    # Absolute path to the full-run runtime directory (used for ATIF export, etc.).
+    runtime_dir: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -1194,6 +1207,7 @@ class FullRunState:
             "acceptance_contract_sha256",
             "credential_grant_metadata_mac",
             "grok_auth_strategy",
+            "devin_auth_strategy",
             "github_push_auth_strategy",
             "head",
             "heartbeat_at",
@@ -1211,6 +1225,8 @@ class FullRunState:
             "pending_high_risk_checkpoint",
             "goal_launch_mode",
             "report_provenance",
+            "provider_session_id",
+            "runtime_dir",
         )
         for field_name in nullable_strings:
             value = data.get(field_name)
@@ -1262,6 +1278,7 @@ class FullRunState:
             "staged_packet_identity",
             "grok_auth_path_identity",
             "grok_executable_identity",
+            "devin_auth_identity",
             "fingerprint",
             "closed_process_identity",
             "interruption_evidence",
@@ -2655,6 +2672,19 @@ def _launch_evidence_context(
             grants_valid = False
         else:
             values.update(_oauth_secret_values(raw))
+    if state.devin_auth_strategy == "projected_files":
+        identity = state.devin_auth_identity
+        if not isinstance(identity, Mapping):
+            grants_valid = False
+        else:
+            for key in ("config_path", "credentials_path"):
+                path = identity.get(key)
+                if isinstance(path, str) and path:
+                    values.add(path)
+            try:
+                _read_and_validate_devin_auth(state)
+            except ValidationIssue:
+                grants_valid = False
     return grants_valid, frozenset(values)
 
 
@@ -2801,6 +2831,334 @@ def _configure_grok_auth(
     state.grok_auth_strategy = "oauth_shared_file"
     state.grok_auth_path_identity = dict(identity)
     launch_env["GROK_AUTH_PATH"] = str(identity["path"])
+
+
+def _devin_auth_source_files(
+    parent_env: Mapping[str, str] | None = None,
+) -> dict[str, Path]:
+    """Resolve canonical host Devin CLI config and credentials paths.
+
+    Respects XDG_CONFIG_HOME and XDG_DATA_HOME, then falls back to HOME.
+    """
+    parent = dict(parent_env if parent_env is not None else os.environ)
+    config_home = str(parent.get("XDG_CONFIG_HOME") or "").strip()
+    data_home = str(parent.get("XDG_DATA_HOME") or "").strip()
+    host_home = str(parent.get("HOME") or "").strip()
+    if config_home:
+        config_dir = Path(config_home).expanduser().resolve(strict=False) / "devin"
+    elif host_home:
+        config_dir = Path(host_home).expanduser() / ".config" / "devin"
+    else:
+        raise ValidationIssue(
+            "full_run_devin_auth_source_missing",
+            "Devin auth requires HOME or XDG_CONFIG_HOME to locate config.json",
+        )
+    if data_home:
+        data_dir = Path(data_home).expanduser().resolve(strict=False) / "devin"
+    elif host_home:
+        data_dir = Path(host_home).expanduser() / ".local" / "share" / "devin"
+    else:
+        raise ValidationIssue(
+            "full_run_devin_auth_source_missing",
+            "Devin auth requires HOME or XDG_DATA_HOME to locate credentials.toml",
+        )
+    return {
+        "config": config_dir / DEVIN_CONFIG_FILE_NAME,
+        "credentials": data_dir / DEVIN_CREDENTIALS_FILE_NAME,
+    }
+
+
+def _read_host_devin_file(
+    source: Path,
+    max_bytes: int,
+    expected_name: str,
+) -> tuple[bytes, dict[str, Any]]:
+    """Read one Devin auth file with no symlink, owner-only, and bounded checks.
+
+    Returns the raw bytes and an identity dict suitable for safe revalidation.
+    Raw bytes are never stored in state or diagnostics.
+    """
+    if not source.is_absolute() or source.name != expected_name:
+        raise ValidationIssue(
+            "full_run_devin_auth_source_invalid",
+            f"Devin auth path must be an absolute {expected_name} path",
+        )
+    try:
+        canonical_parent = source.parent.resolve(strict=True)
+    except OSError as exc:
+        raise ValidationIssue(
+            "full_run_devin_auth_source_missing",
+            f"Devin auth {expected_name} parent directory is unavailable",
+        ) from exc
+    canonical = canonical_parent / expected_name
+    file_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    dir_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_DIRECTORY", 0)
+    parent_fd = -1
+    source_fd = -1
+
+    def _close() -> None:
+        if source_fd >= 0:
+            os.close(source_fd)
+        if parent_fd >= 0:
+            os.close(parent_fd)
+
+    try:
+        parent_fd = os.open(str(canonical_parent), dir_flags)
+        parent_before = os.fstat(parent_fd)
+        source_fd = os.open(expected_name, file_flags, dir_fd=parent_fd)
+    except FileNotFoundError as exc:
+        _close()
+        raise ValidationIssue(
+            "full_run_devin_auth_source_missing",
+            f"Devin auth {expected_name} is unavailable",
+        ) from exc
+    except OSError as exc:
+        _close()
+        if exc.errno == getattr(errno, "ELOOP", None):
+            raise ValidationIssue(
+                "full_run_devin_auth_source_unsafe",
+                f"Devin auth {expected_name} must not be a symlink",
+            ) from exc
+        raise ValidationIssue(
+            "full_run_devin_auth_source_unavailable",
+            f"Devin auth {expected_name} metadata is unavailable: {type(exc).__name__}",
+        ) from exc
+    try:
+        before = os.fstat(source_fd)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.geteuid()
+            or before.st_nlink != 1
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_size <= 0
+            or before.st_size > max_bytes
+        ):
+            raise ValidationIssue(
+                "full_run_devin_auth_source_unsafe",
+                f"Devin auth {expected_name} must be one owner-only regular file within the size limit",
+            )
+        with os.fdopen(source_fd, "rb", closefd=False) as handle:
+            raw = handle.read(max_bytes + 1)
+        after = os.fstat(source_fd)
+        published = os.stat(
+            expected_name,
+            dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+        parent_after = os.fstat(parent_fd)
+        if (
+            len(raw) > max_bytes
+            or (
+                before.st_dev,
+                before.st_ino,
+                before.st_uid,
+                before.st_nlink,
+                stat.S_IMODE(before.st_mode),
+                before.st_size,
+                getattr(before, "st_mtime_ns", None),
+                getattr(before, "st_ctime_ns", None),
+            )
+            != (
+                after.st_dev,
+                after.st_ino,
+                after.st_uid,
+                after.st_nlink,
+                stat.S_IMODE(after.st_mode),
+                after.st_size,
+                getattr(after, "st_mtime_ns", None),
+                getattr(after, "st_ctime_ns", None),
+            )
+            or len(raw) != after.st_size
+            or (published.st_dev, published.st_ino) != (after.st_dev, after.st_ino)
+            or (
+                parent_before.st_dev,
+                parent_before.st_ino,
+                parent_before.st_uid,
+                stat.S_IMODE(parent_before.st_mode),
+            )
+            != (
+                parent_after.st_dev,
+                parent_after.st_ino,
+                parent_after.st_uid,
+                stat.S_IMODE(parent_after.st_mode),
+            )
+        ):
+            raise ValidationIssue(
+                "full_run_devin_auth_source_changed",
+                f"Devin auth {expected_name} changed while it was being read",
+            )
+    except ValidationIssue:
+        _close()
+        raise
+    except OSError as exc:
+        _close()
+        raise ValidationIssue(
+            "full_run_devin_auth_source_unavailable",
+            f"Devin auth {expected_name} read failed: {type(exc).__name__}",
+        ) from exc
+    _close()
+    _validate_devin_file_content(raw, expected_name)
+    identity = {
+        "path": str(canonical),
+        "parent_dev": int(parent_before.st_dev),
+        "parent_ino": int(parent_before.st_ino),
+        "parent_uid": int(parent_before.st_uid),
+        "parent_mode": int(stat.S_IMODE(parent_before.st_mode)),
+        "dev": int(before.st_dev),
+        "ino": int(before.st_ino),
+        "uid": int(before.st_uid),
+        "mode": int(stat.S_IMODE(before.st_mode)),
+        "nlink": int(before.st_nlink),
+        "size": int(before.st_size),
+        "mtime_ns": int(getattr(before, "st_mtime_ns", 0) or 0),
+        "ctime_ns": int(getattr(before, "st_ctime_ns", 0) or 0),
+    }
+    return raw, identity
+
+
+def _validate_devin_file_content(raw: bytes, expected_name: str) -> None:
+    """Parse Devin config/credentials without keeping or exposing values."""
+    if expected_name == DEVIN_CONFIG_FILE_NAME:
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValidationIssue(
+                "full_run_devin_auth_source_invalid",
+                "Devin config.json is not bounded valid JSON",
+            ) from exc
+        if not isinstance(payload, Mapping) or "devin" not in payload:
+            raise ValidationIssue(
+                "full_run_devin_auth_source_invalid",
+                "Devin config.json is missing the required 'devin' section",
+            )
+        return
+    if expected_name == DEVIN_CREDENTIALS_FILE_NAME:
+        try:
+            import tomllib
+
+            payload = tomllib.loads(raw.decode("utf-8"))
+        except Exception as exc:
+            raise ValidationIssue(
+                "full_run_devin_auth_source_invalid",
+                "Devin credentials.toml is not valid TOML",
+            ) from exc
+        if not isinstance(payload, Mapping) or not any(
+            isinstance(payload.get(key), str) and bool(payload.get(key))
+            for key in ("windsurf_api_key", "api_key")
+        ):
+            raise ValidationIssue(
+                "full_run_devin_auth_source_invalid",
+                "Devin credentials.toml has no recognized API key",
+            )
+        return
+    raise ValidationIssue(
+        "full_run_devin_auth_source_invalid",
+        f"Unknown Devin auth file name: {expected_name}",
+    )
+
+
+def _project_devin_auth(
+    root: Path,
+    launch_env: dict[str, str],
+    files: Mapping[str, tuple[bytes, dict[str, Any]]],
+) -> dict[str, Path]:
+    """Copy validated Devin auth files into the isolated worker HOME.
+
+    Sets owner-only mode on directories and files. Returns the projected paths.
+    """
+    worker_home = root / "worker-home"
+    rel_paths = {
+        "config": Path(".config") / "devin" / DEVIN_CONFIG_FILE_NAME,
+        "credentials": Path(".local") / "share" / "devin" / DEVIN_CREDENTIALS_FILE_NAME,
+    }
+    projected: dict[str, Path] = {}
+    for key, (raw, _identity) in files.items():
+        rel = rel_paths[key]
+        target = worker_home / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            target.parent.chmod(0o700)
+        except OSError:
+            pass
+        target.write_bytes(raw)
+        target.chmod(0o600)
+        projected[key] = target
+    return projected
+
+
+def _read_and_validate_devin_auth(
+    state: FullRunState,
+    parent_env: Mapping[str, str] | None = None,
+) -> tuple[dict[str, Path], dict[str, tuple[bytes, dict[str, Any]]]]:
+    """Read host Devin auth files and verify they match any persisted identity.
+
+    Returns the source paths and the validated file contents/identities.
+    Callers decide whether to project into the isolated worker HOME.
+    """
+    sources = _devin_auth_source_files(parent_env)
+    expected = state.devin_auth_identity
+    files: dict[str, tuple[bytes, dict[str, Any]]] = {}
+    for key, expected_name in (
+        ("config", DEVIN_CONFIG_FILE_NAME),
+        ("credentials", DEVIN_CREDENTIALS_FILE_NAME),
+    ):
+        source = sources[key]
+        raw, identity = _read_host_devin_file(source, MAX_DEVIN_AUTH_BYTES, expected_name)
+        if isinstance(expected, Mapping):
+            prior = expected.get(f"{key}_identity")
+            if isinstance(prior, Mapping) and dict(prior) != identity:
+                raise ValidationIssue(
+                    "full_run_devin_auth_identity_changed",
+                    f"Devin auth {expected_name} canonical path identity changed",
+                )
+        files[key] = (raw, identity)
+    return sources, files
+
+
+def _configure_devin_auth(
+    repo_root: Path,
+    root: Path,
+    state: FullRunState,
+    launch_env: dict[str, str],
+    *,
+    grant_devin_auth: bool,
+    parent_env: Mapping[str, str] | None = None,
+) -> None:
+    """Validate and project host Devin CLI auth into the isolated worker HOME."""
+    if state.adapter != "devin-cli":
+        if grant_devin_auth:
+            raise ValidationIssue(
+                "full_run_devin_auth_adapter_mismatch",
+                "--grant-devin-auth is only valid with adapter=devin-cli",
+            )
+        return
+    if state.devin_auth_strategy not in {None, "projected_files"}:
+        raise ValidationIssue(
+            "full_run_devin_auth_strategy_changed",
+            "Resume must preserve the originally selected Devin auth strategy",
+        )
+    if state.devin_auth_strategy is None and not grant_devin_auth:
+        raise ValidationIssue(
+            "full_run_devin_auth_required",
+            "Headless Devin requires --grant-devin-auth with validated host config/credentials",
+        )
+    sources, files = _read_and_validate_devin_auth(state, parent_env)
+    projected = _project_devin_auth(root, launch_env, files)
+    identities = {f"{key}_identity": identity for key, (_raw, identity) in files.items()}
+    state.devin_auth_strategy = "projected_files"
+    state.devin_auth_identity = {
+        **identities,
+        "config_path": str(sources["config"]),
+        "credentials_path": str(sources["credentials"]),
+        "projected_config_path": str(projected["config"]),
+        "projected_credentials_path": str(projected["credentials"]),
+    }
+    state.notes.append("Devin auth projected into isolated worker HOME")
 
 
 def _process_start_time(pid: int) -> str | None:
@@ -5775,6 +6133,10 @@ def prepare_full_run(
             "fixture_script_only_for_fixture_adapter",
             "fixture_script is only valid with adapter=fixture",
         )
+    if adapter_name == "devin-cli" and (not model or model == DEFAULT_MODEL):
+        model = "swe-1-7-lightning"
+    elif not model:
+        model = DEFAULT_MODEL
 
     git_metadata = _validate_full_run_git_contract(
         Path(repo_root),
@@ -5897,9 +6259,15 @@ def prepare_full_run(
         high_risk_checkpoints=staged_high_risk_checkpoints,
     )
 
-    exe = (executable or DEFAULT_EXECUTABLE).strip() or DEFAULT_EXECUTABLE
     if adapter_name == "fixture":
         exe = sys.executable
+    else:
+        default_exe = (
+            "devin" if adapter_name == "devin-cli" else DEFAULT_EXECUTABLE
+        )
+        exe = (executable or "").strip() or default_exe
+    if adapter_name == "devin-cli" and model == DEFAULT_MODEL:
+        model = "swe-1-7-lightning"
     qualified_supervisor = _qualified_process_supervisor()
     supervisor_executable: str | None = str(qualified_supervisor)
     supervision_token: str | None = secrets.token_hex(24)
@@ -5959,6 +6327,8 @@ def prepare_full_run(
         supervisor_executable=supervisor_executable,
         supervision_token=supervision_token,
         supervision_canary_passed=supervision_canary_passed,
+        runtime_dir=str(root),
+        provider_session_id=None,
         notes=[
             "Trusted full-run supervisor prepared; host parks after launch",
             f"adapter={adapter_name}",
@@ -6115,6 +6485,27 @@ def build_full_run_argv(state: FullRunState) -> list[str]:
             )
         state.goal_launch_mode = "fixture"
         return [state.executable, state.fixture_script, launch_packet]
+    if state.adapter == "devin-cli":
+        state.goal_launch_mode = "devin_prompt_file"
+        export_path = None
+        if state.runtime_dir:
+            export_path = str(Path(state.runtime_dir) / "devin-export.atif")
+        return build_launch_argv(
+            session_id=state.provider_session_id or None,
+            packet=launch_packet,
+            cwd=state.worktree,
+            model=state.model,
+            permission_mode=state.permission_mode,
+            executable=state.executable,
+            create=bool(state.create_session),
+            effort=state.effort,
+            yolo=bool(state.yolo),
+            max_turns=state.max_turns,
+            output_format=None,
+            adapter="devin-cli",
+            check=False,
+            export_path=export_path,
+        )
     detection = detect_native_grok_goal(state.executable)
     # Record actual capability; do not invent flags. Headless packet launch is
     # the compatible fallback when no public --goal entrypoint exists.
@@ -6250,17 +6641,147 @@ def _archive_and_reset_resume_attempt(
     )
 
 
+def _capture_devin_session_id(
+    state: FullRunState,
+    root: Path,
+    repo_root: Path,
+    launch_env: Mapping[str, str],
+) -> str | None:
+    """Capture the exact Devin provider session id for the current worktree.
+
+    Runs ``devin list --format json`` using the exact isolated worker env
+    (XDG_CONFIG_HOME/XDG_DATA_HOME), filters to the current working_directory,
+    and either requires exactly one matching session or cross-checks the
+    transport-authored ATIF export's top-level ``session_id``. Rejects
+    zero/multiple/mismatched candidates with a bounded diagnostic event.
+    """
+    exe = (state.executable or "devin").strip() or "devin"
+    worktree = Path(state.worktree).expanduser().resolve()
+    argv = [exe, "list", "--format", "json"]
+    events_path = root / "events.jsonl"
+
+    def _event(summary: str, etype: str = "devin_capture_failed", **extra: Any) -> None:
+        _append_event(
+            events_path,
+            {
+                "timestamp": _utc_now(),
+                "session_id": state.session_id,
+                "branch": state.branch,
+                "head": state.head or state.start_head,
+                "batch": state.batch or 0,
+                "type": etype,
+                "summary": summary,
+                **extra,
+            },
+            expected_session_id=state.session_id,
+            expected_branch=state.branch,
+            repo_root=repo_root,
+        )
+
+    try:
+        result = subprocess.run(
+            argv,
+            cwd=str(worktree),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env=dict(launch_env),
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        _event(f"devin list failed: {type(exc).__name__}")
+        return None
+    if result.returncode != 0:
+        _event(f"devin list exited {result.returncode}")
+        return None
+    try:
+        sessions = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        _event("devin list returned invalid JSON")
+        return None
+    if not isinstance(sessions, list):
+        _event("devin list returned non-list")
+        return None
+
+    candidates = [
+        s
+        for s in sessions
+        if isinstance(s, dict)
+        and s.get("working_directory")
+        and Path(str(s["working_directory"])).expanduser().resolve() == worktree
+        and isinstance(s.get("id"), (str, int))
+    ]
+
+    export_path = Path(state.runtime_dir or root) / "devin-export.atif"
+    atif_session_id: str | None = None
+    if export_path.is_file():
+        try:
+            atif = json.loads(export_path.read_text(encoding="utf-8"))
+            if isinstance(atif, Mapping):
+                atif_session_id = str(atif.get("session_id") or "").strip() or None
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    if atif_session_id:
+        matching = [c for c in candidates if str(c.get("id")) == atif_session_id]
+        if len(matching) == 1:
+            selected = matching[0]
+            _event(
+                "Devin session captured via ATIF cross-check",
+                etype="devin_session_captured",
+                provider_session_id=str(selected["id"]),
+                candidate_count=1,
+            )
+            return str(selected["id"])
+        if not candidates:
+            # The worker exited before the first listing; the ATIF export in the
+            # private runtime directory is bound to this full-run attempt.
+            _event(
+                "Devin session captured from ATIF after fast worker exit",
+                etype="devin_session_captured",
+                provider_session_id=atif_session_id,
+                candidate_count=0,
+            )
+            return atif_session_id
+        _event(
+            "ATIF session_id does not match isolated listing",
+            expected_session_id=atif_session_id,
+            candidate_count=len(candidates),
+        )
+        return None
+
+    if len(candidates) == 1:
+        selected = candidates[0]
+        _event(
+            "Devin session captured from isolated listing",
+            etype="devin_session_captured",
+            provider_session_id=str(selected["id"]),
+            candidate_count=1,
+        )
+        return str(selected["id"])
+    _event(
+        f"Expected exactly one Devin session for worktree, found {len(candidates)}",
+        candidate_count=len(candidates),
+    )
+    return None
+
+
 def _prepare_resume_attempt(repo_root: Path, state: FullRunState) -> str:
-    if state.adapter != "fixture" and state.adapter != "grok-build":
+    supported_adapters = {"fixture", "grok-build", "devin-cli"}
+    if state.adapter not in supported_adapters:
         raise ValidationIssue(
             "full_run_resume_adapter_unsupported",
-            "Production full-run resume requires the exact Grok Build adapter",
+            "Production full-run resume requires a supported production adapter",
         )
-    if state.grok_auth_strategy == "oauth_shared_file":
+    if state.adapter == "grok-build" and state.grok_auth_strategy == "oauth_shared_file":
         # Validate the canonical refresh-token authority before archiving or
         # incrementing the prior attempt. Token bytes may rotate; path identity
         # and owner-private storage may not.
         _revalidate_shared_grok_auth(state)
+    if state.adapter == "devin-cli" and not state.provider_session_id:
+        raise ValidationIssue(
+            "full_run_devin_resume_missing_provider_session",
+            "Devin full-run resume requires a captured provider session id",
+        )
     if state.launch_start_head != state.start_head:
         raise ValidationIssue(
             "full_run_start_head_mutated",
@@ -6330,6 +6851,7 @@ def launch_full_run(
     background: bool = True,
     credential_grant_names: Sequence[str] | None = None,
     grant_grok_auth: bool = False,
+    grant_devin_auth: bool = False,
     grant_github_push: bool = False,
     resume: bool = False,
 ) -> dict[str, Any]:
@@ -6474,6 +6996,15 @@ def launch_full_run(
                 launch_env,
                 grant_grok_auth=grant_grok_auth,
             )
+        if state.adapter == "devin-cli":
+            _configure_devin_auth(
+                Path(repo_root),
+                root,
+                state,
+                launch_env,
+                grant_devin_auth=grant_devin_auth,
+                parent_env=parent_env,
+            )
 
         # Never return credential values. Names are strict environment
         # identifiers and cannot smuggle KEY=VALUE material into state/output.
@@ -6510,16 +7041,21 @@ def launch_full_run(
             except ValueError as exc:
                 raise ValidationIssue(
                     "full_run_resume_argv_ambiguous",
-                    "Grok resume argv must contain exact --resume <session-id>",
+                    "resume argv must contain exact --resume <session-id>",
                 ) from exc
+            expected_resume_id = (
+                state.provider_session_id
+                if state.adapter == "devin-cli"
+                else state.session_id
+            )
             if (
                 resume_index + 1 >= len(provider_argv)
-                or provider_argv[resume_index + 1] != state.session_id
+                or provider_argv[resume_index + 1] != expected_resume_id
                 or "--session-id" in provider_argv
             ):
                 raise ValidationIssue(
                     "full_run_resume_argv_ambiguous",
-                    "Grok resume argv is not bound to the exact staged session id",
+                    "resume argv is not bound to the exact captured session id",
                 )
         state.last_argv = list(provider_argv)
         supervisor_argv = _provider_supervisor_argv(
@@ -7293,6 +7829,36 @@ def monitor_full_run(
         and state.fingerprint is None
     )
     root = full_run_root(repo_root, session_id)
+
+    # Devin CLI does not preallocate a session id; capture the exact provider
+    # UUID using the isolated worker env. Capture is attempted even if a fast
+    # worker has already exited, so long as an identity has not been retired.
+    if (
+        state.adapter == "devin-cli"
+        and not state.provider_session_id
+        and not identity_retired
+    ):
+        attempts = int(cache.get("devin_capture_attempts") or 0)
+        last_attempt = cache.get("devin_capture_last_attempt")
+        now = time.monotonic()
+        backoff = min(5 + attempts * 2, 60)
+        if last_attempt is None or (now - float(last_attempt)) >= backoff:
+            launch_env = build_full_run_env(
+                state=state,
+                root=root,
+                parent_env=os.environ,
+            )
+            captured = _capture_devin_session_id(
+                state, root, Path(repo_root), launch_env
+            )
+            cache["devin_capture_attempts"] = attempts + 1
+            cache["devin_capture_last_attempt"] = now
+            if captured:
+                state.provider_session_id = captured
+                cache["devin_capture_succeeded_at"] = now
+                state.monitor_cache = cache
+                save_state(repo_root, state)
+
     grant_context_verified, exact_secret_values = _launch_evidence_context(state)
     events_path = root / "events.jsonl"
     events_reused = False

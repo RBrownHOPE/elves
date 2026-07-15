@@ -1,4 +1,11 @@
 {
   "schema_version": 1,
-  "approvals": []
+  "approvals": [
+    {
+      "surface": "export:cobbler_runtime.BUILTIN_ADAPTER_NAMES",
+      "release": "Unreleased",
+      "reason": "Add devin-cli as an optional built-in worker adapter alongside existing routes",
+      "plan_path": "docs/plans/devin-cli-worker-adapter.md"
+    }
+  ]
 }
