@@ -234,6 +234,9 @@ FAKE_DEVIN_EMPTY_LIST = FAKE_DEVIN.replace(
         "last_activity_at": int(time.time()),
     }], separators=(",", ":")))""",
     '    print("[]")',
+).replace(
+    'if export_path:\n    Path(export_path).write_text',
+    'if False and export_path:\n    Path(export_path).write_text',
 )
 
 FAKE_DEVIN_AMBIGUOUS_LIST = FAKE_DEVIN.replace(

@@ -6737,7 +6737,11 @@ def _capture_devin_session_id(
                 "timestamp": _utc_now(),
                 "session_id": state.session_id,
                 "branch": state.branch,
-                "head": state.head or state.start_head,
+                # Discovery can happen after a fast worker has committed but
+                # before monitor state has absorbed the new tip. Bind the host
+                # event to the live feature tip so event ancestry cannot appear
+                # to regress solely because the parked monitor woke late.
+                "head": _git_head(worktree) or state.head or state.start_head,
                 "batch": state.batch or 0,
                 "type": etype,
                 "summary": summary,
