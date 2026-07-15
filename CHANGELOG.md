@@ -4,6 +4,19 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-07-15
+
+### User guide and GitHub Pages
+
+- Add a task-first HTML guide for installing Elves, starting a run, choosing and watching a worker,
+  reviewing the result, and choosing whether the driver may merge.
+- Publish the guide from this repository at `https://aigorahub.github.io/elves/` with a
+  dependency-free GitHub Pages workflow, and link it from the README.
+- Align the end-to-end and durable documentation with the native-first worker flow while preserving
+  equivalent Claude Code and Codex semantics.
+- Apply a restrained, responsive, keyboard-usable design and a direct writing pass, followed by a
+  critical Gemini 3.5 clarity review.
+
 ### Adaptive subscription-native workers
 
 - Add one deterministic route decision for Codex and Claude Code: a separate subscription-native

@@ -2,17 +2,18 @@
 
 ![Elves - they work while you sleep](assets/elves-banner.jpeg)
 
-**They work while you sleep.**
+Elves is an open-source Agent Skill for handing planned development or research work to a separate
+worker without locking the run to one model provider. The capable Claude Code or Codex driver plans
+and reviews. A subscription-native or optional external worker implements. Durable run files let
+the work survive context compaction.
 
-Elves is an open-source Agent Skill for **efficient, intelligent agentic workflows** (development
-and research) that do not lock you into one model ecosystem. It turns large plans into unattended
-multi-batch runs — implement, test, review, document — that survive context compaction.
-**Cobbler** is the default coordinator. **Claude Code or Codex** is the main driver; optional work
-drivers and lenses help when you already have them.
+**Current release: v2.5.0.** You write the plan and own the merge decision. The agent does the middle.
 
-**Current release: v2.4.0.** You write the plan and own the merge decision. The agent does the middle.
+**New to Elves? Read the [practical user guide](https://aigorahub.github.io/elves/).** It covers
+installation, the first run, worker choice, live progress, review, and optional landing for both
+Claude Code and Codex.
 
-**Default (v2.0+): one kickoff — ask naturally, then let Elves route the labor.** Say “implement
+**Default (v2.0+): one kickoff.** Say “implement
 this plan while I’m offline” from Claude Code or Codex. The capable live driver plans and reviews; a separate
 subscription-native worker inherits its model by default at the plan-matched effort. If permitted
 Grok Build is a better fit, Elves recommends it explicitly. You can make one useful choice, receive
@@ -37,6 +38,10 @@ remains the working directory; `python3 scripts/...` is source-checkout shorthan
 ---
 
 ## Quick start
+
+For a shorter task-first walkthrough, open the
+[user guide](https://aigorahub.github.io/elves/). The commands below remain the complete
+repository reference.
 
 ### Install (Claude Code)
 
@@ -69,12 +74,12 @@ python3 ~/.claude/skills/elves/scripts/install_doctor.py --startup
 # Codex (use this instead):
 python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.4.0
+python3 scripts/verify_repo.py --version 2.5.0
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.4.0 --final-readiness \
+python3 scripts/verify_repo.py --version 2.5.0 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.4.0 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.5.0 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 
@@ -1265,6 +1270,7 @@ pattern.
 elves/
 ├── SKILL.md                              # Portable skill instructions (Claude Code, Codex, Claude.ai)
 ├── AGENTS.md                             # Codex-facing repo-local instructions for working on Elves itself
+├── PRODUCT.md                            # Product and public-guide writing context
 ├── README.md
 ├── CHANGELOG.md                          # Version history
 ├── TODO.md                               # Project backlog and deferred tasks
@@ -1275,6 +1281,8 @@ elves/
 │   ├── cobbler-infographic.png           # Cobbler flow infographic
 │   ├── elves-banner.jpeg                 # README banner image
 │   └── elves-social-preview.png          # GitHub social preview
+├── guide/
+│   └── index.html                        # Task-first guide published with GitHub Pages
 ├── docs/
 │   ├── cobbler.md                        # Human-facing Cobbler walkthrough
 │   └── elves-report-proof-of-concept.html
@@ -1315,7 +1323,8 @@ elves/
 │   ├── cobbler_runtime/                  # Typed routing, delegated-git, isolation, and full-run runtime
 │   └── workspace_guard.py                # Optional workspace owned-tip guard prototype
 └── .github/
-    └── ISSUE_TEMPLATE/                   # Bug report, feature request, overnight run report
+    ├── ISSUE_TEMPLATE/                   # Bug report, feature request, overnight run report
+    └── workflows/pages.yml               # Publishes guide/ to GitHub Pages
 ```
 
 ---

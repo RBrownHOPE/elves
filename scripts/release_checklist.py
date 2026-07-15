@@ -40,6 +40,7 @@ HUMAN_FACING_EXACT_PATHS = {
     "AGENTS.md",
     "README.md",
     "CHANGELOG.md",
+    "PRODUCT.md",
     "TODO.md",
     "api-break-approvals.json",
     "config.json.example",
@@ -53,6 +54,7 @@ HUMAN_FACING_PREFIXES = (
     ".github/ISSUE_TEMPLATE/",
     "aliases/claude/",
     "docs/plans/",
+    "guide/",
     "references/",
 )
 

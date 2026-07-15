@@ -225,8 +225,13 @@ class ReleaseChecklistTests(unittest.TestCase):
             self.assertEqual(list(repo.rglob("__pycache__")), [])
             self.assertEqual(list(repo.rglob("*.pyc")), [])
 
-    def test_release_sweep_classifies_release_contract_and_operator_docs(self) -> None:
-        for path in ("api-break-approvals.json", "docs/cobbler.md"):
+    def test_release_sweep_classifies_release_contract_operator_and_guide_docs(self) -> None:
+        for path in (
+            "api-break-approvals.json",
+            "docs/cobbler.md",
+            "PRODUCT.md",
+            "guide/index.html",
+        ):
             with self.subTest(path=path):
                 self.assertTrue(self.release_checklist.is_human_facing_surface(path))
 

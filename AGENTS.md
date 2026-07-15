@@ -1,5 +1,5 @@
 ---
-version: "2.4.0"
+version: "2.5.0"
 ---
 
 # Elves: Codex repository adapter
@@ -11,6 +11,9 @@ This file is a **thin Codex adapter**, not a second workflow fork. The compact *
 When Codex loads this repository, follow `SKILL.md` for all Elves behavior. Differences below are
 **invocation surface only** — workflow semantics, safety kernel, landing policy, and acceptance
 identity are identical to Claude Code.
+
+The task-first user guide is published at `https://aigorahub.github.io/elves/`. This adapter and
+`SKILL.md` remain authoritative when the guide is too short to cover an edge case.
 
 ## Cobbler
 
