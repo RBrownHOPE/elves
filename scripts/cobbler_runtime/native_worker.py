@@ -219,6 +219,23 @@ def _process_start(pid: int) -> str | None:
         return None
 
 
+def _process_identity_matches(pid_value: object, expected_start: object) -> bool | None:
+    """Return exact identity match, known process loss, or unavailable identity."""
+    if not pid_value:
+        return None
+    pid = int(pid_value)
+    observed_start = _process_start(pid)
+    if observed_start is not None:
+        return observed_start == expected_start if expected_start else None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return None
+    return None
+
+
 def launch_native_worker(
     *, repo_root: Path, run_id: str, spec: NativeWorkerSpec, packet: Path, cli_path: Path
 ) -> dict[str, Any]:
@@ -319,18 +336,26 @@ def native_worker_status(repo_root: Path, run_id: str) -> dict[str, Any]:
     state = json.loads(state_path.read_text(encoding="utf-8"))
     pid = state.get("pid")
     expected_start = state.get("pid_start")
-    state["process_identity_matches"] = bool(
-        pid and expected_start and _process_start(int(pid)) == expected_start
-    ) if state.get("status") == "running" else None
-    if state.get("status") == "running" and state["process_identity_matches"] is False:
+    process_identity_matches: bool | None = None
+    if state.get("status") == "running":
+        process_identity_matches = _process_identity_matches(pid, expected_start)
+    state["process_identity_matches"] = process_identity_matches
+    if state.get("status") == "running":
         supervisor_pid = state.get("supervisor_pid")
         supervisor_start = state.get("supervisor_pid_start")
-        supervisor_matches = bool(
-            supervisor_pid and supervisor_start
-            and _process_start(int(supervisor_pid)) == supervisor_start
-        )
+        supervisor_matches = _process_identity_matches(supervisor_pid, supervisor_start)
         state["supervisor_identity_matches"] = supervisor_matches
-        if not supervisor_matches:
+        if process_identity_matches is False and supervisor_matches is False:
+            # A fast child can exit just before the supervisor atomically records
+            # its terminal state. Give that final write a short grace window so a
+            # status poll cannot turn a successful run into a false failure.
+            latest = state
+            for attempt in range(6):
+                if attempt:
+                    time.sleep(0.02)
+                latest = json.loads(state_path.read_text(encoding="utf-8"))
+                if latest.get("status") in {"complete", "failed"}:
+                    return latest
             state["status"] = "failed"
             state["failure_reason"] = "supervisor_and_child_identity_lost"
     return state

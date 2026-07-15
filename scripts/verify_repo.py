@@ -1498,6 +1498,14 @@ def check_secret_patterns(repo_root: Path) -> tuple[bool, str]:
                     r"[A-Za-z_][A-Za-z0-9_.]*", value.strip()
                 ):
                     continue
+                normalized_name = match.group("name").upper().replace("-", "_")
+                if (
+                    path.suffix in {".yml", ".yaml"}
+                    and relative.parts[:2] == (".github", "workflows")
+                    and normalized_name == "ID_TOKEN"
+                    and value.strip("`\"'").casefold() in {"read", "write", "none"}
+                ):
+                    continue
                 if _secret_placeholder(value):
                     continue
                 line_number = text.count("\n", 0, match.start()) + 1

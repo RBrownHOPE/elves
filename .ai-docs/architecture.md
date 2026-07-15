@@ -5,10 +5,12 @@
 This repo is a portable skill package, not an application. Its primary surfaces are documentation,
 templates, and small support scripts:
 
-- `SKILL.md`: canonical Claude-style skill surface
-- `AGENTS.md`: canonical Codex-style skill surface
+- `SKILL.md`: compact canonical workflow for every supported host
+- `AGENTS.md`: thin Codex invocation adapter that points back to `SKILL.md`
 - `references/*`: reusable templates and supporting guidance
 - `README.md`, `CHANGELOG.md`, `TODO.md`: human-facing project docs
+- `guide/index.html`: task-first public user guide, published by GitHub Pages
+- `.github/workflows/pages.yml`: dependency-free guide deployment from the same repository
 - `scripts/*`: supporting operator utilities, such as preflight
 - `docs/plans/*` and `docs/elves/*`: run-specific working memory during an active Elves session
 
@@ -109,6 +111,8 @@ This repo now treats documentation as a maintained surface:
 - Live operator state belongs in the survival guide and should be rewritten in place.
 - Reusable lessons belong in the learnings file.
 - Stable architecture, conventions, and traps belong in `.ai-docs/*`.
+- The shortest user path belongs in `guide/index.html`; the README links it and retains the full
+  repository reference.
 - Human-facing explanations and release notes belong in `README.md`, `CHANGELOG.md`, and `TODO.md`.
 
 Because this repo *is* a skill, changes almost always cross multiple surfaces. Updating one file in

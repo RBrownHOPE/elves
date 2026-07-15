@@ -1003,7 +1003,10 @@ Cobbler
         self.assertIn('"api-break-approvals.json"', phrases)
         self.assertIn('".env*"', phrases)
         self.assertIn('".github/ISSUE_TEMPLATE/**"', phrases)
+        self.assertIn('".github/workflows/pages.yml"', phrases)
         self.assertIn('"aliases/**"', phrases)
+        self.assertIn('"guide/**"', phrases)
+        self.assertIn('"PRODUCT.md"', phrases)
         self.assertIn('"docs/cobbler.md"', phrases)
         self.assertIn('"openapi.json"', phrases)
         self.assertIn('"openapi.yaml"', phrases)
@@ -1052,6 +1055,20 @@ Cobbler
         self.assertIn("actions/setup-python@v6", phrases)
         self.assertIn("actions/checkout@v4", forbidden)
         self.assertIn("actions/setup-python@v5", forbidden)
+
+    def test_pages_workflow_uses_current_actions_and_publishes_only_the_guide(self) -> None:
+        workflow = (REPO_ROOT / ".github" / "workflows" / "pages.yml").read_text()
+
+        self.assertIn("actions/checkout@v6", workflow)
+        self.assertIn("actions/configure-pages@v6", workflow)
+        self.assertIn("actions/upload-pages-artifact@v5", workflow)
+        self.assertIn("actions/deploy-pages@v5", workflow)
+        self.assertIn("path: guide", workflow)
+        self.assertIn("pages: write", workflow)
+        self.assertIn("id-token: write", workflow)
+        self.assertNotIn("actions/configure-pages@v5", workflow)
+        self.assertNotIn("actions/upload-pages-artifact@v4", workflow)
+        self.assertNotIn("actions/deploy-pages@v4", workflow)
 
     def test_repo_consistency_workflow_rejects_stale_node20_action_majors(self) -> None:
         label = ".github/workflows/repo-consistency.yml"
