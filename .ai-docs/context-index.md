@@ -5,8 +5,8 @@ the runtime surfaces, and the checks that usually matter before editing.
 
 ## Primary Surfaces
 
-- `SKILL.md`: canonical skill instructions and metadata for Claude-style skill hosts.
-- `AGENTS.md`: Codex-facing mirror of the skill instructions.
+- `SKILL.md`: compact canonical workflow and metadata for every supported host.
+- `AGENTS.md`: thin Codex invocation adapter that points back to `SKILL.md`.
 - `README.md`: human-facing overview, installation, usage, troubleshooting, and operator guidance.
 - `guide/index.html`: short public walkthrough for installing, running, watching, and finishing an
   Elves run in Claude Code or Codex.

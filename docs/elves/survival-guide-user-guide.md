@@ -22,10 +22,11 @@ Build, review, publish, and release the task-first Elves guide described in
 
 ## Stop gate
 
-- **Planned batches remaining:** 1
+- **Planned batches remaining:** 0
 - **Stop allowed right now:** no
-- **Why:** the guide, review, landing, release, live Pages check, and local install refresh remain.
-- **Next required action:** run terminal verification and independent diff review, then close B0.
+- **Why:** exact-tip final readiness, narrow run-file cleanup, landing, release, live Pages check,
+  and local install refresh remain.
+- **Next required action:** commit acceptance evidence and run exact-tip final readiness.
 
 ## Active batch
 

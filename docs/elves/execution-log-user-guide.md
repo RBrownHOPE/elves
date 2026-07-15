@@ -3,10 +3,10 @@
 ## Run digest
 
 - **Started:** 2026-07-15, America/New_York
-- **Current phase:** terminal verification
+- **Current phase:** acceptance complete, final readiness pending
 - **Active batch:** B0, Build and publish the user guide
 - **Last completed batch:** none
-- **Next required action:** run terminal verification and independent diff review
+- **Next required action:** commit acceptance evidence and run exact-tip final readiness
 - **Active PR:** not created yet
 - **Docs promoted this run:** `PRODUCT.md`
 - **Latest Elves Report:** not generated yet
@@ -61,4 +61,12 @@
 - Independent review caught stale Pages action majors and extra blank lines at EOF. The workflow
   now uses the latest released Node 24 action lines: configure v6, upload v5, and deploy v5.
 - GitHub Pages is not enabled on the repository yet. The host will enable workflow publishing after
-  merge, wait for deployment, and verify the live URL before claiming B0-A3.
+  merge, wait for deployment, and verify the live URL before completing the post-landing actions.
+
+## Independent final review: 2026-07-15
+
+- The reviewer found the stale Pages action majors, release approval scope, trailing whitespace,
+  and stale SKILL/AGENTS wording. Each serious finding was fixed in one revision.
+- The final review found no remaining P0, P1, or P2 issue.
+- One P3 accessibility note asked for copy-button status announcements. The copy controls now mark
+  their changing label as a polite live region.

@@ -814,6 +814,7 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences reset</code></
 
   <script>
     for (const button of document.querySelectorAll("[data-copy]")) {
+      button.setAttribute("aria-live", "polite");
       button.addEventListener("click", async () => {
         const target = document.getElementById(button.dataset.copy);
         if (!target) return;
