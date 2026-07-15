@@ -3,10 +3,10 @@
 ## Run digest
 
 - **Started:** 2026-07-15, America/New_York
-- **Current phase:** staging
+- **Current phase:** terminal verification
 - **Active batch:** B0, Build and publish the user guide
 - **Last completed batch:** none
-- **Next required action:** implement the static guide, Pages workflow, and documentation alignment
+- **Next required action:** run terminal verification and independent diff review
 - **Active PR:** not created yet
 - **Docs promoted this run:** `PRODUCT.md`
 - **Latest Elves Report:** not generated yet
@@ -51,3 +51,14 @@
   horizontal scrolling.
 - The page has eight task sections, valid local anchors, unique IDs, an ordered run sequence, a
   skip link, visible focus styles, and reduced-motion handling.
+
+## Terminal verification: 2026-07-15
+
+- `verify_repo.py --version 2.5.0 --base-ref v2.4.0` passed compile, shell, JSON, focused evidence,
+  consistency, release, public API, installed-bundle, and diff checks.
+- The release-scoped intentional Composer CLI default approval was promoted from `Unreleased` to
+  `2.5.0`.
+- Independent review caught stale Pages action majors and extra blank lines at EOF. The workflow
+  now uses the latest released Node 24 action lines: configure v6, upload v5, and deploy v5.
+- GitHub Pages is not enabled on the repository yet. The host will enable workflow publishing after
+  merge, wait for deployment, and verify the live URL before claiming B0-A3.

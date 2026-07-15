@@ -18,14 +18,14 @@ Build, review, publish, and release the task-first Elves guide described in
 - **Landing outcome:** complete_and_merge
 - **Driver merge authorized:** yes, from the user's explicit instruction in this task
 - **Worker merge authority:** false
-- **Staging acceptance validation:** pending until the session rows are generated
+- **Staging acceptance validation:** passed; session rows match the plan
 
 ## Stop gate
 
 - **Planned batches remaining:** 1
 - **Stop allowed right now:** no
 - **Why:** the guide, review, landing, release, live Pages check, and local install refresh remain.
-- **Next required action:** create the guide and Pages workflow, then align the public docs.
+- **Next required action:** run terminal verification and independent diff review, then close B0.
 
 ## Active batch
 
@@ -42,4 +42,3 @@ Build, review, publish, and release the task-first Elves guide described in
 - The host owns canonical memory, PR operations, protected refs, release operations, and merge.
 - Re-read this file after each host-owned commit and push.
 - Do not stop at a green check while the stop gate says no.
-
