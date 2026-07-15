@@ -349,7 +349,9 @@ Each file must be a regular owner-only (mode `0o600`) file with no symlinks, lin
 bounded size; invalid or missing files cause launch to fail before any provider process starts.
 Launch then copies them into the isolated `HOME` with owner-only permissions. Resume revalidates the
 same canonical source identity and rejects changed or missing credentials. `--grant-devin-auth` is
-only valid for `--adapter devin-cli`; other adapters fail with an adapter mismatch.
+only valid for `--adapter devin-cli`; other adapters fail with an adapter mismatch. If Devin created
+the credential file with broader permissions, run
+`chmod 600 ~/.local/share/devin/credentials.toml` once before launch.
 
 The feature-branch push route is separate from any worker provider login. With a canonical GitHub HTTPS origin,
 `--grant-github-push` privately projects the authenticated host `gh` token into one isolated

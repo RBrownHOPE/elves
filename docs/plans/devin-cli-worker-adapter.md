@@ -59,18 +59,18 @@ retains planning, canonical run memory, final review, PR operations, readiness, 
 
 **Acceptance criteria:**
 
-- [ ] B0-A1: `devin-cli` is a canonical built-in optional worker adapter and never silently degrades
+- [x] B0-A1: `devin-cli` is a canonical built-in optional worker adapter and never silently degrades
   to `custom-cli`; setup/onboarding reports its availability and pinned model honestly.
-- [ ] [B0-A2] A fixture-backed full run can prepare, launch, monitor/await, complete, and reconcile
+- [x] [B0-A2] A fixture-backed full run can prepare, launch, monitor/await, complete, and reconcile
   through the Devin adapter while existing Grok full-run behavior remains green.
-- [ ] B0-A3: Devin session creation and resume bind one exact captured session ID; ambiguous
+- [x] B0-A3: Devin session creation and resume bind one exact captured session ID; ambiguous
   latest/continue recovery and cross-worktree session selection are rejected.
-- [ ] [B0-A4] Worker authority remains limited to the assigned worktree/feature branch, transport
+- [x] [B0-A4] Worker authority remains limited to the assigned worktree/feature branch, transport
   evidence is host-derived, secrets are redacted, and PR/merge/tag/protected-ref authority remains
   host-owned.
-- [ ] B0-A5: Documentation explains SWE-1.7 Lightning selection, launch/follow/recovery behavior,
+- [x] B0-A5: Documentation explains SWE-1.7 Lightning selection, launch/follow/recovery behavior,
   trust graduation, and identical Claude Code/Codex workflow semantics.
-- [ ] [B0-A6] Impact-selected adapter/full-run/setup tests and the applicable canonical repository
+- [x] [B0-A6] Impact-selected adapter/full-run/setup tests and the applicable canonical repository
   gate pass without weakening existing tests or making an optional provider mandatory.
 
 **Docs likely touched:** README, SKILL/AGENTS pointers as needed, model onboarding/setup recipes,
@@ -92,11 +92,11 @@ setup/onboarding tests, repository consistency checks.
 
 ## Master Acceptance
 
-- [ ] [M-A1] Codex or Claude can stage a single Elves packet and run Devin CLI with
+- [x] [M-A1] Codex or Claude can stage a single Elves packet and run Devin CLI with
   `swe-1-7-lightning` as an optional parked implementation worker through terminal reconciliation.
-- [ ] [M-A2] The complete diff preserves existing Grok and host-native behavior, Elves authority
+- [x] [M-A2] The complete diff preserves existing Grok and host-native behavior, Elves authority
   boundaries, exact-session recovery, redaction, and impact-selected verification.
-- [ ] [M-A3] User-facing docs and the Unreleased changelog describe the supported route honestly,
+- [x] [M-A3] User-facing docs and the Unreleased changelog describe the supported route honestly,
   including its optional status and Claude Code/Codex parity.
 
 ## Non-Negotiables

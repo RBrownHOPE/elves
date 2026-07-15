@@ -599,6 +599,17 @@ class VerifyRepoUnitTests(unittest.TestCase):
             base_ref="origin/main",
         )
 
+    def test_check_release_treats_unreleased_as_a_scope_not_a_semver(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="Release checklist OK\n", stderr=""
+        )
+        with mock.patch.object(self.verify, "_run", return_value=completed) as run:
+            ok, message = self.verify.check_release(Path("/repo"), "Unreleased")
+        self.assertTrue(ok, message)
+        command = run.call_args.args[0]
+        self.assertIn("--allow-unreleased", command)
+        self.assertNotIn("--version", command)
+
     def test_final_evidence_review_executes_concrete_mapped_checks(self) -> None:
         cache: dict[str, tuple[bool, str]] = {}
         with (

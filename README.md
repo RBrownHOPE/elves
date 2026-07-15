@@ -408,7 +408,9 @@ For `devin-cli`, `--grant-devin-auth` validates the host's canonical `~/.config/
 and `~/.local/share/devin/credentials.toml` (or the equivalent `XDG_*` paths), checks owner-only
 permissions and file identity, and projects copies into the isolated worker `HOME`. Resume
 revalidates the same source identity. `--grant-devin-auth` is only valid with `--adapter devin-cli`;
-the launch fails before spawn for any other adapter or for unsafe/missing Devin auth.
+the launch fails before spawn for any other adapter or for unsafe/missing Devin auth. Some Devin
+CLI installs create `credentials.toml` with broader permissions; correct that once with
+`chmod 600 ~/.local/share/devin/credentials.toml` before launch.
 
 GitHub feature-branch pushes have a separate explicit auth boundary. For a non-credentialed
 `https://github.com/...` origin, use `--grant-github-push` to obtain the current authenticated

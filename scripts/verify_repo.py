@@ -277,7 +277,11 @@ def check_consistency(repo_root: Path) -> tuple[bool, str]:
 
 def check_release(repo_root: Path, version: str | None) -> tuple[bool, str]:
     cmd = [sys.executable, "scripts/release_checklist.py"]
-    if version:
+    # ``Unreleased`` is the explicit approval scope for development branches,
+    # not a semantic release version. Keep strict/final-readiness verification
+    # available while letting the release checklist use its native Unreleased
+    # mode instead of trying to validate that label as semver.
+    if version and version != "Unreleased":
         cmd.extend(["--version", version])
     else:
         cmd.append("--allow-unreleased")

@@ -163,6 +163,9 @@ MAX_GIT_IDENTITY_BYTES = 4096
 MAX_DEVIN_AUTH_BYTES = 64 * 1024
 DEVIN_CONFIG_FILE_NAME = "config.json"
 DEVIN_CREDENTIALS_FILE_NAME = "credentials.toml"
+DEVIN_HOST_EVENT_TYPES = frozenset(
+    {"devin_session_captured", "devin_capture_failed"}
+)
 _GROK_VERSION_RE = re.compile(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)")
 _GITHUB_PUSH_TOKEN_NAMES = ("GH_TOKEN", "GITHUB_TOKEN")
 _GITHUB_PUSH_AUTH_STRATEGIES = frozenset(
@@ -848,7 +851,12 @@ def validate_event(
         errors.append("event session_id mismatch")
     if expected_branch and event.get("branch") != expected_branch:
         errors.append("event branch mismatch")
-    if seen_terminal:
+    # Provider-session discovery is host-owned transport evidence. A very fast
+    # Devin process can write its terminal event before the parked monitor gets
+    # its first chance to bind the provider UUID, so these two informational
+    # host events may legitimately follow the worker terminal event. All worker
+    # lifecycle events remain forbidden after terminal.
+    if seen_terminal and etype not in DEVIN_HOST_EVENT_TYPES:
         errors.append("event appears after terminal event")
     return errors
 
@@ -2930,11 +2938,16 @@ def _read_host_devin_file(
         ) from exc
     try:
         before = os.fstat(source_fd)
+        if stat.S_IMODE(before.st_mode) != 0o600:
+            raise ValidationIssue(
+                "full_run_devin_auth_source_unsafe",
+                f"Devin auth {expected_name} must use owner-only mode 0o600",
+                hint=f"Run: chmod 600 {source}",
+            )
         if (
             not stat.S_ISREG(before.st_mode)
             or before.st_uid != os.geteuid()
             or before.st_nlink != 1
-            or stat.S_IMODE(before.st_mode) != 0o600
             or before.st_size <= 0
             or before.st_size > max_bytes
         ):
@@ -3080,13 +3093,71 @@ def _project_devin_auth(
     for key, (raw, _identity) in files.items():
         rel = rel_paths[key]
         target = worker_home / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
+        current = worker_home
+        for component in rel.parent.parts:
+            current = current / component
+            current.mkdir(exist_ok=True)
+            info = current.lstat()
+            if (
+                not stat.S_ISDIR(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or info.st_nlink < 1
+            ):
+                raise ValidationIssue(
+                    "full_run_devin_auth_projection_unsafe",
+                    "Devin auth projection directory is not a private host-owned directory",
+                )
+            current.chmod(0o700)
         try:
-            target.parent.chmod(0o700)
-        except OSError:
-            pass
-        target.write_bytes(raw)
-        target.chmod(0o600)
+            existing = target.lstat()
+        except FileNotFoundError:
+            existing = None
+        if existing is not None:
+            if stat.S_ISDIR(existing.st_mode):
+                raise ValidationIssue(
+                    "full_run_devin_auth_projection_unsafe",
+                    f"Projected Devin auth target {target.name} is a directory",
+                )
+            target.unlink()
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        fd = -1
+        try:
+            fd = os.open(target, flags, 0o600)
+            offset = 0
+            while offset < len(raw):
+                written = os.write(fd, raw[offset:])
+                if written <= 0:
+                    raise OSError(errno.EIO, "short Devin auth projection write")
+                offset += written
+            os.fchmod(fd, 0o600)
+            os.fsync(fd)
+            published = os.fstat(fd)
+            if (
+                not stat.S_ISREG(published.st_mode)
+                or published.st_uid != os.geteuid()
+                or published.st_nlink != 1
+                or stat.S_IMODE(published.st_mode) != 0o600
+                or published.st_size != len(raw)
+            ):
+                raise OSError(errno.ESTALE, "projected Devin auth identity changed")
+        except OSError as exc:
+            try:
+                target.unlink()
+            except OSError:
+                pass
+            raise ValidationIssue(
+                "full_run_devin_auth_projection_failed",
+                f"Cannot create private projected Devin auth file: {type(exc).__name__}",
+            ) from exc
+        finally:
+            if fd >= 0:
+                os.close(fd)
         projected[key] = target
     return projected
 

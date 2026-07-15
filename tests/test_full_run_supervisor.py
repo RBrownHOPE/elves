@@ -6517,6 +6517,67 @@ class FullRunLifecycleTests(unittest.TestCase):
                 )
             self.assertEqual(ctx.exception.code, "full_run_devin_auth_source_unsafe")
 
+    def test_devin_auth_projection_replaces_worker_symlink_without_following_it(self) -> None:
+        run_root = full_run_root(self.repo, self.session)
+        worker_home = run_root / "worker-home"
+        target = worker_home / ".local" / "share" / "devin" / "credentials.toml"
+        target.parent.mkdir(parents=True)
+        outside = Path(self.tmp.name) / "outside-credentials"
+        outside.write_text("leave-me-alone\n", encoding="utf-8")
+        target.symlink_to(outside)
+        state = full_run_module.FullRunState(
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=str(self.repo),
+            packet_path=str(self.packet),
+            adapter="devin-cli",
+            executable=sys.executable,
+        )
+        with mock.patch.dict(os.environ, self._devin_clean_env(), clear=True):
+            full_run_module._configure_devin_auth(
+                self.repo,
+                run_root,
+                state,
+                {},
+                grant_devin_auth=True,
+            )
+        self.assertEqual(outside.read_text(encoding="utf-8"), "leave-me-alone\n")
+        self.assertFalse(target.is_symlink())
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+
+    def test_devin_host_capture_event_may_follow_worker_terminal_event(self) -> None:
+        base = {
+            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "session_id": self.session,
+            "branch": self.branch,
+            "head": self.start_head,
+            "batch": 1,
+            "summary": "terminal",
+        }
+        terminal = dict(base, type="run_complete")
+        capture = dict(
+            base,
+            type="devin_session_captured",
+            summary="Devin session captured from ATIF after fast worker exit",
+            provider_session_id="devin-sess-123",
+            candidate_count=0,
+        )
+        events = full_run_root(self.repo, self.session) / "events.jsonl"
+        events.parent.mkdir(parents=True, exist_ok=True)
+        events.write_text(
+            json.dumps(terminal) + "\n" + json.dumps(capture) + "\n",
+            encoding="utf-8",
+        )
+        rows, errors = full_run_module._read_events(
+            events,
+            expected_session_id=self.session,
+            expected_branch=self.branch,
+            repo_root=self.repo,
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual([row["type"] for row in rows], ["run_complete", "devin_session_captured"])
+
     def test_devin_auth_adapter_mismatch(self) -> None:
         state = full_run_module.FullRunState(
             session_id="devin-auth-mismatch",
