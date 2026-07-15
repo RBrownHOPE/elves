@@ -293,7 +293,7 @@ REPO_CONSISTENCY_WORKFLOW_PHRASES = {
         "Development commits verify Unreleased",
         "scripts/release_checklist.py",
         "read_frontmatter_version",
-        'BASE_REF="$(git describe --tags --abbrev=0 HEAD^)"',
+        'BASE_REF="$(git describe --tags --abbrev=0 --exclude="v${VERIFY_VERSION}" HEAD^)"',
         'python3 scripts/verify_repo.py --ci --version "$VERIFY_VERSION"',
         "--base-ref",
         "actions/checkout@v6",

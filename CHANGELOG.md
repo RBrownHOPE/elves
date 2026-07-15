@@ -23,8 +23,9 @@ All notable changes to the Elves skill are documented here.
   optional route alongside Grok and OpenCode.
 - Make repository CI select `Unreleased` for development commits and the exact
   skill version for clean release commits, preserving strict release-scoped API approvals.
-- Compare release verification with the previous reachable tag from `HEAD^`, including
-  post-tag runs on the published release commit, instead of allowing an empty self-diff.
+- Compare release verification with the previous reachable release tag from `HEAD^`, explicitly
+  excluding the current version tag so release follow-ups and post-tag runs retain the full release
+  diff instead of allowing an empty or partial self-diff.
 
 ## [2.3.0] - 2026-07-14
 
