@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -341,6 +344,136 @@ class ReleaseChecklistTests(unittest.TestCase):
             base_ref="origin/main",
             allow_unreleased=False,
         )
+
+    def test_result_to_json_dict_has_stable_field_shape(self) -> None:
+        result = self.release_checklist.ChecklistResult(
+            version="1.15.0",
+            failures=["failure-a", "failure-b"],
+            warnings=["warning-a"],
+            notes=["note-a", "note-b", "note-c"],
+        )
+
+        payload = self.release_checklist.result_to_json_dict(result)
+
+        self.assertEqual(
+            set(payload.keys()),
+            {"version", "ok", "failures", "warnings", "notes"},
+        )
+        self.assertEqual(payload["version"], "1.15.0")
+        self.assertIs(payload["ok"], False)
+        self.assertEqual(payload["failures"], ["failure-a", "failure-b"])
+        self.assertEqual(payload["warnings"], ["warning-a"])
+        self.assertEqual(payload["notes"], ["note-a", "note-b", "note-c"])
+        self.assertIs(payload["ok"], result.ok)
+
+    def test_render_result_json_emits_one_object_with_ordered_arrays(self) -> None:
+        result = self.release_checklist.ChecklistResult(
+            version="2.0.0",
+            failures=["first-failure", "second-failure"],
+            warnings=["only-warning"],
+            notes=["note-one", "note-two"],
+        )
+
+        rendered = self.release_checklist.render_result_json(result)
+        payload = json.loads(rendered)
+
+        self.assertEqual(payload["version"], "2.0.0")
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["failures"], ["first-failure", "second-failure"])
+        self.assertEqual(payload["warnings"], ["only-warning"])
+        self.assertEqual(payload["notes"], ["note-one", "note-two"])
+        # Deterministic key order from sort_keys=True
+        self.assertEqual(
+            list(json.loads(rendered, object_pairs_hook=list)),
+            [
+                ("failures", ["first-failure", "second-failure"]),
+                ("notes", ["note-one", "note-two"]),
+                ("ok", False),
+                ("version", "2.0.0"),
+                ("warnings", ["only-warning"]),
+            ],
+        )
+
+    def test_main_json_success_stdout_is_pure_json_and_exit_zero(self) -> None:
+        expected = self.release_checklist.ChecklistResult(
+            version="1.15.0",
+            notes=["all good"],
+        )
+        stdout = io.StringIO()
+
+        with mock.patch.object(
+            self.release_checklist,
+            "build_release_checklist",
+            return_value=expected,
+        ):
+            with redirect_stdout(stdout):
+                exit_code = self.release_checklist.main(["--json", "--base", ""])
+
+        raw = stdout.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertNotIn("Release checklist", raw)
+        payload = json.loads(raw)
+        self.assertEqual(
+            set(payload.keys()),
+            {"version", "ok", "failures", "warnings", "notes"},
+        )
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["version"], "1.15.0")
+        self.assertEqual(payload["failures"], [])
+        self.assertEqual(payload["warnings"], [])
+        self.assertEqual(payload["notes"], ["all good"])
+
+    def test_main_json_failure_preserves_exit_code_and_failure_order(self) -> None:
+        expected = self.release_checklist.ChecklistResult(
+            version="1.16.0",
+            failures=["CHANGELOG.md: latest release stale", "AGENTS.md: version mismatch"],
+            warnings=["review surfaces"],
+        )
+        stdout = io.StringIO()
+
+        with mock.patch.object(
+            self.release_checklist,
+            "build_release_checklist",
+            return_value=expected,
+        ):
+            with redirect_stdout(stdout):
+                exit_code = self.release_checklist.main(["--json"])
+
+        raw = stdout.getvalue()
+        self.assertEqual(exit_code, 1)
+        self.assertNotIn("FAILURES", raw)
+        self.assertNotIn("Release checklist", raw)
+        payload = json.loads(raw)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(
+            payload["failures"],
+            ["CHANGELOG.md: latest release stale", "AGENTS.md: version mismatch"],
+        )
+        self.assertEqual(payload["warnings"], ["review surfaces"])
+
+    def test_main_default_text_mode_unchanged_without_json_flag(self) -> None:
+        expected = self.release_checklist.ChecklistResult(
+            version="1.15.0",
+            warnings=["surface review"],
+        )
+        stdout = io.StringIO()
+
+        with mock.patch.object(
+            self.release_checklist,
+            "build_release_checklist",
+            return_value=expected,
+        ):
+            with redirect_stdout(stdout):
+                exit_code = self.release_checklist.main(["--base", ""])
+
+        raw = stdout.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Release checklist for v1.15.0", raw)
+        self.assertIn("WARNINGS", raw)
+        self.assertIn("- surface review", raw)
+        self.assertIn("Release checklist completed with warnings", raw)
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(raw)
 
 
 if __name__ == "__main__":
