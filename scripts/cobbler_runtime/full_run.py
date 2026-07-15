@@ -52,6 +52,7 @@ from .implement import (
     build_launch_argv,
 )
 from .schema import ValidationIssue
+from .toml_compat import loads as _load_toml
 from .storage import (
     StorageError,
     _assert_directory_fd_identity,
@@ -3052,9 +3053,7 @@ def _validate_devin_file_content(raw: bytes, expected_name: str) -> None:
         return
     if expected_name == DEVIN_CREDENTIALS_FILE_NAME:
         try:
-            import tomllib
-
-            payload = tomllib.loads(raw.decode("utf-8"))
+            payload = _load_toml(raw.decode("utf-8"))
         except Exception as exc:
             raise ValidationIssue(
                 "full_run_devin_auth_source_invalid",
