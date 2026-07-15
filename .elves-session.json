@@ -1,0 +1,146 @@
+{
+  "base_ref": "origin/main",
+  "batches": [
+    {
+      "acceptance": [
+        {
+          "criterion": "Codex and Claude resolve the same versioned global preference file from `${XDG_CONFIG_HOME:-~/.config}/elves/config.json`, while explicit run intent and repository policy take precedence.",
+          "evidence": "",
+          "id": "B0-A1",
+          "met": false
+        },
+        {
+          "criterion": "Preference management writes atomically, preserves supported unknown fields, and rejects credentials, merge/destructive authority, protected-ref authority, and approval-bypass settings.",
+          "evidence": "",
+          "id": "B0-A2",
+          "met": false
+        },
+        {
+          "criterion": "A deterministic routing decision reports provider, worker model policy, worker effort, review risk, provenance, and any advisory driver-upgrade recommendation without invoking a model.",
+          "evidence": "",
+          "id": "B0-A3",
+          "met": false
+        },
+        {
+          "criterion": "Focused tests cover native-only, Grok-preferred, unavailable-provider, repo-prohibited, and low/medium/high reasoning cases with isolated global config state.",
+          "evidence": "",
+          "id": "B0-A4",
+          "met": false
+        }
+      ],
+      "id": "B0",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Codex and Claude expose semantically equivalent native worker profiles that run in a separate session, inherit the current model unless explicitly routed otherwise, and map plan reasoning to a lower worker effort without changing the live driver.",
+          "evidence": "",
+          "id": "B1-A1",
+          "met": false
+        },
+        {
+          "criterion": "Native launch commands are covered by grammar fixtures or behavioral tests, capture an exact session identifier, and never rely on ambiguous `--last` continuation.",
+          "evidence": "",
+          "id": "B1-A2",
+          "met": false
+        },
+        {
+          "criterion": "When Grok Build is available and permitted, regular clear implementation explicitly pins Composer 2.5 Fast while genuinely complex execution can explicitly pin Grok 4.5; availability alone never changes authorization.",
+          "evidence": "",
+          "id": "B1-A3",
+          "met": false
+        },
+        {
+          "criterion": "Missing, unauthenticated, prohibited, or insufficient Grok capabilities fall back honestly to the native route, and goal mode is claimed only when behaviorally qualified.",
+          "evidence": "",
+          "id": "B1-A4",
+          "met": false
+        }
+      ],
+      "id": "B1",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "User-facing docs lead with one natural-language flow and explain native default, optional Grok choice, remembered preferences, live worker visibility, and final driver review without requiring users to learn internal route vocabulary.",
+          "evidence": "",
+          "id": "B2-A1",
+          "met": false
+        },
+        {
+          "criterion": "`SKILL.md`, `AGENTS.md`, Claude-facing references, Codex-facing references, examples, and installed artifacts describe equivalent policy and valid host-specific invocation surfaces.",
+          "evidence": "",
+          "id": "B2-A2",
+          "met": false
+        },
+        {
+          "criterion": "The changelog and durable learnings record the adaptive native-worker behavior, Composer-versus-4.5 policy, safe global preferences, and the no-cache-handoff limitation.",
+          "evidence": "",
+          "id": "B2-A3",
+          "met": false
+        },
+        {
+          "criterion": "Focused affected-surface tests pass, then one cumulative verification run passes or reports only an explicitly evidenced pre-existing baseline issue.",
+          "evidence": "",
+          "id": "B2-A4",
+          "met": false
+        }
+      ],
+      "id": "B2",
+      "status": "pending"
+    }
+  ],
+  "branch": "codex/adaptive-worker-routing",
+  "continuation_guard": {
+    "next_required_action": "Validate and commit staging, then launch the registered medium-effort Sol worker.",
+    "reason": "Contract, implementation, terminal review, and reviewed PR remain.",
+    "stop_allowed": false
+  },
+  "execution_log_path": "docs/elves/execution-log-adaptive-worker-routing.md",
+  "landing_outcome": "landable_pr",
+  "learnings_path": "docs/elves/learnings.md",
+  "master_acceptance": [
+    {
+      "criterion": "From either Codex or Claude Code, Elves can plan with the capable live driver, select and launch a separate plan-matched worker using the user's available subscription or permitted Grok Build, remain quiet during execution, and return control for cumulative review.",
+      "evidence": "",
+      "id": "M-A1",
+      "met": false
+    },
+    {
+      "criterion": "Route decisions are deterministic, inspectable, capability-honest, and unable to persist or infer merge, destructive, protected-ref, credential, or approval-bypass authority.",
+      "evidence": "",
+      "id": "M-A2",
+      "met": false
+    },
+    {
+      "criterion": "The implementation, focused tests, installed bundles, README, SKILL/AGENTS adapters, references, changelog, learnings, and architecture documentation agree on the shipped behavior.",
+      "evidence": "",
+      "id": "M-A3",
+      "met": false
+    },
+    {
+      "criterion": "One terminal readiness review of `git diff origin/main...HEAD` finds no unresolved serious issue, and the branch is presented as a reviewed PR without merging.",
+      "evidence": "",
+      "id": "M-A4",
+      "met": false
+    }
+  ],
+  "merge_authorized": false,
+  "plan_path": "docs/plans/adaptive-worker-routing.md",
+  "risk": "high",
+  "run_id": "adaptive-worker-routing-2026-07-15",
+  "survival_guide_path": "docs/elves/survival-guide-adaptive-worker-routing.md",
+  "trust_mode": "trusted",
+  "version": "2.3.0",
+  "worker": {
+    "git_mode": "branch_progress",
+    "model": "gpt-5.6-sol",
+    "provider": "codex",
+    "reasoning_effort": "medium",
+    "scope": "full_run",
+    "session_id": null,
+    "status": "not_launched"
+  }
+}
