@@ -1016,7 +1016,7 @@ Cobbler
         self.assertIn("Development commits verify Unreleased", phrases)
         self.assertIn("scripts/release_checklist.py", phrases)
         self.assertIn("read_frontmatter_version", phrases)
-        self.assertIn('BASE_REF="$(git describe --tags --abbrev=0)"', phrases)
+        self.assertIn('BASE_REF="$(git describe --tags --abbrev=0 HEAD^)"', phrases)
         self.assertIn(
             'python3 scripts/verify_repo.py --ci --version "$VERIFY_VERSION"',
             phrases,

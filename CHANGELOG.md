@@ -21,6 +21,10 @@ All notable changes to the Elves skill are documented here.
   ATIF export's `session_id` for fast-worker exits.
 - Onboarding, setup recipes, and adapter registry now surface `devin-cli` as an
   optional route alongside Grok and OpenCode.
+- Make repository CI select `Unreleased` for development commits and the exact
+  skill version for clean release commits, preserving strict release-scoped API approvals.
+- Compare release verification with the previous reachable tag from `HEAD^`, including
+  post-tag runs on the published release commit, instead of allowing an empty self-diff.
 
 ## [2.3.0] - 2026-07-14
 

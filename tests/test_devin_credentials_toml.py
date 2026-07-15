@@ -68,7 +68,7 @@ class RepoConsistencyWorkflowVersionScopeTests(unittest.TestCase):
         self.assertIn('VERIFY_VERSION="Unreleased"', workflow)
         self.assertIn("scripts/release_checklist.py", workflow)
         self.assertIn("read_frontmatter_version", workflow)
-        self.assertIn('BASE_REF="$(git describe --tags --abbrev=0)"', workflow)
+        self.assertIn('BASE_REF="$(git describe --tags --abbrev=0 HEAD^)"', workflow)
         self.assertIn(
             'python3 scripts/verify_repo.py --ci --version "$VERIFY_VERSION"',
             workflow,
