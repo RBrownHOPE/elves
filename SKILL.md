@@ -23,10 +23,11 @@ never a squash.
 **Default user path (v2.0+): one kickoff.** Ask naturally; the capable live driver plans and reviews,
 a separate subscription-native worker inherits the current model by default at plan-matched effort.
 Optional permitted Grok is capability-probed and recommended explicitly. The user makes at most one
-useful preference choice, can watch the worker stream, and returns to cumulative driver review.
+useful preference choice, receives a proven native view or exact follow command, and returns to
+cumulative driver review.
 v2.1 adds trusted Grok full-run. **v2.3** makes that path
 fast and calm: one risk-aware plan, one autonomous worker goal, meaningful worker commits/pushes, a
-parked driver, a visible non-model follow stream, one cumulative terminal review, consolidated fixes,
+parked driver, a capability-bound non-model follow surface, one cumulative terminal review, consolidated fixes,
 delta-only re-review, impact-selected proof, and a host-owned **landable PR** or authorized merge.
 Prefer **chat-to-work** or **chat-to-land** (`references/e2e-chat-to-land.md`). **Legacy two-call**
 handoff remains valid for huge/unstable plans.
@@ -138,9 +139,12 @@ uses the plan-matched effort without changing the live driver. No Grok, OpenRout
 implement CLI is required. Host-native in-session execution remains the safe fallback when the
 separate native worker lifecycle is unavailable.
 
-Optional Grok Build is selected only when available **and permitted**. Regular clear work pins
-`grok-composer-2.5-fast`; genuinely complex execution may pin `grok-4.5`. Missing auth/model/goal
-capability or repository prohibition falls back honestly to native. See
+Optional Grok Build is selected only when available **and permitted**. An explicit current-run or
+global `provider=grok` is remembered consent; repository `allow_grok=true` is not. Repository
+`allow_grok=false` remains an absolute veto. Regular clear work pins
+`grok-composer-2.5-fast`; genuinely complex execution may explicitly pin `grok-4.5`. Advertised
+goal syntax is recorded separately and goal mode requires behavioral verification. Missing
+auth/model/goal capability or repository prohibition falls back honestly to native. See
 `references/adaptive-worker-routing.md`.
 
 **Optional work drivers:** trusted Grok Build full-run
@@ -439,9 +443,10 @@ compaction, trust this file for status.
 
 Safe worker convenience is shared by both hosts at
 `${XDG_CONFIG_HOME:-~/.config}/elves/config.json`. Use `cobbler_agents.py preferences
-show|set|reset`; writes are private and atomic, explicit run intent and repository policy take
-precedence, and credentials or merge/destructive/protected-ref/approval-bypass authority are
-rejected. `config.json` when present also carries legacy batch sizing, notifications, review method,
+show|set|reset`; writes are private and atomic. Repository safety vetoes outrank everything;
+convenience precedence is explicit run intent, repository defaults, global preferences, then
+built-ins. Credentials or merge/destructive/protected-ref/approval-bypass authority are rejected.
+`config.json` when present also carries legacy batch sizing, notifications, review method,
 default branch, and cleanup.
 Cobbler under top-level `cobbler` (wins over legacy `council`). See `config.json.example`.
 

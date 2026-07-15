@@ -126,11 +126,16 @@ from cobbler_runtime.preferences import (  # noqa: E402
 from cobbler_runtime.worker_routing import (  # noqa: E402
     GrokCapabilities,
     decide_worker_route,
+    discover_repository_worker_policy,
     probe_grok_capabilities,
 )
 from cobbler_runtime.native_worker import (  # noqa: E402
     build_native_worker_spec,
+    follow_native_worker,
+    launch_native_worker,
+    native_worker_status,
     native_worker_profiles,
+    supervise_native_worker,
 )
 
 
@@ -361,7 +366,10 @@ def cmd_preferences(args: argparse.Namespace) -> int:
 
 def cmd_route_worker(args: argparse.Namespace) -> int:
     """Explain a model-free worker recommendation."""
-    preference_state = preference_snapshot()
+    try:
+        preference_state = preference_snapshot()
+    except ValidationIssue as issue:
+        return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
     preferences = preference_state.values if preference_state.exists else {}
     explicit: dict[str, Any] = {"worker": {}}
     if args.provider:
@@ -370,7 +378,16 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         explicit["worker"]["native_effort"] = args.effort
     if args.allow_grok:
         explicit["worker"]["allow_grok"] = True
-    repo_policy = {"worker": {"allow_grok": False}} if args.prohibit_grok else None
+    repo_root = Path(args.repo_root or ".").resolve()
+    try:
+        repo_policy, repo_policy_source = discover_repository_worker_policy(
+            repo_root, override_path=Path(args.repo_policy).resolve() if args.repo_policy else None
+        )
+    except ValidationIssue as issue:
+        return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+    if args.prohibit_grok:
+        repo_policy.setdefault("worker", {})["allow_grok"] = False
+        repo_policy_source = "explicit_cli_veto"
     grok = (
         probe_grok_capabilities(args.grok_executable)
         if args.probe_grok
@@ -378,7 +395,9 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
             installed=args.grok_installed,
             authenticated=args.grok_authenticated,
             models=tuple(args.grok_model or ()),
-            goal_mode_qualified=args.grok_goal_qualified,
+            goal_entrypoint_advertised=args.grok_goal_advertised,
+            goal_mode_behaviorally_verified=bool(args.grok_goal_behavioral_evidence),
+            goal_behavioral_evidence=args.grok_goal_behavioral_evidence,
             version=args.grok_version,
         )
     )
@@ -395,7 +414,7 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         )
     except ValidationIssue as issue:
         return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
-    payload = {"ok": True, "decision": decision.to_dict(), "preferences_path": preference_state.path}
+    payload = {"ok": True, "decision": decision.to_dict(), "preferences_path": preference_state.path, "repository_policy_source": repo_policy_source}
     if args.json:
         return _emit_json(payload, exit_code=0)
     print(
@@ -408,6 +427,46 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
 
 
 def cmd_native_worker(args: argparse.Namespace) -> int:
+    action = args.native_worker_action or "spec"
+    repo_root = Path(args.repo_root or ".").resolve()
+    action_required = {
+        "follow": ("run_id",),
+        "status": ("run_id",),
+        "_supervise": ("run_id", "packet"),
+    }
+    action_missing = [name for name in action_required.get(action, ()) if not getattr(args, name)]
+    if action_missing:
+        issue = ValidationIssue("native_worker_arguments_required", f"Missing native worker arguments: {', '.join(action_missing)}")
+        return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+    if action == "follow":
+        try:
+            state = follow_native_worker(repo_root, args.run_id, wait=not args.no_wait)
+        except ValidationIssue as issue:
+            return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+        return 0 if state.get("status") != "failed" else 1
+    if action == "status":
+        try:
+            state = native_worker_status(repo_root, args.run_id)
+        except ValidationIssue as issue:
+            return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+        if args.json:
+            return _emit_json({"ok": True, "worker": state}, exit_code=0)
+        print(state["status"])
+        return 0
+    if action == "_supervise":
+        return supervise_native_worker(repo_root=repo_root, run_id=args.run_id, packet=Path(args.packet))
+    missing = [name for name in ("host", "worktree", "effort", "model") if not getattr(args, name)]
+    if action == "launch" and (not args.run_id or not args.packet):
+        missing.extend(name for name in ("run_id", "packet") if not getattr(args, name))
+    if missing:
+        issue = ValidationIssue("native_worker_arguments_required", f"Missing native worker arguments: {', '.join(missing)}")
+        return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+    watcher = None
+    visibility_mode = "native_host_agent_view" if args.host_view_visible else "commit_only"
+    if action == "launch":
+        import shlex
+        watcher = shlex.join([sys.executable, str(Path(__file__).resolve()), "native-worker", "follow", "--repo-root", str(repo_root), "--run-id", args.run_id])
+        visibility_mode = "follow_log"
     try:
         spec = build_native_worker_spec(
             host=args.host,
@@ -415,18 +474,28 @@ def cmd_native_worker(args: argparse.Namespace) -> int:
             effort=args.effort,
             requested_model=args.model,
             session_id=args.session_id,
+            visibility_mode=visibility_mode,
+            watcher_command=watcher,
+            fixture_script=Path(args.fixture_script) if args.fixture_script else None,
         )
     except ValidationIssue as issue:
         return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
-    payload = {
-        "ok": True,
-        "worker": spec.to_dict(),
-        "profiles": native_worker_profiles(),
-        "model_calls_made": False,
-    }
+    if action == "launch":
+        try:
+            state = launch_native_worker(repo_root=repo_root, run_id=args.run_id, spec=spec, packet=Path(args.packet), cli_path=Path(__file__))
+        except (OSError, ValidationIssue) as issue:
+            if isinstance(issue, ValidationIssue):
+                return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+            return _emit_json({"ok": False, "issues": [{"code": "native_worker_launch_failed", "message": str(issue)}]}, exit_code=1)
+        payload = {"ok": True, "worker": state, "model_calls_made": False}
+    else:
+        payload = {"ok": True, "worker": spec.to_dict(), "profiles": native_worker_profiles(), "model_calls_made": False}
     if args.json:
         return _emit_json(payload, exit_code=0)
-    sys.stdout.write(" ".join(spec.argv) + "\n")
+    if action == "launch":
+        print(payload["worker"]["watcher_command"])
+    else:
+        sys.stdout.write(" ".join(spec.argv) + "\n")
     return 0
 
 
@@ -1474,7 +1543,7 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 session_path=acceptance_session,
                 plan_path=getattr(args, "plan", None),
                 adapter=adapter_name,
-                model=getattr(args, "model", None) or "grok-4.5",
+                model=getattr(args, "model", None) or "grok-composer-2.5-fast",
                 permission_mode=getattr(args, "permission_mode", None) or "auto",
                 effort=getattr(args, "effort", None) or "medium",
                 executable=getattr(args, "executable", None),
@@ -1902,12 +1971,15 @@ def build_parser() -> argparse.ArgumentParser:
     route_worker.add_argument("--effort", choices=("low", "medium", "high"))
     route_worker.add_argument("--allow-grok", action="store_true")
     route_worker.add_argument("--prohibit-grok", action="store_true")
+    route_worker.add_argument("--repo-root", default=".", help="Target repository used for policy/default discovery")
+    route_worker.add_argument("--repo-policy", help="Explicit repository policy JSON/TOML override (tests/operators)")
     route_worker.add_argument("--grok-installed", action="store_true")
     route_worker.add_argument("--grok-authenticated", action="store_true")
     route_worker.add_argument("--grok-model", action="append")
-    route_worker.add_argument("--grok-goal-qualified", action="store_true")
+    route_worker.add_argument("--grok-goal-advertised", action="store_true")
+    route_worker.add_argument("--grok-goal-behavioral-evidence", help="Recorded behavioral verification id/path for headless goal mode")
     route_worker.add_argument("--grok-version")
-    route_worker.add_argument("--probe-grok", action="store_true", help="Silently probe installed Grok version, auth, models, and goal capability")
+    route_worker.add_argument("--probe-grok", action="store_true", help="Silently probe Grok version, auth, models, and advertised goal entrypoint (not behavioral qualification)")
     route_worker.add_argument("--grok-executable", default="grok")
     route_worker.add_argument("--json", action="store_true")
     route_worker.set_defaults(func=cmd_route_worker)
@@ -1916,11 +1988,18 @@ def build_parser() -> argparse.ArgumentParser:
         "native-worker",
         help="Build a separate exact-session Codex or Claude worker launch specification",
     )
-    native_worker.add_argument("--host", choices=("codex", "claude"), required=True)
-    native_worker.add_argument("--worktree", required=True)
-    native_worker.add_argument("--effort", choices=("low", "medium", "high"), required=True)
-    native_worker.add_argument("--model", required=True, help="Current driver model observed by the host, or an explicit routed model")
+    native_worker.add_argument("native_worker_action", nargs="?", choices=("spec", "launch", "follow", "status", "_supervise"), default="spec")
+    native_worker.add_argument("--host", choices=("codex", "claude", "fixture"))
+    native_worker.add_argument("--worktree")
+    native_worker.add_argument("--effort", choices=("low", "medium", "high"))
+    native_worker.add_argument("--model", help="Current driver model observed by the host, or an explicit routed model")
     native_worker.add_argument("--session-id")
+    native_worker.add_argument("--repo-root", default=".")
+    native_worker.add_argument("--run-id")
+    native_worker.add_argument("--packet")
+    native_worker.add_argument("--fixture-script", help="Explicit no-model subprocess fixture (tests only)")
+    native_worker.add_argument("--host-view-visible", action="store_true", help="Record a capability-proven user-visible native host agent view")
+    native_worker.add_argument("--no-wait", action="store_true", help="For follow: print currently available lines and return")
     native_worker.add_argument("--json", action="store_true")
     native_worker.set_defaults(func=cmd_native_worker)
 
@@ -2302,7 +2381,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="grok-build",
         help="grok-build (default), devin-cli, or fixture (explicit test mode only)",
     )
-    i_fr_prepare.add_argument("--model", default="grok-4.5")
+    i_fr_prepare.add_argument("--model", default="grok-composer-2.5-fast")
     i_fr_prepare.add_argument("--permission-mode", default="auto")
     i_fr_prepare.add_argument("--effort", default="medium")
     i_fr_prepare.add_argument(
@@ -2511,7 +2590,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--model",
         default=None,
         help=(
-            "Default model (Grok: grok-4.5, or aliases fast/deep; "
+            "Default model (Grok: grok-composer-2.5-fast, or aliases fast/deep; "
             "OpenCode: provider/model e.g. openrouter/qwen/qwen3-max)"
         ),
     )
@@ -2566,7 +2645,7 @@ def build_parser() -> argparse.ArgumentParser:
     i_launch.add_argument(
         "--model",
         default=None,
-        help="Model (default: prepare state or grok-4.5; Grok aliases: fast, deep)",
+        help="Model (default: prepare state or grok-composer-2.5-fast; Grok aliases: fast, deep)",
     )
     i_launch.add_argument(
         "--effort",

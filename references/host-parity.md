@@ -11,6 +11,7 @@ Workflow semantics are identical. Invocation surfaces differ.
 | Land PR | `/land-pr` or `\land-pr` | natural language or alias |
 | Continuation | optional | optional **Codex Goals** (seatbelt, not memory) |
 | Native worker | Separate custom/background session; model inherited, effort plan-matched | Separate custom agent or supervised `codex exec`; model inherited, effort plan-matched |
+| Visibility | Proven native agent view or exact private-log follow command | Proven native agent view or exact private-log follow command |
 | Exact resume | `--resume <uuid>` | `codex exec resume <thread-id>` from registered worktree CWD |
 | Grok Build goal | optional worker capability | same optional worker capability |
 

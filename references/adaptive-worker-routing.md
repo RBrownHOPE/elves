@@ -7,8 +7,8 @@ Start with the user flow, not route vocabulary:
 The live Claude Code or Codex driver classifies execution reasoning separately from review risk,
 shows one worker recommendation, and asks at most one useful preference question. The default is a
 separate worker on the subscription already in use. The worker receives the complete packet, the
-driver parks while its stream stays visible, and the driver wakes for one cumulative terminal
-review. Worker completion never grants PR or merge authority.
+driver exposes a capability-proven native agent view or exact follow command before parking, and
+wakes for one cumulative terminal review. Worker completion never grants PR or merge authority.
 
 ## Small policy surface
 
@@ -42,21 +42,26 @@ Writes are private and atomic. Safe unknown fields survive updates. Credentials 
 merge/destructive/protected-ref/approval-bypass authority are rejected. Resolution is:
 
 ```text
-repository safety policy > explicit run intent > global convenience > built-in native default
+repository safety veto > explicit run intent > repository defaults > global convenience > built-in default
 ```
 
-Repository prohibition is always a veto. Availability, preference, recommendation, and permission
-are separate facts.
+Repository prohibition is always a veto. A current-run or global `provider=grok` is remembered
+consent; repository `allow_grok=true` is not consent. Availability, preference, recommendation,
+consent, and prohibition are separate facts.
 
 ## Deterministic recommendation
 
 `route-worker` performs no model inference and reports provider, transport, model policy, effort,
-review risk, provenance, fallback, optional driver-upgrade advice, and qualified goal behavior:
+review risk, provenance, fallback, optional driver-upgrade advice, advertised goal evidence, and
+separately recorded behavioral verification:
 
 ```bash
 python3 scripts/cobbler_agents.py route-worker --json \
   --host codex --execution-reasoning medium --review-risk high --probe-grok
 ```
+
+An operator may bind previously recorded proof with
+`--grok-goal-behavioral-evidence <verification-id-or-path>`; the help probe alone never sets it.
 
 Native workers inherit the current driver model unless an explicit model is routed. Effort follows
 the plan's low/medium/high execution classification; the driver itself is never downgraded. High
@@ -66,8 +71,8 @@ When Grok Build is explicitly permitted and silently qualifies:
 
 - regular clear low/medium execution pins `grok-composer-2.5-fast`;
 - genuinely complex high execution pins `grok-4.5`;
-- missing install, auth, model, permission, or behaviorally qualified goal mode records an honest
-  native fallback. A TUI-only `/goal` mention is not headless goal capability.
+- missing install, auth, model, consent, or behaviorally verified goal mode records an honest
+  native fallback. Help text proves only an advertised entrypoint; a TUI-only `/goal` proves less.
 
 ## Host transports, same contract
 
@@ -78,14 +83,20 @@ When Grok Build is explicitly permitted and silently qualifies:
 | Worktree | native isolated worktree or supervisor CWD | `-C` on create; supervisor OS CWD on resume |
 | Model | inherit unless explicitly pinned | inherit unless explicitly pinned |
 | Effort | `--effort <level>` | `model_reasoning_effort=<level>` |
-| Stream | native background/structured stream | JSONL thread stream |
+| Visibility | capability-proven native agent view or private follow log | capability-proven native agent view or private follow log |
 
-Build an inspectable CLI-fallback launch specification with `native-worker --host claude|codex
+Build an inspectable CLI-fallback launch specification with `native-worker spec --host claude|codex
 --worktree <path> --effort <level> --model <observed-current-model> --json`. Native custom agents
 inherit the live model. A supervised CLI child cannot safely infer a parent invocation override, so
 the host must supply the observed current model (or an explicit routed model) and the command pins
 it. Every path uses a separate session, never uses `--last`, and never claims a cross-session cache
 handoff.
+
+`native-worker launch` supervises the child and tees redacted structured stdout/stderr into a
+mode-0600 per-run follow log. It returns an exact `native-worker follow --run-id <id>` command
+before the driver parks; `native-worker status` reports the bound PID, session, worktree,
+visibility state, and exit status. A spec with neither a proven host view nor a follow log reports
+`visibility_ready=false` and `visibility_mode=commit_only`.
 
 ## Cache and authority limits
 

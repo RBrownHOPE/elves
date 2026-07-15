@@ -1,17 +1,25 @@
-# Follow mode (default live worker window)
+# Follow mode (capability-bound worker window)
 
 Machine source: `scripts/cobbler_runtime/full_run.py` (`await_full_run`, `format_follow_stream_line`).
 
 ## Default
 
-Every separate-worker run keeps a human-readable worker stream visible by default. Native host
-threads use their host's agent view or structured CLI stream; trusted Grok full-run uses the
-sanitized await stream below.
+Before parking, a separate-worker run binds either a capability-proven user-visible native host
+agent view or a private durable follow log. Merely emitting JSONL is not visibility. If neither is
+bound, the launch reports commit-only visibility and does not claim a stream. Trusted Grok
+full-run uses the sanitized await stream below.
 
 ```bash
 python3 scripts/cobbler_agents.py implement full-run-await --session-id <id>
 # Quiet opt-out:
 python3 scripts/cobbler_agents.py implement full-run-await --session-id <id> --quiet
+```
+
+For supervised native CLI workers, launch returns the exact watcher command:
+
+```bash
+python3 scripts/cobbler_agents.py native-worker follow --repo-root <repo> --run-id <id>
+python3 scripts/cobbler_agents.py native-worker status --repo-root <repo> --run-id <id> --json
 ```
 
 (`python3 scripts/...` is source-checkout shorthand; prefer `$ELVES_SKILL_ROOT` when installed.)

@@ -20,8 +20,10 @@ This file is a **thin Codex adapter**; the compact **canonical workflow is** in 
 **Grok Build goal mode** is a separate worker capability. Default work routing is a separate
 subscription-native Codex/Claude worker at plan-matched effort; permitted Grok is optional and
 capability-probed. Safe preferences are shared at
-`${XDG_CONFIG_HOME:-~/.config}/elves/config.json`, while explicit run intent and repository policy
-win. Regular clear Grok work pins Composer 2.5 Fast; genuinely complex work may pin Grok 4.5.
+`${XDG_CONFIG_HOME:-~/.config}/elves/config.json`. Repository safety vetoes win; convenience order
+is explicit run intent, repository defaults, global preferences, then built-ins. Repository allow
+is not Grok consent. Regular clear Grok work pins Composer 2.5 Fast; genuinely complex work may
+explicitly pin Grok 4.5.
 Default landing remains **chat-to-work**
 (or **chat-to-land** when authorized); aliases `\land-pr` / `/land-pr`. Honor **Stop Gate** /
 `continuation_guard`. Landable is **plan Acceptance with proof**. Installed helpers use the

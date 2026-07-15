@@ -11,7 +11,8 @@ staging -> executing -> reconciling -> reviewing <-> revising -> ready -> termin
 1. Plan with acceptance, risk, caution, affected surfaces, constitution impacts, focused tests.
 2. Stage once (branch, PR, session, preflight, packet).
 3. Hand one self-contained packet to a trusted worker (or implement host-native).
-4. Park the driver. Follow the sanitized worker stream (no model inference).
+4. Bind a proven native agent view or exact private-log follow command, then park the driver (no
+   model inference). If neither is available, report commit-only visibility honestly.
 5. On terminal wake: reconcile, one cumulative review, consolidate blockers, revise, delta re-review.
 6. Attest readiness at an exact HEAD. Land as a landable PR, or merge only with explicit host authorization at that same HEAD.
 

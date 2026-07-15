@@ -1179,8 +1179,10 @@ class FullRunState:
     # Bounded monitor cache: event file size/digest and last remote-audit stamp.
     # Used so unchanged healthy polls stay incremental.
     monitor_cache: dict[str, Any] = field(default_factory=dict)
-    # native_goal | headless_compatible_fallback | fixture | devin_prompt_file | unknown
+    # advertised_headless_entrypoint | headless_compatible_fallback | fixture | devin_prompt_file | unknown
     goal_launch_mode: str | None = None
+    goal_entrypoint_advertised: bool = False
+    goal_mode_behaviorally_verified: bool = False
     report_provenance: str | None = None
     # Devin CLI: exact provider session id captured from `devin list --format json`.
     provider_session_id: str | None = None
@@ -1256,7 +1258,10 @@ class FullRunState:
             value = data.get(field_name)
             if field_name in data and (not isinstance(value, str) or not value):
                 raise TypeError(f"{field_name} must be a non-empty string")
-        for field_name in ("create_session", "check", "yolo", "supervision_canary_passed"):
+        for field_name in (
+            "create_session", "check", "yolo", "supervision_canary_passed",
+            "goal_entrypoint_advertised", "goal_mode_behaviorally_verified",
+        ):
             value = data.get(field_name)
             if field_name in data and not isinstance(value, bool):
                 raise TypeError(f"{field_name} must be a boolean")
@@ -6580,6 +6585,8 @@ def build_full_run_argv(state: FullRunState) -> list[str]:
     # Record actual capability; do not invent flags. Headless packet launch is
     # the compatible fallback when no public --goal entrypoint exists.
     state.goal_launch_mode = str(detection.get("mode") or "headless_compatible_fallback")
+    state.goal_entrypoint_advertised = bool(detection.get("advertised_headless_entrypoint"))
+    state.goal_mode_behaviorally_verified = bool(detection.get("goal_mode_behaviorally_verified"))
     return build_launch_argv(
         session_id=state.session_id,
         packet=launch_packet,

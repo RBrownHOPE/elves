@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 import re
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Any, Mapping
 
 from .schema import ValidationIssue
@@ -22,7 +23,9 @@ class GrokCapabilities:
     installed: bool = False
     authenticated: bool = False
     models: tuple[str, ...] = ()
-    goal_mode_qualified: bool = False
+    goal_entrypoint_advertised: bool = False
+    goal_mode_behaviorally_verified: bool = False
+    goal_behavioral_evidence: str | None = None
     version: str | None = None
 
     def supports(self, model: str) -> bool:
@@ -54,20 +57,21 @@ def probe_grok_capabilities(
     version_match = re.search(r"\d+\.\d+(?:\.\d+)?", version_text)
     model_text = models_result.stdout or ""
     models = tuple(sorted(set(re.findall(r"\bgrok-[a-z0-9][a-z0-9._-]*", model_text.lower()))))
-    goal_qualified = False
+    goal_advertised = False
     if getattr(help_result, "returncode", 1) == 0:
         from .implement import detect_native_grok_goal
 
-        goal_qualified = bool(
+        goal_advertised = bool(
             detect_native_grok_goal(help_text=help_result.stdout or help_result.stderr or "").get(
-                "native_goal"
+                "advertised_headless_entrypoint"
             )
         )
     return GrokCapabilities(
         installed=True,
         authenticated=getattr(models_result, "returncode", 1) == 0,
         models=models,
-        goal_mode_qualified=goal_qualified,
+        goal_entrypoint_advertised=goal_advertised,
+        goal_mode_behaviorally_verified=False,
         version=version_match.group(0) if version_match else None,
     )
 
@@ -99,6 +103,27 @@ def _choice(layers: tuple[tuple[str, Mapping[str, Any] | None], ...], key: str, 
         if layer is not None and key in layer and layer[key] is not None:
             return layer[key], source
     return default, "built_in_default"
+
+
+def discover_repository_worker_policy(
+    repo_root: Path, *, override_path: Path | None = None
+) -> tuple[dict[str, Any], str]:
+    """Discover target-repository worker defaults/vetoes from established config files."""
+    from .config import load_json_file, load_toml_file
+
+    candidates = [override_path] if override_path else [repo_root / "config.json", repo_root / ".elves" / "models.toml"]
+    merged: dict[str, Any] = {}
+    sources: list[str] = []
+    for candidate in candidates:
+        if candidate is None or not candidate.is_file():
+            continue
+        data = load_toml_file(candidate) if candidate.suffix == ".toml" else load_json_file(candidate)
+        worker = data.get("worker", {}) if isinstance(data, Mapping) else {}
+        if not isinstance(worker, Mapping):
+            raise ValidationIssue("invalid_route_policy", "Repository `worker` policy must be an object", path=str(candidate))
+        merged.update(worker)
+        sources.append(str(candidate.resolve()))
+    return ({"worker": merged} if merged else {}), (" > ".join(sources) if sources else "none")
 
 
 def decide_worker_route(
@@ -133,8 +158,8 @@ def decide_worker_route(
 
     provider, provider_source = _choice(
         (
-            ("repository_policy", repo_worker),
             ("explicit_run_intent", explicit_worker),
+            ("repository_default", repo_worker),
             ("global_preferences", global_worker),
         ),
         "provider",
@@ -142,8 +167,8 @@ def decide_worker_route(
     )
     effort, effort_source = _choice(
         (
-            ("repository_policy", repo_worker),
             ("explicit_run_intent", explicit_worker),
+            ("repository_default", repo_worker),
             ("global_preferences", global_worker),
         ),
         "native_effort",
@@ -159,7 +184,14 @@ def decide_worker_route(
 
     grok_info = grok or GrokCapabilities()
     prohibited = repo_worker.get("allow_grok") is False
-    permitted = repo_worker.get("allow_grok") is True or explicit_worker.get("allow_grok") is True
+    consent_source = "none"
+    if explicit_worker.get("provider") == "grok":
+        consent_source = "explicit_run_provider"
+    elif explicit_worker.get("allow_grok") is True:
+        consent_source = "explicit_run_allow_grok"
+    elif global_worker.get("provider") == "grok":
+        consent_source = "global_provider_preference"
+    permitted = consent_source != "none"
     reasons: list[str] = []
     fallback: dict[str, str] | None = None
 
@@ -179,7 +211,10 @@ def decide_worker_route(
                 selected_provider = "grok"
                 selected_model = candidate
                 model_policy = "explicit_grok_model_pin"
-                goal_mode = bool(grok_info.goal_mode_qualified)
+                goal_mode = bool(
+                    grok_info.goal_mode_behaviorally_verified
+                    and grok_info.goal_behavioral_evidence
+                )
                 reasons.append("permitted_grok_capability_matches_plan")
             else:
                 missing = "unavailable_or_unauthenticated" if not (grok_info.installed and grok_info.authenticated) else f"model_unavailable:{candidate}"
@@ -205,7 +240,9 @@ def decide_worker_route(
         provenance={
             "provider": provider_source,
             "worker_effort": "plan_execution_reasoning" if effort_is_auto else effort_source,
-            "grok_permission": "repository_policy" if prohibited else ("explicit_run_intent" if permitted else "none"),
+            "grok_consent": consent_source,
+            "grok_safety_veto": "repository_policy" if prohibited else "none",
+            "grok_goal_evidence": grok_info.goal_behavioral_evidence or "none",
         },
         fallback=fallback,
         advisory_driver_upgrade=advisory,

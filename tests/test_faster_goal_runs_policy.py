@@ -135,8 +135,10 @@ class GoalAwaitAndMonitorDepthTests(unittest.TestCase):
         native = detect_native_grok_goal(
             help_text="Options:\n  --goal <packet>  Run a headless goal\n"
         )
-        self.assertTrue(native["native_goal"])
-        self.assertEqual(native["mode"], "native_goal")
+        self.assertTrue(native["advertised_headless_entrypoint"])
+        self.assertFalse(native["goal_mode_behaviorally_verified"])
+        self.assertFalse(native["native_goal"])
+        self.assertEqual(native["mode"], "advertised_headless_entrypoint")
 
     def test_monitor_depth_incremental_vs_full(self) -> None:
         self.assertEqual(

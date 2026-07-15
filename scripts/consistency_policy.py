@@ -2399,11 +2399,11 @@ ADAPTIVE_WORKER_ROUTING_PHRASES = {
     "README.md": [
         "subscription-native worker",
         "preferences show|set|reset",
-        "explicit run intent and repository policy win",
+        "Repository safety vetoes always win",
         "never merge permission",
     ],
     "references/adaptive-worker-routing.md": [
-        "repository safety policy > explicit run intent > global convenience",
+        "repository safety veto > explicit run intent > repository defaults > global convenience",
         "grok-composer-2.5-fast",
         "codex exec resume <thread-id>",
         "a session ID is not such an object",

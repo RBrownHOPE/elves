@@ -40,13 +40,24 @@ _FORBIDDEN_COMPOUNDS = frozenset(
     {
         "api_key", "merge_authority", "force_push", "protected_ref",
         "approval_bypass", "bypass_approval", "permission_bypass",
+        "always_approve", "alwaysapprove", "permission_mode", "permissionmode",
+        "bypasspermissions",
     }
+)
+_FORBIDDEN_VALUES = frozenset(
+    {"alwaysapprove", "always_approve", "bypasspermissions", "bypass_permissions", "dontask", "dont_ask"}
 )
 
 
 def global_preferences_path(*, env: Mapping[str, str] | None = None) -> Path:
     values = os.environ if env is None else env
     xdg = values.get("XDG_CONFIG_HOME", "").strip()
+    if xdg and not Path(xdg).expanduser().is_absolute():
+        raise ValidationIssue(
+            "relative_xdg_config_home",
+            "XDG_CONFIG_HOME must be absolute for machine-global Elves preferences",
+            path="XDG_CONFIG_HOME",
+        )
     root = Path(xdg).expanduser() if xdg else Path(values.get("HOME", "~")).expanduser() / ".config"
     return root / "elves" / "config.json"
 
@@ -74,6 +85,13 @@ def _reject_unsafe_keys(value: Any, *, path: str = "") -> None:
     elif isinstance(value, list):
         for index, child in enumerate(value):
             _reject_unsafe_keys(child, path=f"{path}[{index}]")
+    elif isinstance(value, str) and _normalized_token(value) in _FORBIDDEN_VALUES:
+        raise ValidationIssue(
+            "unsafe_global_preference",
+            f"Global preferences cannot store approval-bypass value at `{path}`",
+            path=path,
+            hint="Keep permission and approval policy out of machine-global preferences.",
+        )
 
 
 def _validate_known_fields(data: Mapping[str, Any]) -> None:

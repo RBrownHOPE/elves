@@ -24,6 +24,7 @@ from cobbler_runtime.native_worker import (  # noqa: E402
     native_worker_profiles,
     parse_codex_thread_id,
 )
+from cobbler_runtime.full_run import FullRunState, build_full_run_argv  # noqa: E402
 from cobbler_runtime.preferences import (  # noqa: E402
     global_preferences_path,
     load_preferences,
@@ -37,6 +38,7 @@ from cobbler_runtime.worker_routing import (  # noqa: E402
     GrokCapabilities,
     decide_worker_route,
     probe_grok_capabilities,
+    discover_repository_worker_policy,
 )
 
 
@@ -74,6 +76,19 @@ class GlobalPreferencesTests(unittest.TestCase):
             )
             with self.assertRaises(ValidationIssue):
                 load_preferences(path)
+            for body in (
+                {"version": 1, "future": {"always_approve": True}},
+                {"version": 1, "future": {"permission_mode": "safe"}},
+                {"version": 1, "future": {"mode": "bypassPermissions"}},
+            ):
+                path.write_text(json.dumps(body), encoding="utf-8")
+                with self.subTest(body=body), self.assertRaises(ValidationIssue):
+                    load_preferences(path)
+
+    def test_relative_xdg_config_home_is_rejected(self) -> None:
+        with self.assertRaises(ValidationIssue) as caught:
+            global_preferences_path(env={"HOME": "/tmp/home", "XDG_CONFIG_HOME": ".config"})
+        self.assertEqual(caught.exception.code, "relative_xdg_config_home")
 
 
 class RouteDecisionMatrixTests(unittest.TestCase):
@@ -100,12 +115,14 @@ class RouteDecisionMatrixTests(unittest.TestCase):
             installed=True,
             authenticated=True,
             models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL),
-            goal_mode_qualified=True,
+            goal_entrypoint_advertised=True,
+            goal_mode_behaviorally_verified=True,
+            goal_behavioral_evidence="fixture:headless-goal-contract-v1",
         )
         for reasoning, expected in (("low", GROK_COMPOSER_MODEL), ("medium", GROK_COMPOSER_MODEL), ("high", GROK_COMPLEX_MODEL)):
             decision = self.decide(
                 execution_reasoning=reasoning,
-                explicit_intent={"worker": {"provider": "grok", "allow_grok": True}},
+                explicit_intent={"worker": {"provider": "grok"}},
                 grok=capabilities,
             )
             self.assertEqual(decision.provider, "grok")
@@ -113,14 +130,14 @@ class RouteDecisionMatrixTests(unittest.TestCase):
             self.assertTrue(decision.goal_mode)
 
     def test_unavailable_and_repo_prohibited_fall_back_honestly(self) -> None:
-        requested = {"worker": {"provider": "grok", "allow_grok": True}}
+        requested = {"worker": {"provider": "grok"}}
         unavailable = self.decide(explicit_intent=requested)
         self.assertEqual(unavailable.provider, "native")
         self.assertIn("unavailable", unavailable.fallback["reason"])
         prohibited = self.decide(
             explicit_intent=requested,
             repo_policy={"worker": {"allow_grok": False}},
-            grok=GrokCapabilities(True, True, (GROK_COMPOSER_MODEL,), True),
+            grok=GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), goal_entrypoint_advertised=True, goal_mode_behaviorally_verified=True, goal_behavioral_evidence="fixture:verified"),
         )
         self.assertEqual(prohibited.provider, "native")
         self.assertEqual(prohibited.fallback["reason"], "repository_policy_prohibits_grok")
@@ -138,16 +155,34 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         self.assertEqual(decision.provenance["provider"], "explicit_run_intent")
         self.assertIsNotNone(decision.advisory_driver_upgrade)
 
-    def test_repository_policy_overrides_explicit_convenience_fields(self) -> None:
+    def test_explicit_native_beats_repository_auto_allow_while_veto_stays_absolute(self) -> None:
         decision = self.decide(
             global_preferences={"worker": {"provider": "grok", "native_effort": "low"}},
-            explicit_intent={"worker": {"provider": "grok", "native_effort": "medium", "allow_grok": True}},
-            repo_policy={"worker": {"provider": "native", "native_effort": "high", "allow_grok": False}},
+            explicit_intent={"worker": {"provider": "native", "native_effort": "medium"}},
+            repo_policy={"worker": {"provider": "auto", "native_effort": "high", "allow_grok": True}},
         )
         self.assertEqual(decision.provider, "native")
-        self.assertEqual(decision.worker_effort, "high")
-        self.assertEqual(decision.provenance["provider"], "repository_policy")
-        self.assertEqual(decision.provenance["worker_effort"], "repository_policy")
+        self.assertEqual(decision.worker_effort, "medium")
+        self.assertEqual(decision.provenance["provider"], "explicit_run_intent")
+
+    def test_global_grok_is_remembered_consent_but_repository_veto_wins(self) -> None:
+        caps = GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,))
+        selected = self.decide(global_preferences={"worker": {"provider": "grok"}}, grok=caps)
+        self.assertEqual(selected.provider, "grok")
+        self.assertEqual(selected.provenance["grok_consent"], "global_provider_preference")
+        vetoed = self.decide(global_preferences={"worker": {"provider": "grok"}}, repo_policy={"worker": {"allow_grok": False}}, grok=caps)
+        self.assertEqual(vetoed.provider, "native")
+        self.assertEqual(vetoed.provenance["grok_safety_veto"], "repository_policy")
+
+    def test_repository_discovery_reads_target_config_without_treating_allow_as_consent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "config.json").write_text(json.dumps({"worker": {"provider": "auto", "allow_grok": True}}), encoding="utf-8")
+            policy, source = discover_repository_worker_policy(root)
+            self.assertEqual(policy["worker"]["provider"], "auto")
+            self.assertEqual(source, str((root / "config.json").resolve()))
+            decision = self.decide(repo_policy=policy, grok=GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,)))
+            self.assertEqual(decision.provider, "native")
 
     @mock.patch("cobbler_runtime.worker_routing.shutil.which", return_value="/usr/bin/grok")
     def test_silent_grok_probe_separates_auth_models_and_goal_qualification(self, _which) -> None:
@@ -162,7 +197,37 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         self.assertTrue(result.authenticated)
         self.assertEqual(result.version, "0.2.101")
         self.assertIn(GROK_COMPOSER_MODEL, result.models)
-        self.assertFalse(result.goal_mode_qualified)
+        self.assertFalse(result.goal_entrypoint_advertised)
+        self.assertFalse(result.goal_mode_behaviorally_verified)
+
+    def test_advertised_goal_is_not_behaviorally_verified(self) -> None:
+        caps = GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), goal_entrypoint_advertised=True)
+        decision = self.decide(explicit_intent={"worker": {"provider": "grok"}}, grok=caps)
+        self.assertFalse(decision.goal_mode)
+        unrecorded = GrokCapabilities(
+            installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,),
+            goal_entrypoint_advertised=True, goal_mode_behaviorally_verified=True,
+        )
+        self.assertFalse(self.decide(explicit_intent={"worker": {"provider": "grok"}}, grok=unrecorded).goal_mode)
+
+    def test_route_model_reaches_production_full_run_argv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "packet.md"
+            packet.write_text("fixture\n", encoding="utf-8")
+            caps = GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL))
+            for reasoning, expected in (("medium", GROK_COMPOSER_MODEL), ("high", GROK_COMPLEX_MODEL)):
+                decision = self.decide(execution_reasoning=reasoning, explicit_intent={"worker": {"provider": "grok"}}, grok=caps)
+                state = FullRunState(session_id="exact-session", branch="feature", start_head="a" * 40, worktree=tmp, packet_path=str(packet), model=decision.worker_model or "")
+                with mock.patch("cobbler_runtime.implement.detect_native_grok_goal", return_value={"mode": "headless_compatible_fallback"}):
+                    argv = build_full_run_argv(state)
+                self.assertEqual(argv[argv.index("--model") + 1], expected)
+
+    def test_full_run_state_regular_default_is_composer(self) -> None:
+        state = FullRunState(
+            session_id="exact-session", branch="feature", start_head="a" * 40,
+            worktree=str(REPO_ROOT), packet_path=str(REPO_ROOT / "README.md"),
+        )
+        self.assertEqual(state.model, GROK_COMPOSER_MODEL)
 
 
 class NativeWorkerGrammarTests(unittest.TestCase):
@@ -200,6 +265,8 @@ class NativeWorkerGrammarTests(unittest.TestCase):
         profiles = native_worker_profiles()
         self.assertEqual(profiles["codex"]["model_policy"], profiles["claude"]["model_policy"])
         self.assertFalse(profiles["codex"]["worker_merge_authority"])
+        self.assertFalse(profiles["codex"]["visibility_ready"])
+        self.assertNotIn("live_stream", profiles["codex"])
 
     def test_supervised_fallback_refuses_to_infer_the_driver_model(self) -> None:
         with self.assertRaises(ValidationIssue) as caught:
@@ -237,6 +304,56 @@ class NativeWorkerGrammarTests(unittest.TestCase):
             payload = json.loads(route.stdout)
             self.assertEqual(payload["decision"]["provider"], "native")
             self.assertEqual(payload["decision"]["worker_transport"], "claude_code")
+
+    def test_fixture_supervisor_binds_private_follow_log_and_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = root / "worker.py"
+            packet = root / "packet.md"
+            fixture.write_text(
+                "import sys, time\n"
+                "print('{\"type\":\"thread.started\",\"thread_id\":\"fixture-thread\"}', flush=True)\n"
+                "print('fixture stderr', file=sys.stderr, flush=True)\n"
+                "assert sys.stdin.read() == 'packet body\\n'\n"
+                "time.sleep(0.1)\n",
+                encoding="utf-8",
+            )
+            packet.write_text("packet body\n", encoding="utf-8")
+            cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
+            command = [
+                sys.executable, str(cli), "native-worker", "launch", "--host", "fixture",
+                "--worktree", str(root), "--effort", "low", "--model", "fixture-model",
+                "--fixture-script", str(fixture), "--repo-root", str(root), "--run-id", "fixture-run",
+                "--packet", str(packet), "--json",
+            ]
+            launched = subprocess.run(command, text=True, capture_output=True, check=False)
+            self.assertEqual(launched.returncode, 0, launched.stderr)
+            launch_payload = json.loads(launched.stdout)
+            self.assertTrue(launch_payload["worker"]["visibility_ready"])
+            self.assertIn("native-worker follow", launch_payload["worker"]["watcher_command"])
+            status_payload = None
+            for _ in range(50):
+                status = subprocess.run(
+                    [sys.executable, str(cli), "native-worker", "status", "--repo-root", str(root), "--run-id", "fixture-run", "--json"],
+                    text=True, capture_output=True, check=False,
+                )
+                status_payload = json.loads(status.stdout)["worker"]
+                if status_payload["status"] in {"complete", "failed"}:
+                    break
+                import time
+                time.sleep(0.05)
+            supervisor_detail = Path(status_payload["supervisor_log"]).read_text(encoding="utf-8")
+            self.assertEqual(status_payload["status"], "complete", supervisor_detail)
+            self.assertEqual(status_payload["worktree"], str(root.resolve()))
+            self.assertIsNotNone(status_payload["pid"])
+            log_path = Path(status_payload["follow_log"])
+            self.assertEqual(log_path.stat().st_mode & 0o777, 0o600)
+            followed = subprocess.run(
+                [sys.executable, str(cli), "native-worker", "follow", "--repo-root", str(root), "--run-id", "fixture-run", "--no-wait"],
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(followed.returncode, 0, followed.stderr)
+            self.assertIn("fixture stderr", followed.stdout)
 
 
 if __name__ == "__main__":

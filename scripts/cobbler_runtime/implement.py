@@ -38,7 +38,7 @@ from .storage import (
     read_json,
 )
 
-DEFAULT_MODEL = "grok-4.5"
+DEFAULT_MODEL = "grok-composer-2.5-fast"
 DEFAULT_PERMISSION_MODE = "auto"
 DEFAULT_LANE = "fast"
 DEFAULT_GIT_MODE = "branch_progress"
@@ -1210,7 +1210,7 @@ def humanize_grok_failure(
 
     if re.search(r"model .+ not found|unknown model|invalid model", blob, re.I):
         return (
-            "Grok rejected the model id. Use a valid model (e.g. `grok-4.5`) "
+            "Grok rejected the model id. Use a valid model (e.g. `grok-composer-2.5-fast`) "
             "or an implement alias (`fast` / `deep`)."
         )
 
@@ -1241,11 +1241,11 @@ def detect_native_grok_goal(
     *,
     help_text: str | None = None,
 ) -> dict[str, object]:
-    """Capability-detect native Grok goal orchestration.
+    """Detect advertised headless goal syntax without claiming behavioral qualification.
 
     Installed Grok may expose `/goal` as a TUI skill without a public headless
-    ``--goal`` flag. Detection is honest: native_goal only when a real headless
-    goal flag or documented noninteractive goal entrypoint is present.
+    ``--goal`` flag. Help output is advertisement evidence only; a separate
+    recorded behavioral probe must qualify goal-mode execution.
     """
     import re
     import shutil
@@ -1291,13 +1291,17 @@ def detect_native_grok_goal(
     )
     if has_goal_flag:
         return {
-            "native_goal": True,
-            "mode": "native_goal",
-            "fallback": None,
-            "detail": "Installed Grok advertises a headless goal entrypoint",
+            "advertised_headless_entrypoint": True,
+            "goal_mode_behaviorally_verified": False,
+            "native_goal": False,
+            "mode": "advertised_headless_entrypoint",
+            "fallback": "packet_prompt_headless",
+            "detail": "Installed Grok advertises a headless goal entrypoint; behavior is unverified",
             "tui_goal_mentioned": "/goal" in lower or "goal mode" in lower,
         }
     return {
+        "advertised_headless_entrypoint": has_goal_subcommand,
+        "goal_mode_behaviorally_verified": False,
         "native_goal": False,
         "mode": "headless_compatible_fallback",
         "fallback": "packet_prompt_headless",

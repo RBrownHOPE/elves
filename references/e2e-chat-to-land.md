@@ -4,8 +4,8 @@
 
 From either supported host, the smallest happy-path request is: “Implement this plan while I’m
 offline; leave the PR unmerged.” Elves classifies the plan, recommends a separate
-subscription-native worker by default, offers at most one remembered provider choice, keeps the
-worker stream visible while the driver parks, and returns to the capable driver for cumulative
+subscription-native worker by default, offers at most one remembered provider choice, binds a
+proven native view or exact follow command before the driver parks, and returns to the capable driver for cumulative
 review. Permitted Grok remains optional. See
 [`adaptive-worker-routing.md`](adaptive-worker-routing.md).
 
