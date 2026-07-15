@@ -1161,6 +1161,28 @@ class VerifyRepoUnitTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertIn("capability.py:2", message)
 
+    def test_secret_scan_allows_github_id_token_permission_but_rejects_a_value(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            workflows = root / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            candidate = workflows / "pages.yml"
+            candidate.write_text("permissions:\n  id-token: write\n", encoding="utf-8")
+
+            ok, message = self.verify.check_secret_patterns(root)
+
+            self.assertTrue(ok, message)
+
+            candidate.write_text(
+                "permissions:\n  id-token: real-secret-value\n",
+                encoding="utf-8",
+            )
+
+            ok, message = self.verify.check_secret_patterns(root)
+
+            self.assertFalse(ok)
+            self.assertIn("pages.yml:2", message)
+
     def test_markdown_links_require_tracked_targets_and_real_anchors(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

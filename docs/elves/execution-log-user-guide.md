@@ -70,3 +70,13 @@
 - The final review found no remaining P0, P1, or P2 issue.
 - One P3 accessibility note asked for copy-button status announcements. The copy controls now mark
   their changing label as a polite live region.
+
+## Final readiness correction: 2026-07-15
+
+- The broad terminal gate passed 993 tests, installed-bundle smoke, public API, links, consistency,
+  release, and landing acceptance.
+- Its secret scan initially mistook GitHub's required workflow permission `id-token: write` for a
+  credential. The verifier now allows only the standard `read`, `write`, or `none` permission words
+  for that exact workflow key and still rejects a credential-like value. Both focused cases pass.
+- The first rerun correctly refused to attest a dirty tip containing that verifier fix. The fix is
+  committed before the exact-tip rerun.
