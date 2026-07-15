@@ -6517,7 +6517,10 @@ class FullRunLifecycleTests(unittest.TestCase):
         devin = Path(self.tmp.name) / "fake_devin.py"
         devin.write_text(FAKE_DEVIN, encoding="utf-8")
         devin.chmod(devin.stat().st_mode | stat.S_IXUSR)
-        env = self._devin_clean_env() | {"ELVES_FAKE_DEVIN_PAUSE": "5"}
+        # Keep the fixture alive beyond the ten-second observation window so
+        # loaded CI runners cannot turn the intended stop/resume case into a
+        # clean completion before stop_full_run records interruption evidence.
+        env = self._devin_clean_env() | {"ELVES_FAKE_DEVIN_PAUSE": "30"}
         with mock.patch.dict(os.environ, env, clear=True):
             _attach_origin(self.repo, remote, self.branch)
             prepare_full_run(
