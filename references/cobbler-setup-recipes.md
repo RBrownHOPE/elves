@@ -318,7 +318,40 @@ requires Grok Build 0.2.93+ with the native capability marker; older or unsuppor
 before spawn and must upgrade or use the API-key route. The strategies are mutually exclusive, and
 no supported auth means launch fails before any provider process starts.
 
-The feature-branch push route is separate from Grok login. With a canonical GitHub HTTPS origin,
+### Trusted Devin CLI full-run lifecycle
+
+The Devin CLI route uses `swe-1-7-lightning` by default and `--print` as the non-interactive
+transport (the TUI is not used under full-run supervision). It follows the same exact-session
+contract as Grok. The host captures the provider session id on first launch and resumes with that
+exact id.
+
+```bash
+python3 scripts/cobbler_agents.py implement full-run-prepare --json \
+  --session-id <exact-uuid> --branch <feature-branch> --start-head <start-head> \
+  --worktree <path> --packet <packet.json> --adapter devin-cli \
+  --executable devin
+
+python3 scripts/cobbler_agents.py implement full-run-launch --json \
+  --session-id <exact-uuid> --grant-devin-auth --grant-github-push
+
+python3 scripts/cobbler_agents.py implement full-run-monitor --json \
+  --session-id <exact-uuid>
+
+# Resume an interrupted run with the exact captured provider session id.
+python3 scripts/cobbler_agents.py implement full-run-launch --json \
+  --session-id <exact-uuid> --resume --grant-devin-auth --grant-github-push
+```
+
+`--grant-devin-auth` validates and projects the host's canonical Devin CLI config/credentials into
+the isolated worker `HOME`. The host looks for `config.json` under `XDG_CONFIG_HOME/devin` (or
+`~/.config/devin`) and `credentials.toml` under `XDG_DATA_HOME/devin` (or `~/.local/share/devin`).
+Each file must be a regular owner-only (mode `0o600`) file with no symlinks, link count one, and a
+bounded size; invalid or missing files cause launch to fail before any provider process starts.
+Launch then copies them into the isolated `HOME` with owner-only permissions. Resume revalidates the
+same canonical source identity and rejects changed or missing credentials. `--grant-devin-auth` is
+only valid for `--adapter devin-cli`; other adapters fail with an adapter mismatch.
+
+The feature-branch push route is separate from any worker provider login. With a canonical GitHub HTTPS origin,
 `--grant-github-push` privately projects the authenticated host `gh` token into one isolated
 launch-scoped Git credential helper. Alternatively grant exactly one of `GH_TOKEN` or
 `GITHUB_TOKEN` by name. Elves never inherits the host HOME/Git config/SSH agent, stores no raw

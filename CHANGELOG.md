@@ -4,6 +4,22 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Devin CLI worker adapter
+
+- Add optional `devin-cli` implementation worker adapter pinned to `swe-1-7-lightning`.
+- Support Devin CLI session creation, exact-session capture, and `--resume` recovery
+  through the parked full-run lifecycle without changing Grok or host-native paths.
+- Launch argv uses `--print` as the non-interactive transport; the Devin TUI is never
+  started under full-run supervision.
+- Add `--grant-devin-auth` to validate and project the host's canonical Devin CLI
+  `config.json` and `credentials.toml` into the isolated worker `HOME` for both create
+  and resume; missing/invalid/unsafe host auth fails before spawn.
+- Session capture runs discovery with the exact isolated worker `HOME`/`XDG` paths,
+  requires a single matching worktree session, and cross-checks the transport-authored
+  ATIF export's `session_id` for fast-worker exits.
+- Onboarding, setup recipes, and adapter registry now surface `devin-cli` as an
+  optional route alongside Grok and OpenCode.
+
 ## [2.3.0] - 2026-07-14
 
 ### Joyful runs rewrite

@@ -207,6 +207,78 @@ class BuildLaunchArgvTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("--file") + 1], str(packet.resolve()))
         self.assertIn("--auto", argv)
 
+    def test_devin_create_argv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "p.md"
+            packet.write_text("# packet\n", encoding="utf-8")
+            cwd = Path(tmp) / "wt"
+            cwd.mkdir()
+            argv = build_launch_argv(
+                packet=packet,
+                cwd=cwd,
+                adapter="devin-cli",
+                create=True,
+            )
+        self.assertEqual(argv[0], "devin")
+        self.assertIn("--prompt-file", argv)
+        self.assertIn(str(packet.resolve()), argv)
+        self.assertIn("--print", argv)
+        self.assertIn("--model", argv)
+        self.assertEqual(argv[argv.index("--model") + 1], "swe-1-7-lightning")
+        self.assertIn("--permission-mode", argv)
+        self.assertEqual(argv[argv.index("--permission-mode") + 1], "dangerous")
+        self.assertNotIn("--resume", argv)
+        self.assertNotIn("--session-id", argv)
+        self.assertNotIn("--cwd", argv)
+        self.assertNotIn("-c", argv)
+        self.assertNotIn("--continue", argv)
+
+    def test_devin_resume_argv_exact_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "p.md"
+            packet.write_text("# packet\n", encoding="utf-8")
+            argv = build_launch_argv(
+                session_id="poised-eoraptor",
+                packet=packet,
+                cwd=tmp,
+                adapter="devin-cli",
+                create=False,
+            )
+        self.assertIn("--resume", argv)
+        self.assertEqual(argv[argv.index("--resume") + 1], "poised-eoraptor")
+        self.assertIn("--print", argv)
+        self.assertNotIn("--continue", argv)
+        self.assertNotIn("-c", argv)
+
+    def test_devin_resume_rejects_bare_continue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "p.md"
+            packet.write_text("# packet\n", encoding="utf-8")
+            with self.assertRaises(ValidationIssue) as ctx:
+                build_launch_argv(
+                    session_id="continue",
+                    packet=packet,
+                    cwd=tmp,
+                    adapter="devin-cli",
+                )
+        self.assertEqual(ctx.exception.code, "ambiguous_session_id")
+
+    def test_devin_export_path_optional(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "p.md"
+            packet.write_text("# packet\n", encoding="utf-8")
+            export_path = str(Path(tmp) / "devin.atif")
+            argv = build_launch_argv(
+                packet=packet,
+                cwd=tmp,
+                adapter="devin-cli",
+                create=True,
+                export_path=export_path,
+            )
+        self.assertIn("--export", argv)
+        self.assertEqual(argv[argv.index("--export") + 1], export_path)
+        self.assertIn("--print", argv)
+
 
 class HumanizeGrokFailureTests(unittest.TestCase):
     def test_tools_allowlist_requirement_error(self) -> None:

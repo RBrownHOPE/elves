@@ -72,7 +72,7 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
 - **Checkpoint rule:** If `Checkpoint semantics` is `delivery target only`, log the checkpoint, push it, and continue immediately. Do not stop at the checkpoint.
 
 - **E2E mode:** [chat-to-work | chat-to-land | legacy-two-call | direct]
-- **Work driver:** [host-native | grok-build | untrusted-writer]
+- **Work driver:** [host-native | grok-build | devin-cli | untrusted-writer]
 - **Implementation lane:** [fast | untrusted]
 - **Delegation scope:** [none | batch | full_run]
 - **Git mode:** [host_only | branch_progress | detached_lease]

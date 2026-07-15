@@ -491,6 +491,114 @@ class VerifyRepoUnitTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("stale surfaces", message)
 
+    def test_load_api_break_approvals_loads_unreleased_approvals(self) -> None:
+        surface = "export:cobbler_runtime.BUILTIN_ADAPTER_NAMES"
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._write_approval_repo(
+                root,
+                {
+                    "schema_version": 1,
+                    "approvals": [
+                        {
+                            "surface": surface,
+                            "release": "Unreleased",
+                            "reason": "Devin CLI worker adapter addition",
+                            "plan_path": "docs/plans/devin-cli-worker-adapter.md",
+                        }
+                    ],
+                },
+                create_plan=True,
+                track_manifest=True,
+                track_plan=True,
+            )
+            plan = root / "docs" / "plans" / "devin-cli-worker-adapter.md"
+            plan.write_text("# Devin CLI worker adapter\n", encoding="utf-8")
+            subprocess.run(["git", "add", str(plan.relative_to(root))], cwd=root, check=True)
+
+            ok, surfaces, message = self.verify.load_api_break_approvals(
+                root,
+                release_version="Unreleased",
+            )
+
+        self.assertTrue(ok, message)
+        self.assertEqual(surfaces, [surface])
+        self.assertIn("Unreleased", message)
+
+    def test_explicit_release_rejects_stale_unreleased_approvals(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._write_approval_repo(
+                root,
+                {
+                    "schema_version": 1,
+                    "approvals": [
+                        {
+                            "surface": "export:cobbler_runtime.BUILTIN_ADAPTER_NAMES",
+                            "release": "Unreleased",
+                            "reason": "Devin CLI worker adapter addition",
+                            "plan_path": "docs/plans/release.md",
+                        }
+                    ],
+                },
+                create_plan=True,
+                track_manifest=True,
+                track_plan=True,
+            )
+
+            ok, surfaces, message = self.verify.load_api_break_approvals(
+                root,
+                release_version="2.3.0",
+            )
+
+        self.assertFalse(ok)
+        self.assertEqual(surfaces, [])
+        self.assertIn("stale for release 2.3.0", message)
+
+    def test_check_public_api_without_version_uses_unreleased_approvals(self) -> None:
+        surface = "export:cobbler_runtime.BUILTIN_ADAPTER_NAMES"
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            self._write_approval_repo(
+                root,
+                {
+                    "schema_version": 1,
+                    "approvals": [
+                        {
+                            "surface": surface,
+                            "release": "Unreleased",
+                            "reason": "Devin CLI worker adapter addition",
+                            "plan_path": "docs/plans/release.md",
+                        }
+                    ],
+                },
+                create_plan=True,
+                track_manifest=True,
+                track_plan=True,
+            )
+            with mock.patch(
+                "cobbler_runtime.public_api_snapshot.compatibility_gate"
+            ) as gate:
+                gate.return_value = {
+                    "ok": True,
+                    "action": "diffed",
+                    "diff": {"breaking": [surface]},
+                }
+                ok, message = self.verify.check_public_api(
+                    root,
+                    required=True,
+                    base_ref="origin/main",
+                    release_version="Unreleased",
+                )
+
+        self.assertTrue(ok, message)
+        gate.assert_called_once_with(
+            root,
+            required=True,
+            approved_breaks=[surface],
+            base_ref="origin/main",
+        )
+
     def test_final_evidence_review_executes_concrete_mapped_checks(self) -> None:
         cache: dict[str, tuple[bool, str]] = {}
         with (
