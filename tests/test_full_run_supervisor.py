@@ -6515,13 +6515,20 @@ class FullRunLifecycleTests(unittest.TestCase):
         remote = Path(self.tmp.name) / "devin-resume-origin.git"
         _write_production_packet(self.packet, "B1-A1")
         devin = Path(self.tmp.name) / "fake_devin.py"
-        devin.write_text(FAKE_DEVIN, encoding="utf-8")
-        devin.chmod(devin.stat().st_mode | stat.S_IXUSR)
         # Keep the fixture alive beyond the ten-second observation window so
         # loaded CI runners cannot turn the intended stop/resume case into a
         # clean completion before stop_full_run records interruption evidence.
-        env = self._devin_clean_env() | {"ELVES_FAKE_DEVIN_PAUSE": "30"}
-        with mock.patch.dict(os.environ, env, clear=True):
+        # Bake the delay into the fixture because production launch correctly
+        # does not inherit arbitrary ELVES_FAKE_* environment variables.
+        devin.write_text(
+            FAKE_DEVIN.replace(
+                'pause = os.environ.get("ELVES_FAKE_DEVIN_PAUSE")',
+                'pause = "30"',
+            ),
+            encoding="utf-8",
+        )
+        devin.chmod(devin.stat().st_mode | stat.S_IXUSR)
+        with mock.patch.dict(os.environ, self._devin_clean_env(), clear=True):
             _attach_origin(self.repo, remote, self.branch)
             prepare_full_run(
                 self.repo,
@@ -6557,7 +6564,6 @@ class FullRunLifecycleTests(unittest.TestCase):
             self.assertEqual(state.provider_session_id, "devin-sess-123")
 
             stop_full_run(self.repo, session_id=self.session, grace_seconds=0.2)
-            os.environ.pop("ELVES_FAKE_DEVIN_PAUSE", None)
             resumed = launch_full_run(
                 self.repo,
                 session_id=self.session,
