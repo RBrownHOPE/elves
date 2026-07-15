@@ -61,13 +61,15 @@ class DevinCredentialsTomlValidationTests(unittest.TestCase):
 
 
 class RepoConsistencyWorkflowVersionScopeTests(unittest.TestCase):
-    def test_workflow_uses_unreleased_for_development_ci(self) -> None:
+    def test_workflow_selects_development_or_exact_release_scope(self) -> None:
         workflow = (
             REPO_ROOT / ".github" / "workflows" / "repo-consistency.yml"
         ).read_text()
-        self.assertIn("post-merge main are development state", workflow)
+        self.assertIn('VERIFY_VERSION="Unreleased"', workflow)
+        self.assertIn("scripts/release_checklist.py", workflow)
+        self.assertIn("read_frontmatter_version", workflow)
         self.assertIn(
-            "python3 scripts/verify_repo.py --ci --version Unreleased",
+            'python3 scripts/verify_repo.py --ci --version "$VERIFY_VERSION"',
             workflow,
         )
         self.assertNotIn('VERIFY_VERSION="2.3.0"', workflow)
