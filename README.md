@@ -12,8 +12,15 @@ drivers and lenses help when you already have them.
 
 **Current release: v2.4.0.** You write the plan and own the merge decision. The agent does the middle.
 
-**Default (v2.0+): one kickoff** after conceptual agreement — chat to agreement, then one
-**Chat-to-work** or **Chat-to-land** (`chat-to-work` / `chat-to-land`) prompt stages and runs.
+**Default (v2.0+): one kickoff — ask naturally, then let Elves route the labor.** Say “implement this plan while I’m
+offline” from Claude Code or Codex. The capable live driver plans and reviews; a separate
+subscription-native worker inherits its model by default at the plan-matched effort. If permitted
+Grok Build is a better fit, Elves recommends it explicitly. You can make one useful choice, watch
+the worker stream, and return to the driver’s cumulative review. **Chat-to-work** stops at a
+landable PR; **Chat-to-land** merges only when you explicitly authorize it.
+
+The older vocabulary still describes the machinery: **one kickoff** after conceptual agreement
+stages and runs in one flow.
 Single kickoff always continues after staging unless you explicitly chose legacy two-call. v2.1
 adds trusted Grok full-run delegation with a quiet parked driver. **v2.3 joyful runs** keep that
 parked driver, add a default sanitized non-model follow stream, exact-HEAD readiness independent of
@@ -92,10 +99,19 @@ an exact-equality assertion and must name that same path.
 
 ### First run (single kickoff)
 
-1. Chat until the work is clear (optional multi-planner lenses).
-2. Paste one **chat-to-work** prompt (see [`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md)).
-3. Elves plans, stages branch/PR/docs, preflights, and **continues into batches in the same session**.
-4. You return to a landable PR (or chat-to-land merge only if you opted in). **Never merge by default.**
+1. Ask naturally: “Implement this plan while I’m offline. Stop at a reviewed PR.”
+2. Elves shows the plan classification and worker recommendation. Native subscription labor is the
+   zero-config default; permitted Grok is optional. If a preference matters, answer once or say
+   “always prefer native/Grok when allowed.”
+3. The live driver stays capable, launches a separate exact worker session, and parks while the
+   worker stream remains visible. It does not downgrade itself or wake for routine edits.
+4. The driver returns for one cumulative review and focused revision loop. Worker completion is never merge permission;
+   chat-to-work leaves the PR for you.
+
+Safe remembered choices live in
+`${XDG_CONFIG_HOME:-~/.config}/elves/config.json` for both hosts. Inspect or change them with
+`cobbler_agents.py preferences show|set|reset`; explicit run intent and repository policy win.
+See [`references/adaptive-worker-routing.md`](references/adaptive-worker-routing.md).
 
 Legacy two-call / legacy stage-then-launch (stage, then a separate launch message) remains valid only when you explicitly choose it.
 

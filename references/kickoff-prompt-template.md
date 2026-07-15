@@ -5,6 +5,10 @@
 > stream (`full-run-await`; `--quiet` opt-out), exact-HEAD readiness independent of merge
 > authorization, and impact-selected convergent review. See
 > [`joyful-runs-contract.md`](joyful-runs-contract.md) and [`follow-mode.md`](follow-mode.md).
+> The default implementation seat is now a separate subscription-native worker chosen from the
+> plan's execution reasoning. Ask naturally; Elves shows the recommendation and asks at most one
+> preference question. Optional Grok is used only when permitted and capability-qualified. See
+> [`adaptive-worker-routing.md`](adaptive-worker-routing.md).
 >
 > Chat with the main agent (optional multi-planner lenses) until the work is clear, then send
 > **Chat-to-work** (landable PR, no merge) or **Chat-to-land** (through merge) — templates at the

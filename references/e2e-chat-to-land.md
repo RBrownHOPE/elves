@@ -1,5 +1,14 @@
 # E2E chat-to-work and chat-to-land (design)
 
+## Natural entry
+
+From either supported host, the smallest happy-path request is: “Implement this plan while I’m
+offline; leave the PR unmerged.” Elves classifies the plan, recommends a separate
+subscription-native worker by default, offers at most one remembered provider choice, keeps the
+worker stream visible while the driver parks, and returns to the capable driver for cumulative
+review. Permitted Grok remains optional. See
+[`adaptive-worker-routing.md`](adaptive-worker-routing.md).
+
 **Status:** **recommended default user path (v2.0+)** — design + kickoff templates. v2.1 adds trusted
 Grok full-run delegation with parked-driver semantics. Classic **two-call stage-then-start** remains
 optional for huge or unstable plans.

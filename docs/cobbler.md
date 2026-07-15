@@ -1,5 +1,11 @@
 # How Cobbler works
 
+For a full implementation run, you can simply ask: “Implement this plan while I’m offline.” The
+live Claude Code or Codex driver plans and reviews, while deterministic adaptive routing chooses a
+separate subscription-native worker by default or a permitted capability-qualified Grok worker.
+The choice and fallback remain inspectable; see
+[`../references/adaptive-worker-routing.md`](../references/adaptive-worker-routing.md).
+
 ![How Cobbler works](../assets/cobbler-infographic.png)
 
 Cobbler is the coordinator inside Elves. It is not a separate model, daemon, or runtime. It is how

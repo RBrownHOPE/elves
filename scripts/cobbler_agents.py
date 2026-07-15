@@ -343,11 +343,19 @@ def cmd_preferences(args: argparse.Namespace) -> int:
             return _emit_json(payload, exit_code=1)
         print(f"preferences: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
         return 1
-    payload = {"ok": True, **snapshot.to_dict(), "model_calls_made": False}
+    payload = {
+        "ok": True,
+        "path": snapshot.path,
+        "exists": snapshot.exists,
+        "schema_version": snapshot.schema_version,
+        "values": snapshot.values,
+        "authority_fields_supported": False,
+        "model_calls_made": False,
+    }
     if args.json:
         return _emit_json(payload, exit_code=0)
     print(f"preferences: {snapshot.path}")
-    print(json.dumps(snapshot.values, indent=2, sort_keys=True))
+    sys.stdout.write(json.dumps(snapshot.values, indent=2, sort_keys=True) + "\n")
     return 0
 
 
@@ -418,7 +426,7 @@ def cmd_native_worker(args: argparse.Namespace) -> int:
     }
     if args.json:
         return _emit_json(payload, exit_code=0)
-    print(" ".join(spec.argv))
+    sys.stdout.write(" ".join(spec.argv) + "\n")
     return 0
 
 

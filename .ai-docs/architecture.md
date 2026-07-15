@@ -54,6 +54,8 @@ managed inside the Elves run, not a separate Council or Cobbler memory system.
 - `onboard.py` / `setup.py` / `executables.py`: model onboarding, effective setup, and executable
   capability probing
 - `preflight_cache.py` / `storage.py`: live-proof cache policy and private atomic runtime storage
+- `preferences.py` / `worker_routing.py` / `native_worker.py`: shared safe XDG preferences,
+  deterministic plan-to-worker decisions, and exact separate-session Codex/Claude launch specs
 
 The thin CLI is `scripts/cobbler_agents.py` (`validate-config`, `doctor`, `council`,
 `lightweight-review`, `session …`, trusted

@@ -4,7 +4,11 @@ Users need a clear way to **choose** which tools/models handle which jobs, **upd
 choices later, and **verify** they work. Elves does this as a **host-mediated** flow: the agent
 interviews the user; the CLI inventories, stores preferences, and probes.
 
-Native-only remains fully valid. Onboarding is optional.
+Native-only remains fully valid. Onboarding is optional. The ordinary implementation default is a
+separate subscription-native worker on the current Claude Code or Codex account; the live main
+driver keeps planning and terminal review. Safe provider/effort convenience uses the shared XDG
+preferences in [`adaptive-worker-routing.md`](adaptive-worker-routing.md). The ignored
+`.elves/models.toml` remains the advanced per-repository profile map.
 
 The `python3 scripts/...` forms below are source-checkout shorthand. From an installed Claude Code
 or Codex skill, invoke the helper from the active Elves skill root while the target repository stays

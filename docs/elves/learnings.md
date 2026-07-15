@@ -100,6 +100,16 @@ silently deleting it.
 
 ## Product and Domain Invariants
 
+- [2026-07-15] Adaptive implementation routing is deterministic and host-parity preserving: prefer
+  a separate subscription-native Codex/Claude worker with inherited model policy and plan-matched
+  effort; use permitted Grok Composer 2.5 Fast for regular clear work and Grok 4.5 only for
+  genuinely complex execution. Availability is not permission, and unqualified routes fall back
+  honestly.
+- [2026-07-15] Safe worker convenience may be remembered globally at the shared XDG Elves config
+  path, but explicit run intent and repository policy outrank it. Never persist credentials or
+  merge/destructive/protected-ref/approval-bypass authority. Exact-session continuity may benefit
+  from provider caching, but Elves cannot hand a prompt/KV cache from driver to worker.
+
 - [2026-07-12] Native-only Cobbler remains the zero-config default. External Claude/Grok/Sakana,
   OpenRouter, API-only models, and future custom tools are optional role routes; only an explicit
   project Survival Guide may make one required.

@@ -4,7 +4,9 @@ Machine source: `scripts/cobbler_runtime/full_run.py` (`await_full_run`, `format
 
 ## Default
 
-Trusted full-run await follows a sanitized human-readable worker stream by default.
+Every separate-worker run keeps a human-readable worker stream visible by default. Native host
+threads use their host's agent view or structured CLI stream; trusted Grok full-run uses the
+sanitized await stream below.
 
 ```bash
 python3 scripts/cobbler_agents.py implement full-run-await --session-id <id>
