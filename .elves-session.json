@@ -48,9 +48,9 @@
     "default_for_session": true
   },
   "continuation_guard": {
-    "next_required_action": "Run the exact-tip landing check and mark PR #71 ready.",
+    "next_required_action": "None; PR #71 is acceptance-backed and ready for user review/merge.",
     "remaining_batches": 0,
-    "stop_allowed": false
+    "stop_allowed": true
   },
   "driver_merge_authorized": false,
   "landing_outcome": "landable_pr",
@@ -88,7 +88,7 @@
   "run_id": "devin-cli-worker-20260714",
   "schema_version": 1,
   "start_head": "c5c64bc65ebf602c8fb77e5acc6f1357903e5e12",
-  "status": "ready",
+  "status": "complete",
   "worker_session_id": "poised-eoraptor",
   "worker_packet_path": ".elves/devin-worker-prompt.md"
 }
