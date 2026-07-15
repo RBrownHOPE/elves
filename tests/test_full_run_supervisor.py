@@ -227,6 +227,30 @@ if export_path:
     Path(export_path).write_text(json.dumps({"exported": True, "model": "swe-1-7-lightning", "session_id": "devin-sess-123"}, indent=2), encoding="utf-8")
 '''
 
+FAKE_DEVIN_EMPTY_LIST = FAKE_DEVIN.replace(
+    """    print(json.dumps([{
+        "id": "devin-sess-123",
+        "working_directory": cwd,
+        "last_activity_at": int(time.time()),
+    }], separators=(",", ":")))""",
+    '    print("[]")',
+)
+
+FAKE_DEVIN_AMBIGUOUS_LIST = FAKE_DEVIN.replace(
+    """    print(json.dumps([{
+        "id": "devin-sess-123",
+        "working_directory": cwd,
+        "last_activity_at": int(time.time()),
+    }], separators=(",", ":")))""",
+    """    print(json.dumps([
+        {"id": "devin-sess-a", "working_directory": cwd, "last_activity_at": int(time.time())},
+        {"id": "devin-sess-b", "working_directory": cwd, "last_activity_at": int(time.time())},
+    ], separators=(",", ":")))""",
+).replace(
+    'if export_path:\n    Path(export_path).write_text',
+    'if False and export_path:\n    Path(export_path).write_text',
+)
+
 LONG_SLEEPER = r'''#!/usr/bin/env python3
 import os, time
 from pathlib import Path
@@ -6407,6 +6431,82 @@ class FullRunLifecycleTests(unittest.TestCase):
         export = full_run_root(self.repo, self.session) / "devin-export.atif"
         self.assertTrue(export.is_file())
         self.assertIn("swe-1-7-lightning", export.read_text(encoding="utf-8"))
+
+    def _run_devin_until_terminal(
+        self,
+        *,
+        devin_script: str,
+        deadline_seconds: float = 10.0,
+    ) -> dict[str, object]:
+        remote = Path(self.tmp.name) / "devin-terminal-origin.git"
+        _write_production_packet(self.packet, "B1-A1")
+        devin = Path(self.tmp.name) / "fake_devin_terminal.py"
+        devin.write_text(devin_script, encoding="utf-8")
+        devin.chmod(devin.stat().st_mode | stat.S_IXUSR)
+        with mock.patch.dict(os.environ, self._devin_clean_env(), clear=True):
+            _attach_origin(self.repo, remote, self.branch)
+            prepare_full_run(
+                self.repo,
+                session_id=self.session,
+                branch=self.branch,
+                start_head=self.start_head,
+                worktree=self.repo,
+                packet_path=self.packet,
+                session_path=_write_production_acceptance_contract(self.repo, self.packet),
+                adapter="devin-cli",
+                executable=str(devin),
+            )
+            launch_full_run(
+                self.repo,
+                session_id=self.session,
+                grant_devin_auth=True,
+            )
+            deadline = time.time() + deadline_seconds
+            status: dict[str, object] = {"state": "pending"}
+            while status.get("state") not in {
+                "complete",
+                "failed",
+                "blocked",
+            } and time.time() < deadline:
+                time.sleep(0.05)
+                status = monitor_full_run(
+                    self.repo,
+                    session_id=self.session,
+                    stale_after_seconds=60,
+                )
+        return status
+
+    def test_devin_clean_exit_without_capture_stays_blocked(self) -> None:
+        status = self._run_devin_until_terminal(devin_script=FAKE_DEVIN_EMPTY_LIST)
+        self.assertEqual(status["state"], "blocked", status)
+        self.assertIn("provider session id", str(status.get("blocker") or "").lower())
+
+        state = load_state(self.repo, self.session)
+        self.assertIsNone(state.provider_session_id)
+        events_path = full_run_root(self.repo, self.session) / "events.jsonl"
+        event_types = [
+            json.loads(line).get("type")
+            for line in events_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertIn("devin_capture_failed", event_types)
+
+    def test_devin_clean_exit_with_ambiguous_capture_stays_blocked(self) -> None:
+        status = self._run_devin_until_terminal(
+            devin_script=FAKE_DEVIN_AMBIGUOUS_LIST
+        )
+        self.assertEqual(status["state"], "blocked", status)
+        self.assertIn("provider session id", str(status.get("blocker") or "").lower())
+
+        state = load_state(self.repo, self.session)
+        self.assertIsNone(state.provider_session_id)
+        events_path = full_run_root(self.repo, self.session) / "events.jsonl"
+        event_types = [
+            json.loads(line).get("type")
+            for line in events_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertIn("devin_capture_failed", event_types)
 
     def test_devin_fixture_resume_exact_session(self) -> None:
         remote = Path(self.tmp.name) / "devin-resume-origin.git"

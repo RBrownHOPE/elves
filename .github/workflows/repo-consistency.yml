@@ -113,12 +113,9 @@ jobs:
           if ! git rev-parse --verify --quiet "${BASE_REF}^{commit}"; then
             BASE_REF="HEAD^"
           fi
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            VERIFY_VERSION="Unreleased"
-          else
-            VERIFY_VERSION="2.3.0"
-          fi
-          python3 scripts/verify_repo.py --ci --version "$VERIFY_VERSION" --base-ref "$BASE_REF"
+          # Pull requests and post-merge main are development state. Release
+          # readiness remains an explicit exact-version maintainer gate.
+          python3 scripts/verify_repo.py --ci --version Unreleased --base-ref "$BASE_REF"
 
   check:
     needs: verify

@@ -8306,10 +8306,22 @@ def monitor_full_run(
             and report.get("status") == "complete"
         )
         if clean_exit and complete_report and not protected_errors:
-            state.status = "complete"
-            state.completed_at = state.completed_at or _utc_now()
-            state.next_action = "final_readiness"
-            state.head = str(report.get("final_head") or observed_head or state.start_head)
+            if state.adapter == "devin-cli" and not (
+                state.provider_session_id or ""
+            ).strip():
+                state.status = "blocked"
+                state.blocker = (
+                    "Devin full-run cannot complete without a captured "
+                    "provider session id"
+                )
+                state.next_action = "driver_wake_reconcile"
+            else:
+                state.status = "complete"
+                state.completed_at = state.completed_at or _utc_now()
+                state.next_action = "final_readiness"
+                state.head = str(
+                    report.get("final_head") or observed_head or state.start_head
+                )
         elif clean_exit and not protected_errors and (
             not report or report.get("status") != "complete"
         ):

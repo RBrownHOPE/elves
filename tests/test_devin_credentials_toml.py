@@ -61,18 +61,16 @@ class DevinCredentialsTomlValidationTests(unittest.TestCase):
 
 
 class RepoConsistencyWorkflowVersionScopeTests(unittest.TestCase):
-    def test_workflow_selects_unreleased_for_pull_request_and_release_for_push(self) -> None:
+    def test_workflow_uses_unreleased_for_development_ci(self) -> None:
         workflow = (
             REPO_ROOT / ".github" / "workflows" / "repo-consistency.yml"
         ).read_text()
-        self.assertIn("github.event_name", workflow)
-        self.assertIn("Unreleased", workflow)
-        self.assertIn("2.3.0", workflow)
-        self.assertIn('python3 scripts/verify_repo.py --ci --version "$VERIFY_VERSION"', workflow)
-
-        pr_branch = workflow.split('if [ "${{ github.event_name }}" = "pull_request" ]; then', 1)[1]
-        self.assertIn('VERIFY_VERSION="Unreleased"', pr_branch)
-        self.assertIn('VERIFY_VERSION="2.3.0"', pr_branch)
+        self.assertIn("post-merge main are development state", workflow)
+        self.assertIn(
+            "python3 scripts/verify_repo.py --ci --version Unreleased",
+            workflow,
+        )
+        self.assertNotIn('VERIFY_VERSION="2.3.0"', workflow)
 
 
 if __name__ == "__main__":
