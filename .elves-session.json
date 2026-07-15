@@ -83,7 +83,7 @@
         },
         {
           "criterion": "Focused affected-surface tests pass, then one cumulative verification run passes or reports only an explicitly evidenced pre-existing baseline issue.",
-          "evidence": "One cumulative verifier reached only the evidenced stale public-API approval, which was removed after a strict zero-break check; revision proof passed 200 tests (3 skips), 135 supervisor tests (1 skip), both bundle smokes, consistency, and diff checks.",
+          "evidence": "One cumulative verifier and final CI identified the intentional CLI default change; an Unreleased approval now records it. Revision proof passed 200 tests (3 skips), 135 supervisor tests (1 skip), both bundle smokes, consistency, and diff checks.",
           "id": "B2-A4",
           "met": true
         }

@@ -51,8 +51,8 @@ override and its focused regression test passed.
 
 **Validate for batch 2:** revision proof passed 200 affected tests with three expected skips,
 repository consistency, both fresh installed-bundle smokes, and `git diff --check`. The cumulative
-verifier's sole stale public-API approval was reconciled after the strict current diff showed zero
-breaks.
+verifier's stale prior-release approval was removed; final CI then identified the intentional
+`full-run-prepare` default-model surface change, now recorded by an Unreleased API approval.
 
 ## Terminal review
 
