@@ -29,7 +29,7 @@ from .canonical_contract import (
 )
 
 
-POLICY_VERSION = "2.3.0"
+POLICY_VERSION = "2.4.0"
 
 # Thin safety kernel — must not weaken. Operator docs and guards pin these names.
 # Canonical destinations + proving tests live in canonical_contract.SAFETY_KERNEL.

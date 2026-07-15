@@ -18,7 +18,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping, Sequence
 
 
-POLICY_VERSION = "2.3.0"
+POLICY_VERSION = "2.4.0"
 EXACT_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 LANDING_OUTCOMES: tuple[str, ...] = (

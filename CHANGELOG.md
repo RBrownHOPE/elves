@@ -4,6 +4,8 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-07-15
+
 ### Devin CLI worker adapter
 
 - Add optional `devin-cli` implementation worker adapter pinned to `swe-1-7-lightning`.

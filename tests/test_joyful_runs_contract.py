@@ -38,7 +38,7 @@ from cobbler_runtime.canonical_contract import (  # noqa: E402
 class CanonicalContractTests(unittest.TestCase):
     def test_normal_flow_defined_once(self) -> None:
         snap = contract_snapshot()
-        self.assertEqual(snap["policy_version"], "2.3.0")
+        self.assertEqual(snap["policy_version"], "2.4.0")
         self.assertEqual(
             list(RUN_STATES),
             [
@@ -162,7 +162,7 @@ class CanonicalContractTests(unittest.TestCase):
 class BehaviorPolicyJoyfulTests(unittest.TestCase):
     def test_wake_and_follow_policy(self) -> None:
         snap = policy_snapshot()
-        self.assertEqual(snap["policy_version"], "2.3.0")
+        self.assertEqual(snap["policy_version"], "2.4.0")
         self.assertIn("worker_death", PARKED_MONITOR_WAKE_CONDITIONS)
         self.assertIn("timed_chat_update", FORBIDDEN_FULL_RUN_WAKE_TRIGGERS)
         self.assertTrue(snap["follow_mode"]["default"])
