@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Mapping, Sequence
 
 
-POLICY_VERSION = "2.3.0"
+POLICY_VERSION = "2.4.0"
 
 # ---------------------------------------------------------------------------
 # Architecture: run states
