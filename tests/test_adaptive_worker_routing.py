@@ -166,7 +166,10 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         self.assertEqual(decision.provenance["provider"], "explicit_run_intent")
 
     def test_global_grok_is_remembered_consent_but_repository_veto_wins(self) -> None:
-        caps = GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,))
+        caps = GrokCapabilities(
+            installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,),
+            goal_mode_behaviorally_verified=True, goal_behavioral_evidence="fixture:verified",
+        )
         selected = self.decide(global_preferences={"worker": {"provider": "grok"}}, grok=caps)
         self.assertEqual(selected.provider, "grok")
         self.assertEqual(selected.provenance["grok_consent"], "global_provider_preference")
@@ -203,6 +206,8 @@ class RouteDecisionMatrixTests(unittest.TestCase):
     def test_advertised_goal_is_not_behaviorally_verified(self) -> None:
         caps = GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), goal_entrypoint_advertised=True)
         decision = self.decide(explicit_intent={"worker": {"provider": "grok"}}, grok=caps)
+        self.assertEqual(decision.provider, "native")
+        self.assertEqual(decision.fallback["reason"], "goal_mode_not_behaviorally_verified")
         self.assertFalse(decision.goal_mode)
         unrecorded = GrokCapabilities(
             installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,),
@@ -214,7 +219,10 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             packet = Path(tmp) / "packet.md"
             packet.write_text("fixture\n", encoding="utf-8")
-            caps = GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL))
+            caps = GrokCapabilities(
+                installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL),
+                goal_mode_behaviorally_verified=True, goal_behavioral_evidence="fixture:verified",
+            )
             for reasoning, expected in (("medium", GROK_COMPOSER_MODEL), ("high", GROK_COMPLEX_MODEL)):
                 decision = self.decide(execution_reasoning=reasoning, explicit_intent={"worker": {"provider": "grok"}}, grok=caps)
                 state = FullRunState(session_id="exact-session", branch="feature", start_head="a" * 40, worktree=tmp, packet_path=str(packet), model=decision.worker_model or "")
@@ -245,6 +253,7 @@ class NativeWorkerGrammarTests(unittest.TestCase):
         self.assertEqual(resumed.argv[:3], ("codex", "exec", "resume"))
         self.assertIn("thread-123", resumed.argv)
         self.assertNotIn("-C", resumed.argv)
+        self.assertIn('sandbox_mode="workspace-write"', resumed.argv)
         self.assertEqual(resumed.cwd, str(REPO_ROOT.resolve()))
 
     def test_claude_create_resume_profiles_are_separate_and_exact(self) -> None:

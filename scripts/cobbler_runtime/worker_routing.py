@@ -207,17 +207,23 @@ def decide_worker_route(
             fallback = {"requested": "grok", "actual": "native", "reason": "grok_not_explicitly_permitted"}
         else:
             candidate = GROK_COMPLEX_MODEL if execution == "high" else GROK_COMPOSER_MODEL
-            if grok_info.supports(candidate):
+            goal_qualified = bool(
+                grok_info.goal_mode_behaviorally_verified
+                and grok_info.goal_behavioral_evidence
+            )
+            if grok_info.supports(candidate) and goal_qualified:
                 selected_provider = "grok"
                 selected_model = candidate
                 model_policy = "explicit_grok_model_pin"
-                goal_mode = bool(
-                    grok_info.goal_mode_behaviorally_verified
-                    and grok_info.goal_behavioral_evidence
-                )
+                goal_mode = True
                 reasons.append("permitted_grok_capability_matches_plan")
             else:
-                missing = "unavailable_or_unauthenticated" if not (grok_info.installed and grok_info.authenticated) else f"model_unavailable:{candidate}"
+                if not (grok_info.installed and grok_info.authenticated):
+                    missing = "unavailable_or_unauthenticated"
+                elif not grok_info.supports(candidate):
+                    missing = f"model_unavailable:{candidate}"
+                else:
+                    missing = "goal_mode_not_behaviorally_verified"
                 fallback = {"requested": "grok", "actual": "native", "reason": missing}
 
     if selected_provider == "native":

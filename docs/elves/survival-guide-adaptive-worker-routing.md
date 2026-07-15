@@ -22,7 +22,8 @@ implementation packet.
 - **Final-response policy:** disallowed until the reviewed PR is ready or a genuine blocker exists
 - **Coordination mode:** direct native worker trial with Elves contract
 - **Batch completion rule:** the registered full-run worker commits and may push meaningful feature-branch slices; the parked host updates canonical run memory only at terminal or safety wake
-- **Progress visibility rule:** worker commits use concrete Elves subjects; raw supervised worker output is the user's live window
+- **Progress visibility rule:** worker commits use concrete Elves subjects; before parking, expose a
+  capability-proven native agent view or the exact private `native-worker follow` command
 - **Coordinator-to-implementer handoff:** one complete packet carries plan, rationale, owned/forbidden surfaces, acceptance, pitfalls, exact HEAD, session identity requirements, tests, and output format
 - **Re-read rule:** immediately after every host-owned commit and push, re-read this survival guide before doing anything else; after worker terminal wake, re-read before cumulative review
 - **Checkpoint rule:** no checkpoint is configured; ordinary commits and pushes are not stop signals
@@ -33,10 +34,10 @@ implementation packet.
 - **Delegation scope:** full_run
 - **Git mode:** branch_progress
 - **Driver monitor mode:** parked_monitor
-- **Driver update policy:** default raw/sanitized follow stream; no timed driver chat; material wakes only
+- **Driver update policy:** capability-bound native view or sanitized follow command; no timed driver chat; material wakes only
 - **Driver poll policy:** supervised host wait primitive, bounded to maintain visibility
 - **Driver review policy:** final independent cumulative review only
-- **Follow mode:** default worker stream
+- **Follow mode:** proven native view or exact private follow log; otherwise report commit-only visibility
 - **Risk posture:** high
 - **Trust mode:** trusted
 - **Landing outcome:** landable_pr
@@ -45,7 +46,7 @@ implementation packet.
 - **High-risk checkpoints:** wake only for protected-ref/authority violation, repeated crash/stall, collision, or material scope departure
 - **Re-drive budget:** one targeted re-drive before driver-owned repair
 - **Continuation harness:** supervised exact Codex worker session and process; never ambiguous `--last`
-- **Staging acceptance validation:** pending until contract commit validation
+- **Staging acceptance validation:** complete
 - **Staging acceptance command:** `python3 scripts/acceptance_contract.py validate --repo-root . --session .elves-session.json`
 - **Terminal landing command:** `python3 scripts/elves_landing_check.py --session .elves-session.json --repo-root .`
 
@@ -60,10 +61,10 @@ implementation packet.
 
 ## Stop Gate
 
-- **Planned batches remaining:** 3
-- **Stop allowed right now:** no
-- **Why:** contract staging, full-run implementation, cumulative review, and reviewed PR remain
-- **Next required action:** validate and commit the run contract, then launch the exact medium-effort Sol worker
+- **Planned batches remaining:** 0
+- **Stop allowed right now:** yes
+- **Why:** all plan acceptance, targeted revision, terminal review, and reviewed PR presentation are complete
+- **Next required action:** none; wait for the user to decide whether and when to merge
 
 ## Effort Standard
 
@@ -82,23 +83,22 @@ This does not authorize broad speculative work or repetitive verification.
 
 ## Current Phase
 
-- **Status:** staging
-- **Active batch:** contract for B0–B2
-- **What was just finished:** design research and branch isolation
-- **Single next action:** validate and commit the authoritative plan/session/run docs
+- **Status:** complete
+- **Active batch:** none
+- **What was just finished:** final acceptance reconciliation and exact-tip terminal review
+- **Single next action:** none; merge remains unauthorized
 
 ## Active Compute
 
-- No worker process is active yet.
-- Planned worker: exact model `gpt-5.6-sol`, reasoning `medium`, supervised `codex exec` session.
-- Host behavior after launch: park; surface the stream; inspect only on material wake or terminal exit.
+- No worker process is active.
+- Primary worker session `019f674a-53e6-7f21-bbaa-43082fe59541` and revision session
+  `019f6766-7d3a-7972-977e-8c82395e538a` completed.
+- The trial exposed two adapter defects now fixed: hidden JSONL was not user-visible, and exact
+  Codex resume lost the writable sandbox unless explicitly rebound.
 
 ## Next Exact Batch
 
-- **Batch:** B0 — Safe preferences and routing policy
-- **Scope:** XDG global preferences, safe precedence/provenance, deterministic routing decisions
-- **Acceptance criteria:** B0-A1 through B0-A4 in `docs/plans/adaptive-worker-routing.md`
-- **Risk:** high — preference must never become authority
+- None. B0, B1, B2, and Master Acceptance are complete with evidence.
 
 ## Post-Checkpoint Control Loop
 
@@ -117,6 +117,6 @@ new stop condition from lost chat context.
 
 - [x] Dedicated branch/checkout and collision tripwire recorded.
 - [x] Stop Gate initialized with `Stop allowed right now: no`.
-- [ ] Plan/session/packet acceptance mappings validated.
-- [ ] Contract committed and pushed; survival guide re-read.
-- [ ] Exact worker session registered and supervised.
+- [x] Plan/session/packet acceptance mappings validated.
+- [x] Contract committed and pushed; survival guide re-read.
+- [x] Exact worker session registered and supervised.

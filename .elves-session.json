@@ -5,98 +5,98 @@
       "acceptance": [
         {
           "criterion": "Codex and Claude resolve the same versioned global preference file from `${XDG_CONFIG_HOME:-~/.config}/elves/config.json`, while explicit run intent and repository policy take precedence.",
-          "evidence": "",
+          "evidence": "`preferences.py` and `worker_routing.py` implement the shared XDG path and explicit/repository/global/built-in precedence; isolated route tests passed.",
           "id": "B0-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Preference management writes atomically, preserves supported unknown fields, and rejects credentials, merge/destructive authority, protected-ref authority, and approval-bypass settings.",
-          "evidence": "",
+          "evidence": "Private atomic-write tests cover mode 0600, unknown-field preservation, unsafe keys and values, and relative-XDG rejection.",
           "id": "B0-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "A deterministic routing decision reports provider, worker model policy, worker effort, review risk, provenance, and any advisory driver-upgrade recommendation without invoking a model.",
-          "evidence": "",
+          "evidence": "`route-worker --json` exposes the model-free decision, provenance, fallback, risk, and advisory fields; route-matrix tests passed.",
           "id": "B0-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Focused tests cover native-only, Grok-preferred, unavailable-provider, repo-prohibited, and low/medium/high reasoning cases with isolated global config state.",
-          "evidence": "",
+          "evidence": "The adaptive routing matrix covers native, permitted Grok, absent capability, repository veto, precedence, and all reasoning levels with isolated config.",
           "id": "B0-A4",
-          "met": false
+          "met": true
         }
       ],
       "id": "B0",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [
         {
           "criterion": "Codex and Claude expose semantically equivalent native worker profiles that run in a separate session, inherit the current model unless explicitly routed otherwise, and map plan reasoning to a lower worker effort without changing the live driver.",
-          "evidence": "",
+          "evidence": "Codex and Claude profiles share the separate-session, pinned-current-model, plan-effort, no-cache, no-merge contract; installed-bundle smokes passed for both hosts.",
           "id": "B1-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Native launch commands are covered by grammar fixtures or behavioral tests, capture an exact session identifier, and never rely on ambiguous `--last` continuation.",
-          "evidence": "",
+          "evidence": "Grammar and fixture-supervisor tests prove exact IDs, bound worktrees, no `--last`, and writable Codex create/resume commands including the resume sandbox override.",
           "id": "B1-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "When Grok Build is available and permitted, regular clear implementation explicitly pins Composer 2.5 Fast while genuinely complex execution can explicitly pin Grok 4.5; availability alone never changes authorization.",
-          "evidence": "",
+          "evidence": "Decision-to-production-argv tests pin `grok-composer-2.5-fast` for regular work and `grok-4.5` for high-complexity work only after consent and capability checks.",
           "id": "B1-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Missing, unauthenticated, prohibited, or insufficient Grok capabilities fall back honestly to the native route, and goal mode is claimed only when behaviorally qualified.",
-          "evidence": "",
+          "evidence": "Fallback tests cover unavailable/auth/model/repository-veto cases; help probing records advertisement only and goal mode remains false without separate behavioral evidence.",
           "id": "B1-A4",
-          "met": false
+          "met": true
         }
       ],
       "id": "B1",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [
         {
           "criterion": "User-facing docs lead with one natural-language flow and explain native default, optional Grok choice, remembered preferences, live worker visibility, and final driver review without requiring users to learn internal route vocabulary.",
-          "evidence": "",
+          "evidence": "README and adaptive-routing docs lead with the natural one-request flow and now promise visibility only through a proven native view or exact follow command.",
           "id": "B2-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "`SKILL.md`, `AGENTS.md`, Claude-facing references, Codex-facing references, examples, and installed artifacts describe equivalent policy and valid host-specific invocation surfaces.",
-          "evidence": "",
+          "evidence": "SKILL/AGENTS, host references, examples, recursive bundles, consistency pins, and fresh Claude/Codex installed-bundle smokes agree.",
           "id": "B2-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "The changelog and durable learnings record the adaptive native-worker behavior, Composer-versus-4.5 policy, safe global preferences, and the no-cache-handoff limitation.",
-          "evidence": "",
+          "evidence": "Unreleased changelog and durable learnings record adaptive routing, model policy, safe preferences, no cache transfer, visible-follow requirements, and the Codex resume trap.",
           "id": "B2-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Focused affected-surface tests pass, then one cumulative verification run passes or reports only an explicitly evidenced pre-existing baseline issue.",
-          "evidence": "",
+          "evidence": "One cumulative verifier reached only the evidenced stale public-API approval, which was removed after a strict zero-break check; revision proof passed 200 tests (3 skips), 135 supervisor tests (1 skip), both bundle smokes, consistency, and diff checks.",
           "id": "B2-A4",
-          "met": false
+          "met": true
         }
       ],
       "id": "B2",
-      "status": "pending"
+      "status": "complete"
     }
   ],
   "branch": "codex/adaptive-worker-routing",
   "continuation_guard": {
-    "next_required_action": "Validate and commit staging, then launch the registered medium-effort Sol worker.",
-    "reason": "Contract, implementation, terminal review, and reviewed PR remain.",
-    "stop_allowed": false
+    "next_required_action": "None; the reviewed PR is ready for the user and merge remains unauthorized.",
+    "reason": "Implementation, targeted revision, acceptance proof, terminal review, and reviewed PR presentation are complete.",
+    "stop_allowed": true
   },
   "execution_log_path": "docs/elves/execution-log-adaptive-worker-routing.md",
   "landing_outcome": "landable_pr",
@@ -104,33 +104,34 @@
   "master_acceptance": [
     {
       "criterion": "From either Codex or Claude Code, Elves can plan with the capable live driver, select and launch a separate plan-matched worker using the user's available subscription or permitted Grok Build, remain quiet during execution, and return control for cumulative review.",
-      "evidence": "",
+      "evidence": "Native route selection, exact-session launch specifications, supervised private follow logs, optional permitted Grok routing, and cumulative-review return are implemented and exercised by focused tests.",
       "id": "M-A1",
-      "met": false
+      "met": true
     },
     {
       "criterion": "Route decisions are deterministic, inspectable, capability-honest, and unable to persist or infer merge, destructive, protected-ref, credential, or approval-bypass authority.",
-      "evidence": "",
+      "evidence": "The deterministic route matrix and preference validation separate consent, capability, convenience, safety vetoes, and forbidden authority; no model call is made during routing.",
       "id": "M-A2",
-      "met": false
+      "met": true
     },
     {
       "criterion": "The implementation, focused tests, installed bundles, README, SKILL/AGENTS adapters, references, changelog, learnings, and architecture documentation agree on the shipped behavior.",
-      "evidence": "",
+      "evidence": "Runtime, 97 final route/goal/CLI tests (3 expected skips), fresh installed-bundle smokes, repository consistency, README/SKILL/AGENTS/references, changelog, learnings, and architecture docs align.",
       "id": "M-A3",
-      "met": false
+      "met": true
     },
     {
       "criterion": "One terminal readiness review of `git diff origin/main...HEAD` finds no unresolved serious issue, and the branch is presented as a reviewed PR without merging.",
-      "evidence": "",
+      "evidence": "Independent cumulative review found five blockers; one consolidated worker revision fixed them. Driver delta review then found and fixed the Codex resume sandbox defect; no serious issue remains, and draft PR #74 is being presented without merge.",
       "id": "M-A4",
-      "met": false
+      "met": true
     }
   ],
   "merge_authorized": false,
   "plan_path": "docs/plans/adaptive-worker-routing.md",
   "risk": "high",
   "run_id": "adaptive-worker-routing-2026-07-15",
+  "start_head": "c764726ff7f0cb494f1185b646f0c8092c8ac334",
   "survival_guide_path": "docs/elves/survival-guide-adaptive-worker-routing.md",
   "trust_mode": "trusted",
   "version": "2.3.0",
@@ -140,7 +141,7 @@
     "provider": "codex",
     "reasoning_effort": "medium",
     "scope": "full_run",
-    "session_id": null,
-    "status": "not_launched"
+    "session_id": "019f674a-53e6-7f21-bbaa-43082fe59541",
+    "status": "complete"
   }
 }

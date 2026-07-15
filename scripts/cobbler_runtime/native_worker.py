@@ -124,8 +124,15 @@ def build_native_worker_spec(
             resume = None
         else:
             sid = _exact_session_id(session_id)
-            # `exec resume` has no -C; the supervisor must set the OS cwd exactly.
-            argv = tuple(["codex", "exec", "resume", "--json", "--ignore-user-config", "--ignore-rules", "-c", f'model_reasoning_effort="{effort_token}"', "--model", requested_model, sid, "-"])
+            # `exec resume` has neither -C nor --sandbox. Bind the OS cwd in the
+            # supervisor and preserve the writable worker contract through the
+            # equivalent config override instead of falling back to read-only.
+            argv = tuple([
+                "codex", "exec", "resume", "--json", "--ignore-user-config", "--ignore-rules",
+                "-c", 'sandbox_mode="workspace-write"',
+                "-c", f'model_reasoning_effort="{effort_token}"',
+                "--model", requested_model, sid, "-",
+            ])
             resume = argv
         return NativeWorkerSpec(
             host="codex", profile="elves-native-worker", effort=effort_token,

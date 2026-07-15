@@ -68,19 +68,19 @@ with the user flow rather than orchestration internals.
 
 **Tasks:**
 
-- [ ] Add shared XDG preference discovery, schema/provenance, atomic show/set/reset management, and
+- [x] Add shared XDG preference discovery, schema/provenance, atomic show/set/reset management, and
   the documented precedence chain.
-- [ ] Add deterministic execution-reasoning, review-risk, provider, effort, and advisory driver
+- [x] Add deterministic execution-reasoning, review-risk, provider, effort, and advisory driver
   recommendation decisions.
-- [ ] Cover unsafe fields, repo-policy overrides, unknown-field preservation, and isolated home/XDG
+- [x] Cover unsafe fields, repo-policy overrides, unknown-field preservation, and isolated home/XDG
   behavior with focused tests.
 
 **Acceptance criteria:**
 
-- [ ] B0-A1: Codex and Claude resolve the same versioned global preference file from `${XDG_CONFIG_HOME:-~/.config}/elves/config.json`, while explicit run intent and repository policy take precedence.
-- [ ] [B0-A2] Preference management writes atomically, preserves supported unknown fields, and rejects credentials, merge/destructive authority, protected-ref authority, and approval-bypass settings.
-- [ ] B0-A3: A deterministic routing decision reports provider, worker model policy, worker effort, review risk, provenance, and any advisory driver-upgrade recommendation without invoking a model.
-- [ ] [B0-A4] Focused tests cover native-only, Grok-preferred, unavailable-provider, repo-prohibited, and low/medium/high reasoning cases with isolated global config state.
+- [x] B0-A1: Codex and Claude resolve the same versioned global preference file from `${XDG_CONFIG_HOME:-~/.config}/elves/config.json`, while explicit run intent and repository policy take precedence.
+- [x] [B0-A2] Preference management writes atomically, preserves supported unknown fields, and rejects credentials, merge/destructive authority, protected-ref authority, and approval-bypass settings.
+- [x] B0-A3: A deterministic routing decision reports provider, worker model policy, worker effort, review risk, provenance, and any advisory driver-upgrade recommendation without invoking a model.
+- [x] [B0-A4] Focused tests cover native-only, Grok-preferred, unavailable-provider, repo-prohibited, and low/medium/high reasoning cases with isolated global config state.
 
 **Docs likely touched:** configuration reference/example, README, learnings.
 
@@ -96,20 +96,20 @@ with the user flow rather than orchestration internals.
 
 **Tasks:**
 
-- [ ] Provide equivalent Codex and Claude native worker profiles/launch specifications that inherit
+- [x] Provide equivalent Codex and Claude native worker profiles/launch specifications that inherit
   the current model by default and select plan-matched lower reasoning in a separate session.
-- [ ] Correct the native CLI command/session grammar needed for supervised launches and record the
+- [x] Correct the native CLI command/session grammar needed for supervised launches and record the
   exact worker session identity; never select a "last" or ambiguous session.
-- [ ] Add silent Grok Build capability discovery, explicit model pinning, one-time preference
+- [x] Add silent Grok Build capability discovery, explicit model pinning, one-time preference
   behavior, Composer 2.5 Fast for regular clear work, and Grok 4.5 only for genuinely complex work.
-- [ ] Verify honest native fallback and capability-qualified goal mode.
+- [x] Verify honest native fallback and capability-qualified goal mode.
 
 **Acceptance criteria:**
 
-- [ ] [B1-A1] Codex and Claude expose semantically equivalent native worker profiles that run in a separate session, inherit the current model unless explicitly routed otherwise, and map plan reasoning to a lower worker effort without changing the live driver.
-- [ ] B1-A2: Native launch commands are covered by grammar fixtures or behavioral tests, capture an exact session identifier, and never rely on ambiguous `--last` continuation.
-- [ ] [B1-A3] When Grok Build is available and permitted, regular clear implementation explicitly pins Composer 2.5 Fast while genuinely complex execution can explicitly pin Grok 4.5; availability alone never changes authorization.
-- [ ] B1-A4: Missing, unauthenticated, prohibited, or insufficient Grok capabilities fall back honestly to the native route, and goal mode is claimed only when behaviorally qualified.
+- [x] [B1-A1] Codex and Claude expose semantically equivalent native worker profiles that run in a separate session, inherit the current model unless explicitly routed otherwise, and map plan reasoning to a lower worker effort without changing the live driver.
+- [x] B1-A2: Native launch commands are covered by grammar fixtures or behavioral tests, capture an exact session identifier, and never rely on ambiguous `--last` continuation.
+- [x] [B1-A3] When Grok Build is available and permitted, regular clear implementation explicitly pins Composer 2.5 Fast while genuinely complex execution can explicitly pin Grok 4.5; availability alone never changes authorization.
+- [x] B1-A4: Missing, unauthenticated, prohibited, or insufficient Grok capabilities fall back honestly to the native route, and goal mode is claimed only when behaviorally qualified.
 
 **Docs likely touched:** host parity, follow mode, model routing, worker launch references, examples.
 
@@ -125,20 +125,20 @@ with the user flow rather than orchestration internals.
 
 **Tasks:**
 
-- [ ] Rewrite the public entry path so a user can ask naturally, see the plan/worker recommendation,
+- [x] Rewrite the public entry path so a user can ask naturally, see the plan/worker recommendation,
   make at most one useful preference choice, watch the worker stream, and receive final review.
-- [ ] Document natural preference controls, routing/fallback behavior, cache limits, safety boundaries,
+- [x] Document natural preference controls, routing/fallback behavior, cache limits, safety boundaries,
   and the distinction between worker completion and driver-owned PR landing.
-- [ ] Update `SKILL.md`, `AGENTS.md`, references, examples, changelog, learnings, and `.ai-docs` where
+- [x] Update `SKILL.md`, `AGENTS.md`, references, examples, changelog, learnings, and `.ai-docs` where
   the implementation changes durable architecture or gotchas.
-- [ ] Run focused tests first, then one cumulative repository verification and parity scan.
+- [x] Run focused tests first, then one cumulative repository verification and parity scan.
 
 **Acceptance criteria:**
 
-- [ ] B2-A1: User-facing docs lead with one natural-language flow and explain native default, optional Grok choice, remembered preferences, live worker visibility, and final driver review without requiring users to learn internal route vocabulary.
-- [ ] [B2-A2] `SKILL.md`, `AGENTS.md`, Claude-facing references, Codex-facing references, examples, and installed artifacts describe equivalent policy and valid host-specific invocation surfaces.
-- [ ] B2-A3: The changelog and durable learnings record the adaptive native-worker behavior, Composer-versus-4.5 policy, safe global preferences, and the no-cache-handoff limitation.
-- [ ] [B2-A4] Focused affected-surface tests pass, then one cumulative verification run passes or reports only an explicitly evidenced pre-existing baseline issue.
+- [x] B2-A1: User-facing docs lead with one natural-language flow and explain native default, optional Grok choice, remembered preferences, live worker visibility, and final driver review without requiring users to learn internal route vocabulary.
+- [x] [B2-A2] `SKILL.md`, `AGENTS.md`, Claude-facing references, Codex-facing references, examples, and installed artifacts describe equivalent policy and valid host-specific invocation surfaces.
+- [x] B2-A3: The changelog and durable learnings record the adaptive native-worker behavior, Composer-versus-4.5 policy, safe global preferences, and the no-cache-handoff limitation.
+- [x] [B2-A4] Focused affected-surface tests pass, then one cumulative verification run passes or reports only an explicitly evidenced pre-existing baseline issue.
 
 **Docs likely touched:** README, SKILL, AGENTS, references, CHANGELOG, learnings, `.ai-docs`.
 
@@ -152,10 +152,10 @@ with the user flow rather than orchestration internals.
 
 ## Master Acceptance
 
-- [ ] [M-A1] From either Codex or Claude Code, Elves can plan with the capable live driver, select and launch a separate plan-matched worker using the user's available subscription or permitted Grok Build, remain quiet during execution, and return control for cumulative review.
-- [ ] [M-A2] Route decisions are deterministic, inspectable, capability-honest, and unable to persist or infer merge, destructive, protected-ref, credential, or approval-bypass authority.
-- [ ] [M-A3] The implementation, focused tests, installed bundles, README, SKILL/AGENTS adapters, references, changelog, learnings, and architecture documentation agree on the shipped behavior.
-- [ ] [M-A4] One terminal readiness review of `git diff origin/main...HEAD` finds no unresolved serious issue, and the branch is presented as a reviewed PR without merging.
+- [x] [M-A1] From either Codex or Claude Code, Elves can plan with the capable live driver, select and launch a separate plan-matched worker using the user's available subscription or permitted Grok Build, remain quiet during execution, and return control for cumulative review.
+- [x] [M-A2] Route decisions are deterministic, inspectable, capability-honest, and unable to persist or infer merge, destructive, protected-ref, credential, or approval-bypass authority.
+- [x] [M-A3] The implementation, focused tests, installed bundles, README, SKILL/AGENTS adapters, references, changelog, learnings, and architecture documentation agree on the shipped behavior.
+- [x] [M-A4] One terminal readiness review of `git diff origin/main...HEAD` finds no unresolved serious issue, and the branch is presented as a reviewed PR without merging.
 
 ## Non-Negotiables
 
