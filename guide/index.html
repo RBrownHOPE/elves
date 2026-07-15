@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A practical guide to installing Elves, running work, watching a worker, and reviewing the result in Claude Code or Codex.">
+  <meta name="theme-color" content="#172637">
+  <title>Using Elves</title>
+  <script>document.documentElement.classList.replace("no-js", "js");</script>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: oklch(0.27 0.035 245);
+      --ink-strong: oklch(0.20 0.035 245);
+      --muted: oklch(0.44 0.025 245);
+      --bg: oklch(0.985 0.004 245);
+      --surface: oklch(1 0 0);
+      --soft: oklch(0.955 0.012 220);
+      --rule: oklch(0.86 0.018 235);
+      --teal: oklch(0.43 0.085 184);
+      --teal-soft: oklch(0.93 0.035 184);
+      --brass: oklch(0.58 0.115 72);
+      --code: oklch(0.225 0.032 245);
+      --code-ink: oklch(0.93 0.012 210);
+      --focus: oklch(0.66 0.15 72);
+      --radius: 10px;
+      --content: 73ch;
+      --page: 1180px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 1.5rem;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 1rem;
+      line-height: 1.65;
+      text-rendering: optimizeLegibility;
+    }
+
+    a {
+      color: var(--teal);
+      text-underline-offset: 0.18em;
+      text-decoration-thickness: 0.08em;
+    }
+
+    a:hover {
+      color: var(--ink-strong);
+    }
+
+    :focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 3px;
+    }
+
+    .skip-link {
+      position: fixed;
+      top: 0.75rem;
+      left: 0.75rem;
+      z-index: 3;
+      padding: 0.6rem 0.85rem;
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--ink-strong);
+      transform: translateY(-180%);
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    .masthead {
+      background: var(--ink-strong);
+      color: oklch(0.97 0.008 220);
+    }
+
+    .masthead-inner {
+      max-width: var(--page);
+      margin: 0 auto;
+      padding: clamp(2.4rem, 6vw, 5rem) clamp(1.25rem, 4vw, 2.5rem);
+    }
+
+    .brand-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: clamp(2.5rem, 7vw, 5.5rem);
+    }
+
+    .wordmark {
+      color: inherit;
+      font-weight: 760;
+      letter-spacing: -0.02em;
+      text-decoration: none;
+    }
+
+    .repo-link {
+      color: oklch(0.86 0.02 215);
+      font-size: 0.925rem;
+    }
+
+    .repo-link:hover {
+      color: white;
+    }
+
+    h1,
+    h2,
+    h3 {
+      color: var(--ink-strong);
+      line-height: 1.15;
+      text-wrap: balance;
+    }
+
+    h1 {
+      max-width: 13ch;
+      margin: 0;
+      color: white;
+      font-size: clamp(3rem, 9vw, 5.7rem);
+      letter-spacing: -0.035em;
+    }
+
+    h2 {
+      margin: 0 0 1rem;
+      font-size: clamp(1.9rem, 4vw, 2.8rem);
+      letter-spacing: -0.025em;
+    }
+
+    h3 {
+      margin: 2.1rem 0 0.65rem;
+      font-size: clamp(1.2rem, 2vw, 1.45rem);
+      letter-spacing: -0.015em;
+    }
+
+    p,
+    li,
+    td,
+    th {
+      text-wrap: pretty;
+    }
+
+    .intro {
+      max-width: 54ch;
+      margin: 1.4rem 0 0;
+      color: oklch(0.86 0.018 215);
+      font-size: clamp(1.15rem, 2.2vw, 1.35rem);
+      line-height: 1.55;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
+      gap: clamp(2rem, 6vw, 6rem);
+      max-width: var(--page);
+      margin: 0 auto;
+      padding: clamp(2.5rem, 6vw, 5rem) clamp(1.25rem, 4vw, 2.5rem) 6rem;
+    }
+
+    .contents {
+      align-self: start;
+      position: sticky;
+      top: 1.5rem;
+      padding-top: 0.3rem;
+      font-size: 0.94rem;
+    }
+
+    .contents strong {
+      display: block;
+      margin-bottom: 0.65rem;
+      color: var(--ink-strong);
+    }
+
+    .contents ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .contents li + li {
+      margin-top: 0.28rem;
+    }
+
+    .contents a {
+      display: block;
+      padding: 0.22rem 0;
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    .contents a:hover {
+      color: var(--teal);
+      text-decoration: underline;
+    }
+
+    main {
+      min-width: 0;
+    }
+
+    section {
+      max-width: var(--content);
+      padding: 0 0 clamp(3.5rem, 8vw, 6rem);
+    }
+
+    section + section {
+      padding-top: clamp(3.5rem, 8vw, 6rem);
+      border-top: 1px solid var(--rule);
+    }
+
+    .lede {
+      color: var(--muted);
+      font-size: 1.12rem;
+    }
+
+    .path {
+      counter-reset: run-step;
+      margin: 2rem 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .path li {
+      display: grid;
+      grid-template-columns: 2rem minmax(0, 1fr);
+      gap: 1rem;
+      align-items: start;
+      counter-increment: run-step;
+    }
+
+    .path li + li {
+      margin-top: 1.15rem;
+    }
+
+    .path li::before {
+      display: grid;
+      place-items: center;
+      width: 2rem;
+      height: 2rem;
+      border-radius: 50%;
+      background: var(--teal);
+      color: white;
+      content: counter(run-step);
+      font-weight: 760;
+    }
+
+    .path li > span {
+      padding-top: 0.12rem;
+    }
+
+    .path strong {
+      color: var(--ink-strong);
+    }
+
+    .host-switch {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .host {
+      flex: 1 1 20rem;
+      min-width: 0;
+      max-width: 100%;
+      padding: 1.15rem 1.25rem;
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .host h3 {
+      margin-top: 0;
+    }
+
+    .host p:last-child {
+      margin-bottom: 0;
+    }
+
+    .prompt {
+      margin: 1.25rem 0;
+      padding: 1.15rem 1.25rem;
+      border: 1px solid oklch(0.79 0.045 184);
+      border-radius: var(--radius);
+      background: var(--teal-soft);
+      color: var(--ink-strong);
+      font-size: 1.04rem;
+    }
+
+    .prompt p {
+      margin: 0;
+    }
+
+    .code-block {
+      position: relative;
+      margin: 1rem 0 1.5rem;
+    }
+
+    pre {
+      overflow-x: auto;
+      max-width: 100%;
+      margin: 0;
+      padding: 1.1rem 1.2rem;
+      border-radius: var(--radius);
+      background: var(--code);
+      color: var(--code-ink);
+      font: 0.89rem/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      tab-size: 2;
+    }
+
+    code,
+    kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    :not(pre) > code,
+    kbd {
+      padding: 0.12em 0.35em;
+      border-radius: 4px;
+      background: var(--soft);
+      color: var(--ink-strong);
+      font-size: 0.9em;
+      overflow-wrap: anywhere;
+    }
+
+    .copy {
+      display: none;
+      position: absolute;
+      top: 0.65rem;
+      right: 0.65rem;
+      padding: 0.35rem 0.6rem;
+      border: 1px solid oklch(0.53 0.02 225);
+      border-radius: 6px;
+      background: var(--code);
+      color: var(--code-ink);
+      cursor: pointer;
+      font: 650 0.75rem/1 ui-sans-serif, sans-serif;
+    }
+
+    .js .copy {
+      display: block;
+    }
+
+    .copy:hover {
+      background: oklch(0.31 0.035 235);
+    }
+
+    table {
+      width: 100%;
+      margin: 1.5rem 0;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+
+    th,
+    td {
+      padding: 0.75rem 0.8rem;
+      border-bottom: 1px solid var(--rule);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--ink-strong);
+      font-weight: 750;
+    }
+
+    .note {
+      margin: 1.5rem 0;
+      padding: 1rem 1.15rem;
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .note strong {
+      color: var(--ink-strong);
+    }
+
+    details {
+      padding: 0.9rem 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    summary {
+      color: var(--ink-strong);
+      font-weight: 720;
+      cursor: pointer;
+    }
+
+    details > :last-child {
+      margin-bottom: 0;
+    }
+
+    footer {
+      border-top: 1px solid var(--rule);
+      background: var(--surface);
+    }
+
+    .footer-inner {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 1rem;
+      max-width: var(--page);
+      margin: 0 auto;
+      padding: 2rem clamp(1.25rem, 4vw, 2.5rem);
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .footer-inner p {
+      margin: 0;
+    }
+
+    @media (max-width: 760px) {
+      .brand-row {
+        margin-bottom: 3rem;
+      }
+
+      .layout {
+        display: block;
+      }
+
+      .contents {
+        position: static;
+        margin-bottom: 4rem;
+        padding: 1rem 1.1rem;
+        border: 1px solid var(--rule);
+        border-radius: var(--radius);
+        background: var(--surface);
+      }
+
+      .contents ul {
+        columns: 2;
+      }
+
+      table,
+      thead,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+      }
+
+      thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+
+      tr {
+        padding: 0.8rem 0;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      td {
+        padding: 0.25rem 0;
+        border: 0;
+      }
+
+      td::before {
+        display: block;
+        color: var(--muted);
+        content: attr(data-label);
+        font-size: 0.78rem;
+        font-weight: 750;
+      }
+    }
+
+    @media (max-width: 440px) {
+      .contents ul {
+        columns: 1;
+      }
+
+      .repo-link {
+        max-width: 9rem;
+        text-align: right;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      *,
+      *::before,
+      *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to the guide</a>
+
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="brand-row">
+        <a class="wordmark" href="https://github.com/aigorahub/elves">Elves</a>
+        <a class="repo-link" href="https://github.com/aigorahub/elves">Source and releases on GitHub</a>
+      </div>
+      <h1>Using Elves</h1>
+      <p class="intro">Plan with the main agent, hand implementation to a separate worker, then
+        return to the main agent for review.</p>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="contents" aria-label="Guide contents">
+      <strong>On this page</strong>
+      <ul>
+        <li><a href="#how-it-works">How it works</a></li>
+        <li><a href="#install">Install Elves</a></li>
+        <li><a href="#first-run">Start a run</a></li>
+        <li><a href="#worker">Choose a worker</a></li>
+        <li><a href="#watch">Watch the work</a></li>
+        <li><a href="#finish">Review and finish</a></li>
+        <li><a href="#preferences">Save preferences</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+      </ul>
+    </nav>
+
+    <main id="main">
+      <section id="how-it-works">
+        <h2>How a run works</h2>
+        <p class="lede">Elves keeps the agent that understands your intent available for planning
+          and review. A separate worker handles implementation. The planning agent can stay quiet
+          while the worker commits progress.</p>
+
+        <ol class="path">
+          <li><span><strong>Plan.</strong> Agree on the outcome, constraints, acceptance criteria,
+            and risky areas with Claude Code or Codex.</span></li>
+          <li><span><strong>Work.</strong> Elves recommends a worker, gives it one complete packet,
+            and shows its live output or provides an exact follow command before the driver
+            parks.</span></li>
+          <li><span><strong>Review.</strong> The main driver checks the whole change, pays closer
+            attention to the risks named in the plan, fixes real gaps, and prepares the PR.</span></li>
+        </ol>
+
+        <div class="note">
+          <strong>The worker never decides to merge.</strong> It may commit and push only on its
+          assigned feature branch when the run grants that narrow permission. PR review, protected
+          refs, release work, and merge stay with the driver and the user.
+        </div>
+      </section>
+
+      <section id="install">
+        <h2>Install Elves</h2>
+        <p>Install from a temporary clone. The sync helper updates the main skill and preserves
+          user-owned Claude Code aliases.</p>
+
+        <div class="host-switch">
+          <article class="host">
+            <h3>Claude Code</h3>
+            <div class="code-block">
+              <button class="copy" type="button" data-copy="install-claude">Copy</button>
+              <pre><code id="install-claude">ELVES_TMP="$(mktemp -d)"
+git clone https://github.com/aigorahub/elves.git "$ELVES_TMP/elves"
+python3 "$ELVES_TMP/elves/scripts/sync_installed_skills.py" --apply --target claude
+rm -rf "$ELVES_TMP"</code></pre>
+            </div>
+            <p>Use natural language or the installed Claude aliases such as <code>/elves</code> and
+              <code>/cobbler</code>.</p>
+          </article>
+
+          <article class="host">
+            <h3>Codex</h3>
+            <div class="code-block">
+              <button class="copy" type="button" data-copy="install-codex">Copy</button>
+              <pre><code id="install-codex">ELVES_TMP="$(mktemp -d)"
+git clone https://github.com/aigorahub/elves.git "$ELVES_TMP/elves"
+python3 "$ELVES_TMP/elves/scripts/sync_installed_skills.py" --apply --target codex
+rm -rf "$ELVES_TMP"</code></pre>
+            </div>
+            <p>Use natural language or <code>$elves</code> skill forms. Do not invent Claude's
+              top-level slash aliases in Codex.</p>
+          </article>
+        </div>
+
+        <h3>Check the install</h3>
+        <div class="code-block">
+          <button class="copy" type="button" data-copy="doctor">Copy</button>
+          <pre><code id="doctor"># Claude Code
+python3 ~/.claude/skills/elves/scripts/install_doctor.py --startup
+
+# Codex
+python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup</code></pre>
+        </div>
+      </section>
+
+      <section id="first-run">
+        <h2>Start a run</h2>
+        <p class="lede">Start with the outcome and the landing choice. You do not need to name
+          internal Elves phases or write a launch script.</p>
+
+        <ol>
+          <li>Open a terminal and change to the repository you want Elves to modify.</li>
+          <li>Start Claude Code with <code>claude</code>, or open the repository in Codex. Codex CLI
+            users can start it with <code>codex</code>.</li>
+          <li>Paste one of the prompts below into that agent conversation.</li>
+        </ol>
+
+        <h3>Finish the work but do not merge</h3>
+        <blockquote class="prompt">
+          <p>Implement this plan while I am offline. Review the completed work and leave the PR
+            ready for me, but do not merge it.</p>
+        </blockquote>
+
+        <h3>Finish the work and merge when it is ready</h3>
+        <blockquote class="prompt">
+          <p>Implement this plan, review and revise the completed work, then land the PR with a
+            regular merge commit when all serious issues are resolved.</p>
+        </blockquote>
+
+        <p>Both requests use the same planning, implementation, proof, and review path. The second
+          request also grants the driver merge authority after final readiness. Worker completion
+          alone is never enough.</p>
+
+        <h3>If the plan is still in your head</h3>
+        <p>Describe the change in ordinary language. Elves will help turn it into a durable plan
+          before launching the worker. Name the parts that need caution and the evidence that would
+          convince you the result is complete.</p>
+      </section>
+
+      <section id="worker">
+        <h2>Choose a worker</h2>
+        <p>Elves checks the current host and available tools without making a model call. It shows
+          one recommendation and asks at most one useful preference question.</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Situation</th>
+              <th scope="col">Usual choice</th>
+              <th scope="col">Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-label="Situation">Claude Code or Codex only</td>
+              <td data-label="Usual choice">Separate native worker</td>
+              <td data-label="Why">Uses the subscription already in use and keeps the live driver
+                available for review.</td>
+            </tr>
+            <tr>
+              <td data-label="Situation">Grok Build is available and allowed</td>
+              <td data-label="Usual choice"><code>grok-composer-2.5-fast</code></td>
+              <td data-label="Why">A fast default for regular, clearly planned implementation.</td>
+            </tr>
+            <tr>
+              <td data-label="Situation">The implementation is genuinely complex</td>
+              <td data-label="Usual choice"><code>grok-4.5</code></td>
+              <td data-label="Why">Use the stronger worker when the plan calls for high execution
+                reasoning.</td>
+            </tr>
+            <tr>
+              <td data-label="Situation">Devin CLI is installed and configured</td>
+              <td data-label="Usual choice"><code>devin-cli</code> with
+                <code>swe-1-7-lightning</code></td>
+              <td data-label="Why">Provides another persistent worker when Devin is the available
+                subscription or the selected fallback.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>Native workers inherit the observed current model unless the route explicitly pins a
+          model. Their reasoning effort follows the plan. The live driver is not downgraded.
+          Devin CLI and other configured adapters remain optional routes, not required setup.</p>
+
+        <div class="note">
+          <strong>Cache handoff is not promised.</strong> A separate session may receive provider
+          cache hits, but Elves cannot export the live driver's active conversation memory or model
+          state and inject it into another process.
+        </div>
+      </section>
+
+      <section id="watch">
+        <h2>Watch the work</h2>
+        <p class="lede">Before the driver parks, it should display the worker's live output or give
+          you an exact command to follow the log. You can watch the worker without asking the
+          driver to narrate routine progress.</p>
+
+        <p>Set the active installed skill root first. Keep the target repository as your working
+          directory.</p>
+
+        <div class="code-block">
+          <button class="copy" type="button" data-copy="roots">Copy</button>
+          <pre><code id="roots"># Claude Code
+export ELVES_SKILL_ROOT="$HOME/.claude/skills/elves"
+
+# Codex
+export ELVES_SKILL_ROOT="$HOME/.codex/skills/elves"</code></pre>
+        </div>
+
+        <p>Then run the exact command Elves printed. It has this form:</p>
+
+        <div class="code-block">
+          <button class="copy" type="button" data-copy="follow">Copy</button>
+          <pre><code id="follow">python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
+  native-worker follow --run-id &lt;run-id&gt;</code></pre>
+        </div>
+
+        <p>The worker should also commit meaningful slices. Those commits are a durable progress
+          readout and give the final reviewer clean points to inspect. The driver wakes on completion,
+          blocked, or safety events. If the worker exits unexpectedly, the supervisor records the
+          exit and the driver reconciles the actual branch state.</p>
+      </section>
+
+      <section id="finish">
+        <h2>Review and finish</h2>
+        <p>At the end, the driver reviews the complete branch rather than repeatedly reviewing each
+          batch. It checks the plan's acceptance criteria, the risky surfaces, relevant tests, and
+          unresolved GitHub feedback.</p>
+
+        <p>Revisions get narrower checks. The driver should not rerun an unrelated full test suite
+          after every small fix. It reruns the tests that the revision could reasonably affect,
+          then performs one final readiness check at the exact branch tip.</p>
+
+        <h3>If you asked Elves not to merge</h3>
+        <p>The run stops with a reviewed, landable PR. You can inspect it and merge it yourself.</p>
+
+        <h3>If you authorized landing</h3>
+        <p>The driver clears serious review findings and required checks, confirms the exact PR
+          head, then uses a regular merge commit. Elves never squashes or rebases this path.</p>
+
+        <h3>Land a reviewed PR later</h3>
+        <p>In the active Elves conversation, say “land this PR.” If the host maps Elves command
+          strings, <code>/land-pr</code> or <code>\land-pr</code> starts the same reviewed landing
+          path. The driver repeats only the checks needed for changes since readiness.</p>
+      </section>
+
+      <section id="preferences">
+        <h2>Save preferences</h2>
+        <p>Safe convenience choices can be stored once for both hosts in
+          <code>${XDG_CONFIG_HOME:-~/.config}/elves/config.json</code>. Repository safety rules and
+          explicit instructions for the current run still take precedence.</p>
+
+        <div class="code-block">
+          <button class="copy" type="button" data-copy="preferences-code">Copy</button>
+          <pre><code id="preferences-code">python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences show
+python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences set worker.provider native
+python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences set worker.provider grok
+python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences reset</code></pre>
+        </div>
+
+        <p>Credentials, destructive authority, protected-ref authority, approval bypasses, and
+          merge permission cannot be stored as preferences.</p>
+      </section>
+
+      <section id="troubleshooting">
+        <h2>Troubleshooting</h2>
+
+        <details>
+          <summary>I do not see worker output.</summary>
+          <p>Look for the native agent view or exact follow command printed before the driver parks.
+            If neither was proven, Elves should say that visibility is commit-only instead of
+            claiming a live stream.</p>
+        </details>
+
+        <details>
+          <summary>The worker stopped early.</summary>
+          <p>Check the supervised worker status and recent commits. The driver should reconcile the
+            exact session and branch state, list the remaining tasks, and resume the same worker
+            when safe.</p>
+        </details>
+
+        <details>
+          <summary>Grok Build was not selected.</summary>
+          <p>Installation is not permission. Elves also checks authentication, repository policy,
+            remembered or current-run consent, model availability, and any required goal-mode
+            verification. A failed check falls back to the native route and records why.</p>
+        </details>
+
+        <details>
+          <summary>A source-checkout command works but the installed skill command does not.</summary>
+          <p>Use the helper under the active installed skill root and keep the target repository as
+            the working directory. Run the install doctor for that host to find a stale or shadowed
+            project-local install.</p>
+        </details>
+
+        <h3>Deeper references</h3>
+        <ul>
+          <li><a href="https://github.com/aigorahub/elves/blob/main/references/adaptive-worker-routing.md">Adaptive worker routing</a></li>
+          <li><a href="https://github.com/aigorahub/elves/blob/main/references/joyful-runs-contract.md">Joyful runs contract</a></li>
+          <li><a href="https://github.com/aigorahub/elves/blob/main/references/landing-authority.md">Landing authority</a></li>
+          <li><a href="https://github.com/aigorahub/elves/blob/main/references/host-parity.md">Claude Code and Codex parity</a></li>
+        </ul>
+      </section>
+    </main>
+  </div>
+
+  <footer>
+    <div class="footer-inner">
+      <p>Elves is an open Agent Skill for Claude Code, Codex, and compatible hosts.</p>
+      <p><a href="https://github.com/aigorahub/elves/blob/main/CHANGELOG.md">Changelog</a> ·
+        <a href="https://github.com/aigorahub/elves/releases">Releases</a></p>
+    </div>
+  </footer>
+
+  <script>
+    for (const button of document.querySelectorAll("[data-copy]")) {
+      button.setAttribute("aria-live", "polite");
+      button.addEventListener("click", async () => {
+        const target = document.getElementById(button.dataset.copy);
+        if (!target) return;
+
+        try {
+          await navigator.clipboard.writeText(target.textContent);
+          button.textContent = "Copied";
+        } catch {
+          button.textContent = "Select text";
+        }
+
+        window.setTimeout(() => {
+          button.textContent = "Copy";
+        }, 1800);
+      });
+    }
+  </script>
+</body>
+</html>

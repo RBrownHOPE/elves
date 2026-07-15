@@ -9,9 +9,10 @@ proven native view or exact follow command before the driver parks, and returns 
 review. Permitted Grok remains optional. See
 [`adaptive-worker-routing.md`](adaptive-worker-routing.md).
 
-**Status:** **recommended default user path (v2.0+)** — design + kickoff templates. v2.1 adds trusted
-Grok full-run delegation with parked-driver semantics. Classic **two-call stage-then-start** remains
-optional for huge or unstable plans.
+**Status:** **recommended default user path (v2.0+).** v2.1 adds trusted Grok full-run delegation.
+The current default uses a separate subscription-native worker, with optional permitted Grok or
+another configured adapter. Classic **two-call stage-then-start** remains optional for huge or
+unstable plans.
 
 **Product intent:** efficient, intelligent workflows for agentic development and research —
 chat to conceptual agreement (optionally multi-planner), then **one prompt** runs plan + stage +
@@ -65,10 +66,10 @@ Execution route
     │    batch loop → validate → review → document → host push
     │    after each bounded return: labor completeness check
     │
-    └─ trusted Grok full-run:
-         one complete packet → one persistent launch → parked bounded telemetry
-         worker loops batches, validates, commits, and pushes without host re-prompts
-         host wakes only on safety/blocked/terminal events, then audits cumulatively
+    └─ separate trusted worker (native, Grok, or another configured adapter):
+         one complete packet → one persistent launch → proven view or exact follow command
+         worker implements, validates, and commits without host re-prompts
+         parked host wakes only on safety, blocked, or terminal events, then reviews cumulatively
     ▼
 Readiness Gate (landable PR)
     │

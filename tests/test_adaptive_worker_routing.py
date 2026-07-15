@@ -21,7 +21,9 @@ from cobbler_runtime.adapters import (  # noqa: E402
 )
 from cobbler_runtime.native_worker import (  # noqa: E402
     build_native_worker_spec,
+    native_worker_paths,
     native_worker_profiles,
+    native_worker_status,
     parse_codex_thread_id,
 )
 from cobbler_runtime.full_run import FullRunState, build_full_run_argv  # noqa: E402
@@ -239,6 +241,100 @@ class RouteDecisionMatrixTests(unittest.TestCase):
 
 
 class NativeWorkerGrammarTests(unittest.TestCase):
+    def test_status_treats_missing_process_start_identity_as_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_path, _ = native_worker_paths(root, "unknown-start")
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "status": "running",
+                        "pid": 123,
+                        "pid_start": None,
+                        "supervisor_pid": 456,
+                        "supervisor_pid_start": None,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path.chmod(0o600)
+
+            with (
+                mock.patch("cobbler_runtime.native_worker._process_start", return_value=None),
+                mock.patch("cobbler_runtime.native_worker.os.kill", return_value=None),
+            ):
+                status = native_worker_status(root, "unknown-start")
+
+            self.assertEqual(status["status"], "running")
+            self.assertIsNone(status["process_identity_matches"])
+            self.assertIsNone(status["supervisor_identity_matches"])
+
+    def test_status_detects_lost_processes_without_start_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_path, _ = native_worker_paths(root, "unknown-start-lost")
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "status": "running",
+                        "pid": 123,
+                        "pid_start": None,
+                        "supervisor_pid": 456,
+                        "supervisor_pid_start": None,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path.chmod(0o600)
+
+            with (
+                mock.patch("cobbler_runtime.native_worker._process_start", return_value=None),
+                mock.patch(
+                    "cobbler_runtime.native_worker.os.kill", side_effect=ProcessLookupError
+                ),
+            ):
+                status = native_worker_status(root, "unknown-start-lost")
+
+            self.assertEqual(status["status"], "failed")
+            self.assertEqual(status["failure_reason"], "supervisor_and_child_identity_lost")
+
+    def test_status_rereads_terminal_state_before_reporting_lost_processes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_path, _ = native_worker_paths(root, "terminal-race")
+            state_path.parent.mkdir(parents=True)
+            running = {
+                "status": "running",
+                "pid": 123,
+                "pid_start": "child-start",
+                "supervisor_pid": 456,
+                "supervisor_pid_start": "supervisor-start",
+            }
+            state_path.write_text(json.dumps(running), encoding="utf-8")
+            state_path.chmod(0o600)
+            original_read_text = Path.read_text
+            reads = 0
+
+            def terminal_after_brief_delay(path: Path, *args: object, **kwargs: object) -> str:
+                nonlocal reads
+                if path == state_path:
+                    reads += 1
+                    if reads == 3:
+                        return json.dumps({**running, "status": "complete", "exit_code": 0})
+                return original_read_text(path, *args, **kwargs)
+
+            with (
+                mock.patch("cobbler_runtime.native_worker._process_start", return_value=None),
+                mock.patch("cobbler_runtime.native_worker.os.kill", side_effect=ProcessLookupError),
+                mock.patch.object(Path, "read_text", terminal_after_brief_delay),
+            ):
+                status = native_worker_status(root, "terminal-race")
+
+            self.assertEqual(status["status"], "complete")
+            self.assertEqual(status["exit_code"], 0)
+
     def test_codex_create_resume_and_thread_capture_are_exact(self) -> None:
         spec = build_native_worker_spec(
             host="codex", worktree=REPO_ROOT, effort="low", requested_model="current-model"

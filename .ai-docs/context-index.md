@@ -5,14 +5,17 @@ the runtime surfaces, and the checks that usually matter before editing.
 
 ## Primary Surfaces
 
-- `SKILL.md`: canonical skill instructions and metadata for Claude-style skill hosts.
-- `AGENTS.md`: Codex-facing mirror of the skill instructions.
+- `SKILL.md`: compact canonical workflow and metadata for every supported host.
+- `AGENTS.md`: thin Codex invocation adapter that points back to `SKILL.md`.
 - `README.md`: human-facing overview, installation, usage, troubleshooting, and operator guidance.
+- `guide/index.html`: short public walkthrough for installing, running, watching, and finishing an
+  Elves run in Claude Code or Codex.
 - `CHANGELOG.md`: release history and version-specific behavior changes.
 - `TODO.md`: deferred follow-ups and scout ideas.
 - `config.json.example`: persistent preference schema, Cobbler-first defaults, and optional
   provider configuration.
 - `docs/cobbler.md`: human-facing Cobbler walkthrough, paired with `assets/cobbler-infographic.png`.
+- `.github/workflows/pages.yml`: publishes only `guide/` to the repository's GitHub Pages site.
 
 ## Durable Agent Docs
 
@@ -119,13 +122,13 @@ For this repo, use the canonical aggregate verifier instead of maintaining a dup
 list:
 
 ```bash
-python3 scripts/verify_repo.py --version 2.1.1
+python3 scripts/verify_repo.py --version 2.5.0
 ```
 
 Before final readiness on an active run, use:
 
 ```bash
-python3 scripts/verify_repo.py --version 2.1.1 --final-readiness --session <session-path>
+python3 scripts/verify_repo.py --version 2.5.0 --final-readiness --session <session-path>
 ```
 
 The aggregate verifier includes `git diff --check`; focused tests remain useful while iterating.
