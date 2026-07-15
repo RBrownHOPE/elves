@@ -35,6 +35,8 @@ All notable changes to the Elves skill are documented here.
   from behavioral verification.
 - Add a supervised native-worker launch/status/follow lifecycle with private per-run structured
   logs, exact process/session/worktree binding, and an exact watcher command before driver parking.
+- Avoid a fast-worker status race on macOS by distinguishing unavailable start metadata from an
+  exited PID and briefly rereading terminal state before reporting that both processes were lost.
 - Document that independent worker sessions may receive provider-managed cache hits, but Elves
   cannot transfer the live driver's prompt/KV cache or hidden model state.
 
