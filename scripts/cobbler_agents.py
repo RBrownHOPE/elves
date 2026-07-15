@@ -118,6 +118,18 @@ from cobbler_runtime.storage import (  # noqa: E402
     atomic_write_json,
     read_repo_regular_bytes,
 )
+from cobbler_runtime.preferences import (  # noqa: E402
+    preference_snapshot,
+    reset_preferences,
+    set_preference,
+)
+from cobbler_runtime.worker_routing import (  # noqa: E402
+    GrokCapabilities,
+    decide_worker_route,
+)
+from cobbler_runtime.native_worker import (  # noqa: E402
+    build_native_worker_spec,
+)
 
 
 def _nonnegative_batch_arg(value: str) -> int:
@@ -310,6 +322,93 @@ def cmd_validate_config(args: argparse.Namespace) -> int:
     if args.json:
         return _emit_json(payload, exit_code=0 if resolved.ok else 1)
     return _emit_text_validate(payload)
+
+
+def cmd_preferences(args: argparse.Namespace) -> int:
+    """Show or safely change the shared XDG preference file."""
+    try:
+        if args.preferences_action == "show":
+            snapshot = preference_snapshot()
+        elif args.preferences_action == "set":
+            set_preference(args.preference, args.value)
+            snapshot = preference_snapshot()
+        else:
+            reset_preferences()
+            snapshot = preference_snapshot()
+    except ValidationIssue as issue:
+        payload = {"ok": False, "issues": [issue.to_dict()], "model_calls_made": False}
+        if args.json:
+            return _emit_json(payload, exit_code=1)
+        print(f"preferences: FAILED [{issue.code}] {issue.message}", file=sys.stderr)
+        return 1
+    payload = {"ok": True, **snapshot.to_dict(), "model_calls_made": False}
+    if args.json:
+        return _emit_json(payload, exit_code=0)
+    print(f"preferences: {snapshot.path}")
+    print(json.dumps(snapshot.values, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_route_worker(args: argparse.Namespace) -> int:
+    """Explain a model-free worker recommendation."""
+    preference_state = preference_snapshot()
+    preferences = preference_state.values if preference_state.exists else {}
+    explicit: dict[str, Any] = {"worker": {}}
+    if args.provider:
+        explicit["worker"]["provider"] = args.provider
+    if args.effort:
+        explicit["worker"]["native_effort"] = args.effort
+    if args.allow_grok:
+        explicit["worker"]["allow_grok"] = True
+    repo_policy = {"worker": {"allow_grok": False}} if args.prohibit_grok else None
+    grok = GrokCapabilities(
+        installed=args.grok_installed,
+        authenticated=args.grok_authenticated,
+        models=tuple(args.grok_model or ()),
+        goal_mode_qualified=args.grok_goal_qualified,
+        version=args.grok_version,
+    )
+    try:
+        decision = decide_worker_route(
+            host=args.host,
+            execution_reasoning=args.execution_reasoning,
+            review_risk=args.review_risk,
+            global_preferences=preferences,
+            explicit_intent=explicit,
+            repo_policy=repo_policy,
+            grok=grok,
+            driver_effort=args.driver_effort,
+        )
+    except ValidationIssue as issue:
+        return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+    payload = {"ok": True, "decision": decision.to_dict(), "preferences_path": preference_state.path}
+    if args.json:
+        return _emit_json(payload, exit_code=0)
+    print(
+        f"worker route: provider={decision.provider} transport={decision.worker_transport} "
+        f"effort={decision.worker_effort} model={decision.worker_model or decision.worker_model_policy}"
+    )
+    if decision.fallback:
+        print(f"fallback: {decision.fallback['reason']}")
+    return 0
+
+
+def cmd_native_worker(args: argparse.Namespace) -> int:
+    try:
+        spec = build_native_worker_spec(
+            host=args.host,
+            worktree=Path(args.worktree),
+            effort=args.effort,
+            requested_model=args.model,
+            session_id=args.session_id,
+        )
+    except ValidationIssue as issue:
+        return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+    payload = {"ok": True, "worker": spec.to_dict(), "model_calls_made": False}
+    if args.json:
+        return _emit_json(payload, exit_code=0)
+    print(" ".join(spec.argv))
+    return 0
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -1756,6 +1855,53 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    preferences = sub.add_parser(
+        "preferences",
+        help="Show, set, or reset safe machine-global worker preferences",
+    )
+    preferences_sub = preferences.add_subparsers(dest="preferences_action", required=True)
+    for action in ("show", "reset"):
+        item = preferences_sub.add_parser(action)
+        item.add_argument("--json", action="store_true")
+        item.set_defaults(func=cmd_preferences)
+    pref_set = preferences_sub.add_parser("set")
+    pref_set.add_argument("preference", choices=("worker.provider", "worker.native_effort"))
+    pref_set.add_argument("value")
+    pref_set.add_argument("--json", action="store_true")
+    pref_set.set_defaults(func=cmd_preferences)
+
+    route_worker = sub.add_parser(
+        "route-worker",
+        help="Inspect a deterministic native/optional-Grok worker recommendation",
+    )
+    route_worker.add_argument("--host", choices=("codex", "claude"), required=True)
+    route_worker.add_argument("--execution-reasoning", choices=("low", "medium", "high"), required=True)
+    route_worker.add_argument("--review-risk", choices=("low", "standard", "high"), required=True)
+    route_worker.add_argument("--driver-effort", choices=("low", "medium", "high"))
+    route_worker.add_argument("--provider", choices=("auto", "native", "grok"))
+    route_worker.add_argument("--effort", choices=("low", "medium", "high"))
+    route_worker.add_argument("--allow-grok", action="store_true")
+    route_worker.add_argument("--prohibit-grok", action="store_true")
+    route_worker.add_argument("--grok-installed", action="store_true")
+    route_worker.add_argument("--grok-authenticated", action="store_true")
+    route_worker.add_argument("--grok-model", action="append")
+    route_worker.add_argument("--grok-goal-qualified", action="store_true")
+    route_worker.add_argument("--grok-version")
+    route_worker.add_argument("--json", action="store_true")
+    route_worker.set_defaults(func=cmd_route_worker)
+
+    native_worker = sub.add_parser(
+        "native-worker",
+        help="Build a separate exact-session Codex or Claude worker launch specification",
+    )
+    native_worker.add_argument("--host", choices=("codex", "claude"), required=True)
+    native_worker.add_argument("--worktree", required=True)
+    native_worker.add_argument("--effort", choices=("low", "medium", "high"), required=True)
+    native_worker.add_argument("--model")
+    native_worker.add_argument("--session-id")
+    native_worker.add_argument("--json", action="store_true")
+    native_worker.set_defaults(func=cmd_native_worker)
 
     validate = sub.add_parser(
         "validate-config",

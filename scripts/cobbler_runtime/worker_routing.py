@@ -1,0 +1,159 @@
+"""Deterministic, model-free adaptive implementation-worker routing."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any, Mapping
+
+from .schema import ValidationIssue
+
+
+REASONING_LEVELS = ("low", "medium", "high")
+REVIEW_RISKS = ("low", "standard", "high")
+GROK_COMPOSER_MODEL = "grok-composer-2.5-fast"
+GROK_COMPLEX_MODEL = "grok-4.5"
+
+
+@dataclass(frozen=True)
+class GrokCapabilities:
+    installed: bool = False
+    authenticated: bool = False
+    models: tuple[str, ...] = ()
+    goal_mode_qualified: bool = False
+    version: str | None = None
+
+    def supports(self, model: str) -> bool:
+        return self.installed and self.authenticated and model in self.models
+
+
+@dataclass(frozen=True)
+class RouteDecision:
+    provider: str
+    worker_transport: str
+    worker_model_policy: str
+    worker_model: str | None
+    worker_effort: str
+    execution_reasoning: str
+    review_risk: str
+    provenance: dict[str, str]
+    fallback: dict[str, str] | None
+    advisory_driver_upgrade: str | None
+    goal_mode: bool
+    reasons: tuple[str, ...]
+    model_calls_made: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["reasons"] = list(self.reasons)
+        return payload
+
+
+def _choice(layers: tuple[tuple[str, Mapping[str, Any] | None], ...], key: str, default: Any) -> tuple[Any, str]:
+    for source, layer in layers:
+        if layer is not None and key in layer and layer[key] is not None:
+            return layer[key], source
+    return default, "built_in_default"
+
+
+def decide_worker_route(
+    *,
+    host: str,
+    execution_reasoning: str,
+    review_risk: str,
+    global_preferences: Mapping[str, Any] | None = None,
+    explicit_intent: Mapping[str, Any] | None = None,
+    repo_policy: Mapping[str, Any] | None = None,
+    grok: GrokCapabilities | None = None,
+    driver_effort: str | None = None,
+) -> RouteDecision:
+    """Return an inspectable route. Repository policy is the final safety veto."""
+    host_token = host.strip().lower().replace("_", "-")
+    if host_token not in {"codex", "claude", "claude-code"}:
+        raise ValidationIssue("unsupported_host", f"Unsupported host `{host}`", path="host")
+    execution = execution_reasoning.strip().lower()
+    risk = review_risk.strip().lower()
+    if execution not in REASONING_LEVELS:
+        raise ValidationIssue("invalid_execution_reasoning", f"Unknown execution reasoning `{execution}`")
+    if risk not in REVIEW_RISKS:
+        raise ValidationIssue("invalid_review_risk", f"Unknown review risk `{risk}`")
+
+    global_worker = (global_preferences or {}).get("worker", {})
+    if not isinstance(global_worker, Mapping):
+        global_worker = {}
+    explicit_worker = (explicit_intent or {}).get("worker", explicit_intent or {})
+    repo_worker = (repo_policy or {}).get("worker", repo_policy or {})
+    if not isinstance(explicit_worker, Mapping) or not isinstance(repo_worker, Mapping):
+        raise ValidationIssue("invalid_route_policy", "Worker intent/policy must be objects")
+
+    provider, provider_source = _choice(
+        (("explicit_run_intent", explicit_worker), ("global_preferences", global_worker)),
+        "provider",
+        "auto",
+    )
+    effort, effort_source = _choice(
+        (("explicit_run_intent", explicit_worker), ("global_preferences", global_worker)),
+        "native_effort",
+        "auto",
+    )
+    provider = str(provider).lower()
+    effort = execution if effort == "auto" else str(effort).lower()
+    if provider not in {"auto", "native", "grok"}:
+        raise ValidationIssue("invalid_provider_preference", f"Unknown worker provider `{provider}`")
+    if effort not in REASONING_LEVELS:
+        raise ValidationIssue("invalid_worker_effort", f"Unknown worker effort `{effort}`")
+
+    grok_info = grok or GrokCapabilities()
+    prohibited = repo_worker.get("allow_grok") is False
+    permitted = repo_worker.get("allow_grok") is True or explicit_worker.get("allow_grok") is True
+    reasons: list[str] = []
+    fallback: dict[str, str] | None = None
+
+    wants_grok = provider == "grok" or (provider == "auto" and permitted)
+    selected_provider = "native"
+    selected_model: str | None = None
+    model_policy = "inherit_live_driver_model"
+    goal_mode = False
+    if wants_grok:
+        if prohibited:
+            fallback = {"requested": "grok", "actual": "native", "reason": "repository_policy_prohibits_grok"}
+        elif not permitted:
+            fallback = {"requested": "grok", "actual": "native", "reason": "grok_not_explicitly_permitted"}
+        else:
+            candidate = GROK_COMPLEX_MODEL if execution == "high" else GROK_COMPOSER_MODEL
+            if grok_info.supports(candidate):
+                selected_provider = "grok"
+                selected_model = candidate
+                model_policy = "explicit_grok_model_pin"
+                goal_mode = bool(grok_info.goal_mode_qualified)
+                reasons.append("permitted_grok_capability_matches_plan")
+            else:
+                missing = "unavailable_or_unauthenticated" if not (grok_info.installed and grok_info.authenticated) else f"model_unavailable:{candidate}"
+                fallback = {"requested": "grok", "actual": "native", "reason": missing}
+
+    if selected_provider == "native":
+        reasons.append("subscription_native_default")
+    if fallback:
+        reasons.append(f"honest_fallback:{fallback['reason']}")
+
+    advisory = None
+    if risk == "high" and driver_effort in {"low", "medium"}:
+        advisory = "consider_high_effort_driver_for_terminal_review"
+
+    return RouteDecision(
+        provider=selected_provider,
+        worker_transport=("codex_exec" if host_token == "codex" else "claude_code") if selected_provider == "native" else "grok_build",
+        worker_model_policy=model_policy,
+        worker_model=selected_model,
+        worker_effort=effort,
+        execution_reasoning=execution,
+        review_risk=risk,
+        provenance={
+            "provider": provider_source,
+            "worker_effort": effort_source if effort_source != "built_in_default" else "plan_execution_reasoning",
+            "grok_permission": "repository_policy" if prohibited else ("explicit_run_intent" if permitted else "none"),
+        },
+        fallback=fallback,
+        advisory_driver_upgrade=advisory,
+        goal_mode=goal_mode,
+        reasons=tuple(reasons),
+    )
