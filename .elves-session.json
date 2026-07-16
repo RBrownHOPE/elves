@@ -127,7 +127,7 @@
     "default_for_session": false
   },
   "continuation_guard": {
-    "next_required_action": "Launch the High Prewalk turn, then resume its exact Codex session at Medium for the complete run.",
+    "next_required_action": "Resume exact Codex session 019f684d-ad07-78a3-8067-27f3131ecefd at Medium for the complete run.",
     "reason": "The user's single kickoff covers staging, internal Prewalk handoff, implementation, and final reviewed-PR readiness.",
     "stop_allowed": false
   },
@@ -176,13 +176,13 @@
       "continuation_effort": "medium",
       "enabled": true,
       "orientation_effort": "high",
-      "status": "pending",
+      "status": "complete",
       "transition": "exact_session_resume"
     },
     "provider": "codex",
     "reasoning_effort": "medium",
     "scope": "full_run",
-    "session_id": null,
-    "status": "prewalk_pending"
+    "session_id": "019f684d-ad07-78a3-8067-27f3131ecefd",
+    "status": "continuation_pending"
   }
 }

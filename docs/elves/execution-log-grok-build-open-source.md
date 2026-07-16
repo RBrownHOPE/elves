@@ -34,7 +34,9 @@
 
 ## Batch status
 
-- B0 capability contract: pending
+- Prewalk: complete in exact Codex session `019f684d-ad07-78a3-8067-27f3131ecefd`; one additive B0
+  capability-ledger slice and its focused test are present but intentionally uncommitted
+- B0 capability contract: in progress
 - B1 session and auth semantics: pending
 - B2 goal launch and streaming follow: pending
 - B3 models, onboarding, and public contracts: pending
@@ -51,6 +53,6 @@
 
 ## Next action
 
-Launch the High Prewalk turn from the complete packet, capture its exact Codex session ID, and
-resume that same trajectory at Medium without another user prompt. The driver then parks until a
-material wake condition or worker completion. Merge remains unauthorized.
+Resume exact Codex session `019f684d-ad07-78a3-8067-27f3131ecefd` at Medium from its seven-step TODO
+and first edit. The driver then parks until a material wake condition or worker completion. Merge
+remains unauthorized.
