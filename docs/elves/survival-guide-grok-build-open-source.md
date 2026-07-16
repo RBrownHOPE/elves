@@ -39,11 +39,12 @@ fallback.
 
 ## Stop Gate
 
-- **Planned batches remaining:** 4
-- **Stop allowed right now:** no
-- **Why:** the single kickoff covers implementation and final reviewed-PR readiness
-- **Next required action:** resume exact Codex session
-  `019f684d-ad07-78a3-8067-27f3131ecefd` at Medium without another user prompt
+- **Planned batches remaining:** terminal repair and readiness
+- **Stop allowed right now:** yes
+- **Why:** the user explicitly requested a pause after the current test result was recorded and
+  committed
+- **Next required action:** replace the three remaining synthetic non-UUID Grok session fixtures
+  with canonical UUIDs, rerun `tests.test_full_run_supervisor`, then resume terminal review
 
 ## Effort standard
 
@@ -53,12 +54,14 @@ focused tests. The driver reviews the cumulative diff once at the end and revisi
 
 ## Current phase
 
-- **Status:** executing: Prewalk complete, Medium continuation ready
+- **Status:** paused after targeted revision and host supervisor result
 - **Active compute:** none
-- **Active batch:** none
-- **What was just finished:** High Prewalk established a seven-step TODO, one focused passing test,
-  and the first additive B0 edit without committing or pushing
-- **Single next action:** resume exact session `019f684d-ad07-78a3-8067-27f3131ecefd` at Medium
+- **Active batch:** terminal repair
+- **What was just finished:** the exact Medium worker revision produced commits `b37c375` and
+  `66d1299`; host execution of `tests.test_full_run_supervisor` ran 142 tests with 3 errors and 1
+  skip, all caused by three stale synthetic non-UUID Grok session fixtures
+- **Single next action:** update only those three fixtures, rerun the supervisor module, then
+  continue cumulative terminal review
 
 ## Worker authority
 

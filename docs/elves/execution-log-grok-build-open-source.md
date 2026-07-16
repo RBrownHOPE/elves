@@ -53,6 +53,20 @@
 
 ## Next action
 
-Resume exact Codex session `019f684d-ad07-78a3-8067-27f3131ecefd` at Medium from its seven-step TODO
-and first edit. The driver then parks until a material wake condition or worker completion. Merge
-remains unauthorized.
+The run is paused at the user's request. The exact-session Medium revision completed in commits
+`b37c375` and `66d1299`. Focused worker proof passed, including 87 implement/session tests, 240
+routing/dispatch/native-worker/consistency/bundle tests with 10 skips, 5 targeted
+streaming/redaction/session tests, both installed-host bundle smokes, repository consistency, Python
+compilation, and `git diff --check`.
+
+The host then ran `python3 -m unittest tests.test_full_run_supervisor` outside the worker sandbox.
+Result: 142 tests, 3 errors, 1 skip. Each error is a stale synthetic fixture using a non-UUID Grok
+session ID after the runtime correctly began enforcing Grok's canonical UUID grammar:
+
+- `test_failed_oauth_launch_preserves_canonical_auth_without_copy`
+- `test_live_shared_oauth_rotation_survives_monitor_report_and_stop`
+- `test_real_resume_archives_attempt_after_committed_pushed_checkpoint`
+
+On resume, replace only those three fixture IDs with canonical UUIDs, rerun the supervisor module,
+then continue the terminal cumulative review. The branch is otherwise clean. Merge and release
+remain unauthorized.
