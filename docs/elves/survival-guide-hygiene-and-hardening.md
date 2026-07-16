@@ -101,15 +101,15 @@ review, readiness, and a user-authorized merge.
 - **User returns:** unspecified (user is present in chat; run proceeds unattended between wakes)
 - **Checkpoint expectation:** landable, reviewed, merged PR #78 with Elves report path surfaced
 - **Time budget:** unlimited (finite scope, no deadline given)
-- **Average batch time so far:** ~39m (B1 28m, B2 49m)
-- **Batches remaining:** 5 of 7
+- **Average batch time so far:** ~46m (B1 28m, B2 49m, B3 ~60m incl. 3 crash re-drives)
+- **Batches remaining:** 4 of 7
 
 ## Stop Gate
 
-- **Planned batches remaining:** 5
+- **Planned batches remaining:** 4
 - **Stop allowed right now:** no
-- **Why:** B3–B7 unimplemented; landing not attempted; user asked for end-to-end delivery.
-- **Next required action:** launch B3 worker session with the B3 packet.
+- **Why:** B4–B7 unimplemented; landing not attempted; user asked for end-to-end delivery.
+- **Next required action:** launch B4 worker session with the B4 packet.
 
 ## Effort Standard
 
@@ -175,14 +175,14 @@ learnings at Close of each batch; archive nothing mid-run.
 
 **Status:** In progress
 
-**Active batch:** Batch 3: Worker packet as staging deliverable
+**Active batch:** Batch 4: Consolidate security-critical duplicate helpers
 
-**What was just finished:** B2 complete: worktree_gc helper (report-default, fixture-proven
-predicate), preflight.sh --gc-worktrees, cleanup.worktrees preference, lifecycle docs, session
-worktree_path; suite 1,056/0 both env shapes; driver dogfood removed the five merged machine
-worktrees with all refusals holding.
+**What was just finished:** B3 complete at 6696981 (host-native takeover after 3x transient 529
+worker crashes): packet-at-staging across six doc surfaces, advisory worker_packet_missing
+validator warning with spelling normalization, commit cadence + phase roles codified in the
+handoff standard; suite 1,062/0 both env shapes; zero consistency-pin churn.
 
-**Single next action:** Launch the B3 worker session with the B3 packet.
+**Single next action:** Launch the B4 worker session with the B4 packet.
 
 ## Active Compute
 
@@ -190,30 +190,29 @@ No active paid or long-running compute.
 
 ## Next Exact Batch
 
-**Batch:** B3: Worker packet as staging deliverable
+**Batch:** B4: Consolidate security-critical duplicate helpers
 
 **Scope:**
-- SKILL.md Staging checklist conditional packet line (launch-ready requires recorded packet path
-  for delegable runs)
-- Survival-guide template Run Control gains `Worker packet:`; schema-and-acceptance.md documents
-  optional `worker_packet_path`
-- Plan-template handoff note (per-batch handoff in plan; consolidated packet at staging; not
-  substitutes); kickoff template packet bullets (both staging lists)
-- acceptance_contract.py advisory warning (non-host-native driver + no worker_packet_path)
-- Work-driver enum reconciliation (devin-cli; hyphen/underscore normalization documented in one
-  place)
-- Commit-cadence rule in SKILL.md handoff standard + packet/kickoff guidance (B3-A5, user-directed)
+- One canonical hardened `run_git` (leases.py variant) exported once; delegated_git/audit delegate;
+  full_run.py's 16 raw git subprocess calls + `_git_head`/`_git_common_dir` twins migrate with
+  per-call env/cwd preserved (bytes-mode snapshot reader may stay, documented)
+- Delete weak `context.ensure_private_dir`; callers on `storage.ensure_private_dir`; api-break
+  approval entry for the removal (and refresh/remove the stale
+  `cli:cobbler_agents implement full-run-prepare` entry surfaced by B1)
+- `.elves-session.json` filename as one shared constant across the six modules
+- Remove function-local imports guarding non-existent cycles (~13 sites) unless a test proves need
 
 **Acceptance criteria:**
-- [ ] [B3-A1] Validator warning fires for grok-build without packet path; silent with path or
-  host-native
-- [ ] [B3-A2] All six documentation surfaces carry the packet-at-staging rule and cross-link
-- [ ] [B3-A3] Repo-consistency CI green; new pins deliberate and minimal
-- [ ] [B3-A4] Work-driver spellings normalize identically in validator and docs (devin covered)
-- [ ] [B3-A5] Commit-cadence rule in SKILL.md handoff standard + packet/kickoff templates with
-  pins updated in the same commit
+- [ ] [B4-A1] Exactly one run_git definition body remains (delegators allowed); zero raw
+  subprocess git call sites left in full_run.py
+- [ ] [B4-A2] context.ensure_private_dir gone; api-break-approvals.json entry passes strict
+  verify_repo --ci validation
+- [ ] [B4-A3] Full suite green; test_storage_isolation_git, test_dispatch_isolation,
+  test_full_run_supervisor specifically green (regression preservation)
+- [ ] [B4-A4] Session filename literal appears exactly once in cobbler_runtime/
 
-**Risk:** doc-wide phrase-pin churn; warning must never block host-native runs.
+**Risk:** high — wide mechanical change through the largest module's git plumbing; env choice per
+call site must be preserved and reviewed.
 
 **Rollback authority:** host-created `b0` ref
 (`refs/elves/rollback/hygiene-and-hardening-2026-07-16/s1/b0`) plus per-batch worker commit SHAs.
