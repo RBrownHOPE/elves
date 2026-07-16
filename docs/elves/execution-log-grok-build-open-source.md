@@ -90,5 +90,13 @@ remain unauthorized.
   live installed-binary Grok 4.5 route snapshot, and `git diff --check` pass.
 - Acceptance evidence: all 16 batch criteria and 4 master criteria are checked with concrete proof;
   plan/session/packet identity validates with no issues.
-- Next: one canonical final-readiness proof after acceptance evidence is recorded, followed by the
-  narrow operational-artifact cleanup and current-tip CI attestation.
+- First final-readiness pass: 1,022 tests ran in 195.752 seconds. Product behavior passed; failures
+  were stale non-UUID Grok session fixtures in the lease/audit suites and a public API snapshot that
+  could not statically inspect one `**dict(observed)` safety return.
+- Targeted repair: canonical UUID fixtures now preserve exact-session assertions; the safety return
+  has an explicit output shape; the public API snapshot reports `captured`; and the intentional
+  `full-run-prepare --model` default change has a tracked Unreleased approval tied to this plan.
+- Delta proof: worker CLI lifecycle 23/23, lease module 50/50, architecture evidence 16/16, stream
+  safety regression, snapshot capture, compatibility gate, compilation, and `git diff --check` pass.
+- Next: retry the same canonical final-readiness proof once, then perform narrow operational-
+  artifact cleanup and the current-tip CI attestation.

@@ -3,9 +3,9 @@
   "approvals": [
     {
       "surface": "cli:cobbler_agents implement full-run-prepare",
-      "release": "2.5.0",
-      "reason": "Make Composer 2.5 Fast the intentional default for regular Grok Build work while retaining explicit deep routing to Grok 4.5",
-      "plan_path": "docs/plans/adaptive-worker-routing.md"
+      "release": "Unreleased",
+      "reason": "Replace the hardcoded Grok model default with authenticated live-catalog resolution so Elves never launches an unavailable model slug",
+      "plan_path": "docs/plans/grok-build-open-source-realignment.md"
     }
   ]
 }

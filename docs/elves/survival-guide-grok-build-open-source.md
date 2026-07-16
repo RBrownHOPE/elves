@@ -42,8 +42,8 @@ fallback.
 - **Planned batches remaining:** terminal proof and readiness
 - **Stop allowed right now:** no
 - **Why:** the user resumed the full goal through reviewed-PR readiness
-- **Next required action:** commit the acceptance evidence, re-read this guide, then run the single
-  acceptance-bearing terminal proof pass
+- **Next required action:** commit the targeted terminal-gate fixes, re-read this guide, then retry
+  the same final-readiness command once
 
 ## Effort standard
 
@@ -56,11 +56,12 @@ focused tests. The driver reviews the cumulative diff once at the end and revisi
 - **Status:** terminal verification
 - **Active compute:** none
 - **Active batch:** final readiness
-- **What was just finished:** the consolidated revision is committed at `353718b`; every plan and
-  session criterion now has concrete evidence, and acceptance identity validates across plan,
-  session, and the ignored worker packet
-- **Single next action:** commit the evidence-bearing run state, re-read this guide, then run the
-  canonical final-readiness proof once
+- **What was just finished:** the first final-readiness pass ran 1,022 tests and exposed only stale
+  non-UUID Grok lease fixtures plus one statically opaque safety-return mapping; the affected 23,
+  50, and 16-test modules now pass, the public API snapshot is captured, and the intentional live-
+  catalog default change has an Unreleased API approval
+- **Single next action:** commit these targeted fixes, re-read this guide, then retry the canonical
+  final-readiness command once
 
 ## Worker authority
 

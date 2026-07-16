@@ -16,6 +16,7 @@ from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO_ROOT / "scripts"
 CLI = SCRIPTS / "cobbler_agents.py"
+GROK_TEST_SESSION_ID = "22222222-2222-4222-8222-222222222222"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
@@ -59,7 +60,7 @@ class WorkerCliLifecycleTests(unittest.TestCase):
         head = _git(host, "rev-parse", "HEAD")
         _git(host, "worktree", "add", "--detach", str(worker), head)
 
-        session_id = "cli-lifecycle-session"
+        session_id = GROK_TEST_SESSION_ID
         registry = SessionRegistry(host)
         registry.save(
             SessionRecord(
@@ -117,6 +118,9 @@ class WorkerCliLifecycleTests(unittest.TestCase):
         lease_id: str,
         grant_names: tuple[str, ...] = (),
     ) -> None:
+        session_id = str(
+            json.loads(qualification_path.read_text(encoding="utf-8"))["session_id"]
+        )
         grant_args = [item for name in grant_names for item in ("--grant-env", name)]
         result, payload = self._cli(
             host,
@@ -132,7 +136,7 @@ class WorkerCliLifecycleTests(unittest.TestCase):
             "--worker-checkout",
             str(worker),
             "--session-id",
-            "cli-lifecycle-session",
+            session_id,
             "--base-head",
             head,
             "--adapter",
@@ -419,6 +423,11 @@ class WorkerCliLifecycleTests(unittest.TestCase):
             outside = root / "outside-pre.json"
             outside.write_text("unchanged\n", encoding="utf-8")
             (snapshot_dir / "pre.json").symlink_to(outside)
+            session_id = str(
+                json.loads(qualification_path.read_text(encoding="utf-8"))[
+                    "session_id"
+                ]
+            )
 
             result, payload = self._cli(
                 host,
@@ -434,7 +443,7 @@ class WorkerCliLifecycleTests(unittest.TestCase):
                 "--worker-checkout",
                 str(worker),
                 "--session-id",
-                "cli-lifecycle-session",
+                session_id,
                 "--base-head",
                 head,
                 "--adapter",

@@ -9653,15 +9653,24 @@ def await_full_run(
                 if issue.code.startswith("grok_follow_") or issue.code.startswith(
                     "grok_stream_"
                 ):
-                    observed = {
-                        **dict(observed),
-                        "ok": False,
-                        "state": "failed",
-                        "material_transition": True,
-                        "unchanged_healthy_poll_silent": False,
-                        "next_action": "driver_wake_safety_tripwire",
-                        "blocker": f"Grok follow safety check failed ({issue.code})",
-                    }
+                    result = dict(observed)
+                    result.update(
+                        {
+                            "ok": False,
+                            "state": "failed",
+                            "material_transition": True,
+                            "unchanged_healthy_poll_silent": False,
+                            "next_action": "driver_wake_safety_tripwire",
+                            "blocker": f"Grok follow safety check failed ({issue.code})",
+                            "awaited": True,
+                            "follow": follow_enabled,
+                            "follow_model_inference": FOLLOW_MODE_MODEL_INFERENCE,
+                            "follow_replaces_timed_chat": FOLLOW_MODE_REPLACES_TIMED_CHAT,
+                            "follow_stream_lines": list(stream_lines),
+                            "merge_authority": False,
+                        }
+                    )
+                    return result
             except Exception:  # noqa: BLE001 — non-security display remains best-effort
                 pass
         material = bool(
