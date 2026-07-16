@@ -7,7 +7,8 @@
 - Worktree: `/Users/john/aigora/dev/elves-grok-build-open-source`
 - Base and start head: `origin/main` at `4bbb7b3b6c4f5d57bfa0cc4bc8b0014c39559080`
 - Plan: `docs/plans/grok-build-open-source-realignment.md`
-- Worker route: separate native Codex worker, inherited model, medium effort
+- Worker route: exact `gpt-5.6-sol` native Codex session; High Prewalk through one meaningful edit,
+  then exact-session resume at Medium for the complete run
 - Landing outcome: reviewed PR; merge and release unauthorized
 
 ## Planning evidence
@@ -50,5 +51,6 @@
 
 ## Next action
 
-Wait for explicit user authorization to launch the exact native worker session. Do not begin
-implementation or merge work during this planning request.
+Launch the High Prewalk turn from the complete packet, capture its exact Codex session ID, and
+resume that same trajectory at Medium without another user prompt. The driver then parks until a
+material wake condition or worker completion. Merge remains unauthorized.

@@ -9,8 +9,9 @@ fallback.
 
 ## Run control
 
-- **Run mode:** staged finite run
-- **User intent:** plan and stage the open-source Grok Build integration as an Elves run
+- **Run mode:** finite single-kickoff run
+- **User intent:** plan and stage the open-source Grok Build integration, then continue automatically
+  through the internally managed Prewalk, worker execution, and final reviewed PR
 - **Workspace:** branch `codex/grok-build-open-source` in
   `/Users/john/aigora/dev/elves-grok-build-open-source`
 - **Base and collision tripwire:** `origin/main` at
@@ -19,7 +20,8 @@ fallback.
 - **Canonical session:** `.elves-session.json`
 - **Worker packet:** `.elves/runtime/packets/grok-build-open-source.md`
 - **E2E mode:** chat-to-work
-- **Worker route:** separate subscription-native Codex session, inherited live model, medium effort
+- **Worker route:** one exact `gpt-5.6-sol` Codex session; High Prewalk through the first meaningful
+  edit, then exact-session resume at Medium for execution
 - **Delegation:** full run, trusted, branch-progress commits
 - **Driver mode:** parked monitor during implementation; one cumulative terminal review
 - **Progress visibility:** exact private native-worker follow view plus concrete worker commits; no
@@ -38,9 +40,10 @@ fallback.
 ## Stop Gate
 
 - **Planned batches remaining:** 4
-- **Stop allowed right now:** yes
-- **Why:** this request ends at launch-ready staging; implementation requires a new user instruction
-- **Next required action:** await user authorization, then launch the exact staged native worker
+- **Stop allowed right now:** no
+- **Why:** the single kickoff covers implementation and final reviewed-PR readiness
+- **Next required action:** launch the High Prewalk turn, capture its exact session, then resume it at
+  Medium without another user prompt
 
 ## Effort standard
 
@@ -50,13 +53,11 @@ focused tests. The driver reviews the cumulative diff once at the end and revisi
 
 ## Current phase
 
-- **Status:** launch-ready staging
+- **Status:** executing: Prewalk ready
 - **Active compute:** none
 - **Active batch:** none
-- **What was just finished:** capability research, corrected planning, acceptance validation, and
-  draft PR staging
-- **Single next action:** await user authorization, then launch and register the exact staged native
-  worker session
+- **What was just finished:** launch staging and the driver's final packet review
+- **Single next action:** launch the High Prewalk turn and register its exact native worker session
 
 ## Worker authority
 
@@ -87,4 +88,4 @@ constitution. Honor `continuation_guard.stop_allowed` and take the single next r
 - [x] Ground-truth CLI/source research corrected the inherited planning note.
 - [x] Plan, session, and packet acceptance mappings validated.
 - [x] Staging commit pushed and draft PR recorded.
-- [ ] Exact worker session launched and registered. This remains intentionally pending.
+- [ ] Exact worker session launched and registered.

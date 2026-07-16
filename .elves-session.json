@@ -127,9 +127,9 @@
     "default_for_session": false
   },
   "continuation_guard": {
-    "next_required_action": "Await user authorization to launch the staged native Codex worker.",
-    "reason": "Planning and launch staging are the requested outcome; implementation and merge are not authorized in this run.",
-    "stop_allowed": true
+    "next_required_action": "Launch the High Prewalk turn, then resume its exact Codex session at Medium for the complete run.",
+    "reason": "The user's single kickoff covers staging, internal Prewalk handoff, implementation, and final reviewed-PR readiness.",
+    "stop_allowed": false
   },
   "execution_log_path": "docs/elves/execution-log-grok-build-open-source.md",
   "landing_outcome": "landable_pr",
@@ -171,11 +171,18 @@
   "version": "2.5.0",
   "worker": {
     "git_mode": "branch_progress",
-    "model": "inherit_live_driver_model",
+    "model": "gpt-5.6-sol",
+    "prewalk": {
+      "continuation_effort": "medium",
+      "enabled": true,
+      "orientation_effort": "high",
+      "status": "pending",
+      "transition": "exact_session_resume"
+    },
     "provider": "codex",
     "reasoning_effort": "medium",
     "scope": "full_run",
     "session_id": null,
-    "status": "not_launched"
+    "status": "prewalk_pending"
   }
 }
