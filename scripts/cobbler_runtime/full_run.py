@@ -1098,6 +1098,10 @@ class FullRunState:
     staged_packet_identity: dict[str, Any] | None = None
     packet_sha256: str | None = None
     packet_size: int | None = None
+    goal_prompt_path: str | None = None
+    goal_prompt_identity: dict[str, Any] | None = None
+    goal_prompt_sha256: str | None = None
+    goal_prompt_size: int | None = None
     packet_contract_sha256: str | None = None
     acceptance_criteria: dict[str, str] = field(default_factory=dict)
     acceptance_plan_path: str | None = None
@@ -1210,6 +1214,8 @@ class FullRunState:
         nullable_strings = (
             "staged_packet_path",
             "packet_sha256",
+            "goal_prompt_path",
+            "goal_prompt_sha256",
             "packet_contract_sha256",
             "acceptance_plan_path",
             "acceptance_plan_sha256",
@@ -1271,7 +1277,7 @@ class FullRunState:
                 not isinstance(value, int) or isinstance(value, bool) or value <= 0
             ):
                 raise TypeError(f"{field_name} must be a positive integer")
-        for field_name in ("packet_size", "batch"):
+        for field_name in ("packet_size", "goal_prompt_size", "batch"):
             value = data.get(field_name)
             if value is not None and (
                 not isinstance(value, int) or isinstance(value, bool) or value < 0
@@ -1290,6 +1296,7 @@ class FullRunState:
             raise TypeError("exit_code must be an integer or null")
         nullable_mapping_fields = (
             "staged_packet_identity",
+            "goal_prompt_identity",
             "grok_auth_path_identity",
             "grok_executable_identity",
             "devin_auth_identity",
@@ -5632,6 +5639,31 @@ def _write_private_packet_copy(
         ) from exc
 
 
+def _prepare_goal_prompt(repo_root: Path, root: Path, state: FullRunState) -> Path:
+    """Create a private slash-command prompt bound to the immutable staged packet."""
+    staged = _revalidate_staged_packet_binding(repo_root, state)
+    packet_raw = _read_private_packet_copy(repo_root, staged)
+    goal_raw = b"/goal " + packet_raw
+    if len(goal_raw) > MAX_PACKET_BYTES:
+        raise ValidationIssue(
+            "full_run_goal_prompt_too_large",
+            "Goal command plus staged packet exceeds the packet byte limit",
+        )
+    goal_path = root / "goal-prompt.md"
+    _write_private_packet_copy(repo_root, goal_path, goal_raw)
+    observed = _read_private_packet_copy(repo_root, goal_path)
+    if observed != goal_raw:
+        raise ValidationIssue(
+            "full_run_goal_prompt_changed",
+            "Private goal prompt does not match the packet-backed objective",
+        )
+    state.goal_prompt_path = str(goal_path)
+    state.goal_prompt_identity = _private_staged_packet_identity(goal_path)
+    state.goal_prompt_sha256 = hashlib.sha256(goal_raw).hexdigest()
+    state.goal_prompt_size = len(goal_raw)
+    return goal_path
+
+
 def _read_private_packet_copy(repo_root: Path, packet_path: Path) -> bytes:
     _private_staged_packet_identity(packet_path)
     try:
@@ -6404,6 +6436,7 @@ def prepare_full_run(
         supervision_canary_passed=supervision_canary_passed,
         runtime_dir=str(root),
         provider_session_id=None,
+        output_format="streaming-json" if adapter_name == "grok-build" else "json",
         notes=[
             "Trusted full-run supervisor prepared; host parks after launch",
             f"adapter={adapter_name}",
@@ -6551,7 +6584,11 @@ def build_full_run_argv(state: FullRunState) -> list[str]:
     """Adapter-aware argv. Fixture mode uses explicit python + script + packet."""
     from .implement import detect_native_grok_goal  # noqa: PLC0415
 
-    launch_packet = state.staged_packet_path or state.packet_path
+    launch_packet = (
+        state.goal_prompt_path
+        if state.goal_mode_behaviorally_verified and state.goal_prompt_path
+        else state.staged_packet_path or state.packet_path
+    )
     if state.adapter == "fixture":
         if not state.fixture_script:
             raise ValidationIssue(
@@ -6584,9 +6621,11 @@ def build_full_run_argv(state: FullRunState) -> list[str]:
     detection = detect_native_grok_goal(state.executable)
     # Record actual capability; do not invent flags. Headless packet launch is
     # the compatible fallback when no public --goal entrypoint exists.
-    state.goal_launch_mode = str(detection.get("mode") or "headless_compatible_fallback")
-    state.goal_entrypoint_advertised = bool(detection.get("advertised_headless_entrypoint"))
-    state.goal_mode_behaviorally_verified = bool(detection.get("goal_mode_behaviorally_verified"))
+    if state.goal_mode_behaviorally_verified and state.goal_prompt_path:
+        state.goal_launch_mode = "headless_slash_goal"
+    else:
+        state.goal_launch_mode = "headless_compatible_fallback"
+        state.goal_entrypoint_advertised = bool(detection.get("advertised_headless_entrypoint"))
     return build_launch_argv(
         session_id=state.session_id,
         packet=launch_packet,
@@ -6601,7 +6640,7 @@ def build_full_run_argv(state: FullRunState) -> list[str]:
         output_format=state.output_format,
         adapter=state.adapter,
         check=bool(state.check),
-        native_goal=bool(detection.get("native_goal")),
+        native_goal=state.goal_mode_behaviorally_verified,
     )
 
 
@@ -7087,6 +7126,75 @@ def launch_full_run(
                 parent_env=parent_env,
             )
 
+        if state.adapter == "grok-build":
+            from .worker_routing import probe_grok_capabilities  # noqa: PLC0415
+
+            grok_capabilities = probe_grok_capabilities(
+                state.executable,
+                goal_auth_path=(
+                    Path(launch_env["GROK_AUTH_PATH"])
+                    if launch_env.get("GROK_AUTH_PATH")
+                    else None
+                ),
+                goal_api_key=launch_env.get("XAI_API_KEY"),
+                command_env=launch_env,
+            )
+            core_unavailable = grok_capabilities.core_launch_unavailable_reason()
+            if core_unavailable:
+                raise ValidationIssue(
+                    "grok_launch_capability_unavailable",
+                    "Installed Grok Build lacks a required noninteractive launch capability",
+                    hint=core_unavailable,
+                )
+            if state.check:
+                check_evidence = grok_capabilities.capability("check")
+                if check_evidence is None or check_evidence.state != "proven":
+                    raise ValidationIssue(
+                        "grok_check_capability_unavailable",
+                        "This Grok Build does not prove the requested --check capability",
+                        hint=(check_evidence.reason if check_evidence else "check_not_probed"),
+                    )
+            if not grok_capabilities.authenticated or not grok_capabilities.models:
+                catalog = grok_capabilities.capability("model_catalog")
+                raise ValidationIssue(
+                    "grok_live_catalog_unavailable",
+                    "Grok launch requires an authenticated live model catalog",
+                    hint=(catalog.reason if catalog is not None else "model_catalog_not_probed"),
+                )
+            requested_model = str(state.model or "").strip()
+            if requested_model == "auto":
+                if not grok_capabilities.default_model:
+                    raise ValidationIssue(
+                        "grok_live_default_model_unavailable",
+                        "Grok live catalog did not identify a default model",
+                    )
+                state.model = grok_capabilities.default_model
+            elif requested_model not in grok_capabilities.models:
+                raise ValidationIssue(
+                    "grok_model_not_in_live_catalog",
+                    f"Requested Grok model `{requested_model}` is absent from the authenticated live catalog",
+                )
+            state.goal_mode_behaviorally_verified = (
+                grok_capabilities.goal_mode_behaviorally_verified
+            )
+            state.goal_entrypoint_advertised = state.goal_mode_behaviorally_verified
+            if state.goal_mode_behaviorally_verified:
+                _prepare_goal_prompt(Path(repo_root), root, state)
+                state.notes.append(
+                    "goal_behavioral_evidence="
+                    f"{grok_capabilities.goal_behavioral_evidence or 'verified'}"
+                )
+            else:
+                state.goal_prompt_path = None
+                state.goal_prompt_identity = None
+                state.goal_prompt_sha256 = None
+                state.goal_prompt_size = None
+                goal_evidence = grok_capabilities.capability("goal_behavior")
+                state.notes.append(
+                    "goal_fallback="
+                    f"{goal_evidence.reason if goal_evidence is not None else 'not_probed'}"
+                )
+
         # Never return credential values. Names are strict environment
         # identifiers and cannot smuggle KEY=VALUE material into state/output.
         # This snapshot occurs only after both explicit auth routes have added
@@ -7139,16 +7247,35 @@ def launch_full_run(
                     "resume argv is not bound to the exact captured session id",
                 )
         state.last_argv = list(provider_argv)
+        selected_packet_identity = (
+            state.goal_prompt_identity
+            if state.goal_mode_behaviorally_verified
+            else state.staged_packet_identity
+        )
+        selected_packet_sha256 = (
+            state.goal_prompt_sha256
+            if state.goal_mode_behaviorally_verified
+            else state.packet_sha256
+        )
+        selected_packet_size = (
+            state.goal_prompt_size
+            if state.goal_mode_behaviorally_verified
+            else state.packet_size
+        )
         supervisor_argv = _provider_supervisor_argv(
             root=root,
             session_id=session_id,
             provider_argv=provider_argv,
             attempt=state.attempt,
             supervisor_executable=state.supervisor_executable,
-            staged_packet_path=str(state.staged_packet_path),
-            staged_packet_identity=dict(state.staged_packet_identity or {}),
-            packet_sha256=str(state.packet_sha256),
-            packet_size=int(state.packet_size or 0),
+            staged_packet_path=str(
+                state.goal_prompt_path
+                if state.goal_mode_behaviorally_verified
+                else state.staged_packet_path
+            ),
+            staged_packet_identity=dict(selected_packet_identity or {}),
+            packet_sha256=str(selected_packet_sha256),
+            packet_size=int(selected_packet_size or 0),
             provider_executable_identity=(
                 state.grok_executable_identity
                 if state.adapter == "grok-build"
@@ -7626,6 +7753,127 @@ def format_follow_stream_line(
     if summary:
         return f"{ts} [{batch_s}] {etype} @ {short_head} — {summary}"
     return f"{ts} [{batch_s}] {etype} @ {short_head}"
+
+
+_GROK_STREAM_USAGE_KEYS = frozenset(
+    {
+        "inputTokens",
+        "outputTokens",
+        "cacheReadTokens",
+        "cacheWriteTokens",
+        "totalTokens",
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "total_tokens",
+    }
+)
+
+
+def decode_grok_streaming_event(
+    line: str,
+    *,
+    shared_oauth: bool = False,
+    exact_values: Sequence[str] = (),
+) -> dict[str, Any] | None:
+    """Decode one Grok JSONL record into a bounded, sanitized follow record."""
+    if not isinstance(line, str) or not line.strip() or len(line) > 65536:
+        return None
+    try:
+        raw = _loads_bounded_json(line, label="Grok streaming event")
+        _assert_bounded_json_structure(raw, label="Grok streaming event")
+    except (TypeError, ValueError, RecursionError, StorageError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, Mapping):
+        return None
+    raw_type = str(raw.get("type") or "unknown")
+    event_type = (
+        raw_type
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,63}", raw_type)
+        else "unknown"
+    )
+    known = event_type in {"text", "thought", "end", "error", "usage"}
+    record: dict[str, Any] = {
+        "event_type": event_type if known else "unknown",
+        "unknown_event_type": None if known else event_type,
+        "terminal": event_type in {"end", "error"},
+    }
+    session_id = raw.get("sessionId", raw.get("session_id"))
+    if isinstance(session_id, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", session_id):
+        record["session_id"] = session_id
+    stop_reason = raw.get("stopReason", raw.get("stop_reason"))
+    if isinstance(stop_reason, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,63}", stop_reason):
+        record["stop_reason"] = stop_reason
+    usage_source = raw.get("usage") if isinstance(raw.get("usage"), Mapping) else raw
+    usage = {
+        str(key): value
+        for key, value in usage_source.items()
+        if key in _GROK_STREAM_USAGE_KEYS
+        and not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and value >= 0
+    }
+    if usage:
+        record["usage"] = usage
+    if event_type == "error":
+        code = raw.get("code", raw.get("errorType", raw.get("error_type")))
+        if isinstance(code, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,63}", code):
+            record["error_type"] = code
+    if not shared_oauth and event_type in {"text", "error"}:
+        content = raw.get("data", raw.get("message", ""))
+        if isinstance(content, str) and content:
+            cleaned = _redact_full_run_text(content, exact_values=exact_values).strip()
+            if cleaned:
+                record["summary"] = cleaned[:197] + "..." if len(cleaned) > 200 else cleaned
+    elif event_type == "thought":
+        record["summary"] = "reasoning activity"
+    return record
+
+
+def format_grok_streaming_follow_line(record: Mapping[str, Any]) -> str:
+    """Format a sanitized Grok stream record without exposing raw JSON."""
+    event_type = str(record.get("event_type") or "unknown")
+    if event_type == "unknown" and record.get("unknown_event_type"):
+        event_type = f"unknown[{record['unknown_event_type']}]"
+    parts = [f"grok:{event_type}"]
+    if record.get("session_id"):
+        parts.append(f"session={record['session_id']}")
+    if record.get("stop_reason"):
+        parts.append(f"stop={record['stop_reason']}")
+    if record.get("error_type"):
+        parts.append(f"error={record['error_type']}")
+    usage = record.get("usage")
+    if isinstance(usage, Mapping) and usage:
+        parts.append(
+            "usage=" + ",".join(f"{key}:{usage[key]}" for key in sorted(usage))
+        )
+    if record.get("terminal"):
+        parts.append("terminal")
+    summary = str(record.get("summary") or "").strip()
+    return " ".join(parts) + (f" — {summary}" if summary else "")
+
+
+def grok_streaming_follow_lines(
+    raw_lines: Sequence[str],
+    *,
+    shared_oauth: bool = False,
+    exact_values: Sequence[str] = (),
+    already_seen: int = 0,
+) -> tuple[list[str], int]:
+    """Return sanitized Grok JSONL follow lines and an absolute tail cursor."""
+    decoded = [
+        record
+        for line in raw_lines
+        if (record := decode_grok_streaming_event(
+            line,
+            shared_oauth=shared_oauth,
+            exact_values=exact_values,
+        ))
+        is not None
+    ]
+    cursor = max(0, int(already_seen))
+    return [format_grok_streaming_follow_line(item) for item in decoded[cursor:]], len(decoded)
 
 
 def follow_stream_lines(
@@ -8953,6 +9201,7 @@ def await_full_run(
     started = mono()
     follow_enabled = bool(follow) and not bool(quiet)
     seen_events = 0
+    seen_grok_stream_events = 0
     seen_attempt: int | None = None
     stream_lines: list[str] = []
     write = stream_writer
@@ -8970,6 +9219,7 @@ def await_full_run(
                 if seen_attempt != state.attempt:
                     # A supervised resume archives and resets events.jsonl.
                     seen_events = 0
+                    seen_grok_stream_events = 0
                     seen_attempt = state.attempt
                 events_tail = _all_follow_events(Path(repo_root), state)
                 if not events_tail:
@@ -8987,6 +9237,22 @@ def await_full_run(
                     stream_lines.append(line)
                     if write is not None:
                         write(line)
+                if state.adapter == "grok-build":
+                    transcript_lines = _bounded_text_tail(
+                        full_run_root(Path(repo_root), state.session_id) / "transcript.log",
+                        lines=1000,
+                        repo_root=Path(repo_root),
+                    )
+                    grok_lines, seen_grok_stream_events = grok_streaming_follow_lines(
+                        transcript_lines,
+                        shared_oauth=shared_oauth,
+                        exact_values=tuple(_launch_evidence_context(state)[1]),
+                        already_seen=seen_grok_stream_events,
+                    )
+                    for line in grok_lines:
+                        stream_lines.append(line)
+                        if write is not None:
+                            write(line)
             except Exception:  # noqa: BLE001 — stream is best-effort
                 pass
         material = bool(

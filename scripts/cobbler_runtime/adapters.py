@@ -703,8 +703,11 @@ def build_readonly_invocation(
 
     if name == "grok-build":
         # Full packet/task written to prompt_path by dispatcher; argv references path.
-        argv_list = [
-            exe,
+        argv_list = [exe]
+        if exact_session:
+            argv_list.extend(["--resume", exact_session])
+        argv_list.extend(
+            [
             "--prompt-file",
             str(prompt_path),
             "--output-format",
@@ -714,7 +717,8 @@ def build_readonly_invocation(
             "--no-subagents",
             "--no-memory",
             "--disable-web-search",
-        ]
+            ]
+        )
         if requested_model:
             argv_list.extend(["--model", requested_model])
         argv_list.extend(extras)
@@ -730,6 +734,7 @@ def build_readonly_invocation(
             decoder="grok-json",
             cwd=work_cwd,
             prompt_file_body=full_prompt,
+            session_id=exact_session,
         )
 
     if name == "codex-fugu":
@@ -1558,7 +1563,10 @@ def build_session_create_invocation(
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
     if name == "grok-build":
-        argv = [exe or "grok", "--new-session"]
+        import uuid as _uuid  # noqa: PLC0415
+
+        sid = str(_uuid.uuid4())
+        argv = [exe or "grok", "--session-id", sid]
         if requested_model:
             argv.extend(["--model", requested_model])
         argv.extend(extras)
@@ -1567,7 +1575,8 @@ def build_session_create_invocation(
             executable=argv[0],
             argv=tuple(argv),
             read_only=True,
-            notes="exact create; worktree child IDs are discovered after fork",
+            notes="exact caller-assigned UUID create; no unsupported --new-session flag",
+            session_id=sid,
         )
         assert_no_ambiguous_session_flags(inv.argv)
         return inv

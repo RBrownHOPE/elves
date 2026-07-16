@@ -378,6 +378,8 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         explicit["worker"]["native_effort"] = args.effort
     if args.allow_grok:
         explicit["worker"]["allow_grok"] = True
+    if args.grok_worker_model:
+        explicit["worker"]["grok_model"] = args.grok_worker_model
     repo_root = Path(args.repo_root or ".").resolve()
     try:
         repo_policy, repo_policy_source = discover_repository_worker_policy(
@@ -388,13 +390,20 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
     if args.prohibit_grok:
         repo_policy.setdefault("worker", {})["allow_grok"] = False
         repo_policy_source = "explicit_cli_veto"
+    default_grok_auth = Path(
+        os.environ.get("GROK_AUTH_PATH") or (Path.home() / ".grok" / "auth.json")
+    )
     grok = (
-        probe_grok_capabilities(args.grok_executable)
+        probe_grok_capabilities(
+            args.grok_executable,
+            goal_auth_path=default_grok_auth if default_grok_auth.is_file() else None,
+        )
         if args.probe_grok
         else GrokCapabilities(
             installed=args.grok_installed,
             authenticated=args.grok_authenticated,
             models=tuple(args.grok_model or ()),
+            default_model=args.grok_default_model,
             goal_entrypoint_advertised=args.grok_goal_advertised,
             goal_mode_behaviorally_verified=bool(args.grok_goal_behavioral_evidence),
             goal_behavioral_evidence=args.grok_goal_behavioral_evidence,
@@ -1976,10 +1985,15 @@ def build_parser() -> argparse.ArgumentParser:
     route_worker.add_argument("--grok-installed", action="store_true")
     route_worker.add_argument("--grok-authenticated", action="store_true")
     route_worker.add_argument("--grok-model", action="append")
+    route_worker.add_argument("--grok-default-model")
+    route_worker.add_argument(
+        "--grok-worker-model",
+        help="Explicit catalog-returned Grok model to select instead of the live default",
+    )
     route_worker.add_argument("--grok-goal-advertised", action="store_true")
     route_worker.add_argument("--grok-goal-behavioral-evidence", help="Recorded behavioral verification id/path for headless goal mode")
     route_worker.add_argument("--grok-version")
-    route_worker.add_argument("--probe-grok", action="store_true", help="Silently probe Grok version, auth, models, and advertised goal entrypoint (not behavioral qualification)")
+    route_worker.add_argument("--probe-grok", action="store_true", help="Safely probe installed Grok flags, live catalog/default, ACP, and optional isolated goal evidence")
     route_worker.add_argument("--grok-executable", default="grok")
     route_worker.add_argument("--json", action="store_true")
     route_worker.set_defaults(func=cmd_route_worker)
@@ -2381,7 +2395,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="grok-build",
         help="grok-build (default), devin-cli, or fixture (explicit test mode only)",
     )
-    i_fr_prepare.add_argument("--model", default="grok-composer-2.5-fast")
+    i_fr_prepare.add_argument(
+        "--model",
+        default="auto",
+        help="Catalog-returned model id, or auto for the authenticated live default",
+    )
     i_fr_prepare.add_argument("--permission-mode", default="auto")
     i_fr_prepare.add_argument("--effort", default="medium")
     i_fr_prepare.add_argument(

@@ -2389,13 +2389,13 @@ if isinstance(WORKSPACE_ISOLATION_PHRASES, dict) and 'SKILL.md' in WORKSPACE_ISO
 ADAPTIVE_WORKER_ROUTING_PHRASES = {
     "SKILL.md": [
         "subscription-native worker",
-        "grok-composer-2.5-fast",
+        "authenticated live",
         "${XDG_CONFIG_HOME:-~/.config}/elves/config.json",
         "approval-bypass authority",
     ],
     "AGENTS.md": [
         "subscription-native Codex/Claude worker",
-        "Composer 2.5 Fast",
+        "authenticated live catalog",
         "${XDG_CONFIG_HOME:-~/.config}/elves/config.json",
         "prompt-cache promise",
     ],
@@ -2407,13 +2407,13 @@ ADAPTIVE_WORKER_ROUTING_PHRASES = {
     ],
     "references/adaptive-worker-routing.md": [
         "repository safety veto > explicit run intent > repository defaults > global convenience",
-        "grok-composer-2.5-fast",
+        "authenticated live",
         "codex exec resume <thread-id>",
         "a session ID is not such an object",
     ],
     "CHANGELOG.md": [
         "Adaptive subscription-native workers",
-        "grok-composer-2.5-fast",
+        "authenticated live-catalog models",
         "prompt/KV cache",
     ],
 }

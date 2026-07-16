@@ -1512,12 +1512,9 @@ def build_launch_argv(
         argv.extend(["--session-id", sid])
     elif sid:
         argv.extend(["--resume", sid])
-    # A capability-probed native goal flag receives the immutable packet path.
-    # Otherwise use the ordinary headless packet contract without claiming goal.
-    if native_goal:
-        argv.extend(["--goal", str(packet_path)])
-    else:
-        argv.extend(["--prompt-file", str(packet_path)])
+    # Goal mode is a behaviorally-proven `/goal ...` slash command stored in a
+    # private prompt file. The installed CLI has no public `--goal` flag.
+    argv.extend(["--prompt-file", str(packet_path)])
     argv.extend(
         [
             "--cwd",

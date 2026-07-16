@@ -638,6 +638,42 @@ class BehaviorPolicyCompositionTests(unittest.TestCase):
 
 
 class FullRunReportValidationTests(unittest.TestCase):
+    def test_grok_stream_decoder_sanitizes_progress_usage_terminal_and_unknowns(self) -> None:
+        secret = "secret-value-for-redaction"
+        lines = [
+            json.dumps({"type": "thought", "data": secret}),
+            json.dumps({"type": "text", "data": f"working with {secret}"}),
+            json.dumps({"type": "future_event", "payload": secret}),
+            json.dumps(
+                {
+                    "type": "end",
+                    "sessionId": "11111111-1111-1111-1111-111111111111",
+                    "stopReason": "EndTurn",
+                    "usage": {"inputTokens": 10, "outputTokens": 4, "opaque": secret},
+                }
+            ),
+            json.dumps({"type": "error", "errorType": "rate_limit", "message": secret}),
+        ]
+        rendered, cursor = full_run_module.grok_streaming_follow_lines(
+            lines,
+            exact_values=(secret,),
+        )
+        self.assertEqual(cursor, 5)
+        payload = "\n".join(rendered)
+        self.assertNotIn(secret, payload)
+        self.assertIn("grok:thought", payload)
+        self.assertIn("grok:unknown[future_event]", payload)
+        self.assertIn("inputTokens:10", payload)
+        self.assertIn("terminal", payload)
+        self.assertIn("error=rate_limit", payload)
+
+    def test_grok_stream_decoder_shared_oauth_never_exposes_free_text(self) -> None:
+        rendered, _cursor = full_run_module.grok_streaming_follow_lines(
+            [json.dumps({"type": "text", "data": "private progress detail"})],
+            shared_oauth=True,
+        )
+        self.assertEqual(rendered, ["grok:text"])
+
     def _complete(self) -> dict:
         return {
             "run_id": "run-1",
@@ -2088,7 +2124,8 @@ class FullRunGrokArgvTests(unittest.TestCase):
                     launch_full_run(repo, session_id=f"prod-launch-{mutation}")
                 self.assertEqual(ctx.exception.code, expected)
 
-    def test_grok_create_and_resume_argv(self) -> None:
+    @mock.patch("cobbler_runtime.full_run._run_supervision_canary", return_value=True)
+    def test_grok_create_and_resume_argv(self, _canary) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
             repo.mkdir()
@@ -2134,9 +2171,19 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertIn("--effort", argv)
             self.assertIn("--max-turns", argv)
             self.assertIn("--output-format", argv)
-            self.assertIn("json", argv)
+            self.assertIn("streaming-json", argv)
             self.assertIn("--check", argv)
+            self.assertNotIn("--new-session", argv)
+            self.assertNotIn("--goal", argv)
             self.assertNotIn("--resume", argv)
+
+            goal_path = full_run_module._prepare_goal_prompt(repo, full_run_root(repo, state.session_id), state)
+            state.goal_mode_behaviorally_verified = True
+            goal_argv = build_full_run_argv(state)
+            self.assertEqual(goal_argv[goal_argv.index("--prompt-file") + 1], str(goal_path))
+            self.assertTrue(goal_path.read_text(encoding="utf-8").startswith("/goal "))
+            self.assertEqual(state.goal_launch_mode, "headless_slash_goal")
+            self.assertNotIn("--goal", goal_argv)
             state.create_session = False
             resume_argv = build_full_run_argv(state)
             self.assertIn("--resume", resume_argv)

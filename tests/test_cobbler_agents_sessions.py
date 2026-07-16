@@ -1103,6 +1103,17 @@ class SessionCommandBuilderTests(unittest.TestCase):
         self.assertIn("--session-id", inv.argv)
         self.assertIn(inv.session_id or "", inv.argv)
 
+    def test_host_allocated_grok_create_id_uses_supported_session_flag(self) -> None:
+        inv = build_session_create_invocation(
+            adapter="grok-build",
+            profile="grok-build",
+            executable="grok",
+        )
+        self.assertIsNotNone(inv.session_id)
+        self.assertIn("--session-id", inv.argv)
+        self.assertIn(inv.session_id or "", inv.argv)
+        self.assertNotIn("--new-session", inv.argv)
+
 
 class DoctorSessionFieldsTests(unittest.TestCase):
     def test_doctor_json_separates_discovery_and_session_fields(self) -> None:
