@@ -95,6 +95,48 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
 - 2026-07-16 14:08 · Reconcile · Plan amended (B3 task + B3-A5); `sync-session --write` added the
   row; B1 proof rows preserved by the helper's refuse-to-rewrite rule; validate OK.
 
+## Batch 2 [B2] — Worktree gc helper and lifecycle hook
+
+- 2026-07-16 14:15 · B2 Contract · Candidate predicate, guarded removal, and zero-mutation report
+  pinned as 22 failing fixture tests before any implementation: new `tests/test_worktree_gc.py`
+  (20 tests; tempfile repos with a `file://` bare origin so merged/unmerged/ahead/gone-upstream
+  states are real) plus two `preflight.sh` wrapper dispatch tests in `tests/test_preflight_sh.py`.
+  Git behavior probed first in scratch fixtures: ignored files do not block non-force
+  `git worktree remove`; `git branch -d` with a gone upstream falls back to HEAD containment.
+  Commit `726cfe5` (red by design, per the D5 cadence rule).
+- 2026-07-16 14:25 · B2 Implement · New `scripts/worktree_gc.py` modeled on
+  `preflight_worktree.py` idioms (`run_git`, porcelain `parse_worktrees`, argparse,
+  `WorktreeError`, advisory-by-default). Report mode is the default and strictly read-only
+  (status probes use `git --no-optional-locks`); `--apply` removes candidates via
+  `git worktree remove` (never --force) + `git branch -d` (never -D) + one `git worktree prune`
+  gated on at least one successful removal. Candidate = registered linked worktree, not the main
+  worktree, not the invoking directory, clean tracked+untracked, tip an ancestor of `origin/main`
+  (`merge-base --is-ancestor`), zero commits ahead of upstream; gone/missing upstream falls back
+  to the ancestor containment proof. Locked, detached, bare, and prunable registrations are
+  refused with reasons; unregistered `<repo>-*` siblings are listed operator-owned and never
+  deleted. `preflight.sh` gains first-arg `--gc-worktrees` dispatch mirroring the
+  `--create-worktree` exec pattern; optional `--path <worktree-dir>` scopes teardown to the run's
+  recorded worktree. Focused: 43/43 OK. Commit `f10e202`.
+- 2026-07-16 14:35 · B2 Implement · Lifecycle wiring: `config.json.example`
+  `cleanup.worktrees: on-merge | report | never` (default `report`, documented preference only —
+  no config-driven automation); SKILL.md Reviewed PR Landing step 7 and Final Completion gain the
+  post-merge teardown of the run's own recorded worktree; Structured Session Data documents the
+  `worktree_path` key (recorded in this run's `.elves-session.json`, which the acceptance
+  validator accepts unchanged); kickoff template staging bullet records `worktree_path` and the
+  teardown expectation with the pinned create-helper sentence intact; README one-run-one-checkout
+  section gains the reclaim paragraph + structure-tree entry. CHANGELOG under `## [Unreleased]`.
+  Consistency + release checklist green. Commit `8c90f2c`.
+- 2026-07-16 14:45 · B2 Validate · Full suite `python3 -m unittest discover -s tests`:
+  `Ran 1056 tests ... OK (skipped=12)` both plain and with
+  `CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1` exported (baseline 1034 + 22 new). `verify_repo.py --ci
+  --version Unreleased --base-ref origin/main`: compileall (53 files)/shell/json/evidence-review
+  (full unittest, consistency, release, installed smokes)/consistency/release all OK; sole FAIL is
+  the pre-existing B4-owned public-api approval staleness (unchanged from the B2 baseline run of
+  the same command). `check_repo_consistency.py` exit 0; `release_checklist.py
+  --allow-unreleased` exit 0. B2-A1/A2/A3/A5 evidence recorded in session; B2-A4 (machine dogfood
+  removing the merged worktrees from the main checkout) is deliberately left `met: false` for the
+  driver at reconcile — workers never touch the main checkout; batch status stays `in_progress`.
+
 ## Decisions made (continued)
 
 - D5 (post-B1, user-directed): Worker commit cadence becomes part of the handoff standard —
@@ -109,3 +151,11 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
   (`cli:cobbler_agents implement full-run-prepare`, release 2.6.0) is rejected in current-diff
   scope — pre-existing on main; B4 owns that manifest and refreshes/removes it with its own
   approvals.
+- D7 (B2): Unpushed-commit clause semantics — when a branch's upstream ref resolves, the gc
+  requires zero commits ahead of it (fixture-isolated: a tip merged into origin/main but ahead of
+  its own upstream is refused). When the upstream is gone or was never set, the ancestor check
+  against origin/main is the containment proof: everything reachable from origin/main is on the
+  remote, and the post-merge GitHub branch auto-delete makes gone upstreams the normal state for
+  exactly the worktrees this helper exists to reclaim. A genuinely unpushed commit can never be an
+  ancestor of origin/main, so the contract sentence "a clean-but-unpushed worktree is refused"
+  holds in both regimes.

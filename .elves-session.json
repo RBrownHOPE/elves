@@ -28,21 +28,21 @@
       "acceptance": [
         {
           "criterion": "Fixture tests prove gc refuses: dirty worktree, unmerged branch, unpushed commits, current directory, main worktree, unregistered sibling directory",
-          "evidence": "",
+          "evidence": "tests/test_worktree_gc.py (real tempfile fixture repos with a file:// origin): test_refuses_dirty_tracked_worktree, test_refuses_worktree_with_untracked_file, test_refuses_unmerged_branch, test_refuses_clean_but_unpushed_worktree, test_refuses_worktree_ahead_of_upstream_even_when_merged (isolates the ahead-of-upstream clause: tip merged into origin/main but upstream behind), test_refuses_invoking_directory, test_refuses_main_and_invoking_worktrees_even_with_apply, test_refuses_locked_worktree, test_refuses_detached_head_worktree, test_unregistered_sibling_directory_listed_never_deleted (sibling listed operator-owned, survives --apply). Tests pinned first as failing contract at 726cfe5; helper passes them at f10e202. Focused run: python3 -m unittest tests.test_worktree_gc tests.test_preflight_sh tests.test_preflight_worktree -> Ran 43 tests OK.",
           "id": "B2-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Fixture test proves gc removes a clean merged worktree and deletes its local branch, and `git worktree list` no longer shows it",
-          "evidence": "",
+          "evidence": "test_apply_removes_clean_merged_worktree_and_branch: --apply prints 'removed worktree <path>; deleted branch codex/merged', directory gone, git worktree list --porcelain no longer contains the path, git branch --list codex/merged empty, while an unmerged keeper worktree and its branch survive. Wrapper parity: test_preflight_sh.py test_preflight_gc_worktrees_apply_removes_merged_worktree_via_wrapper (./scripts/preflight.sh --gc-worktrees --apply). Partial-failure registry consistency: test_apply_reports_branch_delete_refusal_and_keeps_registry_consistent (worktree deregistered, branch kept, exit 1, never -D). Commit f10e202.",
           "id": "B2-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Report mode performs zero mutations (asserted on fixture repo state)",
-          "evidence": "",
+          "evidence": "test_report_mode_performs_zero_mutations: fixture zoo (removable candidate, dirty, unmerged, prunable registration, unregistered sibling); before/after snapshots of git worktree list --porcelain + git for-each-ref + parent directory listing compare equal after a default (report) run, prunable entry still registered, candidate and sibling directories still exist. Prune gating: test_apply_without_successful_removals_does_not_prune and test_apply_prunes_registrations_only_after_successful_removal. Report path issues only read-only git commands; the dirty probe uses git --no-optional-locks status --porcelain. Commit f10e202.",
           "id": "B2-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Dogfood evidence: the five merged elves worktrees removed; the five unmerged benchmark worktrees and all unregistered siblings untouched and listed in the report",
@@ -52,13 +52,13 @@
         },
         {
           "criterion": "Repo-consistency CI stays green (pinned worktree phrases unchanged or pins updated together with the prose)",
-          "evidence": "",
+          "evidence": "python3 scripts/check_repo_consistency.py exit 0 after every doc edit and on the close tree; WORKSPACE_ISOLATION_PHRASES untouched and the pinned sentence 'does not reuse, delete, or repair existing worktrees' remains verbatim in SKILL.md, README.md, AGENTS.md, references/survival-guide-template.md, and references/kickoff-prompt-template.md (kickoff bullet extended after the pinned sentence, pin intact; gc documented as a separate helper). verify_repo.py --ci --version Unreleased --base-ref origin/main: consistency/release/evidence-review/shell/json/compileall OK; sole FAIL is the pre-existing B4-owned public-api approval staleness present at the B2 baseline. release_checklist.py --allow-unreleased exit 0.",
           "id": "B2-A5",
-          "met": false
+          "met": true
         }
       ],
       "id": "B2",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "acceptance": [
