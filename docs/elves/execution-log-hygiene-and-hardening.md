@@ -217,3 +217,30 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
   crashes so far, zero budget consumed, backoffs 5m then 10m); codified in contract text by B8.
   Amendment committed under the Batch 8 · Contract label per the B3 phase-role rule, in the
   driver-safe window while no worker was active (index-race avoidance).
+
+## B4 (split: driver host-native + stopped worker)
+
+- 2026-07-16 21:35 · Implement · Driver slice 5501593: ensure_private_dir consolidation (live
+  divergence found: dispatch modules imported the weak variant), ELVES_SESSION_BASENAME + 4
+  adopters, cycle-free hoists (native_worker/config/worker_routing/preflight_cache), consumed
+  api-break approval removed (public-api gate green, count=0).
+- 2026-07-16 22:05 · Validate · Driver slice 5b84c0c: openrouter_lens stdin-before-fail-closed
+  hang fixed (3-hour verify hang root-caused: inherited never-closing pipe + unpinned test stdin);
+  proven terminating under the exact hang scenario; full verify --ci green bounded.
+- 2026-07-16 22:40 · Implement · User directed worker stop + host-native finish. Worker's B8-style
+  ledger survived its final crash and confirmed orientation-only state (mechanism validated).
+  Driver migrated all 16 full_run.py git call sites to run_git (hardened with stdin=DEVNULL +
+  timeout param), swapped the last session literal, hoisted leases/implement/delegated_git lazies,
+  and corrected two lazy-import comments that guard REAL cycles (risk_policy and behavior_policy
+  import full_run at module level — the no-cycles survey assumption was wrong for these two).
+- 2026-07-16 22:55 · Close evidence · Suite 1,062/0 both env shapes; characterization
+  test_full_run_supervisor 145/OK; consistency 0; verify --ci zero FAILs; 0 raw git subprocess
+  sites; literal count exactly 1.
+
+## Decisions made (continued 5)
+
+- D12 (user-directed): all remaining work is driver host-native; B4 worker stopped after a fourth
+  silent transient death. The worker progress ledger proved its value (orientation state survived).
+- D13: leases.run_git hardened as the B9 chokepoint for git subprocesses (stdin always closed,
+  optional timeout) — 72 existing call sites inherit it; no stdin-reading git subcommand exists in
+  the codebase (verified).

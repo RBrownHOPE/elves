@@ -4,6 +4,15 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Consolidated git/secret/path helpers
+
+- One canonical hardened `run_git` (leases) now serves audit, delegated-git, and all of
+  `full_run.py` (16 raw subprocess call sites migrated with per-call env/cwd preserved); it closes
+  stdin unconditionally and accepts an optional timeout. The weak duplicate `ensure_private_dir`
+  was removed in favor of the fd-anchored storage variant; `.elves-session.json` is spelled once
+  as `schema.ELVES_SESSION_BASENAME`; cycle-free function-local imports were hoisted and the two
+  genuinely cyclic ones (risk_policy, behavior_policy) documented as such.
+
 ### Worker packet as a staging deliverable
 
 - Staging now requires the standalone coordinator→implementer packet for delegable runs: SKILL.md's

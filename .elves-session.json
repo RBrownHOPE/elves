@@ -100,31 +100,31 @@
       "acceptance": [
         {
           "criterion": "Exactly one `run_git` definition body remains (delegators allowed); zero raw `subprocess.run([\"git\"` call sites left in `full_run.py`",
-          "evidence": "",
+          "evidence": "run_git in leases.py is the single definition body (now hardened: stdin=DEVNULL always, optional timeout); audit.py delegates; full_run.py migrated at all 16 raw git subprocess sites (scan at Close: 0 raw git subprocess sites remain; grep transcript in execution log). Private _git_head/_git_branch/_git_common_dir/_is_ancestor/status helpers now delegate to run_git with signatures preserved (native_worker imports intact). Identity read keeps bytes semantics via text=False, env=parent, timeout=10.",
           "id": "B4-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "`context.ensure_private_dir` gone; `api-break-approvals.json` entry passes strict `verify_repo.py --ci` validation",
-          "evidence": "",
+          "evidence": "context.ensure_private_dir deleted at commit 5501593; dispatch.py + dispatch_lane_attempt.py re-pointed to storage.ensure_private_dir (fd-anchored; repo_root=None branch behaviorally identical for one-arg callers); export-lock test updated to pin the negative (context lacks it) and positive (storage has it). No api-break approval needed: the public-api snapshot tracks package-level exports only and never tracked context.ensure_private_dir; the consumed stale approval (cli:cobbler_agents implement full-run-prepare, release 2.6.0) was removed and the strict gate now passes with approvals count=0 ([OK] public-api at 5501593 and at Close).",
           "id": "B4-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Full suite green; `test_storage_isolation_git.py`, `test_dispatch_isolation.py`, `test_full_run_supervisor.py` specifically green (regression preservation)",
-          "evidence": "",
+          "evidence": "Full suite at Close: Ran 1062, OK (skipped=12) plain AND with CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1. Focused: test_full_run_supervisor 145/OK (characterization \u2014 module untouched by migration, count identical), test_cobbler_agents_leases + test_dispatch_isolation + test_storage_isolation_git OK. verify_repo --ci Unreleased: zero [FAIL] lines, bounded foreground run.",
           "id": "B4-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Session filename literal appears exactly once in `cobbler_runtime/`",
-          "evidence": "",
+          "evidence": "grep -rn '.elves-session.json' scripts/cobbler_runtime/*.py -> exactly one occurrence: schema.py ELVES_SESSION_BASENAME definition. Adopters: isolation, leases, evidence_review, risk_policy (5501593) + full_run default_session (this slice); leases comment reworded to reference the constant.",
           "id": "B4-A4",
-          "met": false
+          "met": true
         }
       ],
       "id": "B4",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [

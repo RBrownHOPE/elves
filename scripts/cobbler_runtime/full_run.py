@@ -45,14 +45,23 @@ from .acceptance import (
     validate_contract_mapping,
 )
 from .context import redact_text, validate_credential_grant_names
+from .delegated_git import (
+    DelegatedGitContract,
+    assert_action_allowed,
+    assert_descendant,
+    assert_feature_branch,
+    reconcile_worker_report,
+)
 from .implement import (
     DEFAULT_EFFORT,
     DEFAULT_EXECUTABLE,
     DEFAULT_MODEL,
     DEFAULT_PERMISSION_MODE,
     build_launch_argv,
+    detect_native_grok_goal,
 )
-from .schema import ValidationIssue
+from .leases import run_git, worktree_is_registered
+from .schema import ELVES_SESSION_BASENAME, ValidationIssue
 from .toml_compat import loads as _load_toml
 from .storage import (
     StorageError,
@@ -4645,20 +4654,18 @@ def _handoff_supervision_secret(
 
 
 def _origin_present(repo_root: Path) -> bool:
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "remote", "get-url", "origin"],
-        capture_output=True,
-        text=True,
+    result = run_git(
+        repo_root,
+        ["remote", "get-url", "origin"],
         check=False,
     )
     return result.returncode == 0 and bool(result.stdout.strip())
 
 
 def _canonical_origin_url(repo_root: Path) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "remote", "get-url", "--all", "origin"],
-        capture_output=True,
-        text=True,
+    result = run_git(
+        repo_root,
+        ["remote", "get-url", "--all", "origin"],
         check=False,
     )
     urls = [row.strip() for row in result.stdout.splitlines() if row.strip()]
@@ -4673,10 +4680,9 @@ def _canonical_origin_url(repo_root: Path) -> str:
             "full_run_origin_url_credentialed",
             "Origin URL must be non-credentialed and free of control characters",
         )
-    push = subprocess.run(
-        ["git", "-C", str(repo_root), "remote", "get-url", "--push", "--all", "origin"],
-        capture_output=True,
-        text=True,
+    push = run_git(
+        repo_root,
+        ["remote", "get-url", "--push", "--all", "origin"],
         check=False,
     )
     push_urls = [row.strip() for row in push.stdout.splitlines() if row.strip()]
@@ -4716,14 +4722,13 @@ def _read_host_git_identity_value(
     """Resolve one explicit host Git identity field without allowing guessing."""
     parent = dict(parent_env if parent_env is not None else os.environ)
     try:
-        result = subprocess.run(
-            ["git", "-C", str(worktree), "config", "--get", key],
-            env=parent,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
+        result = run_git(
+            worktree,
+            ["config", "--get", key],
             check=False,
+            text=False,
+            env=parent,
+            timeout=10,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ValidationIssue(
@@ -4934,10 +4939,9 @@ def _configure_github_push_auth(
 
 
 def _origin_config_digest(repo_root: Path) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "config", "--local", "--get-regexp", r"^remote\.origin\."],
-        capture_output=True,
-        text=True,
+    result = run_git(
+        repo_root,
+        ["config", "--local", "--get-regexp", r"^remote\.origin\."],
         check=False,
     )
     if result.returncode not in {0, 1}:
@@ -4956,10 +4960,9 @@ def _remote_refs(
     if not _origin_present(repo_root):
         return {}
     try:
-        result = subprocess.run(
-            ["git", "-C", str(repo_root), "ls-remote", "origin", *patterns],
-            capture_output=True,
-            text=True,
+        result = run_git(
+            repo_root,
+            ["ls-remote", "origin", *patterns],
             check=False,
             timeout=15,
         )
@@ -5019,17 +5022,13 @@ def snapshot_protected_refs(
     When ``include_remote`` is False, skip the uncached remote all-ref audit
     (used by incremental healthy polls). Terminal/safety paths always pass True.
     """
-    result = subprocess.run(
+    result = run_git(
+        repo_root,
         [
-            "git",
-            "-C",
-            str(repo_root),
             "for-each-ref",
             "--format=%(refname) %(objectname)",
             "refs",
         ],
-        capture_output=True,
-        text=True,
         check=False,
     )
     if result.returncode != 0:
@@ -5097,10 +5096,9 @@ def verify_protected_refs_unchanged(
 
 def _git_head(cwd: Path) -> str | None:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(cwd), "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
+        result = run_git(
+            cwd,
+            ["rev-parse", "HEAD"],
             check=False,
         )
     except OSError:
@@ -5113,10 +5111,9 @@ def _git_head(cwd: Path) -> str | None:
 
 def _git_branch(cwd: Path) -> str | None:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(cwd), "branch", "--show-current"],
-            capture_output=True,
-            text=True,
+        result = run_git(
+            cwd,
+            ["branch", "--show-current"],
             check=False,
         )
     except OSError:
@@ -5128,10 +5125,9 @@ def _git_branch(cwd: Path) -> str | None:
 
 def _is_ancestor(cwd: Path, ancestor: str, tip: str) -> bool:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(cwd), "merge-base", "--is-ancestor", ancestor, tip],
-            capture_output=True,
-            text=True,
+        result = run_git(
+            cwd,
+            ["merge-base", "--is-ancestor", ancestor, tip],
             check=False,
         )
     except OSError:
@@ -5140,10 +5136,9 @@ def _is_ancestor(cwd: Path, ancestor: str, tip: str) -> bool:
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
-    result = subprocess.run(
-        ["git", "-C", str(cwd), "rev-parse", "--git-common-dir"],
-        capture_output=True,
-        text=True,
+    result = run_git(
+        cwd,
+        ["rev-parse", "--git-common-dir"],
         check=False,
     )
     if result.returncode != 0 or not result.stdout.strip():
@@ -5155,17 +5150,13 @@ def _git_common_dir(cwd: Path) -> Path | None:
 
 
 def _assert_clean_worktree(worktree: Path) -> None:
-    result = subprocess.run(
+    result = run_git(
+        worktree,
         [
-            "git",
-            "-C",
-            str(worktree),
             "status",
             "--porcelain=v1",
             "--untracked-files=all",
         ],
-        capture_output=True,
-        text=True,
         check=False,
     )
     if result.returncode != 0:
@@ -6086,10 +6077,9 @@ def _protected_branch_names(repo_root: Path) -> set[str]:
         ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
         ["config", "--get", "init.defaultBranch"],
     ):
-        result = subprocess.run(
-            ["git", "-C", str(repo_root), *args],
-            capture_output=True,
-            text=True,
+        result = run_git(
+            repo_root,
+            args,
             check=False,
         )
         value = result.stdout.strip()
@@ -6137,8 +6127,6 @@ def _validate_full_run_git_contract(
             f"Full-run packet exceeds {MAX_PACKET_BYTES} byte limit",
             path=str(packet),
         )
-    from .leases import worktree_is_registered  # noqa: PLC0415
-
     if not worktree_is_registered(worker, git_cwd=repo):
         raise ValidationIssue(
             "full_run_worktree_unregistered",
@@ -6169,10 +6157,9 @@ def _validate_full_run_git_contract(
             "full_run_start_head_mismatch",
             f"Worktree HEAD `{current_head}` != required checkpoint `{required_head}`",
         )
-    commit = subprocess.run(
-        ["git", "-C", str(worker), "rev-parse", "--verify", f"{start_head}^{{commit}}"],
-        capture_output=True,
-        text=True,
+    commit = run_git(
+        worker,
+        ["rev-parse", "--verify", f"{start_head}^{{commit}}"],
         check=False,
     )
     if commit.returncode != 0 or commit.stdout.strip() != start_head:
@@ -6310,7 +6297,7 @@ def prepare_full_run(
             )
 
         if session_path is None:
-            default_session = Path(repo_root).expanduser().resolve() / ".elves-session.json"
+            default_session = Path(repo_root).expanduser().resolve() / ELVES_SESSION_BASENAME
             if default_session.is_file():
                 session_path = default_session
             else:
@@ -6601,8 +6588,6 @@ def save_state(repo_root: Path, state: FullRunState) -> Path:
 
 def build_full_run_argv(state: FullRunState) -> list[str]:
     """Adapter-aware argv. Fixture mode uses explicit python + script + packet."""
-    from .implement import detect_native_grok_goal  # noqa: PLC0415
-
     launch_packet = (
         state.goal_prompt_path
         if state.goal_mode_behaviorally_verified and state.goal_prompt_path
@@ -8400,10 +8385,9 @@ def _bounded_text_tail(
 
 
 def _git_commit_chain(cwd: Path, start_head: str, final_head: str) -> list[str]:
-    result = subprocess.run(
-        ["git", "-C", str(cwd), "rev-list", "--reverse", f"{start_head}..{final_head}"],
-        capture_output=True,
-        text=True,
+    result = run_git(
+        cwd,
+        ["rev-list", "--reverse", f"{start_head}..{final_head}"],
         check=False,
     )
     if result.returncode != 0:
@@ -8503,6 +8487,7 @@ def monitor_full_run(
     initial_acknowledged_checkpoints = tuple(
         state.acknowledged_high_risk_checkpoints
     )
+    # Lazy on purpose: risk_policy imports full_run at module level (real cycle).
     from .risk_policy import monitor_depth_for_status  # noqa: PLC0415
 
     cache = dict(state.monitor_cache or {})
@@ -9095,6 +9080,7 @@ def monitor_full_run(
         state.blocker = _redact_full_run_text(
             state.blocker, exact_values=exact_secret_values
         )
+    # Lazy on purpose: behavior_policy imports full_run at module level (real cycle).
     from .behavior_policy import (  # noqa: PLC0415
         PARKED_MONITOR_UPDATE_POLICY,
         PARKED_MONITOR_USER_HEARTBEAT_SECONDS,
@@ -9716,6 +9702,7 @@ def reconstruct_missing_report(
     Only independently provable fields are filled. Provenance is always
     ``host_reconstructed``. Untrusted writer handoffs are refused.
     """
+    # Lazy on purpose: risk_policy imports full_run at module level (real cycle).
     from .risk_policy import (  # noqa: PLC0415
         build_reconstructed_report,
         plan_host_reconstruction,
@@ -9761,10 +9748,9 @@ def reconstruct_missing_report(
         }
     commit_rows: list[dict[str, str]] = []
     for sha in commits:
-        subject_result = subprocess.run(
-            ["git", "-C", str(worktree), "show", "-s", "--format=%s", sha],
-            capture_output=True,
-            text=True,
+        subject_result = run_git(
+            worktree,
+            ["show", "-s", "--format=%s", sha],
             check=False,
         )
         if subject_result.returncode != 0:
@@ -9911,13 +9897,6 @@ def reconcile_full_run_with_git(
     session_id: str,
 ) -> dict[str, Any]:
     """Verify feature-branch advance and report heads at the supervisor boundary."""
-    from .delegated_git import (  # noqa: PLC0415
-        DelegatedGitContract,
-        assert_action_allowed,
-        assert_descendant,
-        assert_feature_branch,
-        reconcile_worker_report,
-    )
 
     state = load_state(repo_root, session_id)
     _revalidate_staged_packet_binding(Path(repo_root), state)

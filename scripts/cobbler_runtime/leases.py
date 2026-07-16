@@ -285,8 +285,9 @@ def run_git(
     check: bool = True,
     text: bool = True,
     env: Mapping[str, str] | None = None,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run git with argv only (shell=False)."""
+    """Run git with argv only (shell=False), stdin closed, optionally bounded."""
     cmd = [_GIT_EXECUTABLE, *args]
     result = subprocess.run(
         cmd,
@@ -295,6 +296,8 @@ def run_git(
         capture_output=True,
         text=text,
         env=dict(env) if env is not None else None,
+        stdin=subprocess.DEVNULL,
+        timeout=timeout,
     )
     if check and result.returncode != 0:
         raise ValidationIssue(
@@ -599,7 +602,7 @@ def is_path_allowed(rel_path: str, lease: WriterLease) -> bool:
             continue
         if normalized == p_stripped or normalized.startswith(p_stripped + "/"):
             return False
-        # Exact file forbids such as ``.elves-session.json``.
+        # Exact file forbids such as the session basename (ELVES_SESSION_BASENAME).
         if not p.endswith("/") and normalized == p:
             return False
 
