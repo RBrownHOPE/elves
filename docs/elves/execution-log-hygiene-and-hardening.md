@@ -159,3 +159,25 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
   exactly the worktrees this helper exists to reclaim. A genuinely unpushed commit can never be an
   ancestor of origin/main, so the contract sentence "a clean-but-unpushed worktree is refused"
   holds in both regimes.
+
+## B2 reconcile (driver)
+
+- 2026-07-16 15:05 · Reconcile · B2 verified on tip 9264c6a: 4 cadenced slices
+  (Contract 726cfe5 → Implement f10e202 → Implement 8c90f2c → Close 9264c6a); focused
+  test_worktree_gc OK; session rows A1/A2/A3/A5 met, A4 correctly deferred.
+- 2026-07-16 15:10 · Reconcile · B2-A4 dogfood executed from the main checkout (driver-owned):
+  report mode listed exactly the five staging-measured merged worktrees as candidates; --apply
+  removed all five and deleted their local branches; refusals held (main+invoking checkout, five
+  unmerged benchmarks — two also unpushed, this run's worktree); four unregistered siblings listed
+  operator-owned, untouched; post-state registry = main + 5 benchmarks + run worktree. B2 marked
+  complete in session with evidence.
+
+## Decisions made (continued 2)
+
+- D7 (from B2 worker, ratified at reconcile): post-merge upstream-gone regime — when a branch's
+  upstream no longer resolves (GitHub auto-delete after merge), the origin/main ancestor check is
+  the unpushed-work containment proof; when upstream resolves, ahead-count must be 0. Both regimes
+  fixture-tested.
+- D8 (driver): dogfood invoked the branch copy of worktree_gc.py by absolute path with the main
+  checkout as cwd — same pattern as installed-skill helpers (helper from skill root, target repo
+  as working directory). No flag surface existed on main yet; this is the expected mid-run shape.

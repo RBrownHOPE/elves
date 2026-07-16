@@ -46,9 +46,9 @@
         },
         {
           "criterion": "Dogfood evidence: the five merged elves worktrees removed; the five unmerged benchmark worktrees and all unregistered siblings untouched and listed in the report",
-          "evidence": "",
+          "evidence": "Driver dogfood 2026-07-16 ~15:10 from main checkout /Users/john/aigora/dev/elves via worktree_gc.py (report then --apply): removed 5 merged worktrees (elves-delegated-worker-v2-1, elves-devin-cli-worker, elves-faster-goal-runs, elves-grok-build-open-source, elves-joyful-elves-runs) and deleted their local branches (git branch --list of all five returns empty); refused with reasons: main+invoking checkout, 5 unmerged benchmark worktrees (2 also unpushed), this run's worktree (not merged); 4 unregistered siblings listed operator-owned and untouched; git worktree list post-state shows main + 5 benchmarks + run worktree only. Transcript in execution log B2 reconcile.",
           "id": "B2-A4",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Repo-consistency CI stays green (pinned worktree phrases unchanged or pins updated together with the prose)",
@@ -58,7 +58,7 @@
         }
       ],
       "id": "B2",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "acceptance": [

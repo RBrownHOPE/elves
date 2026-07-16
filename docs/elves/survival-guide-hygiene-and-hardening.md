@@ -101,15 +101,15 @@ review, readiness, and a user-authorized merge.
 - **User returns:** unspecified (user is present in chat; run proceeds unattended between wakes)
 - **Checkpoint expectation:** landable, reviewed, merged PR #78 with Elves report path surfaced
 - **Time budget:** unlimited (finite scope, no deadline given)
-- **Average batch time so far:** ~28m (B1)
-- **Batches remaining:** 6 of 7
+- **Average batch time so far:** ~39m (B1 28m, B2 49m)
+- **Batches remaining:** 5 of 7
 
 ## Stop Gate
 
-- **Planned batches remaining:** 6
+- **Planned batches remaining:** 5
 - **Stop allowed right now:** no
-- **Why:** B2–B7 unimplemented; landing not attempted; user asked for end-to-end delivery.
-- **Next required action:** launch B2 worker session with the B2 packet.
+- **Why:** B3–B7 unimplemented; landing not attempted; user asked for end-to-end delivery.
+- **Next required action:** launch B3 worker session with the B3 packet.
 
 ## Effort Standard
 
@@ -175,13 +175,14 @@ learnings at Close of each batch; archive nothing mid-run.
 
 **Status:** In progress
 
-**Active batch:** Batch 2: Worktree gc helper and lifecycle hook
+**Active batch:** Batch 3: Worker packet as staging deliverable
 
-**What was just finished:** B1 complete at 8c33a91: shared >=8-char exact-secret collector; suite
-1,034/0 under both env shapes; B1-A1..A3 evidence in session JSON. Plan amended with B3-A5
-(commit-cadence rule, user-directed); session re-synced with B1 proof preserved.
+**What was just finished:** B2 complete: worktree_gc helper (report-default, fixture-proven
+predicate), preflight.sh --gc-worktrees, cleanup.worktrees preference, lifecycle docs, session
+worktree_path; suite 1,056/0 both env shapes; driver dogfood removed the five merged machine
+worktrees with all refusals holding.
 
-**Single next action:** Launch the B2 worker session with the B2 packet.
+**Single next action:** Launch the B3 worker session with the B3 packet.
 
 ## Active Compute
 
@@ -189,35 +190,30 @@ No active paid or long-running compute.
 
 ## Next Exact Batch
 
-**Batch:** B2: Worktree gc helper and lifecycle hook
+**Batch:** B3: Worker packet as staging deliverable
 
 **Scope:**
-- gc helper (report-by-default, `--apply`): candidates = registered linked worktrees, not
-  main/current, clean, branch fully merged into origin/main, zero unpushed commits; removal =
-  `git worktree remove` + `git branch -d` + `git worktree prune`; unregistered siblings
-  report-only
-- `preflight.sh` surface mirroring `--create-worktree`; `cleanup.worktrees` preference
-  (default `report`)
-- Lifecycle docs: SKILL.md Final Completion + Reviewed PR Landing teardown step; kickoff template
-  mention; session records created worktree path
-- Fixture tests for every safety predicate; dogfood report+apply on this machine (driver assists
-  at reconcile if sandboxing blocks the worker)
+- SKILL.md Staging checklist conditional packet line (launch-ready requires recorded packet path
+  for delegable runs)
+- Survival-guide template Run Control gains `Worker packet:`; schema-and-acceptance.md documents
+  optional `worker_packet_path`
+- Plan-template handoff note (per-batch handoff in plan; consolidated packet at staging; not
+  substitutes); kickoff template packet bullets (both staging lists)
+- acceptance_contract.py advisory warning (non-host-native driver + no worker_packet_path)
+- Work-driver enum reconciliation (devin-cli; hyphen/underscore normalization documented in one
+  place)
+- Commit-cadence rule in SKILL.md handoff standard + packet/kickoff guidance (B3-A5, user-directed)
 
 **Acceptance criteria:**
-- [ ] [B2-A1] Fixture tests prove gc refuses: dirty worktree, unmerged branch, unpushed commits,
-  current directory, main worktree, unregistered sibling directory
-- [ ] [B2-A2] Fixture test proves gc removes a clean merged worktree and deletes its local branch,
-  and `git worktree list` no longer shows it
-- [ ] [B2-A3] Report mode performs zero mutations (asserted on fixture repo state)
-- [ ] [B2-A4] Dogfood evidence: the five merged elves worktrees removed; the five unmerged
-  benchmark worktrees and all unregistered siblings untouched and listed in the report
-- [ ] [B2-A5] Repo-consistency CI stays green (pinned worktree phrases unchanged or pins updated
-  together with the prose)
+- [ ] [B3-A1] Validator warning fires for grok-build without packet path; silent with path or
+  host-native
+- [ ] [B3-A2] All six documentation surfaces carry the packet-at-staging rule and cross-link
+- [ ] [B3-A3] Repo-consistency CI green; new pins deliberate and minimal
+- [ ] [B3-A4] Work-driver spellings normalize identically in validator and docs (devin covered)
+- [ ] [B3-A5] Commit-cadence rule in SKILL.md handoff standard + packet/kickoff templates with
+  pins updated in the same commit
 
-**Risk:** mutating git state; mitigated by non-force removal, fixture coverage, and report-mode
-default. Note: B2-A4 dogfood targets the MAIN checkout's registered worktrees and runs at
-driver reconcile (the worker proves fixtures; the driver runs the machine sweep — the main
-checkout is a worker-forbidden surface).
+**Risk:** doc-wide phrase-pin churn; warning must never block host-native runs.
 
 **Rollback authority:** host-created `b0` ref
 (`refs/elves/rollback/hygiene-and-hardening-2026-07-16/s1/b0`) plus per-batch worker commit SHAs.
