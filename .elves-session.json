@@ -221,6 +221,30 @@
       ],
       "id": "B8",
       "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Every `verify_repo.py` gate subprocess runs with closed stdin and a bounded timeout, and an induced timeout produces a failing step result (test or transcript evidence)",
+          "evidence": "",
+          "id": "B9-A1",
+          "met": false
+        },
+        {
+          "criterion": "The suite redirects fd 0 to devnull at discovery; `tests/test_suite_hermeticity.py` proves in-process EOF and child-inherited EOF",
+          "evidence": "",
+          "id": "B9-A2",
+          "met": false
+        },
+        {
+          "criterion": "Autonomy docs carry the closed-stdin/timeout rule; the incident is recorded in learnings and `.ai-docs/gotchas.md`",
+          "evidence": "",
+          "id": "B9-A3",
+          "met": false
+        }
+      ],
+      "id": "B9",
+      "status": "pending"
     }
   ],
   "branch": "elves/hygiene-and-hardening",

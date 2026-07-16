@@ -435,6 +435,62 @@ identical (same interpreter invocation, same env contract).
 
 ---
 
+### Batch 9 [B9]: Hermetic gates and bounded subprocess policy
+
+**Coordinator-to-implementer handoff (required when an external or less-capable worker implements):**
+- **Intent / why:** a single non-hermetic test froze the readiness gate for three hours during
+  this run (stdin read before fail-closed check + inherited never-closing pipe + unpinned test
+  stdin). Elves' unattended promise requires gates that terminate by construction, not by caller
+  luck (user-directed, 2026-07-16).
+- **Non-obvious rationale:** 233 test call sites spawn subprocesses without pinning stdin;
+  per-site churn is the wrong altitude. Two chokepoints give a total guarantee: the gate runner
+  and the suite's own fd 0.
+- **Build On targets:** `verify_repo.py:_run` (single gate subprocess helper); `tests/__init__.py`
+  (imported at discovery by every suite run); `leases.run_git` (already hardened in B4).
+- **Owned surfaces:** scripts/verify_repo.py, tests/__init__.py, new tests/test_suite_hermeticity.py,
+  references/autonomy-guide.md, SKILL.md (Staying Unattended), docs/elves/learnings.md,
+  .ai-docs/gotchas.md.
+- **Forbidden surfaces:** per-site edits to the 233 existing test call sites (decision: chokepoint
+  guarantee, not churn); runtime modules beyond the named ones.
+- **Acceptance evidence:** B9-A1..A3.
+- **Failure modes / pitfalls:** fd-level dup2 is what children inherit — assigning `sys.stdin`
+  alone is insufficient; a timeout in the gate runner must surface as a FAIL, never a traceback.
+- **HEAD / run-doc paths / route-session identity / output format:** per run docs.
+
+**Tasks:**
+- [ ] `verify_repo.py:_run` runs every gate subprocess with `stdin=DEVNULL` and a per-step
+  timeout (generous cap for the suite step); a timeout surfaces as a step FAIL with a clear
+  message, never a hang or traceback
+- [ ] `tests/__init__.py` redirects file descriptor 0 to `os.devnull` at import so in-process
+  stdin reads return EOF and every child process inherits closed stdin regardless of runner
+- [ ] New `tests/test_suite_hermeticity.py` proves both properties (in-process EOF; child spawned
+  without stdin kwarg reads EOF instantly)
+- [ ] Docs: `references/autonomy-guide.md` and SKILL.md Staying Unattended state that gates and
+  helper subprocesses run with closed stdin and explicit timeouts — a silent hang is a failure,
+  not progress
+- [ ] Promote the incident pattern to `docs/elves/learnings.md` and `.ai-docs/gotchas.md`
+
+**Acceptance criteria:**
+- [ ] [B9-A1] Every `verify_repo.py` gate subprocess runs with closed stdin and a bounded
+  timeout, and an induced timeout produces a failing step result (test or transcript evidence)
+- [ ] [B9-A2] The suite redirects fd 0 to devnull at discovery; `tests/test_suite_hermeticity.py`
+  proves in-process EOF and child-inherited EOF
+- [ ] [B9-A3] Autonomy docs carry the closed-stdin/timeout rule; the incident is recorded in
+  learnings and `.ai-docs/gotchas.md`
+
+**Docs likely touched:** SKILL.md, autonomy-guide.md, learnings.md, .ai-docs/gotchas.md, CHANGELOG
+
+**Risk:** `standard` — touching the gate runner used by CI; mitigated by the induced-timeout test.
+**Caution:** do not change verify step semantics beyond boundedness; the suite step's cap must
+comfortably exceed the ~4-minute suite (use 1800s).
+**Affected surfaces:** verify_repo.py, tests/__init__.py, docs
+**Constitution impacts:** none
+**Review focus:** the timeout path returns a synthetic failing result and cannot mask a real pass
+**Focused tests:** tests/test_suite_hermeticity.py, tests/test_verify_repo.py
+**Depends on:** B4 (run_git chokepoint already hardened)
+
+---
+
 ## Master Acceptance
 
 - [ ] [M-A1] Full suite green in an environment that includes short-valued secret-named env vars
