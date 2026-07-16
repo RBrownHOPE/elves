@@ -54,7 +54,7 @@ review, readiness, and a user-authorized merge.
 - **Checkpoint rule:** no checkpoints scheduled; if one appears, log it, push, continue
   immediately.
 - **E2E mode:** chat-to-land
-- **Work driver:** host-native
+- **Work driver:** host-native (from B4 close: ALL remaining batches driver-implemented — user directive 2026-07-16; worker sessions retired for this run)
 - **Implementation lane:** fast
 - **Delegation scope:** batch
 - **Git mode:** branch_progress
@@ -103,15 +103,15 @@ review, readiness, and a user-authorized merge.
 - **User returns:** unspecified (user is present in chat; run proceeds unattended between wakes)
 - **Checkpoint expectation:** landable, reviewed, merged PR #78 with Elves report path surfaced
 - **Time budget:** unlimited (finite scope, no deadline given)
-- **Average batch time so far:** ~46m (B1 28m, B2 49m, B3 ~60m incl. 3 crash re-drives)
-- **Batches remaining:** 5 of 8 (B8 added, user-directed)
+- **Average batch time so far:** ~65m (B4 ran long: 4 transient worker crashes, split, host-native finish)
+- **Batches remaining:** 5 of 9 (B8, B9 added, user-directed; all remaining work driver host-native per user directive)
 
 ## Stop Gate
 
 - **Planned batches remaining:** 5
 - **Stop allowed right now:** no
-- **Why:** B4–B8 unimplemented; landing not attempted; user asked for end-to-end delivery.
-- **Next required action:** launch B4 worker session with the B4 packet.
+- **Why:** B5–B9 unimplemented; landing not attempted; user asked for end-to-end delivery and landing.
+- **Next required action:** implement B8+B9 host-native (driver), then B5, B6, B7.
 
 ## Effort Standard
 
@@ -177,14 +177,15 @@ learnings at Close of each batch; archive nothing mid-run.
 
 **Status:** In progress
 
-**Active batch:** Batch 4: Consolidate security-critical duplicate helpers
+**Active batch:** Batch 8 + Batch 9 (driver host-native)
 
-**What was just finished:** B3 complete at 6696981 (host-native takeover after 3x transient 529
-worker crashes): packet-at-staging across six doc surfaces, advisory worker_packet_missing
-validator warning with spelling normalization, commit cadence + phase roles codified in the
-handoff standard; suite 1,062/0 both env shapes; zero consistency-pin churn.
+**What was just finished:** B4 complete at 816ba3b (worker stopped by user after 4th silent
+transient death; driver finished host-native): one hardened run_git (stdin closed, timeout param)
+serving all of full_run's 16 former raw sites; single session basename; two real import cycles
+documented; suite 1,062/0 both shapes; verify --ci zero FAILs.
 
-**Single next action:** Launch the B4 worker session with the B4 packet.
+**Single next action:** Implement B8 (failure recovery policy docs), then B9 (hermetic bounded
+gates), both driver host-native per user directive; then B5-B7.
 
 ## Active Compute
 
