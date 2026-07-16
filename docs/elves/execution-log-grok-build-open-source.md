@@ -46,10 +46,9 @@
 - Preflight: passed. Advisories were limited to the repository's intentional lack of a conventional
   package manifest and unset optional unattended-shell environment variables.
 - Repository consistency and `git diff --check`: passed.
-- Draft PR: pending.
+- Draft PR: [#77](https://github.com/aigorahub/elves/pull/77), containing contract artifacts only.
 
 ## Next action
 
-After staging is committed, pushed, and recorded in a draft PR, wait for explicit user authorization
-to launch the exact native worker session. Do not begin implementation or merge work during this
-planning request.
+Wait for explicit user authorization to launch the exact native worker session. Do not begin
+implementation or merge work during this planning request.

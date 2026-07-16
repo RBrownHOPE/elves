@@ -162,6 +162,7 @@
   ],
   "merge_authorized": false,
   "plan_path": "docs/plans/grok-build-open-source-realignment.md",
+  "pull_request": "https://github.com/aigorahub/elves/pull/77",
   "risk": "high",
   "run_id": "grok-build-open-source-2026-07-15",
   "start_head": "4bbb7b3b6c4f5d57bfa0cc4bc8b0014c39559080",

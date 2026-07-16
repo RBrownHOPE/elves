@@ -27,6 +27,7 @@ fallback.
 - **High-risk wake conditions:** protected-ref or authority violation, repeated crash/stall,
   worktree collision, auth-isolation regression, or material scope departure
 - **Landing outcome:** reviewed PR
+- **Draft PR:** `https://github.com/aigorahub/elves/pull/77`
 - **Merge/release authority:** none; do not merge, tag, or publish
 - **Re-drive budget:** one targeted worker re-drive before driver-owned repair
 - **Staging acceptance command:** `python3 scripts/acceptance_contract.py validate --repo-root . --session .elves-session.json`
@@ -52,9 +53,10 @@ focused tests. The driver reviews the cumulative diff once at the end and revisi
 - **Status:** launch-ready staging
 - **Active compute:** none
 - **Active batch:** none
-- **What was just finished:** capability research and corrected implementation planning
-- **Single next action:** commit and push the staging artifacts, record the draft PR, then stop at
-  the authorized boundary
+- **What was just finished:** capability research, corrected planning, acceptance validation, and
+  draft PR staging
+- **Single next action:** await user authorization, then launch and register the exact staged native
+  worker session
 
 ## Worker authority
 
@@ -84,5 +86,5 @@ constitution. Honor `continuation_guard.stop_allowed` and take the single next r
 - [x] Dedicated branch and checkout created from the recorded start head.
 - [x] Ground-truth CLI/source research corrected the inherited planning note.
 - [x] Plan, session, and packet acceptance mappings validated.
-- [ ] Staging commit pushed and draft PR recorded.
+- [x] Staging commit pushed and draft PR recorded.
 - [ ] Exact worker session launched and registered. This remains intentionally pending.
