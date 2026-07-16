@@ -44,7 +44,9 @@ from cobbler_runtime.config import (  # noqa: E402
     resolve_config,
 )
 from cobbler_runtime.context import (  # noqa: E402
+    MIN_EXACT_SECRET_VALUE_LENGTH,
     build_context_packet,
+    collect_secret_env_values,
     council_artifact_root,
     create_exclusive_artifact_root,
     ensure_private_dir,
@@ -439,6 +441,58 @@ class PortableExternalTestBoundaryTests(unittest.TestCase):
 
 
 class ContextRedactionTests(unittest.TestCase):
+    def test_collect_secret_env_values_skips_short_flag_values(self) -> None:
+        # Claude Code sessions export secret-*named* boolean flags whose values
+        # ("1") must never become exact redaction targets: replacing every
+        # literal 1 corrupts paths and timestamps in emitted JSON.
+        environ = {
+            "CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH": "1",
+            "CLAUDE_CODE_CHILD_SESSION": "1",
+            "SHORT_API_KEY": "abc4567",  # 7 chars: below the guard
+            "BOUNDARY_API_KEY": "abcd5678",  # exactly 8 chars: collected
+            "OPENROUTER_API_KEY": "opaque-collector-value-42",
+            "UNRELATED_FLAG": "long-value-with-plain-name",  # not secret-shaped
+            "PATH": "/usr/bin:/bin",  # allowlisted name is never collected
+        }
+        self.assertEqual(
+            collect_secret_env_values(environ),
+            frozenset({"abcd5678", "opaque-collector-value-42"}),
+        )
+
+    def test_collect_secret_env_values_defaults_to_process_environ(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "SYNTHETIC_GRANT_TOKEN": "synthetic-grant-value-42",
+                "SYNTHETIC_FLAG_TOKEN": "1",
+            },
+            clear=False,
+        ):
+            values = collect_secret_env_values()
+        self.assertIn("synthetic-grant-value-42", values)
+        self.assertNotIn("1", values)
+
+    def test_collect_secret_env_values_min_length_matches_cli_guard(self) -> None:
+        # 8 is the pre-existing precedent from the CLI secret collector; the
+        # shared default must not drift from it silently.
+        self.assertEqual(MIN_EXACT_SECRET_VALUE_LENGTH, 8)
+        environ = {"CUSTOM_API_KEY": "shortie"}
+        self.assertEqual(collect_secret_env_values(environ), frozenset())
+        self.assertEqual(
+            collect_secret_env_values(environ, min_length=1),
+            frozenset({"shortie"}),
+        )
+
+    def test_short_secret_named_values_do_not_corrupt_redacted_text(self) -> None:
+        environ = {"CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH": "1"}
+        payload = "gates/batch-1.json recorded at 2026-07-16T17:00:01+00:00"
+        result = redact_text(
+            payload,
+            exact_values=collect_secret_env_values(environ),
+        )
+        self.assertEqual(result.text, payload)
+        self.assertEqual(result.redacted_patterns, ())
+
     def test_redact_text_masks_secret_values_and_reports_pattern_names(self) -> None:
         raw = "Authorization: Bearer supersecrettoken123 and sk-abcdefghijklmnop"
         result = redact_text(raw)

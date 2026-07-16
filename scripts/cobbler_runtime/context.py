@@ -225,6 +225,38 @@ def is_secret_env_name(name: str) -> bool:
     return False
 
 
+# Exact-value redaction ignores env values shorter than this. Secret-*named*
+# boolean flags (Claude Code sessions export CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1)
+# would otherwise register "1" as an exact secret and redact every literal 1 in
+# emitted JSON, corrupting paths, timestamps, and version strings. 8 matches the
+# pre-existing CLI guard; raising it further risks leaking short real tokens.
+# The guard applies to exact-value matching only — pattern-based redaction
+# (SECRET_VALUE_PATTERNS) is unaffected.
+MIN_EXACT_SECRET_VALUE_LENGTH: int = 8
+
+
+def collect_secret_env_values(
+    environ: Mapping[str, str] | None = None,
+    *,
+    min_length: int = MIN_EXACT_SECRET_VALUE_LENGTH,
+) -> frozenset[str]:
+    """Collect env values with secret-shaped names for exact-value redaction.
+
+    This is the single authoritative env-derived exact-secret collector: every
+    surface that feeds process-environment values into the ``exact_values``
+    argument of :func:`redact_text` / :func:`redact_structure` must use it, so
+    the minimum-length guard cannot silently diverge between call sites again.
+    """
+    source = os.environ if environ is None else environ
+    return frozenset(
+        value
+        for name, value in source.items()
+        if isinstance(value, str)
+        and len(value) >= min_length
+        and is_secret_env_name(name)
+    )
+
+
 def is_isolation_control_env_name(name: str) -> bool:
     """Return whether an environment name is owned by the isolation boundary."""
     if not isinstance(name, str):

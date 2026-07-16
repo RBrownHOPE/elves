@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .acceptance import normalize_batch_id
-from .context import is_secret_env_name, redact_text
+from .context import collect_secret_env_values, redact_text
 from .executables import resolve_executable_for_launch
 from .isolation import _managed_implement_env
 from .schema import ValidationIssue
@@ -2180,15 +2180,6 @@ def parse_unittest_output(text: str) -> dict[str, int]:
     }
 
 
-def _inherited_secret_values() -> frozenset[str]:
-    """Capture exact parent secrets for output redaction, never child inheritance."""
-    return frozenset(
-        value
-        for name, value in os.environ.items()
-        if value and is_secret_env_name(name)
-    )
-
-
 def _read_done_report(
     repo_root: Path,
     path: Path,
@@ -2283,7 +2274,8 @@ def run_gate(
     batch = _require_nonnegative_batch(batch)
     ensure_implement_dirs(repo_root)
     work_cwd = Path(cwd).expanduser().resolve() if cwd else Path(repo_root).resolve()
-    exact_secret_values = _inherited_secret_values()
+    # Exact parent secrets for output redaction only — never child inheritance.
+    exact_secret_values = collect_secret_env_values()
 
     if test_command:
         cmd = list(test_command)

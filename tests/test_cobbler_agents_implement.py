@@ -715,6 +715,69 @@ class RunGateTests(unittest.TestCase):
             self.assertFalse(Path(home_line.removeprefix("HOME=")).exists())
             self.assertFalse(Path(tmp_line.removeprefix("TMPDIR=")).exists())
 
+    def test_gate_record_not_mangled_by_short_secret_named_flag_values(self) -> None:
+        # Regression (B1): Claude Code sessions export secret-*named* flags with
+        # value "1". Exact-value redaction must skip them; otherwise every
+        # literal 1 in the record (gate_path, cwd, timestamps) is replaced with
+        # [REDACTED:exact_grant] and the recorded gate_path no longer exists.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root)
+            command = [
+                sys.executable,
+                "-c",
+                "print('Ran 1 test in 0.0s'); print('OK')",
+            ]
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH": "1",
+                    "CLAUDE_CODE_CHILD_SESSION": "1",
+                },
+                clear=False,
+            ):
+                record = run_gate(root, batch=12, test_command=command)
+            self.assertTrue(record["ok"])
+            for field in ("gate_path", "cwd", "done_report_path", "recorded_at"):
+                self.assertNotIn("[REDACTED", record[field], field)
+            gate_path = Path(record["gate_path"])
+            self.assertTrue(gate_path.is_file())
+            self.assertEqual(
+                gate_path,
+                implement_root(root) / "gates" / "batch-12.json",
+            )
+            saved = json.loads(gate_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved["gate_path"], record["gate_path"])
+
+    def test_gate_still_redacts_minimum_length_secret_named_env_values(self) -> None:
+        # Regression companion (B1): the guard must narrow only short values.
+        # A secret-named env value of exactly 8 characters (the minimum) still
+        # redacts everywhere it appears in returned and persisted evidence.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root)
+            secret = "opaqu8tk"
+            self.assertEqual(len(secret), 8)
+            command = [
+                sys.executable,
+                "-c",
+                (
+                    f"print({secret!r}); "
+                    "print('Ran 1 test in 0.0s'); print('OK')"
+                ),
+            ]
+            with mock.patch.dict(
+                os.environ, {"CUSTOM_GATE_TOKEN": secret}, clear=False
+            ):
+                record = run_gate(root, batch=13, test_command=command)
+            returned = json.dumps(record, sort_keys=True)
+            self.assertNotIn(secret, returned)
+            self.assertIn("[REDACTED:exact_grant]", record["stdout_tail"])
+            saved = (implement_root(root) / "gates" / "batch-13.json").read_text(
+                encoding="utf-8"
+            )
+            self.assertNotIn(secret, saved)
+
     def test_gate_redacts_semantic_secret_fields_without_collapsing_records(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1241,6 +1304,45 @@ class CliIntegrationTests(unittest.TestCase):
             if payload:
                 gate_path = Path(payload["gate_path"])
                 self.assertTrue(gate_path.is_file())
+
+    def test_cli_gate_json_unmangled_with_claude_code_env_flags(self) -> None:
+        # Regression (B1): with the short-valued secret-named flags Claude Code
+        # sessions export, the CLI gate JSON previously replaced every literal
+        # 1 with [REDACTED:exact_grant], corrupting gate_path and timestamps.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            empty_tests = root / "tests"
+            empty_tests.mkdir()
+            (empty_tests / "__init__.py").write_text("", encoding="utf-8")
+            env = dict(os.environ)
+            env["CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH"] = "1"
+            env["CLAUDE_CODE_CHILD_SESSION"] = "1"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CLI),
+                    "implement",
+                    "gate",
+                    "--batch",
+                    "9",
+                    "--focused",
+                    "--cwd",
+                    str(root),
+                    "--repo-root",
+                    str(root),
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(root),
+                env=env,
+            )
+            payload = json.loads(result.stdout)
+            for field in ("gate_path", "cwd", "done_report_path", "recorded_at"):
+                self.assertNotIn("[REDACTED", str(payload[field]), field)
+            gate_path = Path(payload["gate_path"])
+            self.assertTrue(gate_path.is_file())
+            self.assertEqual(payload["batch"], 9)
 
 
 class LaunchExecOptionalTests(unittest.TestCase):

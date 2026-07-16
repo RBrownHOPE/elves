@@ -4,6 +4,15 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Redaction hardening
+
+- Exact-value redaction now draws environment secrets from one shared collector
+  (`cobbler_runtime.context.collect_secret_env_values`) with a minimum exact-value length of 8.
+  Short secret-named flag values (Claude Code sessions export `CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1`)
+  no longer register `"1"` as an exact secret, which corrupted gate JSON paths, timestamps, and
+  version strings; secret-named values of 8+ characters still redact exactly, and pattern-based
+  redaction is unchanged.
+
 ## [2.6.0] - 2026-07-16
 
 ### Open-source Grok Build worker
