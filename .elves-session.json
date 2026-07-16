@@ -244,5 +244,6 @@
   "run_id": "hygiene-and-hardening-2026-07-16",
   "start_head": "d9862a46fbbcf59759d9b7bb9230494db88d5dec",
   "work_driver": "host-native",
-  "worker_packet_path": ".elves/runtime/worker-packet-hygiene-and-hardening.md"
+  "worker_packet_path": ".elves/runtime/worker-packet-hygiene-and-hardening.md",
+  "worktree_path": "/Users/john/aigora/dev/elves-hygiene-and-hardening"
 }

@@ -897,6 +897,23 @@ full-run session advances its assigned feature branch to a descendant of the las
 the supervisor verifies the process fingerprint and protected refs unchanged. Any other tip move
 is a collision, so the host stops instead of committing on top.
 
+Worktrees also get reclaimed. After a run's PR merges, tear down the run's own recorded worktree
+(`worktree_path` in `.elves-session.json`) with the separate gc helper:
+
+```bash
+./scripts/preflight.sh --gc-worktrees            # read-only report (the default)
+./scripts/preflight.sh --gc-worktrees --apply    # remove candidates
+```
+
+A removal candidate must be a registered linked worktree that is not the main worktree, not the
+invoking directory, clean (tracked and untracked), fully merged into `origin/main` (ancestor
+check), and zero commits ahead of its upstream — a clean-but-unpushed worktree is refused. Removal
+uses `git worktree remove` (never `--force`) plus `git branch -d` (never `-D`), then
+`git worktree prune` only after successful removals. Unregistered `<repo>-*` sibling directories
+are operator-owned: the report lists them and never deletes them. Scope teardown to one worktree
+with `--path <worktree_path>`; set the `cleanup.worktrees` preference (`on-merge | report |
+never`, default `report`) in `config.json`.
+
 For source checkouts, `scripts/workspace_guard.py` is an optional prototype helper that can check a
 candidate write command against `.elves-session.json` workspace-guard state. It is advisory by
 default, tracks `allowed_head_tip` and `expected_remote_tip` instead of treating the staging tip as
@@ -1321,6 +1338,7 @@ elves/
 │   ├── install_doctor.py                 # Update + installation-precedence advisory
 │   ├── preflight.sh                      # Pre-run checklist
 │   ├── preflight_worktree.py             # Explicit dedicated-worktree helper
+│   ├── worktree_gc.py                    # Merged-worktree reclaim (report by default)
 │   ├── notify.sh                         # Notification helper
 │   ├── pr_portfolio_report.py            # Repo-only PR health sweep helper
 │   ├── sync_installed_skills.py          # Local Claude/Codex install sync helper

@@ -4,6 +4,20 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Worktree reclaim lifecycle
+
+- New `scripts/worktree_gc.py` (surfaced as `./scripts/preflight.sh --gc-worktrees`) reports and,
+  with an explicit `--apply`, removes worktrees that are registered, linked, not the main worktree,
+  not the invoking directory, clean including untracked files, fully merged into `origin/main`,
+  and zero commits ahead of upstream. Removal is guarded: `git worktree remove` without `--force`,
+  `git branch -d` never `-D`, and `git worktree prune` only after successful removals; report mode
+  performs zero mutations. Unregistered `<repo>-*` sibling directories are listed as operator-owned
+  and never deleted.
+- Post-merge teardown is now part of the lifecycle docs: SKILL.md Final Completion and the Reviewed
+  PR Landing Command tear down the run's own recorded worktree, staging records the created
+  worktree path as `worktree_path` in `.elves-session.json`, and `config.json.example` gains
+  `cleanup.worktrees: "on-merge" | "report" | "never"` (default `report`).
+
 ### Redaction hardening
 
 - Exact-value redaction now draws environment secrets from one shared collector

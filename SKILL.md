@@ -58,6 +58,10 @@ opt-in for the current PR.
 5. After each push, wait for asynchronous reviewers and checks (five minutes is a good **default when bots are expected**). Re-read comments before deciding green.
 6. Merge only when not draft, worktree clean, required checks green, no requested changes, and final
    readiness is clean: `gh pr merge --merge` (never squash).
+7. Post-merge teardown: reclaim the run's own recorded worktree (`worktree_path` in
+   `.elves-session.json`) with `./scripts/preflight.sh --gc-worktrees --path <worktree_path>` —
+   report first, add `--apply` to remove. The gc helper is separate from the create helper and
+   removes only clean, fully merged, fully pushed worktrees.
 
 Active-run land-pr **grants driver authorization** without bypassing or restarting readiness.
 See `references/landing-authority.md`.
@@ -425,6 +429,10 @@ ignores `.elves-session.json`; see `references/schema-and-acceptance.md` for the
 cleanup sequence. Independent review subagent when available. Then remove survival guide / execution
 log / `.elves-session.json` from the PR (keep plan by default; keep learnings). Post-cleanup tip
 attestation. Notify with report path. Merge only if authorized — regular merge commit only.
+After an authorized merge, tear down the run's own recorded worktree (`worktree_path`):
+`./scripts/preflight.sh --gc-worktrees --path <worktree_path>`, report first, then `--apply`;
+the `cleanup.worktrees` preference in `config.json.example` records whether teardown runs
+on merge, stays report-only, or never runs.
 
 ## Staying Unattended
 
@@ -445,7 +453,9 @@ collision on branch tip. Everything else: judgment + Decisions made.
 
 `.elves-session.json` holds `batches` with per-id acceptance evidence, `master_acceptance`,
 `continuation_guard`, optional `cobbler` session state, `model_routes`, `review_comments`. After
-compaction, trust this file for status.
+compaction, trust this file for status. When staging creates a dedicated worktree, record its
+path as `worktree_path` alongside `run_id` so post-merge teardown can tell the run's own
+worktree from operator-created ones (the schema tolerates extra keys).
 
 ## Persistent Preferences
 
