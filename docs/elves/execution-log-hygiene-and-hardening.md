@@ -83,3 +83,29 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
   (2026-07-16). Readiness remains independent and is attested at the exact final HEAD.
 - D4 (staging): Known-red baseline recorded — `test_cli_gate_failure_exit_code` fails under
   Claude Code env flags; B1 is the fix and must flip the suite to 0 failures.
+
+## B1 reconcile (driver)
+
+- 2026-07-16 14:05 · Reconcile · B1 worker done summary verified on tip 8c33a91: session B1 rows
+  complete with evidence; spot gates green (test_cobbler_agents_dispatch OK; consistency OK);
+  subjects follow schema (Implement 5729f97, Close 8c33a91); tripwire chain intact.
+- 2026-07-16 14:06 · Reconcile · Commit cadence: worker initially accumulated ~6 files uncommitted;
+  driver mid-run instruction produced the Implement slice push before Close. Lesson promoted to
+  learnings; durable rule added to plan as B3-A5 (user-directed).
+- 2026-07-16 14:08 · Reconcile · Plan amended (B3 task + B3-A5); `sync-session --write` added the
+  row; B1 proof rows preserved by the helper's refuse-to-rewrite rule; validate OK.
+
+## Decisions made (continued)
+
+- D5 (post-B1, user-directed): Worker commit cadence becomes part of the handoff standard —
+  ≥1 pushed non-Close progress slice before Close; first slice at first failing test or surface
+  change; monolithic Close = reconcile defect. Lands with B3 (B3-A5); enforced by driver packets
+  for B2 onward in this run.
+- D6 (post-B1): Two pre-existing verify_repo blockers surfaced by B1, routed not fixed:
+  (a) `verify_repo.py --version 2.6.0` release step now stops on populated `## [Unreleased]` —
+  expected during batches; per-batch gate is the step set the worker ran (compileall/shell/json/
+  evidence-review/consistency/release with --allow-unreleased); strict full `--version` runs at
+  terminal after D2's promotion decision. (b) Stale `api-break-approvals.json` entry
+  (`cli:cobbler_agents implement full-run-prepare`, release 2.6.0) is rejected in current-diff
+  scope — pre-existing on main; B4 owns that manifest and refreshes/removes it with its own
+  approvals.

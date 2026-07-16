@@ -101,15 +101,15 @@ review, readiness, and a user-authorized merge.
 - **User returns:** unspecified (user is present in chat; run proceeds unattended between wakes)
 - **Checkpoint expectation:** landable, reviewed, merged PR #78 with Elves report path surfaced
 - **Time budget:** unlimited (finite scope, no deadline given)
-- **Average batch time so far:** n/a (no batches closed yet)
-- **Batches remaining:** 7 of 7
+- **Average batch time so far:** ~28m (B1)
+- **Batches remaining:** 6 of 7
 
 ## Stop Gate
 
-- **Planned batches remaining:** 7
+- **Planned batches remaining:** 6
 - **Stop allowed right now:** no
-- **Why:** batches B1–B7 unimplemented; landing not attempted; user asked for end-to-end delivery.
-- **Next required action:** launch B1 worker session with the B1 packet.
+- **Why:** B2–B7 unimplemented; landing not attempted; user asked for end-to-end delivery.
+- **Next required action:** launch B2 worker session with the B2 packet.
 
 ## Effort Standard
 
@@ -175,12 +175,13 @@ learnings at Close of each batch; archive nothing mid-run.
 
 **Status:** In progress
 
-**Active batch:** Batch 1: Redaction exact-value minimum-length guard
+**Active batch:** Batch 2: Worktree gc helper and lifecycle hook
 
-**What was just finished:** Staging complete: worktree, run docs, consolidated packet (prewalk),
-session contract synced+validated, rollback ref b0, PR #78, preflight green, guide validator green.
+**What was just finished:** B1 complete at 8c33a91: shared >=8-char exact-secret collector; suite
+1,034/0 under both env shapes; B1-A1..A3 evidence in session JSON. Plan amended with B3-A5
+(commit-cadence rule, user-directed); session re-synced with B1 proof preserved.
 
-**Single next action:** Launch the B1 worker session with the B1 packet.
+**Single next action:** Launch the B2 worker session with the B2 packet.
 
 ## Active Compute
 
@@ -188,24 +189,35 @@ No active paid or long-running compute.
 
 ## Next Exact Batch
 
-**Batch:** B1: Redaction exact-value minimum-length guard
+**Batch:** B2: Worktree gc helper and lifecycle hook
 
 **Scope:**
-- One shared secret-env collector (min exact-value length 8, default) in
-  `cobbler_runtime/context.py`
-- `implement.py:_inherited_secret_values` and `cobbler_agents.py:_secret_env_values` both use it
-- Regression tests both directions (short flag values not redacted; >=8-char secrets still
-  redacted)
+- gc helper (report-by-default, `--apply`): candidates = registered linked worktrees, not
+  main/current, clean, branch fully merged into origin/main, zero unpushed commits; removal =
+  `git worktree remove` + `git branch -d` + `git worktree prune`; unregistered siblings
+  report-only
+- `preflight.sh` surface mirroring `--create-worktree`; `cleanup.worktrees` preference
+  (default `report`)
+- Lifecycle docs: SKILL.md Final Completion + Reviewed PR Landing teardown step; kickoff template
+  mention; session records created worktree path
+- Fixture tests for every safety predicate; dogfood report+apply on this machine (driver assists
+  at reconcile if sandboxing blocks the worker)
 
 **Acceptance criteria:**
-- [ ] B1-A1: `python3 -m unittest tests.test_cobbler_agents_implement` passes with
-  `CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 CLAUDE_CODE_CHILD_SESSION=1` exported
-- [ ] [B1-A2] New regression test proves exact-value redaction still fires for a secret-named env
-  var with a >=8-char value (old behavior preserved)
-- [ ] [B1-A3] Exactly one env-derived exact-secret collector remains; both call sites import it
+- [ ] [B2-A1] Fixture tests prove gc refuses: dirty worktree, unmerged branch, unpushed commits,
+  current directory, main worktree, unregistered sibling directory
+- [ ] [B2-A2] Fixture test proves gc removes a clean merged worktree and deletes its local branch,
+  and `git worktree list` no longer shows it
+- [ ] [B2-A3] Report mode performs zero mutations (asserted on fixture repo state)
+- [ ] [B2-A4] Dogfood evidence: the five merged elves worktrees removed; the five unmerged
+  benchmark worktrees and all unregistered siblings untouched and listed in the report
+- [ ] [B2-A5] Repo-consistency CI stays green (pinned worktree phrases unchanged or pins updated
+  together with the prose)
 
-**Risk:** narrowing redaction on a security surface — the guard must not touch pattern-based
-redaction.
+**Risk:** mutating git state; mitigated by non-force removal, fixture coverage, and report-mode
+default. Note: B2-A4 dogfood targets the MAIN checkout's registered worktrees and runs at
+driver reconcile (the worker proves fixtures; the driver runs the machine sweep — the main
+checkout is a worker-forbidden surface).
 
 **Rollback authority:** host-created `b0` ref
 (`refs/elves/rollback/hygiene-and-hardening-2026-07-16/s1/b0`) plus per-batch worker commit SHAs.

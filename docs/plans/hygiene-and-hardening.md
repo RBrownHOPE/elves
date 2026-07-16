@@ -191,6 +191,11 @@ matching, never pattern redaction.
   (template and example)
 - [ ] `acceptance_contract.py validate` emits a **warning** (not a blocker) when the session
   records a non-host-native work driver and no `worker_packet_path`
+- [ ] Commit-cadence rule in the handoff standard (user-directed addition, 2026-07-16): SKILL.md's
+  Coordinator-to-Implementer Handoff Standard and the packet/kickoff template guidance state that
+  an implementing worker pushes at least one non-Close progress slice before `Close`, with the
+  first slice due as soon as a failing test or first surface change exists; a single monolithic
+  `Close` commit is a reconcile-visible defect the driver logs
 - [ ] Reconcile the Work driver enum drift: survival-guide template lists
   `host-native | grok-build | devin-cli | untrusted-writer` while
   `cobbler_runtime/behavior_policy.py` documents `host_native | grok_build | untrusted_writer | n_a`
@@ -205,6 +210,9 @@ matching, never pattern redaction.
   rather than restate it
 - [ ] [B3-A3] Repo-consistency CI green; any newly pinned phrases added deliberately and minimally
 - [ ] [B3-A4] Work-driver spellings normalize identically in validator and docs (devin covered)
+- [ ] [B3-A5] The commit-cadence rule (≥1 pushed non-Close progress slice before Close; first
+  slice at first failing test or surface change) appears in SKILL.md's handoff standard and the
+  packet/kickoff template guidance, with consistency pins updated in the same commit
 
 **Docs likely touched:** SKILL.md, survival-guide-template.md, schema-and-acceptance.md,
 plan-template.md, kickoff-prompt-template.md, CHANGELOG

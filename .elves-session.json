@@ -85,6 +85,12 @@
           "evidence": "",
           "id": "B3-A4",
           "met": false
+        },
+        {
+          "criterion": "The commit-cadence rule (\u22651 pushed non-Close progress slice before Close; first slice at first failing test or surface change) appears in SKILL.md's handoff standard and the packet/kickoff template guidance, with consistency pins updated in the same commit",
+          "evidence": "",
+          "id": "B3-A5",
+          "met": false
         }
       ],
       "id": "B3",
