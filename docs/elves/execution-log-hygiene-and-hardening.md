@@ -40,7 +40,7 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
   (`test_cli_gate_failure_exit_code`), matching baseline D4.
 - 2026-07-16 17:31 · B1 Implement · One shared env-derived exact-secret collector:
   `context.collect_secret_env_values` (keyword-overridable `min_length` defaulting to
-  `MIN_EXACT_SECRET_VALUE_LENGTH = 8`). Unguarded `implement.py:_inherited_secret_values` and
+  the module's minimum-exact-length constant, default 8). Unguarded `implement.py:_inherited_secret_values` and
   duplicated `cobbler_agents.py:_secret_env_values` deleted; both modules import the collector
   (implement.py:30, cobbler_agents.py:76; all seven cobbler_agents call sites plus `run_gate`
   migrated). `SECRET_VALUE_PATTERNS`/pattern redaction untouched. Regression tests both directions:

@@ -541,7 +541,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     repo_root = Path(args.repo_root).expanduser().resolve()
-    envelope_in = _read_stdin_json()
+    # Read the stdin envelope only when the caller did not already provide the
+    # task on the command line: an inherited never-closing pipe must not block
+    # a --prompt/--prompt-file invocation (see execution log, B4 hang analysis).
+    envelope_in = (
+        None if (args.prompt or args.prompt_file) else _read_stdin_json()
+    )
 
     model = (
         args.model

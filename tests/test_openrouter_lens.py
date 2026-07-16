@@ -72,6 +72,7 @@ class OpenRouterLensUnitTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=False,
+            stdin=subprocess.DEVNULL,
         )
         self.assertEqual(proc.returncode, 0)
         self.assertIn("OpenRouter", proc.stdout)
@@ -96,6 +97,7 @@ class OpenRouterLensUnitTests(unittest.TestCase):
                 check=False,
                 env=env,
                 cwd=tmp,
+                stdin=subprocess.DEVNULL,
             )
             self.assertNotEqual(proc.returncode, 0)
             self.assertIn("OPENROUTER_API_KEY", proc.stderr)
