@@ -127,9 +127,9 @@
     "default_for_session": false
   },
   "continuation_guard": {
-    "next_required_action": "Replace the three stale synthetic non-UUID Grok session fixtures, rerun tests.test_full_run_supervisor, then resume terminal review.",
-    "reason": "The user explicitly requested a pause after the current host supervisor result was recorded and committed.",
-    "stop_allowed": true
+    "next_required_action": "Perform the cumulative review of git diff origin/main...HEAD and all PR feedback, then address only genuine blockers.",
+    "reason": "The user resumed the complete goal through reviewed-PR readiness.",
+    "stop_allowed": false
   },
   "execution_log_path": "docs/elves/execution-log-grok-build-open-source.md",
   "landing_outcome": "landable_pr",
@@ -183,6 +183,6 @@
     "reasoning_effort": "medium",
     "scope": "full_run",
     "session_id": "019f684d-ad07-78a3-8067-27f3131ecefd",
-    "status": "revision_complete_paused"
+    "status": "complete_pending_review"
   }
 }

@@ -2473,7 +2473,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 "print('grok 0.2.93 (test)')\n",
                 name="failed-launch-native-grok",
             )
-            session = "oauth-shared-preserved-on-launch-failure"
+            session = "11111111-1111-4111-8111-111111111101"
             prepare_full_run(
                 repo,
                 session_id=session,
@@ -2619,7 +2619,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 GROK_ROTATE_AUTH_AND_WAIT,
                 name="fake-grok",
             )
-            session = "oauth-live-rotation"
+            session = "11111111-1111-4111-8111-111111111102"
             prepare_full_run(
                 repo,
                 session_id=session,
@@ -5298,6 +5298,7 @@ class FullRunLifecycleTests(unittest.TestCase):
                 self.assertEqual(status["next_action"], "driver_wake_error")
 
     def test_real_resume_archives_attempt_after_committed_pushed_checkpoint(self) -> None:
+        self.session = "11111111-1111-4111-8111-111111111103"
         remote = Path(self.tmp.name) / "resume-origin.git"
         _attach_origin(self.repo, remote, self.branch)
         grok = _compile_native_grok_launcher(

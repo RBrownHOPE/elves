@@ -39,12 +39,11 @@ fallback.
 
 ## Stop Gate
 
-- **Planned batches remaining:** terminal repair and readiness
-- **Stop allowed right now:** yes
-- **Why:** the user explicitly requested a pause after the current test result was recorded and
-  committed
-- **Next required action:** replace the three remaining synthetic non-UUID Grok session fixtures
-  with canonical UUIDs, rerun `tests.test_full_run_supervisor`, then resume terminal review
+- **Planned batches remaining:** terminal review and readiness
+- **Stop allowed right now:** no
+- **Why:** the user resumed the full goal through reviewed-PR readiness
+- **Next required action:** perform the cumulative review of `git diff origin/main...HEAD` and all
+  PR feedback, then address only genuine blockers
 
 ## Effort standard
 
@@ -54,14 +53,12 @@ focused tests. The driver reviews the cumulative diff once at the end and revisi
 
 ## Current phase
 
-- **Status:** paused after targeted revision and host supervisor result
+- **Status:** terminal review
 - **Active compute:** none
-- **Active batch:** terminal repair
-- **What was just finished:** the exact Medium worker revision produced commits `b37c375` and
-  `66d1299`; host execution of `tests.test_full_run_supervisor` ran 142 tests with 3 errors and 1
-  skip, all caused by three stale synthetic non-UUID Grok session fixtures
-- **Single next action:** update only those three fixtures, rerun the supervisor module, then
-  continue cumulative terminal review
+- **Active batch:** final readiness
+- **What was just finished:** the three stale Grok fixture session IDs now use canonical UUIDs;
+  their targeted tests pass and the complete supervisor module passes 142 tests with 1 skip
+- **Single next action:** cumulative independent review of the full branch diff and PR feedback
 
 ## Worker authority
 
