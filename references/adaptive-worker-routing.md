@@ -96,6 +96,7 @@ The installed executable is launch authority; upstream source is semantic refere
 | Worktree | native isolated worktree or supervisor CWD | `-C` on create; supervisor OS CWD on resume |
 | Model | inherit unless explicitly pinned | inherit unless explicitly pinned |
 | Effort | `--effort <level>` | `model_reasoning_effort=<level>` |
+| Unattended commit | Claude `auto` classifier; `acceptEdits` is not commit-capable | workspace-write sandbox plus narrow Git roots |
 | Visibility | capability-proven native agent view or private follow log | capability-proven native agent view or private follow log |
 
 Build an inspectable CLI-fallback launch specification with `native-worker spec --host claude|codex
@@ -105,11 +106,23 @@ the host must supply the observed current model (or an explicit routed model) an
 it. Every path uses a separate session, never uses `--last`, and never claims a cross-session cache
 handoff.
 
+The supervised Claude transport uses `--safe-mode --print --verbose
+--output-format stream-json` and `--permission-mode auto`. Current Claude requires `--verbose` for
+that streaming combination. `acceptEdits` can apply file edits but cannot approve the Bash calls
+needed for an unattended commit, so Elves does not describe it as commit-capable. Claude's `auto`
+classifier supplies the approval boundary without using `bypassPermissions`; the stripped child
+environment still disables network Git push, and terminal Git-contract checks constrain the result
+to the assigned feature branch. A Claude version without this grammar fails visibly rather than
+silently falling back to edit-only behavior.
+
 `native-worker launch` supervises the child and tees redacted structured stdout/stderr into a
 mode-0600 per-run follow log. It returns an exact `native-worker follow --run-id <id>` command
 before the driver parks; `native-worker status` reports the bound PID, session, worktree,
-visibility state, and exit status. A spec with neither a proven host view nor a follow log reports
-`visibility_ready=false` and `visibility_mode=commit_only`.
+visibility state, commit mode, and exit status. When a child exits nonzero before emitting any
+provider event, status also includes a bounded redacted stderr tail so launch grammar and
+authentication failures are diagnosable without opening the raw follow log. A spec with neither a
+proven host view nor a follow log reports `visibility_ready=false` and
+`visibility_mode=commit_only`.
 
 ## Cache and authority limits
 

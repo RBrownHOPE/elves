@@ -76,7 +76,8 @@ periodically synchronized and may not exactly match a released build.
 - Making Grok the default worker or changing native Codex and Claude Code worker behavior.
 - Relaxing authentication, worktree, branch, protected-ref, PR, or merge boundaries.
 - Parallel worker lanes, plugins, media generation, or other new Grok features.
-- Publishing a release, moving a tag, merging, or changing the current `2.5.0` version.
+- During the delegated implementation run: publishing a release, moving a tag, merging, or
+  changing the release version. Those host-owned landing steps require later user authorization.
 
 ## Batches
 

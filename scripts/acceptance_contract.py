@@ -16,6 +16,7 @@ from cobbler_runtime.acceptance import (
     sync_session_acceptance,
     validate_contract_mapping,
 )
+from cobbler_runtime.landing_authority import EXACT_COMMIT_RE
 from cobbler_runtime.storage import StorageError, atomic_write_json
 
 
@@ -170,6 +171,78 @@ def _session_has_acceptance_ids(session: dict[str, Any]) -> bool:
     )
 
 
+def _reconcile_session_identity(
+    session: dict[str, Any],
+    *,
+    derive_start_head: bool,
+) -> tuple[dict[str, Any], list[AcceptanceIssue]]:
+    """Validate staging identity and migrate an exact legacy tripwire safely.
+
+    ``start_head`` is the canonical machine-readable collision tripwire.  A
+    session that already records the older ``collision_tripwire`` field may
+    copy it during explicit synchronization, but only when it is an exact
+    commit-shaped value.  The landing check still proves repository existence
+    and ancestry at the committed evidence tip.
+    """
+
+    updated = dict(session)
+    issues: list[AcceptanceIssue] = []
+
+    run_id = updated.get("run_id")
+    if not isinstance(run_id, str) or not run_id.strip():
+        issues.append(
+            AcceptanceIssue(
+                "session_run_id_missing",
+                "Session staging requires a non-empty `run_id` before worker launch.",
+            )
+        )
+
+    start_head = updated.get("start_head")
+    collision_tripwire = updated.get("collision_tripwire")
+    tripwire_is_exact = (
+        isinstance(collision_tripwire, str)
+        and EXACT_COMMIT_RE.fullmatch(collision_tripwire) is not None
+    )
+    if collision_tripwire is not None and not tripwire_is_exact:
+        issues.append(
+            AcceptanceIssue(
+                "session_collision_tripwire_invalid",
+                "Session `collision_tripwire`, when present, must be an exact "
+                "40-character commit. New sessions should record that value as `start_head`.",
+            )
+        )
+
+    if start_head is None and derive_start_head and tripwire_is_exact:
+        start_head = collision_tripwire
+        updated["start_head"] = collision_tripwire
+
+    if not isinstance(start_head, str) or EXACT_COMMIT_RE.fullmatch(start_head) is None:
+        if start_head is None and tripwire_is_exact and not derive_start_head:
+            message = (
+                "Session must record the exact 40-character collision tripwire as `start_head`. "
+                "Run `acceptance_contract.py sync-session --write` to copy the existing "
+                "`collision_tripwire` safely."
+            )
+            code = "session_start_head_missing"
+        else:
+            message = (
+                "Session staging requires `start_head` to be an exact 40-character "
+                "commit before worker launch."
+            )
+            code = "session_start_head_invalid"
+        issues.append(AcceptanceIssue(code, message))
+    elif tripwire_is_exact and start_head.lower() != collision_tripwire.lower():
+        issues.append(
+            AcceptanceIssue(
+                "session_collision_tripwire_mismatch",
+                "Session `start_head` and legacy `collision_tripwire` must identify "
+                "the same exact commit.",
+            )
+        )
+
+    return updated, issues
+
+
 def _legacy_session_container_issues(
     session: dict[str, Any],
     *,
@@ -300,6 +373,13 @@ def main(argv: list[str] | None = None) -> int:
                 plan_batch_ids=contract.batch_ids,
             )
         )
+
+    if session is not None:
+        session, identity_issues = _reconcile_session_identity(
+            session,
+            derive_start_head=args.action == "sync-session",
+        )
+        issues.extend(identity_issues)
 
     if args.action == "validate" or issues:
         return _emit(

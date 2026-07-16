@@ -4,6 +4,8 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-07-16
+
 ### Open-source Grok Build worker
 
 - Treat the installed Grok Build executable as launch authority: record a redacted capability
@@ -19,6 +21,22 @@ All notable changes to the Elves skill are documented here.
 - Native Codex and Claude Code routes stay commit-capable in linked worktrees through narrow Git
   metadata paths, stripped ambient Git credentials, and terminal feature-ancestry/protected-ref
   verification instead of granting the entire shared `.git` directory.
+- Add the open-source worker path to the README, practical guide, setup recipes, launch prompt, and
+  host-parity reference, with one detailed operational reference for capability checks, launch,
+  follow, fallback, and recovery.
+
+### Native-worker and landing hardening
+
+- Fix current Claude Code streaming launches by adding the required `--verbose` flag. Supervised
+  Claude workers now use safe mode with classifier-backed `auto` permissions so they can commit
+  unattended; edit-only `acceptEdits` is no longer presented as commit-capable.
+- Report a bounded, redacted stderr tail when a native worker exits nonzero before its first
+  provider event, making launch grammar and authentication failures visible in ordinary status.
+- Validate `run_id` and the exact `start_head` collision tripwire during staging, safely migrate an
+  exact legacy tripwire during explicit sync, and cover symmetric batch and Master Acceptance row
+  derivation for both stable-ID spellings without overwriting evidence.
+- Document the committed-session landing check and cleanup order, plus quote-insensitive static
+  asset sweeps followed by browser or preview verification.
 
 ## [2.5.0] - 2026-07-15
 
@@ -47,8 +65,7 @@ All notable changes to the Elves skill are documented here.
   worktree working directory.
 - Probe optional Grok without inference. Repository vetoes remain absolute, remembered
   current-run/global Grok selection supplies consent, and advertised goal syntax remains distinct
-  from behavioral verification. Current open-source model selection is documented under
-  Unreleased.
+  from behavioral verification.
 - Add a supervised native-worker launch/status/follow lifecycle with private per-run structured
   logs, exact process/session/worktree binding, and an exact watcher command before driver parking.
 - Avoid a fast-worker status race on macOS by distinguishing unavailable start metadata from an

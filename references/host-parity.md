@@ -10,7 +10,7 @@ Workflow semantics are identical. Invocation surfaces differ.
 | Setup | `/setup-cobbler` | `$elves setup-cobbler` |
 | Land PR | `/land-pr` or `\land-pr` | natural language or alias |
 | Continuation | optional | optional **Codex Goals** (seatbelt, not memory) |
-| Native worker | Separate custom/background session; model inherited, effort plan-matched | Separate custom agent or supervised `codex exec`; model inherited, effort plan-matched |
+| Native worker | Separate custom/background session; supervised CLI uses safe mode and classifier-approved commits | Separate custom agent or sandboxed `codex exec`; narrow Git roots permit commits |
 | Visibility | Proven native agent view or exact private-log follow command | Proven native agent view or exact private-log follow command |
 | Exact resume | `--resume <uuid>` | `codex exec resume <thread-id>` from registered worktree CWD |
 | Grok Build goal | proven enhancement or one-packet fallback | same proven enhancement or fallback |

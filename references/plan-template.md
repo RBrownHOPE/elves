@@ -77,8 +77,13 @@ Example:
 > Before any worker launch, staging parses this authoritative plan, reports malformed acceptance
 > rows with a targeted replacement, and checks the session plus any worker packet against the
 > plan's id-to-criterion mapping. Run the installed `acceptance_contract.py validate` helper;
-> `sync-session --write` may explicitly derive pending session rows without overwriting evidence.
-> Missing, duplicate, or text-mismatched rows block launch.
+> `sync-session --write` derives pending batch and Master Acceptance rows without overwriting
+> evidence. The staged session also records a non-empty `run_id` and an exact 40-character
+> `start_head`, which is the canonical machine-readable collision tripwire. An exact legacy
+> `collision_tripwire` may be migrated by `sync-session`; conflicting values block launch.
+> Missing, duplicate, or text-mismatched rows block launch. See
+> [`schema-and-acceptance.md`](schema-and-acceptance.md) for the final session shape and the
+> commit-session, landing-check, cleanup sequence.
 
 ### Batch 1 [B1]: [Name]
 

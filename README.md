@@ -7,7 +7,7 @@ worker without locking the run to one model provider. The capable Claude Code or
 and reviews. A subscription-native or optional external worker implements. Durable run files let
 the work survive context compaction.
 
-**Current release: v2.5.0.** You write the plan and own the merge decision. The agent does the middle.
+**Current release: v2.6.0.** You write the plan and own the merge decision. The agent does the middle.
 
 **New to Elves? Read the [practical user guide](https://aigorahub.github.io/elves/).** It covers
 installation, the first run, worker choice, live progress, review, and optional landing for both
@@ -74,12 +74,12 @@ python3 ~/.claude/skills/elves/scripts/install_doctor.py --startup
 # Codex (use this instead):
 python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.5.0
+python3 scripts/verify_repo.py --version 2.6.0
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.5.0 --final-readiness \
+python3 scripts/verify_repo.py --version 2.6.0 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.5.0 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.6.0 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 
@@ -1551,7 +1551,14 @@ file itself is stored. An explicit `--plan <plan-path>` is only an equality
 assertion and must match it; do not substitute generic plan, survival-guide, or execution-log paths.
 Before the session exists, use `acceptance_contract.py validate --repo-root . --plan <plan-path>`
 for a plan-only syntax check. `sync-session` preserves matching proof and refuses to erase or
-rewrite evidenced criteria.
+rewrite evidenced criteria. It derives batch and Master Acceptance rows from the plan and requires
+the staged session to carry a non-empty `run_id` plus the exact 40-character `start_head`; an exact
+legacy `collision_tripwire` can be migrated explicitly. The strict landing check reads committed
+session evidence. If the target repository ignores `.elves-session.json`, force-add it for the
+evidence commit, run the landing check and terminal readiness, then remove operational run memory in
+the cleanup commit and attest that cleanup tip. See
+[`references/schema-and-acceptance.md`](references/schema-and-acceptance.md) for the canonical
+session shape and order.
 During staging, before any host-native or delegated worker launch, parse that plan and report bad
 acceptance syntax with the line and expected replacement. Reconcile the session and worker packet
 against the plan's exact id-to-criterion mapping at the same point, and require the session batch

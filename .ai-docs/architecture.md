@@ -62,8 +62,8 @@ managed inside the Elves run, not a separate Council or Cobbler memory system.
 
 The thin CLI is `scripts/cobbler_agents.py` (`validate-config`, `doctor`, `council`,
 `lightweight-review`, `session …`, trusted
-`implement full-run-prepare|full-run-launch|full-run-monitor|full-run-logs|full-run-stop`, and untrusted
-`worker prepare|packet|audit|export|import|refresh`). Private runtime state belongs under ignored
+`implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs|full-run-stop`,
+and untrusted `worker prepare|packet|audit|export|import|refresh`). Private runtime state belongs under ignored
 `.elves/runtime/` (`council/`, `sessions/`, `leases/`, `implement/full-run/`). A trusted Grok
 full-run may create and push feature-branch progress while the host retains protected refs, PR,
 run-memory, cumulative review, and merge. Its host creates one `b0` rollback ref before handoff,
@@ -77,6 +77,10 @@ The launcher resolves and probes one exact native Mach-O/ELF Grok artifact plus 
 ancestor chain in a credential-free environment, carries those identities into the child pre-spawn
 check, and validates the canonical file through a bound
 full-ancestor descriptor walk including supported-platform ACLs.
+Grok sessions use caller-generated UUIDs, exact resume, and only models returned by the
+authenticated live catalog. Behaviorally proven headless `/goal` enhances the provider; otherwise
+the same qualified worker receives one compatible packet. The default follow path exposes bounded,
+sanitized progress and terminal facts without passing raw provider output through the driver.
 Detached worker commits belong to the separate untrusted lease path: the host creates branch
 commits and pushes only after binary patch audit/import.
 Hard external subprocess lanes require a recursive boundary acquired atomically with the child.
@@ -124,6 +128,6 @@ worker launch, staging parses the plan and reconciles session and packet criteri
 syntax or drift failures are returned to the coordinator immediately rather than at landing.
 
 
-## v2.1.0 full-run note
+## Trusted full-run authority note
 
 Trusted Grok full-run uses one session, feature-branch progress, parked-monitor driver, and bounded events. Untrusted detached leases remain a distinct authority model.

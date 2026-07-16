@@ -36,6 +36,7 @@ class NativeWorkerSpec:
     session_id: str | None = None
     resume_argv: tuple[str, ...] | None = None
     cache_handoff: bool = False
+    commit_mode: str = "worker_commit"
     visibility_ready: bool = False
     visibility_mode: str = "commit_only"
     watcher_command: str | None = None
@@ -62,8 +63,20 @@ def native_worker_profiles() -> dict[str, dict[str, Any]]:
         "cache_handoff": False,
     }
     return {
-        "codex": {**common, "transport": "codex_exec", "worktree_binding": "-C create; OS cwd resume", "session_identity": "thread.started.thread_id"},
-        "claude": {**common, "transport": "claude_code", "worktree_binding": "supervisor cwd or native isolated worktree", "session_identity": "caller-assigned UUID"},
+        "codex": {
+            **common,
+            "transport": "codex_exec",
+            "worktree_binding": "-C create; OS cwd resume",
+            "session_identity": "thread.started.thread_id",
+            "commit_mode": "sandboxed_worker_commit",
+        },
+        "claude": {
+            **common,
+            "transport": "claude_code",
+            "worktree_binding": "supervisor cwd or native isolated worktree",
+            "session_identity": "caller-assigned UUID",
+            "commit_mode": "classifier_approved_worker_commit",
+        },
     }
 
 
@@ -201,7 +214,7 @@ def build_native_worker_spec(
             host="fixture", profile="elves-native-worker-fixture", effort=effort_token,
             model_policy=model_policy, requested_model=requested_model, separate_session=True,
             cwd=cwd, argv=argv, stdin_packet=True, session_id_source="fixture_session_id",
-            session_id=sid, visibility_ready=visibility_ready, visibility_mode=visibility_mode,
+            session_id=sid, commit_mode="fixture", visibility_ready=visibility_ready, visibility_mode=visibility_mode,
             watcher_command=watcher_command,
         )
 
@@ -227,14 +240,16 @@ def build_native_worker_spec(
             model_policy=model_policy, requested_model=requested_model,
             separate_session=True, cwd=cwd, argv=tuple(argv), stdin_packet=True,
             session_id_source="thread.started.thread_id", session_id=session_id, resume_argv=resume,
+            commit_mode="sandboxed_worker_commit",
             visibility_ready=visibility_ready, visibility_mode=visibility_mode, watcher_command=watcher_command,
             git_write_roots=git_write_roots,
         )
 
     if host_token in {"claude", "claude-code"}:
         common = [
-            "claude", "--print", "--output-format", "stream-json", "--input-format", "text",
-            "--effort", effort_token, "--permission-mode", "acceptEdits",
+            "claude", "--safe-mode", "--print", "--verbose",
+            "--output-format", "stream-json", "--input-format", "text",
+            "--effort", effort_token, "--permission-mode", "auto",
         ]
         for root in git_write_roots:
             common.extend(["--add-dir", root])
@@ -252,6 +267,7 @@ def build_native_worker_spec(
             model_policy=model_policy, requested_model=requested_model,
             separate_session=True, cwd=cwd, argv=argv, stdin_packet=True,
             session_id_source="requested_session_id", session_id=sid, resume_argv=argv if session_id else None,
+            commit_mode="classifier_approved_worker_commit",
             visibility_ready=visibility_ready, visibility_mode=visibility_mode, watcher_command=watcher_command,
             git_write_roots=git_write_roots,
         )
@@ -268,6 +284,18 @@ def parse_codex_thread_id(jsonl: str) -> str:
         if event.get("type") == "thread.started" and isinstance(event.get("thread_id"), str):
             return _exact_session_id(event["thread_id"])
     raise ValidationIssue("worker_session_id_missing", "Codex output did not contain thread.started.thread_id")
+
+
+_NATIVE_WORKER_STDERR_TAIL_CHARS = 2_000
+
+
+def _is_provider_event(line: str) -> bool:
+    """Return whether one stdout line is a structured provider event."""
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(event, dict) and isinstance(event.get("type"), str)
 
 
 def _run_key(run_id: str) -> str:
@@ -486,6 +514,9 @@ def launch_native_worker(
         "session_id_source": spec.session_id_source, "pid": None, "pid_start": None,
         "follow_log": str(log_path), "visibility_ready": True, "visibility_mode": "follow_log",
         "watcher_command": watcher, "exit_code": None,
+        "commit_mode": spec.commit_mode,
+        "provider_event_count": 0,
+        "stderr_tail": None,
         "git_write_roots": list(spec.git_write_roots),
         "git_network_push": "disabled",
         "git_authority_mode": "fixture" if spec.host == "fixture" else "feature_only",
@@ -536,6 +567,9 @@ def supervise_native_worker(*, repo_root: Path, run_id: str, packet: Path) -> in
         worktree=worktree,
         runtime_dir=state_path.parent,
     )
+    provider_event_count = 0
+    stderr_tail = ""
+    child_started = time.monotonic()
     with packet.open("r", encoding="utf-8") as packet_handle, log_path.open("a", encoding="utf-8") as log:
         os.chmod(log_path, 0o600)
         child = subprocess.Popen(
@@ -565,6 +599,12 @@ def supervise_native_worker(*, repo_root: Path, run_id: str, packet: Path) -> in
                 redacted = redact_text(line.rstrip("\n"))
                 log.write(json.dumps({"stream": key.data, "line": redacted.text}, sort_keys=True) + "\n")
                 log.flush()
+                if key.data == "stdout" and _is_provider_event(line):
+                    provider_event_count += 1
+                elif key.data == "stderr":
+                    stderr_tail = (stderr_tail + redacted.text + "\n")[
+                        -_NATIVE_WORKER_STDERR_TAIL_CHARS:
+                    ]
                 if state["host"] == "codex" and not state.get("session_id"):
                     try:
                         state["session_id"] = parse_codex_thread_id(line)
@@ -573,6 +613,7 @@ def supervise_native_worker(*, repo_root: Path, run_id: str, packet: Path) -> in
                     else:
                         _write_private_json(state_path, state)
         code = child.wait()
+    child_runtime_seconds = round(time.monotonic() - child_started, 3)
     text = log_path.read_text(encoding="utf-8", errors="replace")
     if state["host"] == "codex":
         try:
@@ -586,6 +627,13 @@ def supervise_native_worker(*, repo_root: Path, run_id: str, packet: Path) -> in
         else _verify_native_git_contract(worktree, state)
     )
     state["exit_code"] = code
+    state["provider_event_count"] = provider_event_count
+    state["child_runtime_seconds"] = child_runtime_seconds
+    state["stderr_tail"] = (
+        stderr_tail.rstrip("\n")
+        if code != 0 and provider_event_count == 0 and stderr_tail
+        else None
+    )
     state["authority_verified"] = not authority_errors
     state["authority_errors"] = authority_errors
     state["final_head"] = (
@@ -602,6 +650,12 @@ def supervise_native_worker(*, repo_root: Path, run_id: str, packet: Path) -> in
         state["failure_reason"] = "native_worker_git_authority_violation"
     else:
         state["status"] = "complete" if code == 0 else "failed"
+        if code != 0:
+            state["failure_reason"] = (
+                "native_worker_child_exit_before_provider_event"
+                if provider_event_count == 0
+                else "native_worker_child_nonzero_exit"
+            )
     _write_private_json(state_path, state)
     return code
 

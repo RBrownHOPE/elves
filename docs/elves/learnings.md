@@ -194,12 +194,13 @@ silently deleting it.
   a temporary local HTML view as a later usability improvement rather than waking the driver for
   routine narration.
 
-- [2026-07-15] Codex `exec resume` does not accept the fresh-launch `--sandbox` flag and, when
-  user config is ignored, can silently resume a worker read-only. Preserve the worker contract with
-  `-c sandbox_mode="workspace-write"`, bind the exact worktree through the supervisor OS CWD, and
-  assert both in grammar tests. Structured JSONL inside a hidden host tool call is not a user-visible
-  worker stream; bind and surface a proven native agent view or exact private follow command before
-  parking.
+- [2026-07-15] Codex `exec resume` has no resume-local `-C`, `--sandbox`, or `--add-dir` flags.
+  Current Codex accepts the exec-level sandbox and additional-write-root options before the
+  `resume` subcommand; bind the exact worktree through the supervisor OS CWD and keep those options
+  before `resume`. Do not preserve the older `-c sandbox_mode="workspace-write"` workaround because
+  it omits the narrow linked-worktree Git roots. Structured JSONL inside a hidden host tool call is
+  not a user-visible worker stream; bind and surface a proven native agent view or exact private
+  follow command before parking.
 
 - [2026-07-12] Grok Build headless turns can exit before detached commits despite incomplete work.
   Prefer absolute `--prompt-file` paths (worker CWD is not the host runtime dir). If the process

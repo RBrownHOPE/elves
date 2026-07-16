@@ -693,13 +693,25 @@ class NativeWorkerGrammarTests(unittest.TestCase):
         )
         self.assertIn("--session-id", created.argv)
         self.assertNotIn("-", created.argv)
+        self.assertIn("--verbose", created.argv)
+        self.assertIn("--safe-mode", created.argv)
         self.assertIn("--effort", created.argv)
+        self.assertEqual(
+            created.argv[created.argv.index("--permission-mode") + 1], "auto"
+        )
+        self.assertNotIn("acceptEdits", created.argv)
+        self.assertEqual(created.commit_mode, "classifier_approved_worker_commit")
         sid = created.argv[created.argv.index("--session-id") + 1]
         resumed = build_native_worker_spec(
             host="claude", worktree=REPO_ROOT, effort="high", requested_model="current-model", session_id=sid
         )
         self.assertIn("--resume", resumed.argv)
         self.assertNotIn("--continue", resumed.argv)
+        self.assertIn("--verbose", resumed.argv)
+        self.assertIn("--safe-mode", resumed.argv)
+        self.assertEqual(
+            resumed.argv[resumed.argv.index("--permission-mode") + 1], "auto"
+        )
         self.assertTrue(resumed.separate_session)
         self.assertFalse(resumed.cache_handoff)
         if resumed.git_write_roots:
@@ -761,7 +773,16 @@ class NativeWorkerGrammarTests(unittest.TestCase):
                 self.assertNotIn(str(common), spec.git_write_roots)
                 for root in expected_roots:
                     self.assertIn(root, spec.argv)
-                self.assertIn("workspace-write", spec.argv) if spec.host == "codex" else self.assertIn("acceptEdits", spec.argv)
+                if spec.host == "codex":
+                    self.assertIn("workspace-write", spec.argv)
+                    self.assertEqual(spec.commit_mode, "sandboxed_worker_commit")
+                else:
+                    self.assertEqual(
+                        spec.argv[spec.argv.index("--permission-mode") + 1], "auto"
+                    )
+                    self.assertEqual(
+                        spec.commit_mode, "classifier_approved_worker_commit"
+                    )
             self.assertLess(codex.argv.index("--add-dir"), codex.argv.index("resume"))
 
             contract = _native_git_contract(linked)
@@ -937,6 +958,88 @@ class NativeWorkerGrammarTests(unittest.TestCase):
             )
             self.assertEqual(followed.returncode, 0, followed.stderr)
             self.assertIn("fixture stderr", followed.stdout)
+
+    def test_zero_event_nonzero_exit_surfaces_bounded_stderr_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = root / "failing-worker.py"
+            packet = root / "packet.md"
+            fixture.write_text(
+                "import sys\n"
+                "label = 'api_' + 'key'\n"
+                "value = 'redaction-' + 'marker-1234567890'\n"
+                "print('x' * 2500 + f' {label}={value} launch failure marker', file=sys.stderr, flush=True)\n"
+                "raise SystemExit(9)\n",
+                encoding="utf-8",
+            )
+            packet.write_text("packet body\n", encoding="utf-8")
+            cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
+            launched = subprocess.run(
+                [
+                    sys.executable,
+                    str(cli),
+                    "native-worker",
+                    "launch",
+                    "--host",
+                    "fixture",
+                    "--worktree",
+                    str(root),
+                    "--effort",
+                    "low",
+                    "--model",
+                    "fixture-model",
+                    "--fixture-script",
+                    str(fixture),
+                    "--repo-root",
+                    str(root),
+                    "--run-id",
+                    "fast-failure",
+                    "--packet",
+                    str(packet),
+                    "--json",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(launched.returncode, 0, launched.stderr)
+            state = json.loads(launched.stdout)["worker"]
+            if state["status"] not in {"complete", "failed"}:
+                for _ in range(50):
+                    status = subprocess.run(
+                        [
+                            sys.executable,
+                            str(cli),
+                            "native-worker",
+                            "status",
+                            "--repo-root",
+                            str(root),
+                            "--run-id",
+                            "fast-failure",
+                            "--json",
+                        ],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertEqual(status.returncode, 0, status.stderr)
+                    state = json.loads(status.stdout)["worker"]
+                    if state["status"] in {"complete", "failed"}:
+                        break
+                    import time
+
+                    time.sleep(0.05)
+            self.assertEqual(state["status"], "failed")
+            self.assertEqual(state["exit_code"], 9)
+            self.assertEqual(state["provider_event_count"], 0)
+            self.assertEqual(
+                state["failure_reason"],
+                "native_worker_child_exit_before_provider_event",
+            )
+            self.assertIn("launch failure marker", state["stderr_tail"])
+            self.assertIn("[REDACTED:secret_assignment]", state["stderr_tail"])
+            self.assertNotIn("redaction-marker-1234567890", state["stderr_tail"])
+            self.assertLessEqual(len(state["stderr_tail"]), 2000)
 
 
 if __name__ == "__main__":
