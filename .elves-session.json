@@ -1,0 +1,180 @@
+{
+  "base_ref": "origin/main",
+  "batches": [
+    {
+      "acceptance": [
+        {
+          "criterion": "The snapshot handles authenticated and unauthenticated installs honestly, records unavailable capabilities with reasons, and never contains credentials or raw OAuth output.",
+          "evidence": "",
+          "id": "B0-A1",
+          "met": false
+        },
+        {
+          "criterion": "The capability ledger proves the supported read-only, session, goal, streaming, schema, and ACP surfaces and explicitly identifies `--new-session` as unsupported.",
+          "evidence": "",
+          "id": "B0-A2",
+          "met": false
+        },
+        {
+          "criterion": "A model-free isolated `/goal status` probe verifies goal-command resolution independently from provider authentication and model inference.",
+          "evidence": "",
+          "id": "B0-A3",
+          "met": false
+        },
+        {
+          "criterion": "Batch 0 is additive: it changes no product launch argv or non-Grok adapter behavior.",
+          "evidence": "",
+          "id": "B0-A4",
+          "met": false
+        }
+      ],
+      "id": "B0",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Read-only, create, resume, and trusted full-run argv contain only installed-binary-supported flags, and new sessions use a caller-generated UUID through `--session-id`.",
+          "evidence": "",
+          "id": "B1-A1",
+          "met": false
+        },
+        {
+          "criterion": "OAuth launches retain private `HOME` and `GROK_HOME` plus the validated narrow `GROK_AUTH_PATH`; ambient config, SSH state, and git identity are not inherited.",
+          "evidence": "",
+          "id": "B1-A2",
+          "met": false
+        },
+        {
+          "criterion": "XAI API-key behavior and every non-Grok adapter's emitted argv remain unchanged.",
+          "evidence": "",
+          "id": "B1-A3",
+          "met": false
+        },
+        {
+          "criterion": "A reduced-capability or unsupported Grok install fails or falls back with a concrete reason instead of entering an interactive login or invalid-flag loop.",
+          "evidence": "",
+          "id": "B1-A4",
+          "met": false
+        }
+      ],
+      "id": "B1",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Grok provider qualification is independent from goal support, and an unavailable goal capability selects the documented one-packet fallback without disabling an otherwise valid provider.",
+          "evidence": "",
+          "id": "B2-A1",
+          "met": false
+        },
+        {
+          "criterion": "An isolated authenticated throwaway-repository canary proves that a headless `/goal` launch accepts the packet-backed objective, completes, and returns an exact recoverable session identity.",
+          "evidence": "",
+          "id": "B2-A2",
+          "met": false
+        },
+        {
+          "criterion": "The streaming follow view exposes sanitized progress, usage, terminal state, and typed errors; it tolerates unknown event types and never requires timed driver narration.",
+          "evidence": "",
+          "id": "B2-A3",
+          "met": false
+        },
+        {
+          "criterion": "Worker branch, commit, crash recovery, acceptance, protected-ref, PR, and merge authority remain identical to the provider-neutral full-run contract.",
+          "evidence": "",
+          "id": "B2-A4",
+          "met": false
+        }
+      ],
+      "id": "B2",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Model selection uses the authenticated live catalog and parsed default; no unavailable model, including `auto` or `grok-code-fast-1`, is selected unless the catalog returns it.",
+          "evidence": "",
+          "id": "B3-A1",
+          "met": false
+        },
+        {
+          "criterion": "A user can install, authenticate, capability-check, launch, follow, and recover the optional open-source Grok worker from one concise documentation path.",
+          "evidence": "",
+          "id": "B3-A2",
+          "met": false
+        },
+        {
+          "criterion": "SKILL, AGENTS, Claude/Codex references, README, guide, examples, changelog, and learnings agree on native-first routing, goal enhancement, one-packet fallback, and authority boundaries.",
+          "evidence": "",
+          "id": "B3-A3",
+          "met": false
+        },
+        {
+          "criterion": "Installed Codex and Claude Code bundle checks pass, and native worker routing and invocation behavior remain unchanged.",
+          "evidence": "",
+          "id": "B3-A4",
+          "met": false
+        }
+      ],
+      "id": "B3",
+      "status": "pending"
+    }
+  ],
+  "branch": "codex/grok-build-open-source",
+  "cobbler": {
+    "default_for_session": false
+  },
+  "continuation_guard": {
+    "next_required_action": "Await user authorization to launch the staged native Codex worker.",
+    "reason": "Planning and launch staging are the requested outcome; implementation and merge are not authorized in this run.",
+    "stop_allowed": true
+  },
+  "execution_log_path": "docs/elves/execution-log-grok-build-open-source.md",
+  "landing_outcome": "landable_pr",
+  "learnings_path": "docs/elves/learnings.md",
+  "master_acceptance": [
+    {
+      "criterion": "Against installed open-source Grok Build, the optional read-only and trusted full-run lanes emit no invalid flags and use capability-proven goal plus streaming behavior or the documented compatible fallback.",
+      "evidence": "",
+      "id": "M-A1",
+      "met": false
+    },
+    {
+      "criterion": "Authentication isolation, session create/resume identity, model selection, crash recovery, and worker authority match the executable and provider-neutral contracts exactly.",
+      "evidence": "",
+      "id": "M-A2",
+      "met": false
+    },
+    {
+      "criterion": "Native Codex and Claude Code remain the default and behaviorally unchanged, while all user-facing and installed Elves documentation accurately describes the optional open-source Grok path.",
+      "evidence": "",
+      "id": "M-A3",
+      "met": false
+    },
+    {
+      "criterion": "Focused proof, one cumulative final review, targeted revisions, and terminal repository checks leave a reviewed PR ready for the user without merging or moving a version tag.",
+      "evidence": "",
+      "id": "M-A4",
+      "met": false
+    }
+  ],
+  "merge_authorized": false,
+  "plan_path": "docs/plans/grok-build-open-source-realignment.md",
+  "risk": "high",
+  "run_id": "grok-build-open-source-2026-07-15",
+  "start_head": "4bbb7b3b6c4f5d57bfa0cc4bc8b0014c39559080",
+  "survival_guide_path": "docs/elves/survival-guide-grok-build-open-source.md",
+  "trust_mode": "trusted",
+  "version": "2.5.0",
+  "worker": {
+    "git_mode": "branch_progress",
+    "model": "inherit_live_driver_model",
+    "provider": "codex",
+    "reasoning_effort": "medium",
+    "scope": "full_run",
+    "session_id": null,
+    "status": "not_launched"
+  }
+}
