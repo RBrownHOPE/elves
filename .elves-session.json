@@ -1,0 +1,242 @@
+{
+  "batches": [
+    {
+      "acceptance": [
+        {
+          "criterion": "`python3 -m unittest tests.test_cobbler_agents_implement` passes with `CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 CLAUDE_CODE_CHILD_SESSION=1` exported",
+          "evidence": "",
+          "id": "B1-A1",
+          "met": false
+        },
+        {
+          "criterion": "New regression test proves exact-value redaction still fires for a secret-named env var with a >=8-char value (old behavior preserved)",
+          "evidence": "",
+          "id": "B1-A2",
+          "met": false
+        },
+        {
+          "criterion": "Exactly one env-derived exact-secret collector remains; both call sites import it",
+          "evidence": "",
+          "id": "B1-A3",
+          "met": false
+        }
+      ],
+      "id": "B1",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Fixture tests prove gc refuses: dirty worktree, unmerged branch, unpushed commits, current directory, main worktree, unregistered sibling directory",
+          "evidence": "",
+          "id": "B2-A1",
+          "met": false
+        },
+        {
+          "criterion": "Fixture test proves gc removes a clean merged worktree and deletes its local branch, and `git worktree list` no longer shows it",
+          "evidence": "",
+          "id": "B2-A2",
+          "met": false
+        },
+        {
+          "criterion": "Report mode performs zero mutations (asserted on fixture repo state)",
+          "evidence": "",
+          "id": "B2-A3",
+          "met": false
+        },
+        {
+          "criterion": "Dogfood evidence: the five merged elves worktrees removed; the five unmerged benchmark worktrees and all unregistered siblings untouched and listed in the report",
+          "evidence": "",
+          "id": "B2-A4",
+          "met": false
+        },
+        {
+          "criterion": "Repo-consistency CI stays green (pinned worktree phrases unchanged or pins updated together with the prose)",
+          "evidence": "",
+          "id": "B2-A5",
+          "met": false
+        }
+      ],
+      "id": "B2",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Validator test: staged session with `work_driver: grok-build` and no `worker_packet_path` produces the warning; with the path recorded, no warning; host-native produces no warning",
+          "evidence": "",
+          "id": "B3-A1",
+          "met": false
+        },
+        {
+          "criterion": "All six documentation surfaces carry the packet-at-staging rule and cross-link rather than restate it",
+          "evidence": "",
+          "id": "B3-A2",
+          "met": false
+        },
+        {
+          "criterion": "Repo-consistency CI green; any newly pinned phrases added deliberately and minimally",
+          "evidence": "",
+          "id": "B3-A3",
+          "met": false
+        },
+        {
+          "criterion": "Work-driver spellings normalize identically in validator and docs (devin covered)",
+          "evidence": "",
+          "id": "B3-A4",
+          "met": false
+        }
+      ],
+      "id": "B3",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Exactly one `run_git` definition body remains (delegators allowed); zero raw `subprocess.run([\"git\"` call sites left in `full_run.py`",
+          "evidence": "",
+          "id": "B4-A1",
+          "met": false
+        },
+        {
+          "criterion": "`context.ensure_private_dir` gone; `api-break-approvals.json` entry passes strict `verify_repo.py --ci` validation",
+          "evidence": "",
+          "id": "B4-A2",
+          "met": false
+        },
+        {
+          "criterion": "Full suite green; `test_storage_isolation_git.py`, `test_dispatch_isolation.py`, `test_full_run_supervisor.py` specifically green (regression preservation)",
+          "evidence": "",
+          "id": "B4-A3",
+          "met": false
+        },
+        {
+          "criterion": "Session filename literal appears exactly once in `cobbler_runtime/`",
+          "evidence": "",
+          "id": "B4-A4",
+          "met": false
+        }
+      ],
+      "id": "B4",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "`wc -l README.md` \u2264 450; no `v2.x adds`-style narration outside CHANGELOG.md",
+          "evidence": "",
+          "id": "B5-A1",
+          "met": false
+        },
+        {
+          "criterion": "`references/glossary.md` exists and covers every term it promises; no dead links",
+          "evidence": "",
+          "id": "B5-A2",
+          "met": false
+        },
+        {
+          "criterion": "Repo-consistency CI green with pins updated alongside prose in the same commits",
+          "evidence": "",
+          "id": "B5-A3",
+          "met": false
+        },
+        {
+          "criterion": "Install + first-run path still complete: following README alone reaches a working `install_doctor.py --startup` pass (regression preservation for onboarding)",
+          "evidence": "",
+          "id": "B5-A4",
+          "met": false
+        }
+      ],
+      "id": "B5",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "`consistency_policy.py` line count reduced by \u2265 50% with CI still green",
+          "evidence": "",
+          "id": "B6-A1",
+          "met": false
+        },
+        {
+          "criterion": "A deliberate drift injected in a test fixture is still caught for the retained safety-kernel pins (regression preservation for the checker itself)",
+          "evidence": "",
+          "id": "B6-A2",
+          "met": false
+        }
+      ],
+      "id": "B6",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "`full_run.py` \u2264 7,500 lines (measurable god-file bar, not a structure lock alone)",
+          "evidence": "",
+          "id": "B7-A1",
+          "met": false
+        },
+        {
+          "criterion": "Supervisor script passes lint as a real file; at least one direct unit test exercises its argument/protocol surface",
+          "evidence": "",
+          "id": "B7-A2",
+          "met": false
+        },
+        {
+          "criterion": "`tests/test_full_run_supervisor.py` and the full suite green (regression preservation)",
+          "evidence": "",
+          "id": "B7-A3",
+          "met": false
+        }
+      ],
+      "id": "B7",
+      "status": "pending"
+    }
+  ],
+  "branch": "elves/hygiene-and-hardening",
+  "cobbler": {
+    "default_for_session": true
+  },
+  "continuation_guard": {
+    "reason": "finite run in progress; stop at completion, hard blocker, or user stop",
+    "stop_allowed": false
+  },
+  "implementation_lane": "native-subagent",
+  "master_acceptance": [
+    {
+      "criterion": "Full suite green in an environment that includes short-valued secret-named env vars (Claude Code session): `CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 python3 -m unittest discover -s tests`",
+      "evidence": "",
+      "id": "M-A1",
+      "met": false
+    },
+    {
+      "criterion": "Dogfooded gc: five merged elves worktrees removed, unmerged benchmarks and unregistered siblings reported untouched; `git worktree list` reflects it",
+      "evidence": "",
+      "id": "M-A2",
+      "met": false
+    },
+    {
+      "criterion": "A staged delegable run records `worker_packet_path`; the validator warns when it is missing for non-host-native drivers; both schemas and both staging templates carry the field",
+      "evidence": "",
+      "id": "M-A3",
+      "met": false
+    },
+    {
+      "criterion": "README \u2264 450 lines, glossary exists, version narration lives only in CHANGELOG, repo-consistency CI green, `verify_repo.py --ci` green at the release version",
+      "evidence": "",
+      "id": "M-A4",
+      "met": false
+    },
+    {
+      "criterion": "No unapproved public API breaks: `api-break-approvals.json` entries exist for every intentional removal and strict verification accepts them",
+      "evidence": "",
+      "id": "M-A5",
+      "met": false
+    }
+  ],
+  "plan_path": "docs/plans/hygiene-and-hardening.md",
+  "run_id": "hygiene-and-hardening-2026-07-16",
+  "start_head": "d9862a46fbbcf59759d9b7bb9230494db88d5dec",
+  "work_driver": "host-native",
+  "worker_packet_path": ".elves/runtime/worker-packet-hygiene-and-hardening.md"
+}
