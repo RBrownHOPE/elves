@@ -152,6 +152,16 @@ Claude Code env flags exported), 12 skips, ~3.3 min. B1 must flip that to 0 fail
 - Driver scratch: `/private/tmp/claude-501/-Users-john-aigora-dev-elves/48e943fc-562d-44ac-81a8-606b1b7ca67e/scratchpad/`
 - Dogfood transcripts for B2: paste into execution log + session evidence
 
+## After Any Compaction
+
+1. Re-read this guide top to bottom (Stop Gate + Run Control first).
+2. Read `.elves-session.json` — batch statuses and `continuation_guard` are authoritative.
+3. Read `docs/elves/learnings.md`, the plan, then the execution log tail.
+4. Confirm the branch tip is an ancestor chain from START_TIP (collision check); if the tip moved
+   outside this run's pushes, Hard Stop and report.
+5. Resume the single next required action from `## Next Exact Batch` immediately. Do not wait for
+   user acknowledgment.
+
 ## Tool Configuration
 
 ```yaml

@@ -18,8 +18,13 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
 - 2026-07-16 13:18 · Staging · Consolidated coordinator→implementer packet (the prewalk) written to
   `.elves/runtime/worker-packet-hygiene-and-hardening.md` and recorded in session + survival guide.
   This dogfoods B3's packet-at-staging rule before the batch implements it.
-- Pending at first commit: rollback ref b0, initial commit, PR open, full preflight. Evidence
-  follows below as it lands.
+- 2026-07-16 13:22 · Staging · Rollback ref `refs/elves/rollback/hygiene-and-hardening-2026-07-16/s1/b0`
+  → d9862a46. Staging commit `3eef6b1` pushed; branch tracking origin. PR opened: **#78**
+  (https://github.com/aigorahub/elves/pull/78).
+- 2026-07-16 13:24 · Staging · Full preflight in worktree: **green**, 3 advisories (survival-guide
+  env var, no package manifest — expected for this repo, non-interactive env vars). Survival guide
+  validator: initially flagged missing `## After Any Compaction`; section added; validator **OK**.
+  Staging complete → executing.
 
 ## Decisions made
 
