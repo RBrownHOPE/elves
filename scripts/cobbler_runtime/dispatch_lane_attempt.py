@@ -14,7 +14,6 @@ from typing import Any, Mapping
 
 from .context import (
     ContextPacket,
-    ensure_private_dir,
     redact_structure,
     redact_text,
     resolve_contained_path,
@@ -22,6 +21,7 @@ from .context import (
     write_json_artifact,
     write_text_artifact,
 )
+from .storage import ensure_private_dir
 from .dispatch_attempt import (
     attempt_env_grants,
     build_effective_contract,

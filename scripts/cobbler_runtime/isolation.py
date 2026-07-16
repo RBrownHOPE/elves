@@ -26,7 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterator, Mapping, Sequence
 
 from .context import validate_credential_grant_names
-from .schema import ValidationIssue
+from .schema import ELVES_SESSION_BASENAME, ValidationIssue
 
 
 INSTRUCTION_BASENAMES: frozenset[str] = frozenset(
@@ -141,7 +141,7 @@ DEFAULT_EXCLUDED_FILE_NAMES: frozenset[str] = frozenset(
         ".env.local",
         ".env.production",
         "models.toml",
-        ".elves-session.json",
+        ELVES_SESSION_BASENAME,
         ".netrc",
         ".npmrc",
         ".pypirc",

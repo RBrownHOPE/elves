@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
+from .config import load_json_file, load_toml_file
 from .schema import ValidationIssue
 
 
@@ -776,8 +777,6 @@ def discover_repository_worker_policy(
     repo_root: Path, *, override_path: Path | None = None
 ) -> tuple[dict[str, Any], str]:
     """Discover target-repository worker defaults/vetoes from established config files."""
-    from .config import load_json_file, load_toml_file
-
     candidates = [override_path] if override_path else [repo_root / "config.json", repo_root / ".elves" / "models.toml"]
     merged: dict[str, Any] = {}
     sources: list[str] = []

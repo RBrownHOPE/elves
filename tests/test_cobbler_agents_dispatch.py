@@ -49,7 +49,6 @@ from cobbler_runtime.context import (  # noqa: E402
     collect_secret_env_values,
     council_artifact_root,
     create_exclusive_artifact_root,
-    ensure_private_dir,
     new_run_id,
     redact_structure,
     redact_text,
@@ -2017,11 +2016,15 @@ class AdapterBuilderTests(unittest.TestCase):
             "scrub_environment",
             "redact_text",
             "council_artifact_root",
-            "ensure_private_dir",
             "new_run_id",
             "create_exclusive_artifact_root",
         ):
             self.assertTrue(hasattr(context_mod, name))
+        # B4: the weak duplicate was removed; the fd-anchored variant in
+        # storage is the single canonical ensure_private_dir.
+        self.assertFalse(hasattr(context_mod, "ensure_private_dir"))
+        from cobbler_runtime import storage as storage_mod
+        self.assertTrue(hasattr(storage_mod, "ensure_private_dir"))
         self.assertTrue(hasattr(dispatch_mod, "run_council"))
         self.assertTrue(hasattr(dispatch_mod, "run_lightweight_review"))
 

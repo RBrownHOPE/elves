@@ -19,7 +19,6 @@ from .context import (
     ContextPacket,
     build_context_packet,
     create_exclusive_artifact_root,
-    ensure_private_dir,
     new_run_id,
     resolve_contained_path,
     safe_path_component,
@@ -27,6 +26,7 @@ from .context import (
 )
 # Historical imports remain available from this facade while focused modules
 # own their implementations.
+from .storage import ensure_private_dir
 from .dispatch_attempt import (
     attempt_env_grants as _attempt_env_grants,
     check_capabilities as _check_capabilities,

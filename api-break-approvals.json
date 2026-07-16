@@ -1,11 +1,4 @@
 {
   "schema_version": 1,
-  "approvals": [
-    {
-      "surface": "cli:cobbler_agents implement full-run-prepare",
-      "release": "2.6.0",
-      "reason": "Replace the hardcoded Grok model default with authenticated live-catalog resolution so Elves never launches an unavailable model slug",
-      "plan_path": "docs/plans/grok-build-open-source-realignment.md"
-    }
-  ]
+  "approvals": []
 }

@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .context import redact_structure, redact_text
-from .schema import ValidationIssue
+from .schema import ELVES_SESSION_BASENAME, ValidationIssue
 from .storage import (
     StorageError,
     assert_embedded_id,
@@ -192,7 +192,7 @@ DEFAULT_FORBIDDEN_PATH_PREFIXES: tuple[str, ...] = (
     ".elves/",
     "docs/elves/",
     "docs/plans/",
-    ".elves-session.json",
+    ELVES_SESSION_BASENAME,
 )
 
 

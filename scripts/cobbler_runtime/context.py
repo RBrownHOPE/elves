@@ -542,17 +542,6 @@ def resolve_contained_path(root: Path, *parts: str) -> Path:
     return candidate
 
 
-def ensure_private_dir(path: Path) -> Path:
-    """Create a directory with owner-only permissions when the OS supports it."""
-    path.mkdir(parents=True, exist_ok=True)
-    try:
-        path.chmod(stat.S_IRWXU)  # 0o700
-    except OSError:
-        # Non-POSIX filesystems may ignore mode bits; still usable.
-        pass
-    return path
-
-
 def _assert_no_symlink_escape(path: Path, *, repo_root: Path) -> None:
     """Reject path components that are symlinks escaping the canonical repo root."""
     repo = Path(repo_root).resolve()
