@@ -23,8 +23,12 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
   (https://github.com/aigorahub/elves/pull/78).
 - 2026-07-16 13:24 · Staging · Full preflight in worktree: **green**, 3 advisories (survival-guide
   env var, no package manifest — expected for this repo, non-interactive env vars). Survival guide
-  validator: initially flagged missing `## After Any Compaction`; section added; validator **OK**.
-  Staging complete → executing.
+  validator: first pass flagged missing `## After Any Compaction`; second pass flagged Forbidden
+  Stop Reasons wording and the Stop Gate readiness checkbox (the 13:24 commit's "validator green"
+  subject was premature — corrected here). Third pass surfaced the full pinned field vocabulary
+  (Run Control delegated fields, Cobbler/Stop Gate/Current Phase/Next Exact Batch fields, pinned
+  effort and control-loop sentences); guide rewritten fully conformant to the template. Validator
+  exit 0 at 13:31. Staging complete → executing.
 
 ## Decisions made
 

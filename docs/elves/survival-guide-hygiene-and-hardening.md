@@ -13,55 +13,125 @@ review, readiness, and a user-authorized merge.
 ## Run Control
 
 - **Run mode:** finite
-- **Run id:** hygiene-and-hardening-2026-07-16
-- **Branch:** elves/hygiene-and-hardening
-- **Worktree (this checkout):** /Users/john/aigora/dev/elves-hygiene-and-hardening
-- **Main checkout (forbidden surface):** /Users/john/aigora/dev/elves
-- **Base:** origin/main
-- **START_TIP / collision tripwire:** d9862a46fbbcf59759d9b7bb9230494db88d5dec
-- **PR:** #78 (record on open; update if it changes)
-- **Work driver:** host-native (subscription-native Claude worker sessions — one separate worker
-  session per batch, each launched with a per-batch packet derived from the consolidated packet)
-- **Worker packet (consolidated, the prewalk):** `.elves/runtime/worker-packet-hygiene-and-hardening.md`
-  (gitignored operational artifact; per-batch packets are derived from it verbatim)
-- **Provider routes:** native only. No Grok/OpenRouter/Devin configured or probed for this run.
-- **Merge policy:** chat-to-land. The user explicitly authorized landing this PR in the current
-  session ("stage it as an /elves run … review when its done and land the pr", 2026-07-16).
-  `driver_authorized=true` by that authorization; merge still requires independent readiness at the
-  exact final HEAD. Regular merge commit only, never squash.
-- **Batch order:** B1 → B2 → B3 → B4 → B5 → B6 → B7 (B5 after B3; B6 after B5; B7 after B4)
-- **Version decision:** stay at 2.6.0 through batches; at terminal readiness run
-  `scripts/release_checklist.py` and promote to v2.7.0 in the final Close if the checklist
-  requires promotion of new user-facing behavior (expected: yes — gc helper + packet staging).
-- **Checkpoint semantics:** no timed checkpoints; wake points are worker completion/failure only.
-- **May continue after checkpoint:** yes (finite completion is the only self-stop).
+- **Stop policy:** blocker-only (plus Final Completion after authorized landing)
+- **User intent:** "stage it as an /elves run, including doing the prewalk, then kick off the
+  worker agent to do the work, then review when its done and land the pr" (2026-07-16)
+- **Checkpoint due by:** none
+- **Checkpoint semantics:** none
+- **May continue after checkpoint:** yes
+- **Actual stop conditions:** PR #78 merged after clean readiness at exact HEAD; or a hard blocker
+  after documented recovery attempts; or explicit user stop.
+- **Workspace ownership:** dedicated worktree created with `./scripts/preflight.sh
+  --create-worktree elves/hygiene-and-hardening --base origin/main` at
+  `/Users/john/aigora/dev/elves-hygiene-and-hardening` — never shared with another active agent;
+  the main checkout `/Users/john/aigora/dev/elves` is a forbidden surface for this run.
+- **Branch tip at start (collision tripwire):** `d9862a46fbbcf59759d9b7bb9230494db88d5dec`; the tip
+  advances only through this run's own host/worker commits on `elves/hygiene-and-hardening`; every
+  other move is a collision → Hard Stop.
+- **Merge policy:** The user owns whether Elves may merge: reviewed-pr-landing-command — the user's
+  kickoff message explicitly authorizes landing PR #78 in this session (chat-to-land). Regular
+  merge commit after the final readiness review passes, never squash.
+- **Final-response policy:** disallowed until stop conditions are met
+- **Coordination mode:** Cobbler-first (native-subagent lenses at review; direct execution for
+  mechanical steps)
+- **Batch completion rule:** Host-native and legacy bounded batches end with `update execution log
+  -> update survival guide -> commit -> push`. Worker sessions close their batch with acceptance
+  evidence plus meaningful feature-branch commits/pushes; the host verifies and records canonical
+  memory after each worker completes. Every completed batch must end with a commit and push.
+- **Progress visibility rule:** meaningful slices pushed with
+  `[elves/hygiene-and-hardening · Batch N/7 · Contract|Implement|Validate|Review|Close] <concrete outcome>`;
+  vague subjects forbidden; `Close` requires acceptance evidence; protected refs, PR operations,
+  and merge stay host-owned (Git/PR ops never dispatch model inference).
+- **Coordinator-to-implementer handoff:** Every worker packet carries intent/why, non-obvious
+  rationale, Build On targets, owned surfaces, forbidden surfaces, acceptance evidence, failure
+  modes/pitfalls, and HEAD/run-doc paths/route-session identity/output format. Incomplete handoffs
+  are blocking coordinator defects. Consolidated packet (the prewalk):
+  `.elves/runtime/worker-packet-hygiene-and-hardening.md`; recorded in `.elves-session.json` as
+  `worker_packet_path`.
+- **Re-read rule:** Immediately after every host-owned commit and push, re-read this survival
+  guide before doing anything else.
+- **Checkpoint rule:** no checkpoints scheduled; if one appears, log it, push, continue
+  immediately.
+- **E2E mode:** chat-to-land
+- **Work driver:** host-native
+- **Implementation lane:** fast
+- **Delegation scope:** batch
+- **Git mode:** branch_progress
+- **Driver monitor mode:** interactive
+- **Driver update policy:** material wakes only; no timed driver chat
+- **Driver poll policy:** host wait primitive
+- **Driver review policy:** final independent review only
+- **Follow mode:** n/a (native worker sessions report on completion)
+- **Risk posture:** standard (B4/B7 individually high — extra characterization tests there)
+- **Trust mode:** trusted
+- **Landing outcome:** complete_and_merge
+- **Driver merge authorized:** yes via land-pr (user kickoff message, this session)
+- **Worker merge authority:** false
+- **Stable plan IDs:** batches `B1`–`B7`; batch acceptance `B#-A#`; Master Acceptance `M-A1`–`M-A5`
+- **Acceptance row syntax:** bare and bracketed forms equivalent; duplicate ids invalid
+- **Batch helper syntax:** `--batch 1` and `--batch B1` equivalent
+- **Staging acceptance validation:** PASS — plan parsed; session and packet id/text mappings match
+- **Staging acceptance command:** `python3 scripts/acceptance_contract.py validate --repo-root .
+  --session .elves-session.json`
+- **High-risk checkpoints:** after B4 (full suite + env-sensitivity run before B5); after B7
+  (characterization + full suite before terminal review)
+- **GitHub push auth route:** host `gh` projection
+- **Re-drive budget:** 2 worker re-drives per batch, then host-native takeover with a Decisions
+  entry
+- **Continuation harness:** host-native
+- **Continuation rule:** If work remains and `Actual stop conditions` are not met, continue
+  without waiting for user acknowledgment.
+- **Version decision:** stay at 2.6.0 through batches; at terminal run
+  `scripts/release_checklist.py` and promote to v2.7.0 in the final Close if required (expected:
+  yes — new user-facing behavior in B2/B3/B5).
 
 ## Cobbler Session State
 
-- `cobbler.default_for_session: true` (recorded in `.elves-session.json`)
-- Coordination is native-subagent-first; independent review lenses at terminal review; no
-  provider-backed council. Writes, git, PR, and durable memory stay with the driver.
+- **Cobbler default:** on
+- **Activated by:** Elves invocation (this run's kickoff)
+- **Scope:** current Elves run
+- **Behavior:** treat follow-up prompts as Cobbler-mediated by default; direct execution for
+  mechanical steps; independent lenses at terminal review
+- **Persistence:** survival guide and `.elves-session.json` (`cobbler.default_for_session: true`)
+- **Exit phrases:** "Cobbler Mode: off", "leave Cobbler Mode", "stop using Cobbler by default"
+
+## Session Budget
+
+- **Started:** 2026-07-16 13:10 local
+- **User returns:** unspecified (user is present in chat; run proceeds unattended between wakes)
+- **Checkpoint expectation:** landable, reviewed, merged PR #78 with Elves report path surfaced
+- **Time budget:** unlimited (finite scope, no deadline given)
+- **Average batch time so far:** n/a (no batches closed yet)
+- **Batches remaining:** 7 of 7
 
 ## Stop Gate
 
-- Stop allowed right now: **no**
-- Allowed stop conditions: (1) Final Completion after landing, (2) hard blocker after documented
-  recovery attempts, (3) explicit user stop.
-- `continuation_guard.stop_allowed: false` until readiness + merge or blocker.
+- **Planned batches remaining:** 7
+- **Stop allowed right now:** no
+- **Why:** batches B1–B7 unimplemented; landing not attempted; user asked for end-to-end delivery.
+- **Next required action:** launch B1 worker session with the B1 packet.
 
 ## Effort Standard
 
-Full effort every batch; the last batch gets the same rigor as the first. Prefer deeper verified
-progress over minimum acceptable change.
+- Work as hard as you can for the full run. Do not be lazy.
+- Maintain the same level of effort on the last batch as on the first.
+- Do not settle for the minimum acceptable change, the first green check, or a shallow pass when
+  deeper verification or the next planned task remains.
+- When one task is complete, immediately take the next highest-value action from the plan, review
+  queue, or scout work.
 
 ## Forbidden Stop Reasons
 
-Long output, many batches remaining, context pressure (re-read this guide and continue), waiting
-on nothing, "checkpoint reached", partial green.
+- "Checkpoint reached" — checkpoints are wake points, never completion; continue after every
+  checkpoint.
+- "Committed and pushed" — commits and pushes are progress, not permission to stop; re-read this
+  guide and continue.
+- Long output, many batches remaining, context pressure (re-read this guide and continue),
+  waiting on nothing, partial green.
 
 ## Memory Surfaces
 
-1. This survival guide (Stop Gate + Run Control first)
+1. This survival guide (Run Control + Stop Gate first)
 2. `.elves-session.json` (acceptance evidence per batch; trust after compaction)
 3. `docs/elves/learnings.md` (shared, durable)
 4. `docs/plans/hygiene-and-hardening.md` (authoritative scope + acceptance)
@@ -89,41 +159,88 @@ learnings at Close of each batch; archive nothing mid-run.
 
 ## Launch Readiness
 
-- [x] Plan committed at docs/plans/hygiene-and-hardening.md
-- [x] Session seeded + sync-session --write + validate OK
-- [x] Dedicated worktree created; tripwire recorded
-- [x] Consolidated worker packet written (prewalk) and path recorded in session + here
-- [x] Rollback ref b0 created (refs/elves/rollback/hygiene-and-hardening-2026-07-16/s1/b0)
-- [x] Initial commit pushed; PR opened and recorded
-- [x] Full preflight green in this worktree
+- [x] Plan cleaned and saved to disk (`docs/plans/hygiene-and-hardening.md`)
+- [x] Survival guide updated from the current plan
+- [x] Learnings file initialized or refreshed (shared `docs/elves/learnings.md` present)
+- [x] Execution log initialized with batch breakdown and preflight notes
+- [x] Branch created or confirmed (`elves/hygiene-and-hardening`)
+- [x] Branch and checkout ownership confirmed (dedicated worktree if other agents may touch the repo); no other agent shares this branch
+- [x] PR opened or existing PR recorded (#78)
+- [x] Preflight run and critical failures cleared (3 advisories, no criticals)
+- [x] Run mode, return time, and non-negotiables recorded
+- [x] Stop Gate initialized with `Stop allowed right now: no` unless a real stop condition already applies
+- [x] Single-kickoff continues after staging (legacy two-call only if explicit); launch prompt only for legacy path
 
 ## Current Phase
 
-executing (B1 next)
+**Status:** In progress
+
+**Active batch:** Batch 1: Redaction exact-value minimum-length guard
+
+**What was just finished:** Staging complete: worktree, run docs, consolidated packet (prewalk),
+session contract synced+validated, rollback ref b0, PR #78, preflight green, guide validator green.
+
+**Single next action:** Launch the B1 worker session with the B1 packet.
 
 ## Active Compute
 
-None (no paid/external compute; native subagents only).
+No active paid or long-running compute.
 
 ## Next Exact Batch
 
-B1 — Redaction exact-value minimum-length guard. Launch a native worker session with the B1
-packet section; owned surfaces `scripts/cobbler_runtime/context.py`,
-`scripts/cobbler_runtime/implement.py`, `scripts/cobbler_agents.py`, matching tests. Acceptance
-B1-A1..A3 in the plan; evidence recorded to `.elves-session.json` at Close.
+**Batch:** B1: Redaction exact-value minimum-length guard
+
+**Scope:**
+- One shared secret-env collector (min exact-value length 8, default) in
+  `cobbler_runtime/context.py`
+- `implement.py:_inherited_secret_values` and `cobbler_agents.py:_secret_env_values` both use it
+- Regression tests both directions (short flag values not redacted; >=8-char secrets still
+  redacted)
+
+**Acceptance criteria:**
+- [ ] B1-A1: `python3 -m unittest tests.test_cobbler_agents_implement` passes with
+  `CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 CLAUDE_CODE_CHILD_SESSION=1` exported
+- [ ] [B1-A2] New regression test proves exact-value redaction still fires for a secret-named env
+  var with a >=8-char value (old behavior preserved)
+- [ ] [B1-A3] Exactly one env-derived exact-secret collector remains; both call sites import it
+
+**Risk:** narrowing redaction on a security surface — the guard must not touch pattern-based
+redaction.
+
+**Rollback authority:** host-created `b0` ref
+(`refs/elves/rollback/hygiene-and-hardening-2026-07-16/s1/b0`) plus per-batch worker commit SHAs.
 
 ## Post-Checkpoint Control Loop
 
-After each worker completes: verify gates on the tip (focused tests + targeted checks), reconcile
-commits (subjects follow the schema), record acceptance evidence in session JSON, update this
-guide's Current Phase / Next Exact Batch, push, re-read this guide, launch next batch. No user
-acknowledgment awaited.
+Every completed batch must end with a commit and push, followed by a re-read of this guide. A
+pushed checkpoint is proof of progress, not permission to stop.
+
+After every host-owned commit and push — or after a worker session completes — answer these before
+doing anything else:
+
+1. What unfinished batch or task am I starting right now?
+2. What paid compute or long-running resources are active right now?
+3. What is each active resource doing? If any resource is idle, stale, or ambiguous, shut it down
+   or pause it now.
+4. Did the user change stop behavior, checkpoint meaning, priorities, or scope since the survival
+   guide was last rewritten? If yes, rewrite `## Run Control`, `## Current Phase`, `## Stop Gate`,
+   and `## Next Exact Batch` now.
+5. Does the Stop Gate still say `Stop allowed right now: no`, or does `.elves-session.json` still
+   say `continuation_guard.stop_allowed: false`? If yes, continue immediately.
+6. Am I allowed to stop? If the answer is anything other than a clear hard stop, explicit user
+   stop, or true blocker, continue immediately.
+
+Then: re-read this survival guide before doing anything else.
 
 ## Documentation Triggers
 
-- B2/B3 touch SKILL.md/templates → keep consistency pins updated in the same commit
-- Any helper move → update `.ai-docs/context-index.md`
-- Every batch Close → CHANGELOG entry under the pending release heading
+- **Behavior changed:** update README/config docs/CHANGELOG in the same batch (B2/B3/B5
+  especially); keep consistency pins updated in the same commit.
+- **Architecture shifted:** update `.ai-docs/context-index.md` (B4/B7 helper moves).
+- **New repeatable pattern or policy:** update `.ai-docs/conventions.md` if present.
+- **New trap or hidden dependency:** update `.ai-docs/gotchas.md` if present.
+- **Reusable lesson from the run:** update `docs/elves/learnings.md` at each Close.
+- If none apply, record that no durable doc updates were needed.
 
 ## Process Tuning Triggers
 
@@ -154,13 +271,27 @@ Claude Code env flags exported), 12 skips, ~3.3 min. B1 must flip that to 0 fail
 
 ## After Any Compaction
 
-1. Re-read this guide top to bottom (Stop Gate + Run Control first).
-2. Read `.elves-session.json` — batch statuses and `continuation_guard` are authoritative.
-3. Read `docs/elves/learnings.md`, the plan, then the execution log tail.
-4. Confirm the branch tip is an ancestor chain from START_TIP (collision check); if the tip moved
-   outside this run's pushes, Hard Stop and report.
-5. Resume the single next required action from `## Next Exact Batch` immediately. Do not wait for
-   user acknowledgment.
+When you restart after a compaction, do these steps in order. No shortcuts.
+
+1. Read this file (survival guide). You are doing this now.
+2. **Read the Run Control section and Stop Gate above.** Confirm the run mode, stop policy,
+   checkpoint semantics, actual stop conditions, and whether stopping is currently allowed.
+3. Read `.elves-session.json`. Confirm current batch, PR number, test baseline, and
+   `continuation_guard`.
+4. Read `docs/elves/learnings.md`.
+5. Read the plan. Confirm scope unchanged.
+6. Read the execution log. Find the last completed batch and the last **Decisions made** entry.
+7. Read `.ai-docs/context-index.md` if present.
+8. Read the Active Compute section. Know what live resources exist.
+9. Read the `continuation_guard`. If `stop_allowed` is `false`, continue without re-deciding
+   whether the run should end.
+10. Identify the first incomplete batch or the single next action (Current Phase, Stop Gate,
+    Next Exact Batch).
+11. Check the clock against Session Budget.
+12. Resume immediately. Don't ask for help. Don't redo completed work.
+
+The execution log is proof of what is done. If something appears there as complete, it is
+complete. Don't re-implement it.
 
 ## Tool Configuration
 
@@ -169,6 +300,7 @@ test: python3 -m unittest discover -s tests
 test-env-sensitivity: CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 python3 -m unittest discover -s tests
 verify: python3 scripts/verify_repo.py --version 2.6.0
 verify-ci: python3 scripts/verify_repo.py --ci --version <ver> --base-ref origin/main
+consistency: python3 scripts/check_repo_consistency.py
 lint: none configured
 typecheck: none configured
 build: none
