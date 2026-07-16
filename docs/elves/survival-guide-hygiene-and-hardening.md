@@ -7,7 +7,8 @@ Run: hygiene-and-hardening (2026-07-16). This file is the run's memory. Trust it
 Execute `docs/plans/hygiene-and-hardening.md` end to end: fix the redaction exact-value bug (B1),
 add the worktree gc lifecycle (B2), make the worker packet a staging deliverable (B3), consolidate
 security-critical duplicate helpers (B4), restructure README + glossary (B5), shrink the
-consistency engine (B6), and extract phase 1 of the full_run.py split (B7). Then cumulative
+consistency engine (B6), extract phase 1 of the full_run.py split (B7), and codify the worker
+failure recovery policy (B8). Then cumulative
 review, readiness, and a user-authorized merge.
 
 ## Run Control
@@ -76,8 +77,9 @@ review, readiness, and a user-authorized merge.
 - **High-risk checkpoints:** after B4 (full suite + env-sensitivity run before B5); after B7
   (characterization + full suite before terminal review)
 - **GitHub push auth route:** host `gh` projection
-- **Re-drive budget:** 2 worker re-drives per batch, then host-native takeover with a Decisions
-  entry
+- **Re-drive budget:** 2 substantive worker re-drives per batch, then host-native takeover with a
+  Decisions entry; transient provider errors (overload/rate-limit/network) retry with escalating
+  backoff (5m → 10m → 20m) and never consume the budget (operational since B4; codified by B8)
 - **Continuation harness:** host-native
 - **Continuation rule:** If work remains and `Actual stop conditions` are not met, continue
   without waiting for user acknowledgment.
@@ -102,13 +104,13 @@ review, readiness, and a user-authorized merge.
 - **Checkpoint expectation:** landable, reviewed, merged PR #78 with Elves report path surfaced
 - **Time budget:** unlimited (finite scope, no deadline given)
 - **Average batch time so far:** ~46m (B1 28m, B2 49m, B3 ~60m incl. 3 crash re-drives)
-- **Batches remaining:** 4 of 7
+- **Batches remaining:** 5 of 8 (B8 added, user-directed)
 
 ## Stop Gate
 
-- **Planned batches remaining:** 4
+- **Planned batches remaining:** 5
 - **Stop allowed right now:** no
-- **Why:** B4–B7 unimplemented; landing not attempted; user asked for end-to-end delivery.
+- **Why:** B4–B8 unimplemented; landing not attempted; user asked for end-to-end delivery.
 - **Next required action:** launch B4 worker session with the B4 packet.
 
 ## Effort Standard

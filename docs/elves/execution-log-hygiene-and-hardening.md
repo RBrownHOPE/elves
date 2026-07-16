@@ -207,3 +207,13 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
   the now-codified convention — 39bd71d and e47d9f8 used a second `Close` for their batch and
   39bd71d also carried a B3 plan amendment under a Batch 1/7 label. History is not rewritten
   (force-push forbidden); the convention now lives in SKILL.md via B3-A5.
+
+## Decisions made (continued 4)
+
+- D11 (user-directed, during B4 transient crashes): plan gains B8 — worker failure recovery
+  policy. Transient provider errors retry with escalating backoff (5m → 10m → 20m) and never
+  consume the substantive re-drive budget; workers maintain an untracked progress ledger under
+  .elves/runtime/ from orientation onward. Applied operationally to B4 immediately (two 529
+  crashes so far, zero budget consumed, backoffs 5m then 10m); codified in contract text by B8.
+  Amendment committed under the Batch 8 · Contract label per the B3 phase-role rule, in the
+  driver-safe window while no worker was active (index-race avoidance).

@@ -197,6 +197,30 @@
       ],
       "id": "B7",
       "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "SKILL.md states the transient-vs-substantive failure classes with the backoff-not-budget rule in exactly one authoritative place; consistency checker green",
+          "evidence": "",
+          "id": "B8-A1",
+          "met": false
+        },
+        {
+          "criterion": "Survival-guide template `Re-drive budget` wording carries the split and `validate_survival_guide.py` still accepts this run's existing guide unchanged",
+          "evidence": "",
+          "id": "B8-A2",
+          "met": false
+        },
+        {
+          "criterion": "The worker progress ledger is documented in the handoff standard and echoed in the kickoff template as an untracked operational artifact",
+          "evidence": "",
+          "id": "B8-A3",
+          "met": false
+        }
+      ],
+      "id": "B8",
+      "status": "pending"
     }
   ],
   "branch": "elves/hygiene-and-hardening",

@@ -380,6 +380,61 @@ identical (same interpreter invocation, same env contract).
 
 ---
 
+### Batch 8 [B8]: Worker failure recovery policy
+
+**Coordinator-to-implementer handoff (required when an external or less-capable worker implements):**
+- **Intent / why:** transient provider errors (529 overload) killed worker sessions three times in
+  B3 and twice in B4 during this very run; each was charged against the substantive re-drive
+  budget (B3) or retried immediately into the same overload window, and a worker that dies during
+  orientation leaves no durable trace for a cold restart. Failure handling must distinguish
+  infrastructure from substance (user-directed, 2026-07-16).
+- **Non-obvious rationale:** the fix is contract text, not code — elves cannot prevent provider
+  overload, but it can stop the budget conflation, mandate backoff, and make orientation durable.
+- **Build On targets:** SKILL.md handoff standard (cadence paragraph from B3), survival-guide
+  template Run Control delegated fields, kickoff template staging list.
+- **Owned surfaces:** SKILL.md, references/survival-guide-template.md,
+  references/kickoff-prompt-template.md, scripts/consistency_policy.py (only if a pin is needed),
+  matching tests.
+- **Forbidden surfaces:** runtime code; validator exit codes; the plan; the run survival guide.
+- **Acceptance evidence:** B8-A1..A3 with consistency + survival-guide validator green.
+- **Failure modes / pitfalls:** do not add a new REQUIRED survival-guide field (existing guides
+  must stay valid); keep one authoritative statement and link elsewhere.
+- **HEAD / run-doc paths / route-session identity / output format:** per run docs.
+
+**Tasks:**
+- [ ] SKILL.md worker-lifecycle rule (one authoritative place, near the handoff standard's cadence
+  paragraph): transient provider errors (overload, rate-limit, network) are retried with
+  escalating backoff (e.g. 5m → 10m → 20m) and do **not** consume the re-drive budget; the budget
+  applies only to substantive failures (wrong direction, repeatedly red gates, malformed
+  completion). After a batch's first transient crash, the driver instructs the worker to maintain
+  a progress ledger.
+- [ ] Handoff standard: the worker progress ledger — an untracked note under
+  `.elves/runtime/worker-progress-<batch>.md` (files read, decisions made, next exact action),
+  refreshed at each milestone so a cold re-drive starts oriented; never committed.
+- [ ] Survival-guide template `Re-drive budget` wording gains the transient/substantive split
+  (value wording only; no new required field).
+- [ ] Kickoff template: one echo line pointing at the SKILL.md rule.
+
+**Acceptance criteria:**
+- [ ] [B8-A1] SKILL.md states the transient-vs-substantive failure classes with the
+  backoff-not-budget rule in exactly one authoritative place; consistency checker green
+- [ ] [B8-A2] Survival-guide template `Re-drive budget` wording carries the split and
+  `validate_survival_guide.py` still accepts this run's existing guide unchanged
+- [ ] [B8-A3] The worker progress ledger is documented in the handoff standard and echoed in the
+  kickoff template as an untracked operational artifact
+
+**Docs likely touched:** SKILL.md, survival-guide-template.md, kickoff-prompt-template.md, CHANGELOG
+
+**Risk:** `low` — contract text and templates only.
+**Caution:** no new required survival-guide fields; existing guides must validate unchanged.
+**Affected surfaces:** SKILL.md, two templates, possibly consistency pins
+**Constitution impacts:** none
+**Review focus:** the rule is stated once and linked, not restated
+**Focused tests:** `tests/test_validate_survival_guide.py`, `tests/test_check_repo_consistency.py`
+**Depends on:** B3 (cadence paragraph exists)
+
+---
+
 ## Master Acceptance
 
 - [ ] [M-A1] Full suite green in an environment that includes short-valued secret-named env vars
