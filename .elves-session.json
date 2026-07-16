@@ -4,25 +4,25 @@
       "acceptance": [
         {
           "criterion": "`python3 -m unittest tests.test_cobbler_agents_implement` passes with `CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 CLAUDE_CODE_CHILD_SESSION=1` exported",
-          "evidence": "",
+          "evidence": "At commit 5729f97 with both flags exported: Ran 67 tests ... OK (skipped=3). Pre-fix baseline at 2d0516d: FAILED (failures=1) test_cli_gate_failure_exit_code. Full suite with flags exported: Ran 1034 tests ... OK (skipped=12); identical with the Claude Code vars unset (CI-like).",
           "id": "B1-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "New regression test proves exact-value redaction still fires for a secret-named env var with a >=8-char value (old behavior preserved)",
-          "evidence": "",
+          "evidence": "RunGateTests.test_gate_still_redacts_minimum_length_secret_named_env_values (tests/test_cobbler_agents_implement.py): an exactly-8-char CUSTOM_GATE_TOKEN value printed by the gate child appears as [REDACTED:exact_grant] in the returned record and in persisted gates/batch-13.json. Collector unit tests in tests/test_cobbler_agents_dispatch.py (ContextRedactionTests.test_collect_secret_env_values_*) pin the 8-char boundary both ways. Commit 5729f97; revert-check confirmed the corruption-direction tests fail on pre-fix source while this one passes.",
           "id": "B1-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Exactly one env-derived exact-secret collector remains; both call sites import it",
-          "evidence": "",
+          "evidence": "grep: def collect_secret_env_values exists only at scripts/cobbler_runtime/context.py:238 (MIN_EXACT_SECRET_VALUE_LENGTH=8); implement.py _inherited_secret_values and cobbler_agents.py _secret_env_values are deleted; both modules import the collector (implement.py:30, cobbler_agents.py:76) and every env-derived exact_values feed calls it (implement.py:2278; cobbler_agents.py:157,240,251,264,1219,1489). Grant-derived exact values (implement.py exact_grants, worker verified_grant_values) remain separate by design. Commit 5729f97.",
           "id": "B1-A3",
-          "met": false
+          "met": true
         }
       ],
       "id": "B1",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [
