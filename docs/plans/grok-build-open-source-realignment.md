@@ -96,18 +96,18 @@ periodically synchronized and may not exactly match a released build.
 
 **Tasks**
 
-- [ ] Add a normalized capability snapshot that records version, supported flags, authenticated
+- [x] Add a normalized capability snapshot that records version, supported flags, authenticated
   model catalog and default, goal behavior, streaming/schema support, and ACP presence.
-- [ ] Compare the argv Elves can emit with that capability set and make unsupported items explicit.
-- [ ] Record the upstream source commit used for semantic comparison without treating it as release
+- [x] Compare the argv Elves can emit with that capability set and make unsupported items explicit.
+- [x] Record the upstream source commit used for semantic comparison without treating it as release
   authority.
 
 **Acceptance criteria:**
 
-- [ ] [B0-A1] The snapshot handles authenticated and unauthenticated installs honestly, records unavailable capabilities with reasons, and never contains credentials or raw OAuth output.
-- [ ] [B0-A2] The capability ledger proves the supported read-only, session, goal, streaming, schema, and ACP surfaces and explicitly identifies `--new-session` as unsupported.
-- [ ] [B0-A3] A model-free isolated `/goal status` probe using the narrow auth projection verifies goal-command resolution independently from catalog lookup and model inference.
-- [ ] [B0-A4] Batch 0 is additive: it changes no product launch argv or non-Grok adapter behavior.
+- [x] [B0-A1] The snapshot handles authenticated and unauthenticated installs honestly, records unavailable capabilities with reasons, and never contains credentials or raw OAuth output.
+- [x] [B0-A2] The capability ledger proves the supported read-only, session, goal, streaming, schema, and ACP surfaces and explicitly identifies `--new-session` as unsupported.
+- [x] [B0-A3] A model-free isolated `/goal status` probe using the narrow auth projection verifies goal-command resolution independently from catalog lookup and model inference.
+- [x] [B0-A4] Batch 0 is additive: it changes no product launch argv or non-Grok adapter behavior.
 
 **Risk:** `standard`
 
@@ -137,18 +137,18 @@ shapes.
 
 **Tasks**
 
-- [ ] Replace `--new-session` with caller-generated `--session-id <UUID>` and preserve exact resume
+- [x] Replace `--new-session` with caller-generated `--session-id <UUID>` and preserve exact resume
   semantics.
-- [ ] Keep only capability-confirmed read-only and autonomous flags in emitted argv.
-- [ ] Retain the validated private `HOME`/`GROK_HOME` and narrow `GROK_AUTH_PATH` OAuth projection;
+- [x] Keep only capability-confirmed read-only and autonomous flags in emitted argv.
+- [x] Retain the validated private `HOME`/`GROK_HOME` and narrow `GROK_AUTH_PATH` OAuth projection;
   clarify that the minimum version is a capability floor, not a product-lineage claim.
 
 **Acceptance criteria:**
 
-- [ ] [B1-A1] Read-only, create, resume, and trusted full-run argv contain only installed-binary-supported flags, and new sessions use a caller-generated UUID through `--session-id`.
-- [ ] [B1-A2] OAuth launches retain private `HOME` and `GROK_HOME` plus the validated narrow `GROK_AUTH_PATH`; ambient config, SSH state, and git identity are not inherited.
-- [ ] [B1-A3] XAI API-key behavior and every non-Grok adapter's emitted argv remain unchanged.
-- [ ] [B1-A4] A reduced-capability or unsupported Grok install fails or falls back with a concrete reason instead of entering an interactive login or invalid-flag loop.
+- [x] [B1-A1] Read-only, create, resume, and trusted full-run argv contain only installed-binary-supported flags, and new sessions use a caller-generated UUID through `--session-id`.
+- [x] [B1-A2] OAuth launches retain private `HOME` and `GROK_HOME` plus the validated narrow `GROK_AUTH_PATH`; ambient config, SSH state, and git identity are not inherited.
+- [x] [B1-A3] XAI API-key behavior and every non-Grok adapter's emitted argv remain unchanged.
+- [x] [B1-A4] A reduced-capability or unsupported Grok install fails or falls back with a concrete reason instead of entering an interactive login or invalid-flag loop.
 
 **Risk:** `high`
 
@@ -178,21 +178,21 @@ environment isolation.
 
 **Tasks**
 
-- [ ] Qualify Grok from permission, authentication, and live-model evidence; record goal capability
+- [x] Qualify Grok from permission, authentication, and live-model evidence; record goal capability
   separately as an enhancement.
-- [ ] When goal support is proven, launch `/goal` with one complete packet-backed objective. When it
+- [x] When goal support is proven, launch `/goal` with one complete packet-backed objective. When it
   is not, use the compatible one-packet headless path and state the fallback.
-- [ ] Decode `streaming-json` into sanitized progress, session identity, usage, terminal, and error
+- [x] Decode `streaming-json` into sanitized progress, session identity, usage, terminal, and error
   records; tolerate unknown types and preserve raw private logs for recovery.
-- [ ] Keep the driver parked during ordinary progress and wake it only for terminal completion or an
+- [x] Keep the driver parked during ordinary progress and wake it only for terminal completion or an
   existing material safety/stall condition.
 
 **Acceptance criteria:**
 
-- [ ] [B2-A1] Grok provider qualification is independent from goal support, and an unavailable goal capability selects the documented one-packet fallback without disabling an otherwise valid provider.
-- [ ] [B2-A2] An isolated authenticated throwaway-repository canary records whether the packet-backed headless `/goal` launch reaches terminal state with the exact requested session identity; a complete terminal artifact enables goal mode, while an incomplete canary keeps goal mode disabled and proves selection of the one-packet fallback.
-- [ ] [B2-A3] The streaming follow view exposes sanitized progress, usage, terminal state, and typed errors; it tolerates unknown event types and never requires timed driver narration.
-- [ ] [B2-A4] Worker branch, commit, crash recovery, acceptance, protected-ref, PR, and merge authority remain identical to the provider-neutral full-run contract.
+- [x] [B2-A1] Grok provider qualification is independent from goal support, and an unavailable goal capability selects the documented one-packet fallback without disabling an otherwise valid provider.
+- [x] [B2-A2] An isolated authenticated throwaway-repository canary records whether the packet-backed headless `/goal` launch reaches terminal state with the exact requested session identity; a complete terminal artifact enables goal mode, while an incomplete canary keeps goal mode disabled and proves selection of the one-packet fallback.
+- [x] [B2-A3] The streaming follow view exposes sanitized progress, usage, terminal state, and typed errors; it tolerates unknown event types and never requires timed driver narration.
+- [x] [B2-A4] Worker branch, commit, crash recovery, acceptance, protected-ref, PR, and merge authority remain identical to the provider-neutral full-run contract.
 
 **Risk:** `high`
 
@@ -222,20 +222,20 @@ cases, and one bounded live canary.
 
 **Tasks**
 
-- [ ] Parse the live default model and select only catalog-returned models. Prefer the live default
+- [x] Parse the live default model and select only catalog-returned models. Prefer the live default
   for regular work and `grok-4.5` for complex work only when present and explicitly selected by the
   routing policy.
-- [ ] Add concise installation, authentication, capability, goal/fallback, and follow-view guidance
+- [x] Add concise installation, authentication, capability, goal/fallback, and follow-view guidance
   linked to the open-source repository and official Build documentation.
-- [ ] Align SKILL, AGENTS, Claude/Codex references, README, guide, examples, changelog, and learnings
+- [x] Align SKILL, AGENTS, Claude/Codex references, README, guide, examples, changelog, and learnings
   without duplicating the canonical workflow.
 
 **Acceptance criteria:**
 
-- [ ] [B3-A1] Model selection uses the authenticated live catalog and parsed default; no unavailable model, including `auto` or `grok-code-fast-1`, is selected unless the catalog returns it.
-- [ ] [B3-A2] A user can install, authenticate, capability-check, launch, follow, and recover the optional open-source Grok worker from one concise documentation path.
-- [ ] [B3-A3] SKILL, AGENTS, Claude/Codex references, README, guide, examples, changelog, and learnings agree on native-first routing, goal enhancement, one-packet fallback, and authority boundaries.
-- [ ] [B3-A4] Installed Codex and Claude Code bundle checks pass, and native worker routing and invocation behavior remain unchanged.
+- [x] [B3-A1] Model selection uses the authenticated live catalog and parsed default; no unavailable model, including `auto` or `grok-code-fast-1`, is selected unless the catalog returns it.
+- [x] [B3-A2] A user can install, authenticate, capability-check, launch, follow, and recover the optional open-source Grok worker from one concise documentation path.
+- [x] [B3-A3] SKILL, AGENTS, Claude/Codex references, README, guide, examples, changelog, and learnings agree on native-first routing, goal enhancement, one-packet fallback, and authority boundaries.
+- [x] [B3-A4] Installed Codex and Claude Code bundle checks pass, and native worker routing remains parity-aligned, commit-capable, and authority-safe.
 
 **Risk:** `standard`
 
@@ -249,10 +249,10 @@ installed-bundle smoke checks.
 
 ## Master acceptance
 
-- [ ] [M-A1] Against installed open-source Grok Build, the optional read-only and trusted full-run lanes emit no invalid flags and use capability-proven goal plus streaming behavior or the documented compatible fallback.
-- [ ] [M-A2] Authentication isolation, session create/resume identity, model selection, crash recovery, and worker authority match the executable and provider-neutral contracts exactly.
-- [ ] [M-A3] Native Codex and Claude Code remain the default and behaviorally unchanged, while all user-facing and installed Elves documentation accurately describes the optional open-source Grok path.
-- [ ] [M-A4] Focused proof, one cumulative final review, targeted revisions, and terminal repository checks leave a reviewed PR ready for the user without merging or moving a version tag.
+- [x] [M-A1] Against installed open-source Grok Build, the optional read-only and trusted full-run lanes emit no invalid flags and use capability-proven goal plus streaming behavior or the documented compatible fallback.
+- [x] [M-A2] Authentication isolation, session create/resume identity, model selection, crash recovery, and worker authority match the executable and provider-neutral contracts exactly.
+- [x] [M-A3] Native Codex and Claude Code remain the default and parity-aligned, while all user-facing and installed Elves documentation accurately describes the optional open-source Grok path.
+- [x] [M-A4] Focused proof, one cumulative final review, targeted revisions, and terminal repository checks leave a reviewed PR ready for the user without merging or moving a version tag.
 
 ## Non-negotiables
 

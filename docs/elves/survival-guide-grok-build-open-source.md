@@ -42,8 +42,8 @@ fallback.
 - **Planned batches remaining:** terminal proof and readiness
 - **Stop allowed right now:** no
 - **Why:** the user resumed the full goal through reviewed-PR readiness
-- **Next required action:** commit the consolidated blocker revisions, re-read this guide, then run
-  the single acceptance-bearing terminal proof pass
+- **Next required action:** commit the acceptance evidence, re-read this guide, then run the single
+  acceptance-bearing terminal proof pass
 
 ## Effort standard
 
@@ -56,11 +56,11 @@ focused tests. The driver reviews the cumulative diff once at the end and revisi
 - **Status:** terminal verification
 - **Active compute:** none
 - **Active batch:** final readiness
-- **What was just finished:** one cumulative root review plus three independent reviews found and
-  fixed the real blockers: installed catalog grammar, structured goal-canary proof, cross-record
-  credential redaction, linked-worktree Git authority, acceptance wording, and documentation parity
-- **Single next action:** commit this consolidated revision, then run the canonical final-readiness
-  proof once after recording acceptance evidence
+- **What was just finished:** the consolidated revision is committed at `353718b`; every plan and
+  session criterion now has concrete evidence, and acceptance identity validates across plan,
+  session, and the ignored worker packet
+- **Single next action:** commit the evidence-bearing run state, re-read this guide, then run the
+  canonical final-readiness proof once
 
 ## Worker authority
 

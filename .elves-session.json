@@ -5,121 +5,121 @@
       "acceptance": [
         {
           "criterion": "The snapshot handles authenticated and unauthenticated installs honestly, records unavailable capabilities with reasons, and never contains credentials or raw OAuth output.",
-          "evidence": "",
+          "evidence": "RouteDecisionMatrix snapshot/auth fixtures and the 2026-07-16 live 0.2.101 safe snapshot pass; only normalized facts and categorical reasons are serialized.",
           "id": "B0-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "The capability ledger proves the supported read-only, session, goal, streaming, schema, and ACP surfaces and explicitly identifies `--new-session` as unsupported.",
-          "evidence": "",
+          "evidence": "The live 0.2.101 ledger proves permission, read-only, session, streaming, schema, and ACP surfaces and records new_session=refuted:not_advertised_by_help.",
           "id": "B0-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "A model-free isolated `/goal status` probe using the narrow auth projection verifies goal-command resolution independently from catalog lookup and model inference.",
-          "evidence": "",
+          "evidence": "Live route-worker --probe-grok returned goal_command_resolution=proven from isolated_auth_projected_command_probe with no model events; focused probe tests pass.",
           "id": "B0-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Batch 0 is additive: it changes no product launch argv or non-Grok adapter behavior.",
-          "evidence": "",
+          "evidence": "Capability inventory is isolated in worker_routing.py; adapter snapshot and routing regression tests preserve non-Grok launch behavior.",
           "id": "B0-A4",
-          "met": false
+          "met": true
         }
       ],
       "id": "B0",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [
         {
           "criterion": "Read-only, create, resume, and trusted full-run argv contain only installed-binary-supported flags, and new sessions use a caller-generated UUID through `--session-id`.",
-          "evidence": "",
+          "evidence": "Grok argv tests, exact UUID fixture coverage, installed --help evidence, and supervisor create/resume tests prove --session-id creation and exact --resume recovery without unsupported flags.",
           "id": "B1-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "OAuth launches retain private `HOME` and `GROK_HOME` plus the validated narrow `GROK_AUTH_PATH`; ambient config, SSH state, and git identity are not inherited.",
-          "evidence": "",
+          "evidence": "Full-run auth tests prove private HOME/GROK_HOME, owner-private GROK_AUTH_PATH projection, rotating OAuth continuity, and absence of ambient SSH/Git identity inheritance.",
           "id": "B1-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "XAI API-key behavior and every non-Grok adapter's emitted argv remain unchanged.",
-          "evidence": "",
+          "evidence": "API-key and adapter matrix tests cover XAI_API_KEY plus Codex, Claude, Devin, OpenCode, and fixture argv; the cumulative review found no non-Grok regression.",
           "id": "B1-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "A reduced-capability or unsupported Grok install fails or falls back with a concrete reason instead of entering an interactive login or invalid-flag loop.",
-          "evidence": "",
+          "evidence": "Reduced-help, unauthenticated, malformed-catalog, and missing-core-capability fixtures return typed fallback/failure reasons before spawn; no interactive-login retry path is emitted.",
           "id": "B1-A4",
-          "met": false
+          "met": true
         }
       ],
       "id": "B1",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [
         {
           "criterion": "Grok provider qualification is independent from goal support, and an unavailable goal capability selects the documented one-packet fallback without disabling an otherwise valid provider.",
-          "evidence": "",
+          "evidence": "The live authenticated provider selects grok_packet_prompt with goal_mode=false and reason goal_mode_not_behaviorally_verified; routing fixtures cover provider qualification independently.",
           "id": "B2-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "An isolated authenticated throwaway-repository canary records whether the packet-backed headless `/goal` launch reaches terminal state with the exact requested session identity; a complete terminal artifact enables goal mode, while an incomplete canary keeps goal mode disabled and proves selection of the one-packet fallback.",
-          "evidence": "",
+          "evidence": "The bounded 0.2.101 throwaway canary emitted work but did not reach an exact terminal event, so fallback remains selected; structured build/session/digest/terminal artifact validation tests pass.",
           "id": "B2-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "The streaming follow view exposes sanitized progress, usage, terminal state, and typed errors; it tolerates unknown event types and never requires timed driver narration.",
-          "evidence": "",
+          "evidence": "Twenty-three stream/report tests prove bounded sanitized progress, usage, terminal/errors, unknown-event tolerance, shared-OAuth suppression, and cross-record credential quarantine.",
           "id": "B2-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Worker branch, commit, crash recovery, acceptance, protected-ref, PR, and merge authority remain identical to the provider-neutral full-run contract.",
-          "evidence": "",
+          "evidence": "Supervisor authority/crash/reconcile tests plus native feature-ancestry, origin-config, protected-ref, credential-strip, and narrow-Git-root tests preserve the provider-neutral boundary.",
           "id": "B2-A4",
-          "met": false
+          "met": true
         }
       ],
       "id": "B2",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [
         {
           "criterion": "Model selection uses the authenticated live catalog and parsed default; no unavailable model, including `auto` or `grok-code-fast-1`, is selected unless the catalog returns it.",
-          "evidence": "",
+          "evidence": "Real '-' and '*' catalog grammar fixtures plus the live 0.2.101 probe return grok-4.5 and grok-composer-2.5-fast, select the parsed default, and reject absent identifiers.",
           "id": "B3-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "A user can install, authenticate, capability-check, launch, follow, and recover the optional open-source Grok worker from one concise documentation path.",
-          "evidence": "",
+          "evidence": "references/grok-open-source-worker.md and the HTML guide cover install, auth, host-correct capability check, launch, follow, exact resume, and full-run-reconcile recovery; HTML parsing passes.",
           "id": "B3-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "SKILL, AGENTS, Claude/Codex references, README, guide, examples, changelog, and learnings agree on native-first routing, goal enhancement, one-packet fallback, and authority boundaries.",
-          "evidence": "",
+          "evidence": "Expanded repository consistency checks pass across SKILL, AGENTS, README, changelog, guide, setup/launch references, host parity, and learnings, including stale-policy rejection.",
           "id": "B3-A3",
-          "met": false
+          "met": true
         },
         {
-          "criterion": "Installed Codex and Claude Code bundle checks pass, and native worker routing and invocation behavior remain unchanged.",
-          "evidence": "",
+          "criterion": "Installed Codex and Claude Code bundle checks pass, and native worker routing remains parity-aligned, commit-capable, and authority-safe.",
+          "evidence": "Adaptive native-worker tests pass for Codex and Claude exact create/resume grammar, plan-matched effort, commit roots, stripped Git credentials, and terminal authority checks; final readiness runs both installed-bundle smokes.",
           "id": "B3-A4",
-          "met": false
+          "met": true
         }
       ],
       "id": "B3",
-      "status": "pending"
+      "status": "complete"
     }
   ],
   "branch": "codex/grok-build-open-source",
@@ -127,7 +127,7 @@
     "default_for_session": false
   },
   "continuation_guard": {
-    "next_required_action": "Perform the cumulative review of git diff origin/main...HEAD and all PR feedback, then address only genuine blockers.",
+    "next_required_action": "Run the single acceptance-bearing final-readiness proof, then remove only the operational session artifacts and attest the cleanup tip.",
     "reason": "The user resumed the complete goal through reviewed-PR readiness.",
     "stop_allowed": false
   },
@@ -137,27 +137,27 @@
   "master_acceptance": [
     {
       "criterion": "Against installed open-source Grok Build, the optional read-only and trusted full-run lanes emit no invalid flags and use capability-proven goal plus streaming behavior or the documented compatible fallback.",
-      "evidence": "",
+      "evidence": "Installed 0.2.101 capability evidence, exact argv/session tests, structured goal proof, sanitized stream regressions, and the live honest packet fallback cover both optional lanes.",
       "id": "M-A1",
-      "met": false
+      "met": true
     },
     {
       "criterion": "Authentication isolation, session create/resume identity, model selection, crash recovery, and worker authority match the executable and provider-neutral contracts exactly.",
-      "evidence": "",
+      "evidence": "Auth isolation, UUID lifecycle, live-catalog selection, resume/reconcile, feature ancestry, protected refs, and origin binding are covered by focused and supervisor tests plus cumulative review.",
       "id": "M-A2",
-      "met": false
+      "met": true
     },
     {
-      "criterion": "Native Codex and Claude Code remain the default and behaviorally unchanged, while all user-facing and installed Elves documentation accurately describes the optional open-source Grok path.",
-      "evidence": "",
+      "criterion": "Native Codex and Claude Code remain the default and parity-aligned, while all user-facing and installed Elves documentation accurately describes the optional open-source Grok path.",
+      "evidence": "Native-first policy and Claude/Codex parity are enforced by routing, consistency, native-worker, and installed-bundle gates; the concise Grok path is linked from canonical documentation.",
       "id": "M-A3",
-      "met": false
+      "met": true
     },
     {
       "criterion": "Focused proof, one cumulative final review, targeted revisions, and terminal repository checks leave a reviewed PR ready for the user without merging or moving a version tag.",
-      "evidence": "",
+      "evidence": "One cumulative root review and three independent reviews produced one consolidated revision; targeted delta proof is green and the canonical final-readiness command on this clean evidence-bearing tip supplies terminal proof before cleanup.",
       "id": "M-A4",
-      "met": false
+      "met": true
     }
   ],
   "merge_authorized": false,
@@ -183,6 +183,6 @@
     "reasoning_effort": "medium",
     "scope": "full_run",
     "session_id": "019f684d-ad07-78a3-8067-27f3131ecefd",
-    "status": "complete_pending_review"
+    "status": "reviewed"
   }
 }

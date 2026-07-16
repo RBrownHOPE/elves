@@ -88,5 +88,7 @@ remain unauthorized.
 - Targeted delta proof: 32 adaptive-routing/native-worker tests, 24 Grok stream/goal-state tests,
   76 consistency tests, the repository consistency checker, guide HTML parsing, compilation, a
   live installed-binary Grok 4.5 route snapshot, and `git diff --check` pass.
+- Acceptance evidence: all 16 batch criteria and 4 master criteria are checked with concrete proof;
+  plan/session/packet identity validates with no issues.
 - Next: one canonical final-readiness proof after acceptance evidence is recorded, followed by the
   narrow operational-artifact cleanup and current-tip CI attestation.
