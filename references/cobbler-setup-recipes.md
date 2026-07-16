@@ -287,12 +287,12 @@ python3 scripts/cobbler_agents.py implement rollback-ref --json \
 
 python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --session-id <exact-uuid> --branch <feature-branch> --start-head <start-head> \
-  --worktree <path> --packet <packet.json> --adapter grok-build
+  --worktree <path> --packet <packet.json> --adapter grok-build --model auto
 
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
   --session-id <exact-uuid> --grant-grok-auth --grant-github-push
 
-python3 scripts/cobbler_agents.py implement full-run-monitor --json \
+python3 scripts/cobbler_agents.py implement full-run-await --json \
   --session-id <exact-uuid>
 
 python3 scripts/cobbler_agents.py implement full-run-logs --json \
@@ -313,10 +313,13 @@ normal completion or close command.
 keeps isolated `HOME`/`GROK_HOME` state and exposes only the validated canonical owner-private
 `auth.json` through Grok's native `GROK_AUTH_PATH`, so native locking and refresh-token rotation
 operate on one file. Raw transcript tails are disabled for this route. API-key users should replace
-it with `--grant-env XAI_API_KEY`; prefer that route for CI or untrusted lanes. Shared OAuth
-requires Grok Build 0.2.93+ with the native capability marker; older or unsupported binaries fail
-before spawn and must upgrade or use the API-key route. The strategies are mutually exclusive, and
-no supported auth means launch fails before any provider process starts.
+it with `--grant-env XAI_API_KEY`; prefer that route for CI or untrusted lanes. Older or
+unsupported binaries fail before spawn and must upgrade or use the API-key route. The
+strategies are mutually exclusive, and no supported auth means launch fails before any provider
+process starts. New sessions use the caller UUID through supported `--session-id`; models resolve
+only from the authenticated live catalog. Proven headless `/goal` is an enhancement, while missing
+goal behavior uses the recorded one-packet fallback. See
+[`grok-open-source-worker.md`](grok-open-source-worker.md) for capability-check, follow, and recovery.
 
 ### Trusted Devin CLI full-run lifecycle
 
@@ -377,10 +380,10 @@ containment.
 ### Legacy bounded lifecycle (Grok or OpenCode)
 
 ```bash
-# Grok Build Lane A (default adapter) — model aliases fast|deep; optional --check
+# Grok Build Lane A (default adapter) — live catalog only; optional --check
 python3 scripts/cobbler_agents.py implement prepare --json \
   --adapter grok-build \
-  --model deep \
+  --model <live-model-id> \
   --session-id <uuid> \
   --worktree <path>
 
@@ -388,7 +391,7 @@ python3 scripts/cobbler_agents.py implement launch --json \
   --packet .elves/runtime/packets/batch-N.md \
   --session-id <uuid> \
   --cwd <worktree>
-# Optional: --check (Grok post-work verify), --effort high, --model fast|deep|grok-4.5
+# Optional: --check (Grok post-work verify), --effort high
 # See references/grok-implementer-launch-prompt.md (denylist note + community credit).
 
 # OpenCode work driver

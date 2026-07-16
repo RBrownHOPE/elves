@@ -146,6 +146,13 @@ silently deleting it.
   `full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`. `full-run-stop` is cancellation
   or recovery only. Keep `prepare|launch|gate|resume-batch|status` as the legacy bounded route and
   use `untrusted` host-import leases only when the hard writer boundary is required.
+- [2026-07-15] For open-source Grok Build, the installed executable is launch authority and
+  upstream source is semantic reference. Build 0.2.101 proves caller-assigned `--session-id`, exact
+  resume, `/goal`, streaming JSON, JSON schema, ACP, and the existing autonomous/read-only flags;
+  it rejects `--new-session`. Qualify provider/auth/live catalog independently from goal behavior,
+  select only catalog-returned models (using its parsed default unless explicitly pinned), and use
+  the one-packet prompt fallback when headless goal is unavailable. Preserve private
+  `HOME`/`GROK_HOME` plus the narrow `GROK_AUTH_PATH`, and never persist raw OAuth or provider output.
 - [2026-07-13] An isolated headless Grok process cannot inherit an interactive subscription login
   accidentally. Require exactly one explicit strategy before spawn: grant `XAI_API_KEY` by name, or
   for trusted Lane A keep the run's private `GROK_HOME` while exposing only the validated canonical

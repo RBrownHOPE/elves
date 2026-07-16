@@ -145,11 +145,13 @@ separate native worker lifecycle is unavailable.
 
 Optional Grok Build is selected only when available **and permitted**. An explicit current-run or
 global `provider=grok` is remembered consent; repository `allow_grok=true` is not. Repository
-`allow_grok=false` remains an absolute veto. Regular clear work pins
-`grok-composer-2.5-fast`; genuinely complex execution may explicitly pin `grok-4.5`. Advertised
-goal syntax is recorded separately and goal mode requires behavioral verification. Missing
-auth/model/goal capability or repository prohibition falls back honestly to native. See
-`references/adaptive-worker-routing.md`.
+`allow_grok=false` remains an absolute veto. Model selection comes from the authenticated live
+catalog and its parsed default; an explicit model (including `grok-4.5`) is valid only when that
+catalog returns it. Installed-binary capability evidence is launch authority. Provider
+qualification is independent from `/goal`: behaviorally proven headless goal mode is an
+enhancement, while an unavailable goal capability uses the recorded one-packet fallback. Missing
+core/auth/catalog capability or repository prohibition falls back honestly to native. See
+`references/adaptive-worker-routing.md` and `references/grok-open-source-worker.md`.
 
 **Optional work drivers:** trusted Grok Build full-run
 (`implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs`;

@@ -659,14 +659,15 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup</code></pre>
             </tr>
             <tr>
               <td data-label="Situation">Grok Build is available and allowed</td>
-              <td data-label="Usual choice"><code>grok-composer-2.5-fast</code></td>
-              <td data-label="Why">A fast default for regular, clearly planned implementation.</td>
+              <td data-label="Usual choice">Authenticated live default</td>
+              <td data-label="Why">Elves selects only a model returned by the installed CLI's live
+                catalog.</td>
             </tr>
             <tr>
               <td data-label="Situation">The implementation is genuinely complex</td>
-              <td data-label="Usual choice"><code>grok-4.5</code></td>
-              <td data-label="Why">Use the stronger worker when the plan calls for high execution
-                reasoning.</td>
+              <td data-label="Usual choice">Explicit live-catalog model</td>
+              <td data-label="Why">Pin a stronger model only when the authenticated catalog returns
+                that exact identifier.</td>
             </tr>
             <tr>
               <td data-label="Situation">Devin CLI is installed and configured</td>
@@ -680,7 +681,10 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup</code></pre>
 
         <p>Native workers inherit the observed current model unless the route explicitly pins a
           model. Their reasoning effort follows the plan. The live driver is not downgraded.
-          Devin CLI and other configured adapters remain optional routes, not required setup.</p>
+          Devin CLI and other configured adapters remain optional routes, not required setup.
+          Grok provider availability is independent from goal support: proven headless
+          <code>/goal</code> is an enhancement, and a compatible one-packet prompt is the recorded
+          fallback.</p>
 
         <div class="note">
           <strong>Cache handoff is not promised.</strong> A separate session may receive provider
@@ -782,8 +786,10 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences reset</code></
         <details>
           <summary>Grok Build was not selected.</summary>
           <p>Installation is not permission. Elves also checks authentication, repository policy,
-            remembered or current-run consent, model availability, and any required goal-mode
-            verification. A failed check falls back to the native route and records why.</p>
+            remembered or current-run consent, core installed-binary capabilities, and the
+            authenticated live model catalog. A failed core check falls back to the native route
+            and records why. Missing goal support alone uses the one-packet fallback without
+            disabling an otherwise valid Grok provider.</p>
         </details>
 
         <details>
@@ -796,6 +802,7 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences reset</code></
         <h3>Deeper references</h3>
         <ul>
           <li><a href="https://github.com/aigorahub/elves/blob/main/references/adaptive-worker-routing.md">Adaptive worker routing</a></li>
+          <li><a href="https://github.com/aigorahub/elves/blob/main/references/grok-open-source-worker.md">Open-source Grok Build worker</a></li>
           <li><a href="https://github.com/aigorahub/elves/blob/main/references/joyful-runs-contract.md">Joyful runs contract</a></li>
           <li><a href="https://github.com/aigorahub/elves/blob/main/references/landing-authority.md">Landing authority</a></li>
           <li><a href="https://github.com/aigorahub/elves/blob/main/references/host-parity.md">Claude Code and Codex parity</a></li>

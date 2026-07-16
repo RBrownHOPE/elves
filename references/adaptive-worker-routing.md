@@ -69,10 +69,17 @@ review risk may advise a stronger terminal-review driver without changing it in 
 
 When Grok Build is explicitly permitted and silently qualifies:
 
-- regular clear low/medium execution pins `grok-composer-2.5-fast`;
-- genuinely complex high execution pins `grok-4.5`;
-- missing install, auth, model, consent, or behaviorally verified goal mode records an honest
-  native fallback. Help text proves only an advertised entrypoint; a TUI-only `/goal` proves less.
+- choose the parsed default from the authenticated live `grok models` catalog unless the operator
+  explicitly requests another catalog member;
+- never invent `auto`, `grok-code-fast-1`, `grok-4.5`, or any other unavailable model;
+- missing install, auth, live catalog, supported session grammar, consent, or another core launch
+  capability records an honest native fallback with a concrete reason;
+- goal support is separate: behaviorally verified headless `/goal` enhances the launch, while an
+  otherwise qualified provider uses the recorded one-packet prompt fallback when goal is absent.
+  Help text alone proves only an advertised entrypoint.
+
+The installed executable is launch authority; upstream source is semantic reference only. See
+[`grok-open-source-worker.md`](grok-open-source-worker.md) for the complete optional-worker path.
 
 ## Host transports, same contract
 

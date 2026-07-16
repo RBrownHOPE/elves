@@ -378,7 +378,8 @@ python3 scripts/cobbler_agents.py implement rollback-ref --json \
 # 2) Prepare supervisor artifacts for one exact session
 python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --session-id <exact-uuid> --branch <feature-branch> --start-head <sha> \
-  --worktree <path> --packet <packet.json> --session .elves-session.json
+  --worktree <path> --packet <packet.json> --session .elves-session.json \
+  --adapter grok-build --model auto
 
 # 3) Background-launch Grok with exactly one explicit auth strategy.
 # Existing Grok subscription/OAuth login (trusted Lane A only): share only canonical auth.json.
@@ -394,8 +395,8 @@ python3 scripts/cobbler_agents.py implement full-run-launch --json \
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
   --session-id <exact-uuid> --grant-devin-auth --grant-github-push
 
-# 4) Parked monitor (no per-push re-entry)
-python3 scripts/cobbler_agents.py implement full-run-monitor --json \
+# 4) Parked sanitized stream (no per-push re-entry)
+python3 scripts/cobbler_agents.py implement full-run-await --json \
   --session-id <exact-uuid>
 
 # After reviewing an exact staged high-risk checkpoint wake:
@@ -423,9 +424,16 @@ trusted-Lane-A `--grant-grok-auth`. The OAuth option validates the canonical own
 rest of `~/.grok`. One canonical file lets Grok's own locking and atomic refresh preserve rotating
 tokens. Credential values and the canonical path never enter status summaries or bounded driver
 output, and raw transcript tails are disabled for shared OAuth because historical token values may
-rotate. Shared OAuth requires Grok Build 0.2.93+ with the native capability marker; unsupported
-builds fail before spawn and must upgrade or use the named API-key route. Prefer that API-key route
-for CI or any lane that is not trusted.
+rotate. Unsupported builds fail before spawn and must upgrade or use the named API-key route.
+Prefer that API-key route for CI or any lane that is not trusted.
+
+Grok launch behavior is capability-driven. New sessions use a caller-generated UUID through the
+installed binary's supported `--session-id` flag and recover with exact `--resume`; Elves never
+emits unsupported `--new-session`. Models come only from the authenticated live catalog and its
+parsed default. Behaviorally proven headless `/goal` enhances an otherwise valid provider; if goal
+is unavailable, Elves records and uses the compatible one-packet prompt fallback. The default
+stream follower exposes only sanitized progress, bounded usage, terminal state, and typed errors.
+See the concise [open-source Grok Build worker path](references/grok-open-source-worker.md).
 
 For `devin-cli`, `--grant-devin-auth` validates the host's canonical `~/.config/devin/config.json`
 and `~/.local/share/devin/credentials.toml` (or the equivalent `XDG_*` paths), checks owner-only
