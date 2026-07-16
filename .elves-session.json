@@ -202,25 +202,25 @@
       "acceptance": [
         {
           "criterion": "SKILL.md states the transient-vs-substantive failure classes with the backoff-not-budget rule in exactly one authoritative place; consistency checker green",
-          "evidence": "",
+          "evidence": "SKILL.md 'Worker failure recovery' paragraph (one authoritative home, adjacent to the cadence paragraph): transient vs substantive classes, escalating backoff 5m->10m->20m, transient never consumes the budget, split/host-native escape hatch after repeated transient deaths, driver watchdog + silence-is-not-success + CPU-vs-wall hang signature. check_repo_consistency exit 0, no pin churn.",
           "id": "B8-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Survival-guide template `Re-drive budget` wording carries the split and `validate_survival_guide.py` still accepts this run's existing guide unchanged",
-          "evidence": "",
+          "evidence": "survival-guide-template Re-drive budget wording carries the split; validate_survival_guide OK on this run's guide unchanged (transcript) and template edit adds no required field (validator suite green).",
           "id": "B8-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "The worker progress ledger is documented in the handoff standard and echoed in the kickoff template as an untracked operational artifact",
-          "evidence": "",
+          "evidence": "Progress ledger documented in the SKILL.md recovery paragraph and echoed in both kickoff staging bullets; proven in-run: the B4 worker's ledger survived its final crash and preserved orientation state.",
           "id": "B8-A3",
-          "met": false
+          "met": true
         }
       ],
       "id": "B8",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [

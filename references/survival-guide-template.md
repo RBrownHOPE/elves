@@ -104,7 +104,9 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
   validate --repo-root . --session <session-path>`; optional explicit `sync-session --write`]
 - **High-risk checkpoints:** [list or none]
 - **GitHub push auth route:** [host `gh` projection | named GH_TOKEN | named GITHUB_TOKEN | local/file remote | n/a]
-- **Re-drive budget:** [N external worker re-drives | n/a]
+- **Re-drive budget:** [N substantive external worker re-drives | n/a] — transient provider
+  errors (overload/rate-limit/network) retry the same worker with escalating backoff and never
+  consume this budget (see SKILL.md Worker failure recovery)
 - **Continuation harness:** [none | /goal | host-native]
 - **Continuation rule:** If work remains and `Actual stop conditions` are not met, continue without waiting for user acknowledgment.
 

@@ -65,7 +65,9 @@ Stage this Elves run. Do not start implementing the batches in this call.
   write the standalone coordinator→implementer packet now and record its path in Run Control
   (`Worker packet:`) and as `worker_packet_path` in `.elves-session.json` — staging is not
   launch-ready without it. Worker commits follow SKILL.md's commit cadence and phase roles (at
-  least one pushed non-Close progress slice before Close).
+  least one pushed non-Close progress slice before Close), and worker failures follow SKILL.md's
+  Worker failure recovery (transient errors back off and resume without consuming the re-drive
+  budget; workers keep an untracked progress ledger under `.elves/runtime/`).
 - Configure optional public API surface snapshot behavior if this project has public contract
   surfaces. Default to `api-surface-snapshot.enabled: auto`, keep `required: false` unless I
   explicitly opt in, and keep snapshot artifacts under ignored `.elves/api-surface/`.
@@ -110,7 +112,9 @@ Stage this Elves run. Do not start implementing the batches in this call.
   write the standalone coordinator→implementer packet now and record its path in Run Control
   (`Worker packet:`) and as `worker_packet_path` in `.elves-session.json` — staging is not
   launch-ready without it. Worker commits follow SKILL.md's commit cadence and phase roles (at
-  least one pushed non-Close progress slice before Close).
+  least one pushed non-Close progress slice before Close), and worker failures follow SKILL.md's
+  Worker failure recovery (transient errors back off and resume without consuming the re-drive
+  budget; workers keep an untracked progress ledger under `.elves/runtime/`).
 - Configure optional public API surface snapshot behavior if this project has public contract
   surfaces. Default to `api-surface-snapshot.enabled: auto`, keep `required: false` unless I
   explicitly opt in, and keep snapshot artifacts under ignored `.elves/api-surface/`.

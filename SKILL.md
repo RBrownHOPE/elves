@@ -216,6 +216,18 @@ batch; driver reconcile commits for a batch use the `Review` phase label, never 
 and a batch-labeled commit contains only that batch's work — a contract or plan amendment for a
 later batch is committed separately under that batch's label.
 
+**Worker failure recovery.** Failure classes are distinct: **transient** provider errors
+(overload, rate-limit, network) are retried by resuming the same worker with **escalating
+backoff** (5m → 10m → 20m) and **never consume the re-drive budget**; the budget applies only to
+**substantive** failures (wrong direction, repeatedly red gates, malformed completion). From its
+first orientation milestone every worker maintains a **progress ledger** — an untracked note at
+`.elves/runtime/worker-progress-<batch>.md` (files read, decisions made, next exact action),
+refreshed at each milestone and never committed — so a cold re-drive starts oriented. Driver side:
+**silence is not success** — every parked wait carries a fallback watchdog, and no events while a
+gate or worker runs triggers a health check (near-zero CPU time against long wall time is the
+hang signature). After repeated transient deaths in one batch, the driver may split the batch or
+take it host-native without that counting against the budget; document the decision.
+
 ## Git History as Operator UI
 
 Preferred subject schema:
