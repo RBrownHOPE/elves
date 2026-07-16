@@ -263,3 +263,11 @@ recovery mechanism). Make cadence explicit in every packet: at least one pushed 
 slice before Close, first slice as soon as a failing test or first surface change exists; treat a
 monolithic Close commit as a reconcile-visible defect. A mid-run driver nudge works (B1 pushed its
 Implement slice immediately after instruction), but the packet should carry the rule from launch.
+
+## Bounded-by-construction beats per-site discipline (2026-07-16, hygiene-and-hardening B9)
+
+233 test call sites spawned subprocesses without pinning stdin; auditing them one by one is the
+wrong altitude. Two chokepoints gave a total guarantee instead: an fd-level devnull redirect in
+`tests/__init__.py` (children inherit closed stdin no matter the runner) and stdin+timeout
+hardening in the single gate runner and the canonical git helper. When a failure class comes from
+a default (inherited stdin), fix the default, not the instances.

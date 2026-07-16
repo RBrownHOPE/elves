@@ -226,25 +226,25 @@
       "acceptance": [
         {
           "criterion": "Every `verify_repo.py` gate subprocess runs with closed stdin and a bounded timeout, and an induced timeout produces a failing step result (test or transcript evidence)",
-          "evidence": "",
+          "evidence": "verify_repo._run: stdin=subprocess.DEVNULL always; per-step timeout default 300s, suite step 1800s; TimeoutExpired -> synthetic CompletedProcess returncode 124 with 'step timed out after Ns' in stderr. Tests green: BoundedGateRunnerTests.test_run_pins_stdin_closed, test_run_timeout_surfaces_as_failing_step (induced 1s timeout on 30s sleep -> 124 + message).",
           "id": "B9-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "The suite redirects fd 0 to devnull at discovery; `tests/test_suite_hermeticity.py` proves in-process EOF and child-inherited EOF",
-          "evidence": "",
+          "evidence": "tests/__init__.py dup2s fd 0 to os.devnull at discovery (fd-level -> children inherit). tests/test_suite_hermeticity.py green: os.read(0,1)==b'' and sys.stdin.read()==''; child spawned WITHOUT stdin kwarg prints 0 instantly.",
           "id": "B9-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Autonomy docs carry the closed-stdin/timeout rule; the incident is recorded in learnings and `.ai-docs/gotchas.md`",
-          "evidence": "",
+          "evidence": "SKILL.md Staying Unattended + autonomy-guide.md carry the closed-stdin/timeout/hang-signature rule; incident promoted to learnings.md (chokepoints-over-churn) and .ai-docs/gotchas.md (stdin inheritance freeze pattern + diagnosis tell).",
           "id": "B9-A3",
-          "met": false
+          "met": true
         }
       ],
       "id": "B9",
-      "status": "pending"
+      "status": "complete"
     }
   ],
   "branch": "elves/hygiene-and-hardening",

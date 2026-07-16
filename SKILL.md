@@ -463,7 +463,8 @@ on merge, stays report-only, or never runs.
 
 ## Staying Unattended
 
-Never block on prompts. Non-interactive flags. Document decisions. See
+Never block on prompts. Non-interactive flags. Document decisions. Gates and helper subprocesses
+run with closed stdin and explicit timeouts — a silent hang is a failure, not progress. See
 `references/autonomy-guide.md`.
 
 ## Ride-Along Protocol

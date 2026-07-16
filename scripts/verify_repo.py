@@ -105,15 +105,45 @@ def _redact_message(value: object) -> str:
     ).text
 
 
-def _run(cmd: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        text=True,
-        capture_output=True,
-        check=False,
-        env=_verification_environment(),
-    )
+# Gate subprocesses are bounded by construction: stdin is always closed and
+# every step carries a hard timeout, so one hung child can never freeze
+# readiness (docs/plans/hygiene-and-hardening.md B9). The suite step passes a
+# larger cap; everything else uses the default.
+_DEFAULT_STEP_TIMEOUT_SECONDS = 300.0
+_SUITE_STEP_TIMEOUT_SECONDS = 1800.0
+
+
+def _run(
+    cmd: list[str],
+    *,
+    cwd: Path,
+    timeout: float = _DEFAULT_STEP_TIMEOUT_SECONDS,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            cmd,
+            cwd=str(cwd),
+            text=True,
+            capture_output=True,
+            check=False,
+            env=_verification_environment(),
+            stdin=subprocess.DEVNULL,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout
+        stderr = exc.stderr
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode("utf-8", errors="replace")
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        return subprocess.CompletedProcess(
+            cmd,
+            returncode=124,
+            stdout=stdout or "",
+            stderr=(stderr or "")
+            + f"\nstep timed out after {timeout:.0f}s (treated as failure)",
+        )
 
 
 def _bounded_failure_tail(output: str) -> str:
@@ -299,6 +329,7 @@ def check_unit_tests(repo_root: Path) -> tuple[bool, str]:
     proc = _run(
         [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
         cwd=repo_root,
+        timeout=_SUITE_STEP_TIMEOUT_SECONDS,
     )
     output = (proc.stderr or "") + "\n" + (proc.stdout or "")
     summary = ""

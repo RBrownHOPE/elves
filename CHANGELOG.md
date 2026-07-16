@@ -4,6 +4,16 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Hermetic, bounded gates and worker failure recovery
+
+- `verify_repo.py` gate subprocesses run with closed stdin and hard per-step timeouts (suite step
+  1800s); a timed-out step fails cleanly instead of hanging. The test suite redirects file
+  descriptor 0 to devnull at discovery so every child a test spawns inherits closed stdin
+  regardless of runner; `openrouter_lens.py` no longer reads a stdin envelope when the task is
+  provided via flags. Worker failure recovery is codified in SKILL.md: transient provider errors
+  resume with escalating backoff and never consume the substantive re-drive budget; workers keep
+  an untracked progress ledger under `.elves/runtime/`.
+
 ### Consolidated git/secret/path helpers
 
 - One canonical hardened `run_git` (leases) now serves audit, delegated-git, and all of

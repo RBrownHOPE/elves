@@ -18,6 +18,11 @@ If something is ambiguous, apply your best judgment, note it under **Decisions m
 
 ### Rule 2: Never Use Interactive Commands
 
+Subprocesses you spawn must be bounded by construction: close stdin (`stdin=subprocess.DEVNULL`
+or an fd-level devnull guard) and set an explicit timeout, so a child that would prompt or read a
+never-closing pipe fails fast instead of freezing the run. A process showing near-zero CPU time
+against long wall time is hung, not working — treat that signature as a failure and recover.
+
 Every CLI command must run non-interactively. Use flags that suppress prompts:
 
 - `--yes`, `--force`, `--no-input`, `--non-interactive`, `--assume-yes`
