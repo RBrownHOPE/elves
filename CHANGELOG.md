@@ -11,10 +11,14 @@ All notable changes to the Elves skill are documented here.
   unsupported `--new-session` without entering an invalid-flag or login loop.
 - Keep private `HOME`/`GROK_HOME` isolation and the narrow `GROK_AUTH_PATH` OAuth projection;
   qualify the provider independently from behaviorally proven headless `/goal`, with a compatible
-  one-packet fallback when goal enhancement is unavailable.
+  one-packet fallback when goal enhancement is unavailable. Goal proof now requires a bounded,
+  build-bound terminal-canary artifact rather than a free-form assertion.
 - Select only authenticated live-catalog models and follow streaming JSON through bounded,
-  sanitized progress, usage, terminal, and typed-error events. Native Codex and Claude Code routes
-  remain unchanged.
+  sanitized progress, usage, terminal, and typed-error events, including credentials split across
+  adjacent stream records.
+- Native Codex and Claude Code routes stay commit-capable in linked worktrees through narrow Git
+  metadata paths, stripped ambient Git credentials, and terminal feature-ancestry/protected-ref
+  verification instead of granting the entire shared `.git` directory.
 
 ## [2.5.0] - 2026-07-15
 

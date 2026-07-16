@@ -31,8 +31,9 @@ From the target repository, invoke the helper under the active installed Elves s
 `scripts/...` form below is source-checkout shorthand):
 
 ```bash
+ELVES_HOST=claude  # Use codex when Codex is the live driver.
 python3 scripts/cobbler_agents.py route-worker --json \
-  --host codex --execution-reasoning medium --review-risk high \
+  --host "$ELVES_HOST" --execution-reasoning medium --review-risk high \
   --provider grok --allow-grok --probe-grok
 ```
 
@@ -50,6 +51,29 @@ terminal state and returned the requested session identity. The installed 0.2.10
 work but did not reach terminal state within 120 seconds, so Elves currently records and uses the
 one-packet fallback. A core capability, auth, or live-catalog failure selects native fallback with
 a concrete reason before spawn.
+
+Goal evidence is a path passed with `--grok-goal-behavioral-evidence <artifact.json>` alongside
+`--probe-grok` or during `full-run-prepare`. The artifact must be a regular non-symlink JSON file no
+larger than 64 KiB and not writable by group or others. It has exactly these fields:
+
+```json
+{
+  "artifact_type": "grok_goal_terminal_canary",
+  "schema_version": 1,
+  "installed_version": "<exact-version>",
+  "installed_build_commit": "<exact-build-commit>",
+  "session_id": "<canonical-uuid>",
+  "prompt": "/goal <packet-backed objective>",
+  "prompt_sha256": "<sha256-of-exact-prompt>",
+  "exit_code": 0,
+  "terminal_event": {"type": "end", "sessionId": "<same-canonical-uuid>"}
+}
+```
+
+The UTF-8 prompt must begin with `/goal `, contain a nonempty objective, and be no larger than
+32 KiB. Version, build, prompt digest, successful exit, and terminal session must all match. Elves
+stores only a digest-derived evidence ID in safe state. Missing, unsafe, malformed, mismatched, or
+incomplete evidence leaves goal mode disabled and uses the one-packet fallback.
 
 Model selection uses only the authenticated live catalog. Omitting `--model` (or using the CLI's
 `auto` preparation value) resolves to the parsed live default at launch. An explicit model is
@@ -76,12 +100,15 @@ python3 scripts/cobbler_agents.py implement full-run-await --json \
   --session-id <uuid>
 ```
 
+Add `--grok-goal-behavioral-evidence <artifact.json>` to `full-run-prepare` only when that artifact
+meets the contract above. Otherwise the same launch uses the one-packet fallback.
+
 For API-key auth, replace `--grant-grok-auth` with `--grant-env XAI_API_KEY`. The default follower
 shows sanitized progress, bounded usage, terminal state, and typed errors; unknown event types are
 reported safely. Shared OAuth never exposes raw transcript text.
 
-After a crash, reconcile the registered session and actual feature-branch state, then recover the
-same exact identity:
+After an interrupted run, recover the same exact identity. `full-run-prepare` revalidates the
+registered session, packet, branch, and worktree before the resumed process starts:
 
 ```bash
 python3 scripts/cobbler_agents.py implement full-run-prepare --json \
@@ -94,6 +121,15 @@ python3 scripts/cobbler_agents.py implement full-run-launch --json \
 
 python3 scripts/cobbler_agents.py implement full-run-await --json \
   --session-id <uuid>
+```
+
+If the process exits cleanly after committing and pushing but omits a valid final report, do not
+resume it. Run the affected host tests, then reconstruct only the independently provable report
+fields:
+
+```bash
+python3 scripts/cobbler_agents.py implement full-run-reconcile --json \
+  --session-id <uuid> --host-tests-pass
 ```
 
 Goal-enhanced recovery uses `/goal resume`; it never resends `/goal <packet>`. Use `full-run-logs`

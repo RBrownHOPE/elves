@@ -20,8 +20,10 @@
 - Confirmed defect: `--new-session` is not accepted by the installed parser.
 - Confirmed auth contract: open-source source implements `GROK_AUTH_PATH`; the current private-home
   plus narrow credential projection should be retained.
-- Confirmed goal contract: isolated headless `/goal status` returned successfully without model
-  inference, and upstream headless execution shares the slash-command resolver.
+- Confirmed goal contract: isolated headless `/goal status` used the narrow auth projection and
+  returned successfully without catalog lookup or model inference. The bounded 0.2.101 objective
+  canary emitted work but did not reach a terminal exact-session event, so the run keeps goal mode
+  disabled and selects the one-packet fallback.
 - Transport decision: implement headless goal plus streaming first; defer ACP until its persistent
   permission/reconnect client provides enough additional value.
 
@@ -76,4 +78,15 @@ remain unauthorized.
 - Replaced only the three stale synthetic Grok session labels with canonical UUID fixtures.
 - Targeted result: 3 tests passed.
 - Supervisor result: 142 tests passed with 1 skip in 66.967 seconds.
-- Next: one cumulative branch review, PR feedback triage, and impact-selected terminal proof.
+- Cumulative review: root plus three independent reviewers inspected the full branch diff. The
+  consolidated blocker set was limited to live catalog row grammar, free-form goal evidence,
+  cross-record credential redaction, overbroad linked-worktree Git access, and stale acceptance/docs.
+- Revision: parse the installed `-`/`*` catalog grammar; require a bounded build-bound terminal
+  canary artifact; quarantine adjacent stream records; restrict native workers to feature Git
+  metadata with stripped Git credentials and terminal authority verification; align Claude/Codex
+  recovery and acceptance wording.
+- Targeted delta proof: 32 adaptive-routing/native-worker tests, 24 Grok stream/goal-state tests,
+  76 consistency tests, the repository consistency checker, guide HTML parsing, compilation, a
+  live installed-binary Grok 4.5 route snapshot, and `git diff --check` pass.
+- Next: one canonical final-readiness proof after acceptance evidence is recorded, followed by the
+  narrow operational-artifact cleanup and current-tip CI attestation.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,9 @@ from cobbler_runtime.adapters import (  # noqa: E402
     build_session_resume_invocation,
 )
 from cobbler_runtime.native_worker import (  # noqa: E402
+    _native_git_contract,
+    _native_worker_child_env,
+    _verify_native_git_contract,
     build_native_worker_spec,
     native_worker_paths,
     native_worker_profiles,
@@ -43,6 +47,35 @@ from cobbler_runtime.worker_routing import (  # noqa: E402
     probe_grok_capabilities,
     discover_repository_worker_policy,
 )
+
+
+def _write_goal_canary_artifact(
+    root: Path,
+    *,
+    mutation: dict[str, object] | None = None,
+) -> Path:
+    session_id = "11111111-1111-1111-1111-111111111111"
+    prompt = "/goal Create canary.txt containing exactly goal-canary-ok"
+    payload: dict[str, object] = {
+        "artifact_type": "grok_goal_terminal_canary",
+        "schema_version": 1,
+        "installed_version": "0.2.101",
+        "installed_build_commit": "5bc4b5dfadcf",
+        "session_id": session_id,
+        "prompt": prompt,
+        "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "exit_code": 0,
+        "terminal_event": {
+            "type": "end",
+            "sessionId": session_id,
+            "stopReason": "EndTurn",
+        },
+    }
+    payload.update(mutation or {})
+    path = root / "goal-canary.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.chmod(0o600)
+    return path
 
 
 class GlobalPreferencesTests(unittest.TestCase):
@@ -212,7 +245,7 @@ class RouteDecisionMatrixTests(unittest.TestCase):
                     f"Default model: {GROK_COMPOSER_MODEL}\n"
                     "Available models:\n"
                     f"  * {GROK_COMPOSER_MODEL} (default)\n"
-                    f"  * {GROK_COMPLEX_MODEL}\n",
+                    f"  - {GROK_COMPLEX_MODEL}\n",
                     "",
                 )
             if argv[1:4] == ["agent", "stdio", "--help"]:
@@ -260,6 +293,7 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         self.assertEqual(result.installed_build_commit, "5bc4b5dfadcf")
         self.assertEqual(result.default_model, GROK_COMPOSER_MODEL)
         self.assertIn(GROK_COMPOSER_MODEL, result.models)
+        self.assertIn(GROK_COMPLEX_MODEL, result.models)
         self.assertFalse(result.goal_entrypoint_advertised)
         self.assertFalse(result.goal_mode_behaviorally_verified)
         snapshot = result.safe_snapshot()
@@ -273,16 +307,88 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             auth = Path(tmp) / "auth.json"
             auth.write_text("fixture-not-a-credential", encoding="utf-8")
+            artifact = _write_goal_canary_artifact(Path(tmp))
             verified = probe_grok_capabilities(
                 runner=runner,
                 goal_auth_path=auth,
-                goal_behavioral_evidence="canary:terminal:end:exact-session",
+                goal_behavioral_evidence=str(artifact),
             )
         self.assertTrue(verified.goal_mode_behaviorally_verified)
-        self.assertEqual(
-            verified.goal_behavioral_evidence,
-            "canary:terminal:end:exact-session",
+        self.assertRegex(
+            verified.goal_behavioral_evidence or "",
+            r"^grok-goal-canary:v1:[0-9a-f]{24}$",
         )
+        self.assertEqual(verified.goal_behavioral_artifact_path, str(artifact))
+        decision = self.decide(
+            explicit_intent={"worker": {"provider": "grok"}},
+            grok=verified,
+        )
+        self.assertEqual(
+            decision.provenance["grok_goal_evidence"],
+            "validated_terminal_goal_canary_artifact",
+        )
+        self.assertNotIn(str(artifact), json.dumps(decision.to_dict()))
+
+        invalid = probe_grok_capabilities(
+            runner=runner,
+            goal_behavioral_evidence="canary:terminal:end:exact-session",
+        )
+        self.assertFalse(invalid.goal_mode_behaviorally_verified)
+        self.assertIsNone(invalid.goal_behavioral_evidence)
+        self.assertEqual(
+            invalid.capability("goal_behavior").reason,
+            "goal_canary_artifact_unavailable_or_unsafe",
+        )
+
+    @mock.patch("cobbler_runtime.worker_routing.shutil.which", return_value="/usr/bin/grok")
+    def test_goal_canary_artifact_rejects_build_session_terminal_and_digest_drift(self, _which) -> None:
+        def runner(argv, **_kwargs):
+            if argv[-2:] == ["version", "--json"]:
+                return subprocess.CompletedProcess(
+                    argv, 0, '{"currentVersion":"0.2.101 (5bc4b5dfadcf)"}', ""
+                )
+            if argv[-1] == "models":
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    f"Default model: {GROK_COMPOSER_MODEL}\n"
+                    "Available models:\n"
+                    f"  - {GROK_COMPLEX_MODEL}\n"
+                    f"  * {GROK_COMPOSER_MODEL} (default)\n",
+                    "",
+                )
+            if argv[1:4] == ["agent", "stdio", "--help"]:
+                return subprocess.CompletedProcess(argv, 0, "Run the agent over stdio", "")
+            return subprocess.CompletedProcess(argv, 0, "--session-id --resume", "")
+
+        mutations = (
+            (
+                {"installed_build_commit": "aaaaaaaaaaaa"},
+                "goal_canary_artifact_build_mismatch",
+            ),
+            ({"session_id": "NOT-A-UUID"}, "goal_canary_artifact_session_invalid"),
+            (
+                {
+                    "terminal_event": {
+                        "type": "end",
+                        "sessionId": "22222222-2222-2222-2222-222222222222",
+                    }
+                },
+                "goal_canary_artifact_terminal_invalid",
+            ),
+            ({"prompt_sha256": "0" * 64}, "goal_canary_artifact_prompt_digest_mismatch"),
+            ({"exit_code": 1}, "goal_canary_artifact_not_successful"),
+        )
+        for mutation, reason in mutations:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp:
+                artifact = _write_goal_canary_artifact(Path(tmp), mutation=mutation)
+                result = probe_grok_capabilities(
+                    runner=runner,
+                    goal_behavioral_evidence=str(artifact),
+                )
+                self.assertFalse(result.goal_mode_behaviorally_verified)
+                self.assertIsNone(result.goal_behavioral_evidence)
+                self.assertEqual(result.capability("goal_behavior").reason, reason)
 
     @mock.patch("cobbler_runtime.worker_routing.shutil.which", return_value="/usr/bin/grok")
     def test_grok_snapshot_does_not_promote_network_fallback_or_auth_diagnostics(self, _which) -> None:
@@ -620,7 +726,21 @@ class NativeWorkerGrammarTests(unittest.TestCase):
                 ["git", "-C", str(main), "worktree", "add", "-qb", "feat/linked", str(linked)],
                 check=True,
             )
-            expected_root = str((main / ".git").resolve())
+            common = (main / ".git").resolve()
+            git_dir = Path(
+                subprocess.run(
+                    ["git", "-C", str(linked), "rev-parse", "--path-format=absolute", "--git-dir"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+            ).resolve()
+            expected_roots = (
+                str(git_dir),
+                str((common / "objects").resolve()),
+                str((common / "refs" / "heads" / "feat").resolve()),
+                str((common / "logs" / "refs" / "heads" / "feat").resolve()),
+            )
             codex = build_native_worker_spec(
                 host="codex",
                 worktree=linked,
@@ -636,11 +756,44 @@ class NativeWorkerGrammarTests(unittest.TestCase):
                 session_id="11111111-1111-1111-1111-111111111111",
             )
             for spec in (codex, claude):
-                self.assertEqual(spec.git_write_roots, (expected_root,))
+                self.assertEqual(spec.git_write_roots, expected_roots)
                 self.assertIn("--add-dir", spec.argv)
-                self.assertIn(expected_root, spec.argv)
+                self.assertNotIn(str(common), spec.git_write_roots)
+                for root in expected_roots:
+                    self.assertIn(root, spec.argv)
                 self.assertIn("workspace-write", spec.argv) if spec.host == "codex" else self.assertIn("acceptEdits", spec.argv)
             self.assertLess(codex.argv.index("--add-dir"), codex.argv.index("resume"))
+
+            contract = _native_git_contract(linked)
+            env_root = linked / ".elves" / "runtime" / "native-worker-test"
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "GH_TOKEN": "must-not-cross",
+                    "SSH_AUTH_SOCK": "/tmp/must-not-cross",
+                    "OPENAI_API_KEY": "provider-only",
+                },
+                clear=False,
+            ):
+                child_env = _native_worker_child_env(
+                    host="codex", worktree=linked, runtime_dir=env_root
+                )
+            self.assertNotIn("GH_TOKEN", child_env)
+            self.assertNotIn("SSH_AUTH_SOCK", child_env)
+            self.assertEqual(child_env["OPENAI_API_KEY"], "provider-only")
+            self.assertEqual(child_env["GIT_ALLOW_PROTOCOL"], "file")
+            self.assertEqual(
+                child_env["GIT_CONFIG_VALUE_1"], "disabled://native-worker-no-push"
+            )
+            self.assertEqual(_verify_native_git_contract(linked, contract), [])
+            (linked / "tracked.txt").write_text("feature\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(linked), "commit", "-qam", "feature"], check=True)
+            subprocess.run(
+                ["git", "-C", str(main), "update-ref", "refs/heads/master", "refs/heads/feat/linked"],
+                check=True,
+            )
+            violations = _verify_native_git_contract(linked, contract)
+            self.assertTrue(any("protected ref" in item for item in violations))
 
     def test_standalone_checkout_needs_no_additional_git_write_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -701,6 +854,39 @@ class NativeWorkerGrammarTests(unittest.TestCase):
             self.assertEqual(payload["decision"]["worker_transport"], "claude_code")
             self.assertIn("grok_capabilities", payload)
             self.assertNotIn("stdout", json.dumps(payload["grok_capabilities"]))
+
+    def test_cli_rejects_goal_artifact_without_installed_binary_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["XDG_CONFIG_HOME"] = tmp
+            cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
+            artifact = _write_goal_canary_artifact(Path(tmp))
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(cli),
+                    "route-worker",
+                    "--host",
+                    "codex",
+                    "--execution-reasoning",
+                    "medium",
+                    "--review-risk",
+                    "standard",
+                    "--grok-goal-behavioral-evidence",
+                    str(artifact),
+                    "--json",
+                ],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(
+                payload["issues"][0]["code"],
+                "grok_goal_canary_probe_required",
+            )
 
     def test_fixture_supervisor_binds_private_follow_log_and_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

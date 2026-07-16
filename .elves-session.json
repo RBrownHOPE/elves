@@ -16,7 +16,7 @@
           "met": false
         },
         {
-          "criterion": "A model-free isolated `/goal status` probe verifies goal-command resolution independently from provider authentication and model inference.",
+          "criterion": "A model-free isolated `/goal status` probe using the narrow auth projection verifies goal-command resolution independently from catalog lookup and model inference.",
           "evidence": "",
           "id": "B0-A3",
           "met": false
@@ -70,7 +70,7 @@
           "met": false
         },
         {
-          "criterion": "An isolated authenticated throwaway-repository canary proves that a headless `/goal` launch accepts the packet-backed objective, completes, and returns an exact recoverable session identity.",
+          "criterion": "An isolated authenticated throwaway-repository canary records whether the packet-backed headless `/goal` launch reaches terminal state with the exact requested session identity; a complete terminal artifact enables goal mode, while an incomplete canary keeps goal mode disabled and proves selection of the one-packet fallback.",
           "evidence": "",
           "id": "B2-A2",
           "met": false

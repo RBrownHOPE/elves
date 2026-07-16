@@ -60,8 +60,14 @@ python3 scripts/cobbler_agents.py route-worker --json \
   --host codex --execution-reasoning medium --review-risk high --probe-grok
 ```
 
-An operator may bind previously recorded proof with
-`--grok-goal-behavioral-evidence <verification-id-or-path>`; the help probe alone never sets it.
+Use `--host claude` when Claude Code is the live driver. The host value matters when an optional
+provider falls back to the subscription-native worker.
+
+An operator may bind a previously recorded terminal canary with
+`--grok-goal-behavioral-evidence <artifact.json>` while using `--probe-grok`. The bounded JSON
+artifact must validate against the exact installed version/build, canonical session, prompt digest,
+successful exit, and matching terminal event. The help probe alone never sets goal mode, and an
+invalid or incomplete artifact keeps the one-packet fallback.
 
 Native workers inherit the current driver model unless an explicit model is routed. Effort follows
 the plan's low/medium/high execution classification; the driver itself is never downgraded. High

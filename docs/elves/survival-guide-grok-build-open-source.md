@@ -39,11 +39,11 @@ fallback.
 
 ## Stop Gate
 
-- **Planned batches remaining:** terminal review and readiness
+- **Planned batches remaining:** terminal proof and readiness
 - **Stop allowed right now:** no
 - **Why:** the user resumed the full goal through reviewed-PR readiness
-- **Next required action:** perform the cumulative review of `git diff origin/main...HEAD` and all
-  PR feedback, then address only genuine blockers
+- **Next required action:** commit the consolidated blocker revisions, re-read this guide, then run
+  the single acceptance-bearing terminal proof pass
 
 ## Effort standard
 
@@ -53,12 +53,14 @@ focused tests. The driver reviews the cumulative diff once at the end and revisi
 
 ## Current phase
 
-- **Status:** terminal review
+- **Status:** terminal verification
 - **Active compute:** none
 - **Active batch:** final readiness
-- **What was just finished:** the three stale Grok fixture session IDs now use canonical UUIDs;
-  their targeted tests pass and the complete supervisor module passes 142 tests with 1 skip
-- **Single next action:** cumulative independent review of the full branch diff and PR feedback
+- **What was just finished:** one cumulative root review plus three independent reviews found and
+  fixed the real blockers: installed catalog grammar, structured goal-canary proof, cross-record
+  credential redaction, linked-worktree Git authority, acceptance wording, and documentation parity
+- **Single next action:** commit this consolidated revision, then run the canonical final-readiness
+  proof once after recording acceptance evidence
 
 ## Worker authority
 

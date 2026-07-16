@@ -694,10 +694,11 @@ class FullRunReportValidationTests(unittest.TestCase):
         payload = "\n".join(rendered)
         self.assertNotIn(secret, payload)
         self.assertIn("grok:thought", payload)
-        self.assertIn("grok:unknown[future_event]", payload)
+        self.assertIn("grok:unknown", payload)
+        self.assertNotIn("unknown[future_event]", payload)
         self.assertIn("inputTokens:10", payload)
         self.assertIn("terminal", payload)
-        self.assertIn("error=rate_limit", payload)
+        self.assertNotIn("error=rate_limit", payload)
 
     def test_grok_stream_decoder_shared_oauth_never_exposes_free_text(self) -> None:
         rendered, _cursor = full_run_module.grok_streaming_follow_lines(
@@ -806,6 +807,170 @@ class FullRunReportValidationTests(unittest.TestCase):
             caught.exception.code,
             "grok_follow_redaction_context_unverified",
         )
+
+    def test_grok_follow_redacts_secret_bearing_metadata_but_keeps_safe_terminal_facts(self) -> None:
+        secret = "xai-secret-metadata-123456789"
+        expected = "11111111-1111-1111-1111-111111111111"
+        state = full_run_module.FullRunState(
+            session_id=expected,
+            branch="feat/x",
+            start_head="a" * 40,
+            worktree="/tmp",
+            packet_path="/tmp/packet.md",
+            supervision_token="f" * 48,
+            credential_granted_names=["XAI_API_KEY"],
+        )
+        state.credential_grant_lengths = {"XAI_API_KEY": len(secret)}
+        state.credential_grant_digests = {
+            "XAI_API_KEY": full_run_module._credential_grant_digest(
+                state, "XAI_API_KEY", secret
+            )
+        }
+        state.credential_grant_metadata_mac = full_run_module._credential_grant_metadata_mac(state)
+        metadata_fragment = secret[:14]
+        message_fragment = secret[14:]
+
+        rendered, _ = full_run_module.grok_streaming_follow_lines(
+            [
+                json.dumps({"type": secret, "payload": "unused"}),
+                json.dumps(
+                    {
+                        "type": "error",
+                        "errorType": metadata_fragment,
+                        "message": message_fragment,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "end",
+                        "stopReason": secret,
+                        "sessionId": expected,
+                        "usage": {"inputTokens": 7},
+                    }
+                ),
+            ],
+            expected_session_id=expected,
+            credential_grant_state=state,
+        )
+        payload = "\n".join(rendered)
+        self.assertNotIn(secret, payload)
+        self.assertNotIn(metadata_fragment, payload)
+        self.assertNotIn(message_fragment, payload)
+        self.assertIn("grok:unknown", payload)
+        self.assertNotIn("unknown[", payload)
+        self.assertIn("grok:error", payload)
+        self.assertNotIn("error=", payload)
+        self.assertNotIn("stop=", payload)
+        self.assertNotIn(f"session={expected}", payload)
+        self.assertIn("usage=inputTokens:7", payload)
+        self.assertIn("terminal", payload)
+
+        uuid_secret = "22222222-2222-2222-2222-222222222222"
+        uuid_state = full_run_module.FullRunState(
+            session_id=uuid_secret,
+            branch="feat/x",
+            start_head="a" * 40,
+            worktree="/tmp",
+            packet_path="/tmp/packet.md",
+            supervision_token="a" * 48,
+            credential_granted_names=["XAI_API_KEY"],
+        )
+        uuid_state.credential_grant_lengths = {"XAI_API_KEY": len(uuid_secret)}
+        uuid_state.credential_grant_digests = {
+            "XAI_API_KEY": full_run_module._credential_grant_digest(
+                uuid_state, "XAI_API_KEY", uuid_secret
+            )
+        }
+        uuid_state.credential_grant_metadata_mac = (
+            full_run_module._credential_grant_metadata_mac(uuid_state)
+        )
+        uuid_rendered, _ = full_run_module.grok_streaming_follow_lines(
+            [
+                json.dumps(
+                    {
+                        "type": "end",
+                        "sessionId": uuid_secret,
+                        "usage": {"outputTokens": 2},
+                    }
+                )
+            ],
+            expected_session_id=uuid_secret,
+            credential_grant_state=uuid_state,
+        )
+        uuid_payload = "\n".join(uuid_rendered)
+        self.assertNotIn(uuid_secret, uuid_payload)
+        self.assertIn("usage=outputTokens:2", uuid_payload)
+        self.assertIn("terminal", uuid_payload)
+
+    def test_grok_follow_quarantines_adjacent_chunks_until_split_grant_is_safe(self) -> None:
+        secret = "grant-value-split-between-streaming-events"
+        expected = "11111111-1111-1111-1111-111111111111"
+        state = full_run_module.FullRunState(
+            session_id=expected,
+            branch="feat/x",
+            start_head="a" * 40,
+            worktree="/tmp",
+            packet_path="/tmp/packet.md",
+            supervision_token="b" * 48,
+            credential_granted_names=["XAI_API_KEY"],
+        )
+        state.credential_grant_lengths = {"XAI_API_KEY": len(secret)}
+        state.credential_grant_digests = {
+            "XAI_API_KEY": full_run_module._credential_grant_digest(
+                state, "XAI_API_KEY", secret
+            )
+        }
+        state.credential_grant_metadata_mac = full_run_module._credential_grant_metadata_mac(state)
+        redaction_state = full_run_module.GrokStreamingRedactionState()
+        first_fragment = secret[:17]
+        second_fragment = secret[17:]
+
+        first, _ = full_run_module.grok_streaming_follow_lines(
+            [json.dumps({"type": "text", "data": first_fragment})],
+            expected_session_id=expected,
+            credential_grant_state=state,
+            redaction_state=redaction_state,
+        )
+        self.assertEqual(first, [])
+        second, _ = full_run_module.grok_streaming_follow_lines(
+            [
+                json.dumps({"type": "text", "data": second_fragment}),
+                json.dumps(
+                    {
+                        "type": "end",
+                        "sessionId": expected,
+                        "stopReason": "EndTurn",
+                        "usage": {"outputTokens": 3},
+                    }
+                ),
+            ],
+            expected_session_id=expected,
+            credential_grant_state=state,
+            redaction_state=redaction_state,
+        )
+        payload = "\n".join(second)
+        self.assertNotIn(secret, payload)
+        self.assertNotIn(first_fragment, payload)
+        self.assertNotIn(second_fragment, payload)
+        self.assertGreaterEqual(payload.count("[REDACTED:credential_grant]"), 2)
+        self.assertIn("usage=outputTokens:3", payload)
+        self.assertIn("terminal", payload)
+
+        safe_state = full_run_module.GrokStreamingRedactionState()
+        safe_first, _ = full_run_module.grok_streaming_follow_lines(
+            [json.dumps({"type": "text", "data": "safe progress remains visible"})],
+            expected_session_id=expected,
+            credential_grant_state=state,
+            redaction_state=safe_state,
+        )
+        self.assertEqual(safe_first, [])
+        safe_final, _ = full_run_module.grok_streaming_follow_lines(
+            [json.dumps({"type": "end", "sessionId": expected})],
+            expected_session_id=expected,
+            credential_grant_state=state,
+            redaction_state=safe_state,
+        )
+        self.assertIn("safe progress remains visible", "\n".join(safe_final))
 
     def test_await_wakes_safely_on_streamed_session_mismatch(self) -> None:
         expected = "11111111-1111-1111-1111-111111111111"
@@ -1347,6 +1512,38 @@ class FullRunReportValidationTests(unittest.TestCase):
 
 
 class FullRunGrokArgvTests(unittest.TestCase):
+    def test_goal_canary_state_keeps_private_artifact_and_safe_evidence_across_resume(self) -> None:
+        artifact = "/private/runtime/grok-goal-canary.json"
+        evidence = "grok-goal-canary:v1:" + "a" * 24
+        created = full_run_module.FullRunState(
+            session_id="11111111-1111-1111-1111-111111111111",
+            branch="feat/x",
+            start_head="b" * 40,
+            worktree="/tmp/worktree",
+            packet_path="/tmp/packet.md",
+            create_session=True,
+            goal_behavioral_artifact_path=artifact,
+            goal_behavioral_evidence=evidence,
+            goal_mode_behaviorally_verified=True,
+        )
+
+        restored_create = full_run_module.FullRunState.from_dict(created.to_dict())
+        self.assertTrue(restored_create.create_session)
+        self.assertEqual(restored_create.goal_behavioral_artifact_path, artifact)
+        self.assertEqual(restored_create.goal_behavioral_evidence, evidence)
+        self.assertNotEqual(
+            restored_create.goal_behavioral_artifact_path,
+            restored_create.goal_behavioral_evidence,
+        )
+
+        restored_create.create_session = False
+        restored_resume = full_run_module.FullRunState.from_dict(
+            restored_create.to_dict()
+        )
+        self.assertFalse(restored_resume.create_session)
+        self.assertEqual(restored_resume.goal_behavioral_artifact_path, artifact)
+        self.assertEqual(restored_resume.goal_behavioral_evidence, evidence)
+
     def test_full_run_runtime_rejects_symlinked_store_root_without_outside_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

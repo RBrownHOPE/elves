@@ -696,8 +696,9 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup</code></pre>
           <pre><code id="grok-setup">curl -fsSL https://x.ai/cli/install.sh | bash
 grok
 
+ELVES_HOST=claude  # Use codex when Codex is the live driver.
 python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" route-worker --json \
-  --host codex --execution-reasoning medium --review-risk high \
+  --host "$ELVES_HOST" --execution-reasoning medium --review-risk high \
   --provider grok --allow-grok --probe-grok</code></pre>
         </div>
 
@@ -706,6 +707,12 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" route-worker --json \
           only. Goal mode additionally requires an authenticated objective canary to reach terminal
           state and return the requested session identity. Without that evidence, Elves keeps the
           qualified provider and records the compatible one-packet fallback.</p>
+
+        <p>The optional evidence input is a bounded, mode-safe JSON canary artifact tied to the exact
+          installed build, canonical session, <code>/goal</code> prompt digest, successful exit, and
+          matching end event. Invalid or incomplete evidence keeps goal mode off. See the
+          <a href="https://github.com/aigorahub/elves/blob/main/references/grok-open-source-worker.md">open-source
+          Grok worker reference</a> for the artifact schema.</p>
 
         <div class="note">
           <strong>Cache handoff is not promised.</strong> A separate session may receive provider
@@ -748,8 +755,8 @@ export ELVES_SKILL_ROOT="$HOME/.codex/skills/elves"</code></pre>
   implement full-run-await --session-id &lt;session-id&gt;</code></pre>
         </div>
 
-        <p>After reconciling the registered session and feature branch, resume that exact Grok
-          identity with:</p>
+        <p>After an interrupted run, resume the exact Grok identity. Preparation revalidates the
+          registered session, packet, branch, and worktree before launch:</p>
 
         <div class="code-block">
           <button class="copy" type="button" data-copy="grok-recover">Copy</button>
@@ -763,6 +770,16 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
   --grant-grok-auth --grant-github-push
 python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
   implement full-run-await --session-id &lt;session-id&gt;</code></pre>
+        </div>
+
+        <p>If the worker exits cleanly after committing and pushing but omits a valid final report,
+          run the affected host tests and reconstruct only the independently provable fields:</p>
+
+        <div class="code-block">
+          <button class="copy" type="button" data-copy="grok-reconcile">Copy</button>
+          <pre><code id="grok-reconcile">python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
+  implement full-run-reconcile --json --session-id &lt;session-id&gt; \
+  --host-tests-pass</code></pre>
         </div>
 
         <p>The worker should also commit meaningful slices. Those commits are a durable progress

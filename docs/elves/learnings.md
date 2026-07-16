@@ -102,9 +102,9 @@ silently deleting it.
 
 - [2026-07-15] Adaptive implementation routing is deterministic and host-parity preserving: prefer
   a separate subscription-native Codex/Claude worker with inherited model policy and plan-matched
-  effort; use permitted Grok Composer 2.5 Fast for regular clear work and Grok 4.5 only for
-  genuinely complex execution. Availability is not permission, and unqualified routes fall back
-  honestly.
+  effort. When Grok is permitted, use the authenticated live catalog's parsed default unless the
+  operator explicitly selects another exact catalog member. Availability is not permission, and
+  unqualified routes fall back honestly.
 - [2026-07-15] Safe worker convenience may be remembered globally at the shared XDG Elves config
   path, but explicit run intent and repository policy outrank it. Never persist credentials or
   merge/destructive/protected-ref/approval-bypass authority. Exact-session continuity may benefit
@@ -143,16 +143,22 @@ silently deleting it.
   for maintainer dogfood). Prefer contributor PRs (or issues) when optional paths fail.
 - [2026-07-13] When the user has Grok Build and explicitly requests trusted full-run delegation,
   prefer one complete packet, one exact persistent session, `branch_progress`, and a parked host via
-  `full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`. `full-run-stop` is cancellation
-  or recovery only. Keep `prepare|launch|gate|resume-batch|status` as the legacy bounded route and
-  use `untrusted` host-import leases only when the hard writer boundary is required.
+  `full-run-prepare|full-run-launch|full-run-await|full-run-reconcile|full-run-logs`.
+  `full-run-stop` is cancellation or recovery only. Keep
+  `prepare|launch|gate|resume-batch|status` as the legacy bounded route and use `untrusted`
+  host-import leases only when the hard writer boundary is required.
 - [2026-07-15] For open-source Grok Build, the installed executable is launch authority and
   upstream source is semantic reference. Build 0.2.101 proves caller-assigned `--session-id`, exact
-  resume, `/goal`, streaming JSON, JSON schema, ACP, and the existing autonomous/read-only flags;
-  it rejects `--new-session`. Qualify provider/auth/live catalog independently from goal behavior,
-  select only catalog-returned models (using its parsed default unless explicitly pinned), and use
-  the one-packet prompt fallback when headless goal is unavailable. Preserve private
-  `HOME`/`GROK_HOME` plus the narrow `GROK_AUTH_PATH`, and never persist raw OAuth or provider output.
+  resume, `/goal status` command resolution with the narrow auth projection and no model inference,
+  streaming JSON, JSON schema, ACP, and the existing autonomous/read-only flags; it rejects
+  `--new-session`. Its exact authenticated packet-backed `/goal` canary did not reach terminal state,
+  so goal behavior remains unproven and the one-packet prompt fallback is required. Qualify
+  provider/auth/live catalog independently from goal behavior, select only catalog-returned models
+  using the parsed default unless another exact catalog member is explicitly selected, preserve
+  private `HOME`/`GROK_HOME` plus the narrow `GROK_AUTH_PATH`, and never persist raw OAuth or provider
+  output. Future goal enablement requires a bounded, mode-safe terminal-canary JSON artifact tied to
+  the exact installed build, canonical session, prompt digest, successful exit, and matching end
+  event; persisted state keeps only its digest ID.
 - [2026-07-13] An isolated headless Grok process cannot inherit an interactive subscription login
   accidentally. Require exactly one explicit strategy before spawn: grant `XAI_API_KEY` by name, or
   for trusted Lane A keep the run's private `GROK_HOME` while exposing only the validated canonical

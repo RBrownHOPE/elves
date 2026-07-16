@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import hashlib
 import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import uuid
@@ -22,6 +24,8 @@ GROK_COMPOSER_MODEL = "grok-composer-2.5-fast"
 GROK_COMPLEX_MODEL = "grok-4.5"
 GROK_UPSTREAM_SOURCE_URL = "https://github.com/xai-org/grok-build"
 GROK_UPSTREAM_SEMANTIC_COMMIT = "c1b5909ec707c069f1d21a93917af044e71da0d7"
+MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES = 64 * 1024
+MAX_GROK_GOAL_CANARY_PROMPT_BYTES = 32 * 1024
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,9 @@ class GrokCapabilities:
     goal_entrypoint_advertised: bool = False
     goal_mode_behaviorally_verified: bool = False
     goal_behavioral_evidence: str | None = None
+    # Private input locator retained only so a resumed full-run can revalidate
+    # the same artifact. It is intentionally absent from safe_snapshot().
+    goal_behavioral_artifact_path: str | None = None
     version: str | None = None
     installed_build_commit: str | None = None
     default_model: str | None = None
@@ -129,24 +136,165 @@ _GROK_HELP_CAPABILITIES: tuple[tuple[str, str], ...] = (
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _MODEL_ID_RE = r"[A-Za-z0-9][A-Za-z0-9._:/-]*"
 _MODEL_ROW_RE = re.compile(
-    rf"(?im)^\s*\*\s+(?P<model>{_MODEL_ID_RE})(?:\s+\(default\))?\s*$"
+    rf"(?im)^\s*(?P<marker>[-*])\s+(?P<model>{_MODEL_ID_RE})"
+    rf"(?P<default>\s+\(default\))?\s*$"
 )
 _DEFAULT_MODEL_RE = re.compile(
     rf"(?im)^\s*Default model:\s*(?P<model>{_MODEL_ID_RE})\s*$"
 )
+_SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
 def _parse_live_model_catalog(stdout: str) -> tuple[tuple[str, ...], str | None]:
     """Parse only anchored rows from `grok models`, never diagnostic prose."""
     clean = _ANSI_ESCAPE_RE.sub("", stdout or "")
-    if not re.search(r"(?im)^\s*Available models:\s*$", clean):
+    header = re.search(r"(?im)^\s*Available models:\s*$", clean)
+    if header is None:
         return (), None
-    models = tuple(dict.fromkeys(match.group("model") for match in _MODEL_ROW_RE.finditer(clean)))
+    rows = list(_MODEL_ROW_RE.finditer(clean[header.end() :]))
+    models = tuple(dict.fromkeys(match.group("model") for match in rows))
     default_match = _DEFAULT_MODEL_RE.search(clean)
     default_model = default_match.group("model") if default_match else None
-    if not models or default_model not in models:
+    default_rows = [
+        match
+        for match in rows
+        if match.group("model") == default_model
+        and (match.group("marker") == "*" or match.group("default"))
+    ]
+    if not models or default_model not in models or len(default_rows) != 1:
         return (), None
     return models, default_model
+
+
+def _goal_canary_unavailable(reason: str) -> tuple[GrokCapabilityEvidence, None]:
+    return (
+        GrokCapabilityEvidence(
+            state="unavailable",
+            source="validated_terminal_goal_canary_artifact",
+            reason=reason,
+        ),
+        None,
+    )
+
+
+def _read_goal_canary_artifact(path_value: str) -> bytes:
+    """Read one bounded regular artifact without following a symlink."""
+    path = Path(path_value).expanduser()
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError("artifact_not_regular")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or (metadata.st_dev, metadata.st_ino) != (before.st_dev, before.st_ino)
+        ):
+            raise ValueError("artifact_not_regular")
+        if stat.S_IMODE(metadata.st_mode) & 0o022:
+            raise ValueError("artifact_writable_by_others")
+        if metadata.st_size > MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES:
+            raise ValueError("artifact_too_large")
+        raw = os.read(descriptor, MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES + 1)
+        if len(raw) > MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES:
+            raise ValueError("artifact_too_large")
+        return raw
+    finally:
+        os.close(descriptor)
+
+
+def validate_grok_goal_canary_artifact(
+    artifact_path: str | None,
+    *,
+    installed_version: str | None,
+    installed_build_commit: str | None,
+) -> tuple[GrokCapabilityEvidence, str | None]:
+    """Validate terminal goal proof bound to the exact installed Grok build.
+
+    Artifact schema v1 is a bounded JSON object with:
+    ``artifact_type``, ``schema_version``, installed version/build, canonical
+    ``session_id``, exact ``prompt`` plus ``prompt_sha256``, zero ``exit_code``,
+    and the exact successful streaming ``terminal_event``.
+    """
+    value = str(artifact_path or "").strip()
+    if not value:
+        return _goal_canary_unavailable("terminal_objective_canary_not_recorded")
+    if not installed_version or not installed_build_commit:
+        return _goal_canary_unavailable("installed_build_identity_unavailable")
+    try:
+        raw = _read_goal_canary_artifact(value)
+    except (OSError, RuntimeError, ValueError):
+        return _goal_canary_unavailable("goal_canary_artifact_unavailable_or_unsafe")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _goal_canary_unavailable("goal_canary_artifact_malformed")
+    if not isinstance(payload, Mapping):
+        return _goal_canary_unavailable("goal_canary_artifact_malformed")
+    required = {
+        "artifact_type",
+        "schema_version",
+        "installed_version",
+        "installed_build_commit",
+        "session_id",
+        "prompt",
+        "prompt_sha256",
+        "exit_code",
+        "terminal_event",
+    }
+    if set(payload) != required:
+        return _goal_canary_unavailable("goal_canary_artifact_schema_invalid")
+    if (
+        payload.get("artifact_type") != "grok_goal_terminal_canary"
+        or payload.get("schema_version") != 1
+        or payload.get("installed_version") != installed_version
+        or str(payload.get("installed_build_commit") or "").lower()
+        != installed_build_commit.lower()
+    ):
+        return _goal_canary_unavailable("goal_canary_artifact_build_mismatch")
+    session_id = payload.get("session_id")
+    try:
+        canonical_session = str(uuid.UUID(str(session_id)))
+    except (AttributeError, TypeError, ValueError):
+        return _goal_canary_unavailable("goal_canary_artifact_session_invalid")
+    if canonical_session != session_id:
+        return _goal_canary_unavailable("goal_canary_artifact_session_invalid")
+    prompt = payload.get("prompt")
+    if not isinstance(prompt, str):
+        return _goal_canary_unavailable("goal_canary_artifact_prompt_invalid")
+    prompt_raw = prompt.encode("utf-8")
+    if (
+        not prompt.startswith("/goal ")
+        or not prompt[len("/goal ") :].strip()
+        or len(prompt_raw) > MAX_GROK_GOAL_CANARY_PROMPT_BYTES
+    ):
+        return _goal_canary_unavailable("goal_canary_artifact_prompt_invalid")
+    prompt_sha256 = payload.get("prompt_sha256")
+    if (
+        not isinstance(prompt_sha256, str)
+        or not _SHA256_RE.fullmatch(prompt_sha256)
+        or hashlib.sha256(prompt_raw).hexdigest() != prompt_sha256
+    ):
+        return _goal_canary_unavailable("goal_canary_artifact_prompt_digest_mismatch")
+    if isinstance(payload.get("exit_code"), bool) or payload.get("exit_code") != 0:
+        return _goal_canary_unavailable("goal_canary_artifact_not_successful")
+    terminal = payload.get("terminal_event")
+    if (
+        not isinstance(terminal, Mapping)
+        or terminal.get("type") != "end"
+        or terminal.get("sessionId") != canonical_session
+    ):
+        return _goal_canary_unavailable("goal_canary_artifact_terminal_invalid")
+    evidence_id = "grok-goal-canary:v1:" + hashlib.sha256(raw).hexdigest()[:24]
+    return (
+        GrokCapabilityEvidence(
+            state="proven",
+            source="validated_terminal_goal_canary_artifact",
+            reason="terminal_objective_canary_validated_for_installed_build",
+        ),
+        evidence_id,
+    )
 
 
 def _contains_positive_usage(value: Any) -> bool:
@@ -324,9 +472,9 @@ def probe_grok_capabilities(
 ) -> GrokCapabilities:
     """Silently inventory Grok without launching an inference turn.
 
-    `grok models` is the authentication/model qualification. Goal support is
-    delegated to the repository's existing behavioral help probe; a TUI-only
-    `/goal` mention is never upgraded into headless goal support.
+    `grok models` is the authentication/model qualification. Goal-command
+    resolution and terminal behavioral proof are separate: only a validated
+    exact-build canary artifact upgrades headless goal support.
     """
     located = shutil.which(executable)
     if not located:
@@ -368,6 +516,12 @@ def probe_grok_capabilities(
         version_text = (version_result.stdout or version_result.stderr or "").strip()
     version_match = re.search(r"\d+\.\d+(?:\.\d+)?", version_text)
     build_match = re.search(r"\(([0-9a-f]{7,40})\)", version_text, re.I)
+    version_command_ok = bool(
+        version_result is not None and getattr(version_result, "returncode", 1) == 0
+    )
+    if not version_command_ok:
+        version_match = None
+        build_match = None
     model_stdout = models_result.stdout or "" if models_result is not None else ""
     model_combined = (
         model_stdout + "\n" + (models_result.stderr or "")
@@ -537,15 +691,14 @@ def probe_grok_capabilities(
         auth_path=goal_auth_path,
         api_key=goal_api_key,
     )
-    recorded_goal_evidence = str(goal_behavioral_evidence or "").strip() or None
-    goal_behavior_evidence = GrokCapabilityEvidence(
-        state="proven" if recorded_goal_evidence else "unavailable",
-        source="recorded_terminal_goal_canary",
-        reason=(
-            "terminal_objective_canary_recorded"
-            if recorded_goal_evidence
-            else "terminal_objective_canary_not_recorded"
-        ),
+    goal_behavior_evidence, recorded_goal_evidence = (
+        validate_grok_goal_canary_artifact(
+            goal_behavioral_evidence,
+            installed_version=version_match.group(0) if version_match else None,
+            installed_build_commit=(
+                build_match.group(1).lower() if build_match else None
+            ),
+        )
     )
     ledger.extend(
         (
@@ -578,6 +731,11 @@ def probe_grok_capabilities(
         goal_entrypoint_advertised=goal_advertised,
         goal_mode_behaviorally_verified=bool(recorded_goal_evidence),
         goal_behavioral_evidence=recorded_goal_evidence,
+        goal_behavioral_artifact_path=(
+            str(goal_behavioral_evidence).strip()
+            if recorded_goal_evidence and goal_behavioral_evidence
+            else None
+        ),
         version=version_match.group(0) if version_match else None,
         installed_build_commit=build_match.group(1).lower() if build_match else None,
         default_model=default_model,
@@ -786,7 +944,12 @@ def decide_worker_route(
             "worker_effort": "plan_execution_reasoning" if effort_is_auto else effort_source,
             "grok_consent": consent_source,
             "grok_safety_veto": "repository_policy" if prohibited else "none",
-            "grok_goal_evidence": grok_info.goal_behavioral_evidence or "none",
+            "grok_goal_evidence": (
+                "validated_terminal_goal_canary_artifact"
+                if grok_info.goal_mode_behaviorally_verified
+                and grok_info.goal_behavioral_evidence
+                else "none"
+            ),
             "grok_model": (
                 requested_grok_model_source
                 if requested_grok_model is not None

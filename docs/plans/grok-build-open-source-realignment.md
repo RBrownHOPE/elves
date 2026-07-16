@@ -4,8 +4,9 @@
 
 Align Elves' optional Grok Build lane with the published `xai-org/grok-build` source and the
 installed CLI that Elves actually launches. The useful integration is a clean autonomous handoff:
-Elves supplies one complete implementation packet, Grok runs it through headless `/goal`, and a
-sanitized streaming view exposes progress without waking the driver for routine narration.
+Elves supplies one complete implementation packet, Grok uses capability-proven headless `/goal` or
+the compatible one-packet prompt fallback, and a sanitized streaming view exposes progress without
+waking the driver for routine narration.
 
 Native Codex and Claude Code workers remain the default. Grok remains optional and must still pass
 the repository permission, authentication, model, and isolation checks before selection.
@@ -37,9 +38,13 @@ periodically synchronized and may not exactly match a released build.
 - Session creation accepts `--session-id <UUID>`; Elves' current `--new-session` is invalid.
 - `GROK_AUTH_PATH` is implemented upstream. It is the narrow credential projection Elves should
   retain alongside its private `HOME` and `GROK_HOME`; broadening the projected config is not a fix.
-- Headless `/goal status` resolves successfully in an isolated, model-free probe. The source shows
-  that headless prompts share the slash-command resolver and that `/goal` drives the autonomous goal
-  harness.
+- Headless `/goal status` resolves successfully in an isolated probe that uses the narrow auth
+  projection without catalog lookup or model inference. This proves command resolution only. The
+  source shows that headless prompts share the slash-command resolver and that `/goal` drives the
+  autonomous goal harness.
+- Goal behavior requires a validated terminal-canary JSON artifact bound to the exact installed
+  version/build, canonical session, packet-backed prompt digest, successful exit, and matching end
+  event. The 0.2.101 canary did not reach terminal state, so this run uses the one-packet fallback.
 - `streaming-json` emits newline-delimited typed events, including text, thought, end, and error
   records with session and usage metadata. New event types may appear and must be tolerated.
 - `grok agent stdio` exposes a richer ACP transport, including tool calls, plans, permissions, and
@@ -101,7 +106,7 @@ periodically synchronized and may not exactly match a released build.
 
 - [ ] [B0-A1] The snapshot handles authenticated and unauthenticated installs honestly, records unavailable capabilities with reasons, and never contains credentials or raw OAuth output.
 - [ ] [B0-A2] The capability ledger proves the supported read-only, session, goal, streaming, schema, and ACP surfaces and explicitly identifies `--new-session` as unsupported.
-- [ ] [B0-A3] A model-free isolated `/goal status` probe verifies goal-command resolution independently from provider authentication and model inference.
+- [ ] [B0-A3] A model-free isolated `/goal status` probe using the narrow auth projection verifies goal-command resolution independently from catalog lookup and model inference.
 - [ ] [B0-A4] Batch 0 is additive: it changes no product launch argv or non-Grok adapter behavior.
 
 **Risk:** `standard`
@@ -185,7 +190,7 @@ environment isolation.
 **Acceptance criteria:**
 
 - [ ] [B2-A1] Grok provider qualification is independent from goal support, and an unavailable goal capability selects the documented one-packet fallback without disabling an otherwise valid provider.
-- [ ] [B2-A2] An isolated authenticated throwaway-repository canary proves that a headless `/goal` launch accepts the packet-backed objective, completes, and returns an exact recoverable session identity.
+- [ ] [B2-A2] An isolated authenticated throwaway-repository canary records whether the packet-backed headless `/goal` launch reaches terminal state with the exact requested session identity; a complete terminal artifact enables goal mode, while an incomplete canary keeps goal mode disabled and proves selection of the one-packet fallback.
 - [ ] [B2-A3] The streaming follow view exposes sanitized progress, usage, terminal state, and typed errors; it tolerates unknown event types and never requires timed driver narration.
 - [ ] [B2-A4] Worker branch, commit, crash recovery, acceptance, protected-ref, PR, and merge authority remain identical to the provider-neutral full-run contract.
 
@@ -267,8 +272,9 @@ installed-bundle smoke checks.
 - Establish a redaction-safe, model-free live capability baseline before launch.
 - During implementation, run focused tests for the adapter, route, auth, stream, and supervisor
   surface changed in that batch. Do not repeat unaffected suites between batches.
-- Use one bounded authenticated `/goal` canary in an isolated throwaway repository. It is behavioral
-  evidence, not a network-dependent CI requirement.
+- Use one bounded authenticated `/goal` canary in an isolated throwaway repository to select either
+  proven goal mode or the honest one-packet fallback. It is behavioral evidence, not a
+  network-dependent CI requirement.
 - At terminal review, run the affected suites once, `scripts/check_repo_consistency.py`, installed
   Codex/Claude bundle smokes, `git diff --check`, the acceptance check, and
   `scripts/verify_repo.py --version Unreleased` once.

@@ -366,6 +366,14 @@ def cmd_preferences(args: argparse.Namespace) -> int:
 
 def cmd_route_worker(args: argparse.Namespace) -> int:
     """Explain a model-free worker recommendation."""
+    if args.grok_goal_behavioral_evidence and not args.probe_grok:
+        issue = ValidationIssue(
+            "grok_goal_canary_probe_required",
+            "Goal canary artifacts can be qualified only against the installed Grok binary",
+            path="grok_goal_behavioral_evidence",
+            hint="Pass --probe-grok with the bounded JSON canary artifact path",
+        )
+        return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
     try:
         preference_state = preference_snapshot()
     except ValidationIssue as issue:
@@ -406,8 +414,8 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
             models=tuple(args.grok_model or ()),
             default_model=args.grok_default_model,
             goal_entrypoint_advertised=args.grok_goal_advertised,
-            goal_mode_behaviorally_verified=bool(args.grok_goal_behavioral_evidence),
-            goal_behavioral_evidence=args.grok_goal_behavioral_evidence,
+            goal_mode_behaviorally_verified=False,
+            goal_behavioral_evidence=None,
             version=args.grok_version,
         )
     )
@@ -2008,7 +2016,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Explicit catalog-returned Grok model to select instead of the live default",
     )
     route_worker.add_argument("--grok-goal-advertised", action="store_true")
-    route_worker.add_argument("--grok-goal-behavioral-evidence", help="Recorded behavioral verification id/path for headless goal mode")
+    route_worker.add_argument(
+        "--grok-goal-behavioral-evidence",
+        help=(
+            "Path to a bounded JSON terminal-canary artifact; requires --probe-grok "
+            "and must match the installed version/build"
+        ),
+    )
     route_worker.add_argument("--grok-version")
     route_worker.add_argument("--probe-grok", action="store_true", help="Safely probe installed Grok flags, live catalog/default, ACP, and optional isolated goal evidence")
     route_worker.add_argument("--grok-executable", default="grok")
@@ -2423,8 +2437,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--grok-goal-behavioral-evidence",
         default=None,
         help=(
-            "Recorded terminal `/goal <objective>` canary evidence; omit to use "
-            "the one-packet fallback"
+            "Path to a bounded terminal `/goal <objective>` JSON canary artifact; "
+            "omit to use the one-packet fallback"
         ),
     )
     i_fr_prepare.add_argument(
