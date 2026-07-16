@@ -747,7 +747,7 @@ class FullRunReportValidationTests(unittest.TestCase):
             self.assertGreater(cursor.offset, 0)
 
     def test_grok_follow_detects_absent_grant_across_read_chunk_boundaries(self) -> None:
-        secret = "grant-value-absent-from-monitor-environment"
+        redaction_marker = "grant-value-absent-from-monitor-environment"
         state = full_run_module.FullRunState(
             session_id="11111111-1111-1111-1111-111111111111",
             branch="feat/x",
@@ -757,10 +757,10 @@ class FullRunReportValidationTests(unittest.TestCase):
             supervision_token="c" * 48,
             credential_granted_names=["XAI_API_KEY"],
         )
-        state.credential_grant_lengths = {"XAI_API_KEY": len(secret)}
+        state.credential_grant_lengths = {"XAI_API_KEY": len(redaction_marker)}
         state.credential_grant_digests = {
             "XAI_API_KEY": full_run_module._credential_grant_digest(
-                state, "XAI_API_KEY", secret
+                state, "XAI_API_KEY", redaction_marker
             )
         }
         state.credential_grant_metadata_mac = full_run_module._credential_grant_metadata_mac(state)
@@ -769,7 +769,10 @@ class FullRunReportValidationTests(unittest.TestCase):
             transcript = repo / ".elves" / "runtime" / "transcript.jsonl"
             transcript.parent.mkdir(parents=True)
             transcript.write_text(
-                json.dumps({"type": "text", "data": f"before-{secret}-after"}) + "\n",
+                json.dumps(
+                    {"type": "text", "data": f"before-{redaction_marker}-after"}
+                )
+                + "\n",
                 encoding="utf-8",
             )
             with mock.patch.object(full_run_module, "GROK_STREAM_READ_CHUNK_BYTES", 7):
@@ -783,7 +786,7 @@ class FullRunReportValidationTests(unittest.TestCase):
                     credential_grant_state=state,
                 )
             payload = "\n".join(rendered)
-            self.assertNotIn(secret, payload)
+            self.assertNotIn(redaction_marker, payload)
             self.assertIn("[REDACTED:credential_grant]", payload)
 
     def test_grok_follow_fails_closed_when_grant_metadata_is_unverified(self) -> None:
