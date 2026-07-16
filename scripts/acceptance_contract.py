@@ -127,7 +127,9 @@ def _emit(
     session_path: Path | None,
     issues: list[AcceptanceIssue],
     as_json: bool,
+    warnings: list[AcceptanceIssue] | None = None,
 ) -> int:
+    advisory = list(warnings or [])
     payload = {
         "ok": ok,
         "action": action,
@@ -137,6 +139,10 @@ def _emit(
             {"code": issue.code, "message": issue.message, "line": issue.line}
             for issue in issues
         ],
+        "warnings": [
+            {"code": warning.code, "message": warning.message}
+            for warning in advisory
+        ],
     }
     if as_json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -145,11 +151,53 @@ def _emit(
         print(f"- Plan: {plan_path}")
         if session_path is not None:
             print(f"- Session: {session_path}")
+        for warning in advisory:
+            print(f"- WARN [{warning.code}]: {warning.message}")
     else:
         print("Elves acceptance staging check FAILED", file=sys.stderr)
         for issue in issues:
             print(f"- [{issue.code}] {issue.message}", file=sys.stderr)
+        for warning in advisory:
+            print(f"- WARN [{warning.code}]: {warning.message}", file=sys.stderr)
     return 0 if ok else 1
+
+
+# Work-driver spellings: hyphen and underscore forms are equivalent
+# (`grok-build` == `grok_build`); the canonical mapping lives in
+# references/schema-and-acceptance.md. These drivers implement in a separate
+# session and therefore expect a staged coordinator→implementer packet.
+_HOST_NATIVE_WORK_DRIVERS: frozenset[str] = frozenset({"", "host-native", "n-a"})
+
+
+def _normalize_work_driver(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip().lower().replace("_", "-")
+
+
+def _worker_packet_warnings(session: dict[str, Any]) -> list[AcceptanceIssue]:
+    """Advisory staging warnings; never contribute to the exit code.
+
+    A run whose Run Control records a non-host-native work driver should have
+    written the standalone coordinator→implementer packet at staging and
+    recorded its path as `worker_packet_path`. Host-native runs legitimately
+    skip the packet, so absence of the field only warns when the recorded
+    driver implements in a separate session.
+    """
+    driver = _normalize_work_driver(session.get("work_driver"))
+    if driver in _HOST_NATIVE_WORK_DRIVERS:
+        return []
+    packet = session.get("worker_packet_path")
+    if isinstance(packet, str) and packet.strip():
+        return []
+    return [
+        AcceptanceIssue(
+            "worker_packet_missing",
+            f"Session records work_driver `{driver}` but no `worker_packet_path`. "
+            "For delegable runs the standalone coordinator→implementer packet is a "
+            "staging deliverable; record its path before launch (advisory only).",
+        )
+    ]
 
 
 def _session_has_acceptance_ids(session: dict[str, Any]) -> bool:
@@ -382,6 +430,11 @@ def main(argv: list[str] | None = None) -> int:
         issues.extend(identity_issues)
 
     if args.action == "validate" or issues:
+        warnings = (
+            _worker_packet_warnings(session)
+            if args.action == "validate" and session is not None
+            else []
+        )
         return _emit(
             ok=not issues,
             action=args.action,
@@ -389,6 +442,7 @@ def main(argv: list[str] | None = None) -> int:
             session_path=session_path,
             issues=issues,
             as_json=bool(args.json),
+            warnings=warnings,
         )
 
     if session is None or session_path is None:

@@ -1116,8 +1116,17 @@ class AcceptanceContractCliTests(unittest.TestCase):
                 self.assertEqual(self.session_path.read_bytes(), before)
 
 
-class WorkerPacketStagingWarningTests(AcceptanceContractCliTests):
-    """validate warns — never blocks — when a delegable run has no recorded packet."""
+class WorkerPacketStagingWarningTests(unittest.TestCase):
+    """validate warns — never blocks — when a delegable run has no recorded packet.
+
+    Standalone TestCase (not an AcceptanceContractCliTests subclass) so the
+    parent suite is not re-collected a second time.
+    """
+
+    setUp = AcceptanceContractCliTests.setUp
+    write_plan = AcceptanceContractCliTests.write_plan
+    write_session = AcceptanceContractCliTests.write_session
+    run_cli = AcceptanceContractCliTests.run_cli
 
     def _session_with_driver(
         self,
