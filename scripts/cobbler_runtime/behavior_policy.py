@@ -85,7 +85,9 @@ class BehaviorDecision:
     scenario_id: str
     handling_level: str  # direct_edit | bounded_task | full_run
     kickoff_mode: str  # single_kickoff | legacy_two_call | n_a
-    work_driver: str  # host_native | grok_build | untrusted_writer | n_a
+    work_driver: str  # host_native | grok_build | untrusted_writer | n_a; devin-cli routes as an
+    # external work driver in Run Control docs — canonical spelling map lives in
+    # references/schema-and-acceptance.md (hyphen/underscore forms equivalent)
     delegation_scope: str  # none | batch | full_run
     git_mode: str  # host_only | branch_progress | detached_lease
     driver_monitor_mode: str  # interactive | parked_monitor | n_a

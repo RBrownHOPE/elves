@@ -181,3 +181,29 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
 - D8 (driver): dogfood invoked the branch copy of worktree_gc.py by absolute path with the main
   checkout as cwd — same pattern as installed-skill helpers (helper from skill root, target repo
   as working directory). No flag surface existed on main yet; this is the expected mid-run shape.
+
+## B3 (host-native takeover by driver)
+
+- 2026-07-16 16:05 · Blocker · B3 worker session crashed 3x on transient API 529 (before any edits
+  each time; tip verified clean at e47d9f8 after each). Re-drive budget (2) exhausted -> host-native
+  takeover per Run Control.
+- 2026-07-16 16:10 · Contract · Failing validator tests pushed (340b166): WorkerPacketStagingWarningTests
+  pins warn-not-block, spelling normalization, silence for host-native/with-path.
+- 2026-07-16 16:20 · Implement · Advisory warnings channel in acceptance_contract.py
+  (_worker_packet_warnings + _normalize_work_driver; warnings never touch exit codes); test class
+  made standalone to avoid re-collecting the parent suite (d30481f).
+- 2026-07-16 16:40 · Implement · Six doc surfaces (SKILL.md staging line + cadence/phase-roles in
+  handoff standard; survival-guide template field; schema-and-acceptance canonical sections;
+  plan-template note; kickoff bullets x2; grok launch prompt echo); behavior_policy.py comment
+  points at the canonical map, values unchanged.
+- 2026-07-16 16:55 · Validate · consistency exit 0 (no pin churn); full suite 1,062/0 plain AND
+  with CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1; release_checklist --allow-unreleased exit 0.
+
+## Decisions made (continued 3)
+
+- D9 (B3): host-native takeover after 3x 529 crashes consumed the 2-re-drive budget. The takeover
+  driver authors B3's single Close as the implementer; reconcile remains a separate Review commit.
+- D10 (defect log, per new phase-role rule): two pre-B3 driver reconcile commits are mislabeled by
+  the now-codified convention — 39bd71d and e47d9f8 used a second `Close` for their batch and
+  39bd71d also carried a B3 plan amendment under a Batch 1/7 label. History is not rewritten
+  (force-push forbidden); the convention now lives in SKILL.md via B3-A5.

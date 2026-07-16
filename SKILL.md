@@ -208,6 +208,14 @@ Before every worker turn (one packet for a trusted full-run), write a stand-alon
 
 Incomplete handoffs are blocking coordinator defects. Canonical run docs stay host-owned.
 
+**Commit cadence and phase roles.** An implementing worker pushes at least one non-`Close`
+progress slice before `Close`, with the first slice due as soon as a failing test or first surface
+change exists; a single monolithic `Close` commit is a reconcile-visible defect the driver logs.
+Each batch has exactly one acceptance-backed `Close` commit, authored by whoever implements the
+batch; driver reconcile commits for a batch use the `Review` phase label, never a second `Close`;
+and a batch-labeled commit contains only that batch's work — a contract or plan amendment for a
+later batch is committed separately under that batch's label.
+
 ## Git History as Operator UI
 
 Preferred subject schema:
@@ -260,6 +268,13 @@ choreography**. See `references/plan-template.md`.
 Launch only when: plan cleaned, run docs current, branch/PR recorded, preflight green, acceptance
 contract reconciled, run mode/non-negotiables recorded, no unresolved planning blockers. In single-
 kickoff E2E, continue immediately once launch-ready.
+
+If Run Control `Work driver` ≠ host-native (or the run may be delegated), the standalone
+coordinator→implementer packet is written and its path recorded in Run Control and as
+`worker_packet_path` in `.elves-session.json` — staging is not launch-ready without it. The
+per-batch handoff block in the plan and the consolidated staging packet are not substitutes; see
+`references/schema-and-acceptance.md`. `acceptance_contract.py validate` warns (advisory, never
+blocking) when a delegable session lacks the recorded path.
 
 ### Preflight
 

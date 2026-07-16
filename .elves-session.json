@@ -64,37 +64,37 @@
       "acceptance": [
         {
           "criterion": "Validator test: staged session with `work_driver: grok-build` and no `worker_packet_path` produces the warning; with the path recorded, no warning; host-native produces no warning",
-          "evidence": "",
+          "evidence": "tests/test_acceptance_contract.py::WorkerPacketStagingWarningTests (6 tests, OK): grok-build/grok_build/devin-cli/devin_cli/untrusted_writer without packet -> WARN worker_packet_missing exit 0; with worker_packet_path -> silent; host-native/host_native/n_a/absent -> silent; --json ok stays true with warnings[]; blocking criterion drift still exits 1 with warning present.",
           "id": "B3-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "All six documentation surfaces carry the packet-at-staging rule and cross-link rather than restate it",
-          "evidence": "",
+          "evidence": "Six surfaces at Close commit: SKILL.md Staging conditional line + handoff cadence/phase-roles; survival-guide-template Run Control 'Worker packet:'; schema-and-acceptance.md 'Worker packet at staging' + 'Work-driver spellings' (canonical home); plan-template blockquote (per-batch vs consolidated, not substitutes); kickoff template packet bullet in both staging lists; grok-implementer-launch-prompt cadence echo. All link to schema-and-acceptance.md rather than restating.",
           "id": "B3-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Repo-consistency CI green; any newly pinned phrases added deliberately and minimally",
-          "evidence": "",
+          "evidence": "check_repo_consistency.py exit 0 after every doc edit and at Close; zero pin additions or modifications needed (verified no pinned sentence edited).",
           "id": "B3-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Work-driver spellings normalize identically in validator and docs (devin covered)",
-          "evidence": "",
+          "evidence": "Validator normalizes lowercase+underscore->hyphen (_normalize_work_driver); devin-cli/devin_cli recognized as delegable (subTest coverage); canonical mapping documented once in schema-and-acceptance.md; behavior_policy.py comment points there without any enum value change.",
           "id": "B3-A4",
-          "met": false
+          "met": true
         },
         {
           "criterion": "The commit-cadence rule (\u22651 pushed non-Close progress slice before Close; first slice at first failing test or surface change) appears in SKILL.md's handoff standard and the packet/kickoff template guidance, with consistency pins updated in the same commit",
-          "evidence": "",
+          "evidence": "SKILL.md handoff standard 'Commit cadence and phase roles' paragraph (one authoritative home); kickoff template and grok launch prompt echo by reference; pins untouched (consistency exit 0). Includes the user-directed phase-role extension: one Close per batch, driver reconciles use Review, batch labels contain only that batch's work.",
           "id": "B3-A5",
-          "met": false
+          "met": true
         }
       ],
       "id": "B3",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [

@@ -4,6 +4,21 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Worker packet as a staging deliverable
+
+- Staging now requires the standalone coordinator→implementer packet for delegable runs: SKILL.md's
+  launch-ready checklist gains the conditional line, the survival-guide template Run Control gains a
+  `Worker packet:` field, and `references/schema-and-acceptance.md` documents the optional
+  `worker_packet_path` session key plus the canonical work-driver spelling map (hyphen/underscore
+  equivalent; `devin-cli` covered).
+- `acceptance_contract.py validate` emits an advisory `worker_packet_missing` warning — never a
+  blocking issue or exit-code change — when a session records a non-host-native work driver without
+  a recorded packet path.
+- SKILL.md's handoff standard now states commit cadence and phase roles: at least one pushed
+  non-Close progress slice before Close (first at first failing test or surface change), exactly one
+  acceptance-backed Close per batch, driver reconciles under Review, batch labels contain only that
+  batch's work. Echoed in the kickoff template and the Grok implementer launch prompt.
+
 ### Worktree reclaim lifecycle
 
 - New `scripts/worktree_gc.py` (surfaced as `./scripts/preflight.sh --gc-worktrees`) reports and,

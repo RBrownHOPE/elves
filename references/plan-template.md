@@ -88,6 +88,12 @@ Example:
 ### Batch 1 [B1]: [Name]
 
 **Coordinator-to-implementer handoff (required when an external or less-capable worker implements):**
+
+> The per-batch handoff block below always lives in the plan. A **consolidated standalone packet**
+> is additionally a **staging deliverable** for any run that might be delegated — written at
+> staging with its path recorded in Run Control and `worker_packet_path` (see
+> [`schema-and-acceptance.md`](schema-and-acceptance.md)). The two are not substitutes.
+
 - **Intent / why:** [why this batch exists]
 - **Non-obvious rationale:** [architecture choices the worker must not rediscover from chat]
 - **Build On targets:** [existing utilities/patterns to extend]
