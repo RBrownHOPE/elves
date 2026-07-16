@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -48,13 +49,26 @@ FORBIDDEN_DEFAULT_PERMISSION = "dontAsk"
 # Empirically required for unattended headless tool use (Grok Build 0.2.93 docs + dogfood).
 # --permission-mode auto alone does not auto-approve writes; --yolo / --always-approve does.
 
-# Operator model aliases for Grok Build implement labor.
-# Alias names inspired by stdevMac/grok-in-claude + grok-in-codex (Apache-2.0) companion
-# presets; slugs remain Elves-owned and should be re-checked against `grok models`.
-MODEL_ALIASES: dict[str, dict[str, str]] = {
-    "fast": {"model": "grok-composer-2.5-fast"},
-    "deep": {"model": "grok-4.5", "effort": "high"},
-}
+GROK_LIVE_DEFAULT = "auto"
+
+
+def require_exact_grok_session_uuid(session_id: str) -> str:
+    """Require the canonical UUID grammar accepted by installed Grok Build."""
+    value = str(session_id or "").strip()
+    try:
+        parsed = uuid.UUID(value)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValidationIssue(
+            "invalid_grok_session_uuid",
+            "Grok session identity must be an exact canonical UUID",
+        ) from exc
+    canonical = str(parsed)
+    if value != canonical:
+        raise ValidationIssue(
+            "invalid_grok_session_uuid",
+            "Grok session identity must use canonical lowercase UUID grammar",
+        )
+    return canonical
 
 
 def _require_nonnegative_batch(batch: Any) -> int:
@@ -909,7 +923,7 @@ def prepare_implement(
     repo_root: Path,
     *,
     worktree: str | Path | None = None,
-    model: str = DEFAULT_MODEL,
+    model: str = GROK_LIVE_DEFAULT,
     session_id: str | None = None,
     branch: str | None = None,
     lane: str = DEFAULT_LANE,
@@ -942,7 +956,7 @@ def prepare_implement(
     default_model = (
         "openrouter/qwen/qwen3-max" if is_opencode else
         "swe-1-7-lightning" if is_devin else
-        DEFAULT_MODEL
+        GROK_LIVE_DEFAULT
     )
     default_exe = (
         "opencode" if is_opencode else
@@ -1055,42 +1069,27 @@ def resolve_implement_model(
 ) -> tuple[str, str | None, list[str]]:
     """Resolve operator model input to (model_id, effort_or_None, notes).
 
-    Grok aliases ``fast`` / ``deep`` expand to concrete slugs. OpenCode and
-    explicit provider/model ids pass through unchanged. Devin defaults to
-    ``swe-1-7-lightning`` and skips Grok aliases. Alias idea adapted from
-    stdevMac/grok-in-claude and grok-in-codex companion presets (Apache-2.0).
-
-    When ``effort`` is ``None``, aliases may supply a default (e.g. deep → high);
-    otherwise the caller-supplied effort wins.
+    Grok values remain exact live-catalog identifiers (or ``auto`` for the
+    parsed live default); no hardcoded alias may invent an unavailable model.
+    OpenCode ids pass through unchanged. Devin defaults to
+    ``swe-1-7-lightning``.
     """
     notes: list[str] = []
     adapter_name = (adapter or "grok-build").strip().lower() or "grok-build"
     explicit_effort = (effort or "").strip() or None
     raw = (model or "").strip()
-    if not raw or raw == DEFAULT_MODEL:
+    if not raw:
         if adapter_name == "devin-cli":
             return "swe-1-7-lightning", explicit_effort or DEFAULT_EFFORT, notes
         if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
             return "openrouter/qwen/qwen3-max", explicit_effort, notes
-        return DEFAULT_MODEL, explicit_effort or DEFAULT_EFFORT, notes
+        return GROK_LIVE_DEFAULT, explicit_effort or DEFAULT_EFFORT, notes
 
     if adapter_name == "devin-cli":
         return raw, explicit_effort or DEFAULT_EFFORT, notes
 
     if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
         return raw, explicit_effort, notes
-
-    key = raw.lower()
-    alias = MODEL_ALIASES.get(key)
-    if alias:
-        resolved_model = alias["model"]
-        resolved_effort = explicit_effort or alias.get("effort") or DEFAULT_EFFORT
-        notes.append(
-            f"Resolved model alias `{raw}` → model={resolved_model}"
-            + (f", effort={resolved_effort}" if resolved_effort else "")
-            + " (alias pattern credit: stdevMac/grok-in-claude, grok-in-codex)"
-        )
-        return resolved_model, resolved_effort, notes
 
     return raw, explicit_effort or DEFAULT_EFFORT, notes
 
@@ -1494,6 +1493,8 @@ def build_launch_argv(
         return argv
 
     # Default: Grok Build Lane A
+    if sid:
+        sid = require_exact_grok_session_uuid(sid)
     perm = _normalize_permission(permission_mode)
     exe_hint = (executable or DEFAULT_EXECUTABLE).strip() or DEFAULT_EXECUTABLE
     exe = resolve_executable_for_launch(exe_hint) or exe_hint
@@ -1528,7 +1529,7 @@ def build_launch_argv(
         ]
     )
     if yolo:
-        argv.append("--yolo")
+        argv.append("--always-approve")
     if check:
         # Grok CLI post-work verification flag (also used by community companions).
         argv.append("--check")
@@ -1897,8 +1898,38 @@ def launch_payload(
     raw_model = model or (state.model if state else None) or (
         "openrouter/qwen/qwen3-max" if is_opencode else
         "swe-1-7-lightning" if is_devin else
-        DEFAULT_MODEL
+        GROK_LIVE_DEFAULT
     )
+    if not is_opencode and not is_devin:
+        from .worker_routing import probe_grok_capabilities  # noqa: PLC0415
+
+        capabilities = probe_grok_capabilities(executable or DEFAULT_EXECUTABLE)
+        unavailable = capabilities.core_launch_unavailable_reason(
+            create=bool(create),
+            check=bool(check),
+        )
+        if unavailable:
+            raise ValidationIssue(
+                "grok_launch_capability_unavailable",
+                "Installed Grok Build lacks a required bounded-launch capability",
+                hint=unavailable,
+            )
+        if not capabilities.authenticated or not capabilities.models:
+            catalog = capabilities.capability("model_catalog")
+            raise ValidationIssue(
+                "grok_live_catalog_unavailable",
+                "Legacy Grok launch requires an authenticated live model catalog",
+                hint=(catalog.reason if catalog else "model_catalog_not_probed"),
+            )
+        requested = str(raw_model).strip()
+        if requested == GROK_LIVE_DEFAULT:
+            requested = str(capabilities.default_model or "")
+        if not requested or requested not in capabilities.models:
+            raise ValidationIssue(
+                "grok_model_not_in_live_catalog",
+                f"Requested Grok model `{requested or raw_model}` is absent from the authenticated live catalog",
+            )
+        raw_model = requested
     model_name, effort_name, alias_notes = resolve_implement_model(
         raw_model, effort=effort, adapter=adapter_name
     )

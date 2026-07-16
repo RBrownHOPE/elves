@@ -55,17 +55,30 @@ class GrokCapabilities:
     def capability(self, name: str) -> GrokCapabilityEvidence | None:
         return dict(self.capability_ledger).get(name)
 
-    def core_launch_unavailable_reason(self) -> str | None:
-        """Return the first concrete reduced-install reason, when a ledger exists."""
+    def core_launch_unavailable_reason(
+        self,
+        *,
+        create: bool = True,
+        check: bool = False,
+    ) -> str | None:
+        """Return the first missing capability for the actual trusted launch argv."""
         if not self.capability_ledger:
             return None
-        for name in (
-            "read_only_controls",
+        required = [
+            "prompt_file",
+            "cwd",
+            "model",
+            "permission_mode",
             "always_approve",
-            "session_id",
-            "resume",
+            "reasoning_effort",
+            "max_turns",
+            "output_format",
             "streaming_json",
-        ):
+            "session_id" if create else "resume",
+        ]
+        if check:
+            required.append("check")
+        for name in required:
             evidence = self.capability(name)
             if evidence is None or evidence.state != "proven":
                 detail = evidence.reason if evidence is not None else "not_probed"
@@ -94,8 +107,14 @@ class GrokCapabilities:
 
 
 _GROK_HELP_CAPABILITIES: tuple[tuple[str, str], ...] = (
+    ("prompt_file", "--prompt-file"),
+    ("cwd", "--cwd"),
+    ("model", "--model"),
     ("permission_mode", "--permission-mode"),
     ("always_approve", "--always-approve"),
+    ("reasoning_effort", "--reasoning-effort"),
+    ("max_turns", "--max-turns"),
+    ("output_format", "--output-format"),
     ("no_subagents", "--no-subagents"),
     ("no_memory", "--no-memory"),
     ("disable_web_search", "--disable-web-search"),
@@ -106,6 +125,47 @@ _GROK_HELP_CAPABILITIES: tuple[tuple[str, str], ...] = (
     ("streaming_json", "streaming-json"),
     ("json_schema", "--json-schema"),
 )
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_MODEL_ID_RE = r"[A-Za-z0-9][A-Za-z0-9._:/-]*"
+_MODEL_ROW_RE = re.compile(
+    rf"(?im)^\s*\*\s+(?P<model>{_MODEL_ID_RE})(?:\s+\(default\))?\s*$"
+)
+_DEFAULT_MODEL_RE = re.compile(
+    rf"(?im)^\s*Default model:\s*(?P<model>{_MODEL_ID_RE})\s*$"
+)
+
+
+def _parse_live_model_catalog(stdout: str) -> tuple[tuple[str, ...], str | None]:
+    """Parse only anchored rows from `grok models`, never diagnostic prose."""
+    clean = _ANSI_ESCAPE_RE.sub("", stdout or "")
+    if not re.search(r"(?im)^\s*Available models:\s*$", clean):
+        return (), None
+    models = tuple(dict.fromkeys(match.group("model") for match in _MODEL_ROW_RE.finditer(clean)))
+    default_match = _DEFAULT_MODEL_RE.search(clean)
+    default_model = default_match.group("model") if default_match else None
+    if not models or default_model not in models:
+        return (), None
+    return models, default_model
+
+
+def _contains_positive_usage(value: Any) -> bool:
+    """Reject any nested positive token/usage accounting from a model-free probe."""
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            key_text = str(key).lower().replace("_", "")
+            if (
+                ("usage" in key_text or "token" in key_text)
+                and not isinstance(child, bool)
+                and isinstance(child, (int, float))
+                and child > 0
+            ):
+                return True
+            if _contains_positive_usage(child):
+                return True
+    elif isinstance(value, (list, tuple)):
+        return any(_contains_positive_usage(child) for child in value)
+    return False
 
 
 def _probe_reason(result: Any | None, error: BaseException | None) -> str:
@@ -121,12 +181,12 @@ def probe_grok_goal_resolution(
     auth_path: Path | None = None,
     api_key: str | None = None,
 ) -> tuple[GrokCapabilityEvidence, str | None]:
-    """Resolve `/goal status` in an isolated home without retaining its output."""
+    """Resolve `/goal status` with narrow auth but without catalog/model inference."""
     if auth_path is None and not api_key:
         return (
             GrokCapabilityEvidence(
                 state="unavailable",
-                source="isolated_model_free_probe",
+                source="isolated_auth_projected_command_probe",
                 reason="narrow_auth_projection_not_provided",
             ),
             None,
@@ -139,7 +199,7 @@ def probe_grok_goal_resolution(
             return (
                 GrokCapabilityEvidence(
                     state="unavailable",
-                    source="isolated_model_free_probe",
+                    source="isolated_auth_projected_command_probe",
                     reason="narrow_auth_projection_unavailable",
                 ),
                 None,
@@ -190,7 +250,7 @@ def probe_grok_goal_resolution(
             return (
                 GrokCapabilityEvidence(
                     state="unavailable",
-                    source="isolated_model_free_probe",
+                    source="isolated_auth_projected_command_probe",
                     reason=f"probe_error:{type(exc).__name__}",
                 ),
                 None,
@@ -199,6 +259,7 @@ def probe_grok_goal_resolution(
     exact_session = False
     goal_status_resolved = False
     malformed = False
+    positive_usage = False
     for line in (result.stdout or "").splitlines():
         try:
             event = json.loads(line)
@@ -208,6 +269,7 @@ def probe_grok_goal_resolution(
         if not isinstance(event, Mapping):
             malformed = True
             continue
+        positive_usage = positive_usage or _contains_positive_usage(event)
         event_type = str(event.get("type") or "")
         event_types.append(event_type)
         if event_type == "text" and "No goal is currently set" in str(event.get("data") or ""):
@@ -220,13 +282,14 @@ def probe_grok_goal_resolution(
         and goal_status_resolved
         and exact_session
         and not inference_events
+        and not positive_usage
         and not malformed
     ):
         evidence_id = "isolated:/goal-status:text+end:exact-session:no-model-events"
         return (
             GrokCapabilityEvidence(
                 state="proven",
-                source="isolated_model_free_probe",
+                source="isolated_auth_projected_command_probe",
                 reason="slash_command_resolved_without_model_events",
             ),
             evidence_id,
@@ -236,14 +299,14 @@ def probe_grok_goal_resolution(
         reason = "authentication_required_before_command_resolution"
     elif malformed:
         reason = "malformed_streaming_probe_output"
-    elif inference_events:
+    elif inference_events or positive_usage:
         reason = "unexpected_model_events"
     else:
         reason = f"goal_status_not_resolved:exit_{getattr(result, 'returncode', 'unknown')}"
     return (
         GrokCapabilityEvidence(
             state="unavailable",
-            source="isolated_model_free_probe",
+            source="isolated_auth_projected_command_probe",
             reason=reason,
         ),
         None,
@@ -257,6 +320,7 @@ def probe_grok_capabilities(
     goal_auth_path: Path | None = None,
     goal_api_key: str | None = None,
     command_env: Mapping[str, str] | None = None,
+    goal_behavioral_evidence: str | None = None,
 ) -> GrokCapabilities:
     """Silently inventory Grok without launching an inference turn.
 
@@ -312,23 +376,25 @@ def probe_grok_capabilities(
     )
     model_lower = model_combined.lower()
     auth_failed = bool(
-        re.search(r"not signed in|not logged in|unauthori[sz]ed|authentication required", model_lower)
+        re.search(
+            r"not signed in|not logged in|not authenticated|unauthori[sz]ed|authentication required",
+            model_lower,
+        )
     )
     catalog_failed = bool(
         re.search(r"failed to fetch models|model refresh failed|settings fetch failed", model_lower)
     )
     models_command_ok = models_result is not None and getattr(models_result, "returncode", 1) == 0
-    models_available = models_command_ok and not auth_failed and not catalog_failed
-    models = (
-        tuple(sorted(set(re.findall(r"\bgrok-[a-z0-9][a-z0-9._-]*", model_stdout.lower()))))
-        if models_available
-        else ()
+    parsed_models, parsed_default = _parse_live_model_catalog(model_stdout)
+    models_available = bool(
+        models_command_ok
+        and not auth_failed
+        and not catalog_failed
+        and parsed_models
+        and parsed_default in parsed_models
     )
-    default_match = re.search(
-        r"(?im)^\s*default model\s*:\s*(grok-[a-z0-9][a-z0-9._-]*)",
-        model_stdout,
-    )
-    default_model = default_match.group(1).lower() if default_match and models_available else None
+    models = parsed_models if models_available else ()
+    default_model = parsed_default if models_available else None
     ledger: list[tuple[str, GrokCapabilityEvidence]] = [
         (
             "install",
@@ -465,17 +531,31 @@ def probe_grok_capabilities(
         and getattr(acp_result, "returncode", 1) == 0
         and "agent over stdio" in ((acp_result.stdout or "") + (acp_result.stderr or "")).lower()
     )
-    goal_evidence, goal_behavioral_evidence = probe_grok_goal_resolution(
+    goal_resolution_evidence, _goal_resolution_id = probe_grok_goal_resolution(
         located,
         runner=runner,
         auth_path=goal_auth_path,
         api_key=goal_api_key,
     )
+    recorded_goal_evidence = str(goal_behavioral_evidence or "").strip() or None
+    goal_behavior_evidence = GrokCapabilityEvidence(
+        state="proven" if recorded_goal_evidence else "unavailable",
+        source="recorded_terminal_goal_canary",
+        reason=(
+            "terminal_objective_canary_recorded"
+            if recorded_goal_evidence
+            else "terminal_objective_canary_not_recorded"
+        ),
+    )
     ledger.extend(
         (
             (
+                "goal_command_resolution",
+                goal_resolution_evidence,
+            ),
+            (
                 "goal_behavior",
-                goal_evidence,
+                goal_behavior_evidence,
             ),
             (
                 "acp",
@@ -496,8 +576,8 @@ def probe_grok_capabilities(
         authenticated=models_available,
         models=models,
         goal_entrypoint_advertised=goal_advertised,
-        goal_mode_behaviorally_verified=goal_evidence.state == "proven",
-        goal_behavioral_evidence=goal_behavioral_evidence,
+        goal_mode_behaviorally_verified=bool(recorded_goal_evidence),
+        goal_behavioral_evidence=recorded_goal_evidence,
         version=version_match.group(0) if version_match else None,
         installed_build_commit=build_match.group(1).lower() if build_match else None,
         default_model=default_model,

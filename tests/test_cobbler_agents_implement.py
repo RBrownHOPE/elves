@@ -46,7 +46,41 @@ from cobbler_runtime.implement import (  # noqa: E402
     status_payload,
 )
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
+from cobbler_runtime.worker_routing import (  # noqa: E402
+    GrokCapabilities,
+    GrokCapabilityEvidence,
+)
 import cobbler_runtime.storage as storage_module  # noqa: E402
+
+
+TEST_GROK_SESSION = "11111111-1111-1111-1111-111111111111"
+
+
+def _proven_grok_capabilities(*, models: tuple[str, ...] = ("grok-build",)) -> GrokCapabilities:
+    proven = GrokCapabilityEvidence("proven", "test_fixture", "advertised_by_help")
+    return GrokCapabilities(
+        installed=True,
+        authenticated=True,
+        models=models,
+        default_model=models[0],
+        capability_ledger=tuple(
+            (name, proven)
+            for name in (
+                "prompt_file",
+                "cwd",
+                "model",
+                "permission_mode",
+                "always_approve",
+                "reasoning_effort",
+                "max_turns",
+                "output_format",
+                "streaming_json",
+                "session_id",
+                "resume",
+                "check",
+            )
+        ),
+    )
 
 
 def _fake_bounded_result(
@@ -68,6 +102,27 @@ def _fake_bounded_result(
         stdout_bytes=len(stdout_bytes),
         stderr_bytes=len(stderr_bytes),
     )
+
+
+def _write_fake_grok(path: Path) -> Path:
+    path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "args = sys.argv[1:]\n"
+        "if args == ['version', '--json']:\n"
+        "    print('{\"currentVersion\":\"0.2.101 (5bc4b5dfadcf)\"}')\n"
+        "elif args == ['models']:\n"
+        "    print('Default model: grok-build\\nAvailable models:\\n  * grok-build (default)')\n"
+        "elif args == ['agent', 'stdio', '--help']:\n"
+        "    print('Run the agent over stdio')\n"
+        "else:\n"
+        "    print('--prompt-file --cwd --model --permission-mode --always-approve "
+        "--reasoning-effort --max-turns --output-format streaming-json "
+        "--session-id --resume --check')\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+    return path
 
 
 def _run_cli(repo_root: Path, *args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
@@ -106,7 +161,7 @@ class BuildLaunchArgvTests(unittest.TestCase):
             cwd = Path(tmp) / "wt"
             cwd.mkdir()
             argv = build_launch_argv(
-                session_id="sess-abc",
+                session_id=TEST_GROK_SESSION,
                 packet=packet,
                 cwd=cwd,
             )
@@ -133,7 +188,7 @@ class BuildLaunchArgvTests(unittest.TestCase):
             packet.write_text("x\n", encoding="utf-8")
             cwd = Path(tmp)
             argv = build_launch_argv(
-                session_id="uuid-1",
+                session_id=TEST_GROK_SESSION,
                 packet=packet,
                 cwd=cwd,
                 create=True,
@@ -147,7 +202,7 @@ class BuildLaunchArgvTests(unittest.TestCase):
             packet.write_text("x\n", encoding="utf-8")
             with self.assertRaises(ValidationIssue) as ctx:
                 build_launch_argv(
-                    session_id="s",
+                    session_id=TEST_GROK_SESSION,
                     packet=packet,
                     cwd=tmp,
                     permission_mode="dontAsk",
@@ -167,26 +222,34 @@ class BuildLaunchArgvTests(unittest.TestCase):
                 )
         self.assertEqual(ctx.exception.code, "missing_session_id")
 
-    def test_model_alias_deep_and_check_flag(self) -> None:
+    def test_grok_model_is_not_expanded_from_legacy_alias(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             packet = Path(tmp) / "p.md"
             packet.write_text("x\n", encoding="utf-8")
             argv = build_launch_argv(
-                session_id="s1",
+                session_id=TEST_GROK_SESSION,
                 packet=packet,
                 cwd=tmp,
                 model="deep",
                 check=True,
             )
-        self.assertEqual(argv[argv.index("--model") + 1], "grok-4.5")
-        self.assertEqual(argv[argv.index("--effort") + 1], "high")
+        self.assertEqual(argv[argv.index("--model") + 1], "deep")
+        self.assertEqual(argv[argv.index("--effort") + 1], "medium")
         self.assertIn("--check", argv)
 
-    def test_model_alias_fast(self) -> None:
+    def test_grok_fast_alias_remains_an_exact_catalog_candidate(self) -> None:
         model, effort, notes = resolve_implement_model("fast")
-        self.assertEqual(model, "grok-composer-2.5-fast")
-        self.assertTrue(any("alias" in n.lower() for n in notes))
+        self.assertEqual(model, "fast")
+        self.assertEqual(notes, [])
         self.assertIsNotNone(effort)
+
+    def test_grok_session_must_be_canonical_uuid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "p.md"
+            packet.write_text("x\n", encoding="utf-8")
+            with self.assertRaises(ValidationIssue) as caught:
+                build_launch_argv(session_id="not-a-uuid", packet=packet, cwd=tmp)
+        self.assertEqual(caught.exception.code, "invalid_grok_session_uuid")
 
     def test_opencode_message_precedes_file_flags(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -298,10 +361,10 @@ class HumanizeGrokFailureTests(unittest.TestCase):
 
 
 class PrepareImplementTests(unittest.TestCase):
-    def test_regular_default_model_is_composer(self) -> None:
+    def test_regular_default_model_defers_to_live_catalog(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             payload = prepare_implement(Path(tmp), session_id="composer-default")
-            self.assertEqual(payload["state"]["model"], "grok-composer-2.5-fast")
+            self.assertEqual(payload["state"]["model"], "auto")
 
     def test_prepare_writes_state_and_private_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -471,10 +534,18 @@ class PrepareImplementTests(unittest.TestCase):
 
 
 class LaunchAndResumeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.capability_probe = mock.patch(
+            "cobbler_runtime.worker_routing.probe_grok_capabilities",
+            return_value=_proven_grok_capabilities(),
+        )
+        self.capability_probe.start()
+        self.addCleanup(self.capability_probe.stop)
+
     def test_launch_payload_print_only_and_persists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            prepare_implement(root, session_id="sess-1", worktree=root)
+            prepare_implement(root, session_id=TEST_GROK_SESSION, worktree=root)
             packet = root / "packet.md"
             packet.write_text("batch\n", encoding="utf-8")
             payload = launch_payload(
@@ -486,7 +557,7 @@ class LaunchAndResumeTests(unittest.TestCase):
             self.assertTrue(payload["ok"])
             self.assertFalse(payload["launched"])
             self.assertIn("--resume", payload["argv"])
-            self.assertIn("sess-1", payload["argv"])
+            self.assertIn(TEST_GROK_SESSION, payload["argv"])
             self.assertNotIn("--no-subagents", payload["argv"])
             state = json.loads(state_path(root).read_text(encoding="utf-8"))
             self.assertEqual(state["last_batch"], 1)
@@ -495,13 +566,23 @@ class LaunchAndResumeTests(unittest.TestCase):
     def test_resume_batch_sets_action(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            prepare_implement(root, session_id="sess-2")
+            prepare_implement(root, session_id=TEST_GROK_SESSION)
             packet = root / "b2.md"
             packet.write_text("b2\n", encoding="utf-8")
             payload = resume_batch_payload(root, batch=2, packet=packet)
             self.assertEqual(payload["action"], "resume-batch")
             self.assertEqual(payload["batch"], 2)
             self.assertIn("--resume", payload["argv"])
+
+    def test_legacy_launch_rejects_alias_or_model_absent_from_live_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root, session_id=TEST_GROK_SESSION, model="deep")
+            packet = root / "batch.md"
+            packet.write_text("batch\n", encoding="utf-8")
+            with self.assertRaises(ValidationIssue) as caught:
+                launch_payload(root, packet=packet, exec_process=False)
+            self.assertEqual(caught.exception.code, "grok_model_not_in_live_catalog")
 
 
 class ParseUnittestOutputTests(unittest.TestCase):
@@ -1039,15 +1120,18 @@ class CliIntegrationTests(unittest.TestCase):
     def test_cli_prepare_json_and_launch_print(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            fake_grok = _write_fake_grok(root / "grok")
             prep = _run_cli(
                 root,
                 "implement",
                 "prepare",
                 "--json",
                 "--session-id",
-                "cli-sess",
+                TEST_GROK_SESSION,
                 "--branch",
                 "feat/x",
+                "--executable",
+                str(fake_grok),
             )
             self.assertEqual(prep.returncode, 0, prep.stderr)
             payload = json.loads(prep.stdout)
@@ -1070,8 +1154,8 @@ class CliIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(launch.returncode, 0, launch.stderr)
             line = launch.stdout.strip()
-            self.assertTrue(line.startswith("grok "))
-            self.assertIn("--resume cli-sess", line)
+            self.assertTrue(line.startswith(str(fake_grok)))
+            self.assertIn(f"--resume {TEST_GROK_SESSION}", line)
             self.assertIn("--permission-mode auto", line)
             self.assertNotIn("--no-subagents", line)
             self.assertNotIn("dontAsk", line)
@@ -1097,7 +1181,16 @@ class CliIntegrationTests(unittest.TestCase):
     def test_cli_launch_rejects_dontask(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _run_cli(root, "implement", "prepare", "--session-id", "s")
+            fake_grok = _write_fake_grok(root / "grok")
+            _run_cli(
+                root,
+                "implement",
+                "prepare",
+                "--session-id",
+                TEST_GROK_SESSION,
+                "--executable",
+                str(fake_grok),
+            )
             packet = root / "p.md"
             packet.write_text("p\n", encoding="utf-8")
             result = _run_cli(
@@ -1151,6 +1244,13 @@ class CliIntegrationTests(unittest.TestCase):
 
 
 class LaunchExecOptionalTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.capability_probe = mock.patch(
+            "cobbler_runtime.worker_routing.probe_grok_capabilities",
+            return_value=_proven_grok_capabilities(),
+        )
+        self.capability_probe.start()
+        self.addCleanup(self.capability_probe.stop)
     def test_linux_same_uid_unreadable_environment_fails_closed(self) -> None:
         stat_fields = ["S", "1", "4242", *("0" for _ in range(16)), "99"]
         raw_stat = f"4242 (fixture) {' '.join(stat_fields)}"
@@ -1393,7 +1493,7 @@ class LaunchExecOptionalTests(unittest.TestCase):
     def test_exec_invokes_subprocess(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            prepare_implement(root, session_id="exec-sess", executable="true")
+            prepare_implement(root, session_id=TEST_GROK_SESSION, executable="true")
             packet = root / "p.md"
             packet.write_text("p\n", encoding="utf-8")
             # On Unix `true` succeeds; argv[0] is "true" with flags that true ignores.
@@ -1422,7 +1522,7 @@ class LaunchExecOptionalTests(unittest.TestCase):
     def test_nonzero_exit_redacts_grants_and_cleans_scoped_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            prepare_implement(root, session_id="failed-sess", executable="tool")
+            prepare_implement(root, session_id=TEST_GROK_SESSION, executable="tool")
             packet = root / "p.md"
             packet.write_text("p\n", encoding="utf-8")
             secret = "xai-failure-secret-123456789"
@@ -1455,7 +1555,7 @@ class LaunchExecOptionalTests(unittest.TestCase):
     def test_spawn_error_redacts_grants_and_cleans_scoped_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            prepare_implement(root, session_id="spawn-sess", executable="tool")
+            prepare_implement(root, session_id=TEST_GROK_SESSION, executable="tool")
             packet = root / "p.md"
             packet.write_text("p\n", encoding="utf-8")
             secret = "xai-spawn-secret-123456789"
@@ -1483,7 +1583,7 @@ class LaunchExecOptionalTests(unittest.TestCase):
     def test_resume_batch_exec_preserves_bounded_redacted_legacy_tails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            prepare_implement(root, session_id="resume-tail", executable="tool")
+            prepare_implement(root, session_id=TEST_GROK_SESSION, executable="tool")
             packet = root / "p.md"
             packet.write_text("p\n", encoding="utf-8")
             with mock.patch(
@@ -1507,7 +1607,7 @@ class LaunchExecOptionalTests(unittest.TestCase):
     def test_timeout_result_preserves_legacy_payload_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            prepare_implement(root, session_id="timeout-sess", executable="tool")
+            prepare_implement(root, session_id=TEST_GROK_SESSION, executable="tool")
             packet = root / "p.md"
             packet.write_text("p\n", encoding="utf-8")
             with mock.patch(

@@ -54,6 +54,10 @@ from cobbler_runtime.full_run import (  # noqa: E402
 )
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.storage import StorageError, digest_key  # noqa: E402
+from cobbler_runtime.worker_routing import (  # noqa: E402
+    GrokCapabilities,
+    GrokCapabilityEvidence,
+)
 
 
 FAKE_WORKER = r'''#!/usr/bin/env python3
@@ -129,6 +133,34 @@ report.write_text(json.dumps({
 }, indent=2) + "\n")
 emit("run_complete", 3, "fake multi-batch run complete", head=head)
 '''
+
+
+def _proven_test_grok_capabilities() -> GrokCapabilities:
+    """Capability result for provider-lifecycle tests that use a synthetic binary."""
+    proven = GrokCapabilityEvidence("proven", "test_fixture", "advertised_by_help")
+    return GrokCapabilities(
+        installed=True,
+        authenticated=True,
+        models=("grok-composer-2.5-fast",),
+        default_model="grok-composer-2.5-fast",
+        capability_ledger=tuple(
+            (name, proven)
+            for name in (
+                "prompt_file",
+                "cwd",
+                "model",
+                "permission_mode",
+                "always_approve",
+                "reasoning_effort",
+                "max_turns",
+                "output_format",
+                "session_id",
+                "resume",
+                "streaming_json",
+                "check",
+            )
+        ),
+    )
 
 FAKE_DEVIN = r'''#!/usr/bin/env python3
 """Fake Devin CLI fixture: supports `list --format json` and prompt-file runs."""
@@ -673,6 +705,153 @@ class FullRunReportValidationTests(unittest.TestCase):
             shared_oauth=True,
         )
         self.assertEqual(rendered, ["grok:text"])
+
+    def test_grok_stream_rejects_mismatched_or_noncanonical_session_identity(self) -> None:
+        expected = "11111111-1111-1111-1111-111111111111"
+        for streamed in (
+            "22222222-2222-2222-2222-222222222222",
+            "NOT-A-UUID",
+        ):
+            with self.subTest(streamed=streamed), self.assertRaises(ValidationIssue) as caught:
+                full_run_module.decode_grok_streaming_event(
+                    json.dumps({"type": "end", "sessionId": streamed}),
+                    expected_session_id=expected,
+                )
+            self.assertIn(caught.exception.code, {
+                "grok_stream_session_identity_invalid",
+                "grok_stream_session_identity_mismatch",
+            })
+
+    def test_grok_transcript_cursor_survives_more_than_one_thousand_and_partial_long_records(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            transcript = repo / ".elves" / "runtime" / "transcript.jsonl"
+            transcript.parent.mkdir(parents=True)
+            records = [json.dumps({"type": "text", "data": f"event-{index}"}) for index in range(1505)]
+            long_record = json.dumps({"type": "text", "data": "x" * 100_000})
+            transcript.write_bytes(("\n".join([*records, long_record]) + "\n").encode("utf-8"))
+            first, cursor = full_run_module._read_grok_transcript_records(
+                repo, transcript, full_run_module.GrokTranscriptCursor()
+            )
+            self.assertEqual(len(first), 1506)
+            partial = json.dumps({"type": "text", "data": "partial-event"})
+            with transcript.open("ab") as handle:
+                handle.write(partial[:10].encode("utf-8"))
+            second, cursor = full_run_module._read_grok_transcript_records(repo, transcript, cursor)
+            self.assertEqual(second, [])
+            with transcript.open("ab") as handle:
+                handle.write(partial[10:].encode("utf-8") + b"\n")
+            third, cursor = full_run_module._read_grok_transcript_records(repo, transcript, cursor)
+            self.assertEqual(third, [partial])
+            self.assertGreater(cursor.offset, 0)
+
+    def test_grok_follow_detects_absent_grant_across_read_chunk_boundaries(self) -> None:
+        secret = "grant-value-absent-from-monitor-environment"
+        state = full_run_module.FullRunState(
+            session_id="11111111-1111-1111-1111-111111111111",
+            branch="feat/x",
+            start_head="a" * 40,
+            worktree="/tmp",
+            packet_path="/tmp/packet.md",
+            supervision_token="c" * 48,
+            credential_granted_names=["XAI_API_KEY"],
+        )
+        state.credential_grant_lengths = {"XAI_API_KEY": len(secret)}
+        state.credential_grant_digests = {
+            "XAI_API_KEY": full_run_module._credential_grant_digest(
+                state, "XAI_API_KEY", secret
+            )
+        }
+        state.credential_grant_metadata_mac = full_run_module._credential_grant_metadata_mac(state)
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            transcript = repo / ".elves" / "runtime" / "transcript.jsonl"
+            transcript.parent.mkdir(parents=True)
+            transcript.write_text(
+                json.dumps({"type": "text", "data": f"before-{secret}-after"}) + "\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(full_run_module, "GROK_STREAM_READ_CHUNK_BYTES", 7):
+                rows, _cursor = full_run_module._read_grok_transcript_records(
+                    repo, transcript, full_run_module.GrokTranscriptCursor()
+                )
+            with mock.patch.dict(os.environ, {}, clear=True):
+                rendered, _ = full_run_module.grok_streaming_follow_lines(
+                    rows,
+                    expected_session_id=state.session_id,
+                    credential_grant_state=state,
+                )
+            payload = "\n".join(rendered)
+            self.assertNotIn(secret, payload)
+            self.assertIn("[REDACTED:credential_grant]", payload)
+
+    def test_grok_follow_fails_closed_when_grant_metadata_is_unverified(self) -> None:
+        state = full_run_module.FullRunState(
+            session_id="11111111-1111-1111-1111-111111111111",
+            branch="feat/x",
+            start_head="a" * 40,
+            worktree="/tmp",
+            packet_path="/tmp/packet.md",
+            supervision_token="d" * 48,
+            credential_granted_names=["XAI_API_KEY"],
+            credential_grant_metadata_mac="0" * 64,
+        )
+        with self.assertRaises(ValidationIssue) as caught:
+            full_run_module.decode_grok_streaming_event(
+                json.dumps({"type": "text", "data": "must not render"}),
+                expected_session_id=state.session_id,
+                credential_grant_state=state,
+            )
+        self.assertEqual(
+            caught.exception.code,
+            "grok_follow_redaction_context_unverified",
+        )
+
+    def test_await_wakes_safely_on_streamed_session_mismatch(self) -> None:
+        expected = "11111111-1111-1111-1111-111111111111"
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            state = full_run_module.FullRunState(
+                session_id=expected,
+                branch="feat/x",
+                start_head="a" * 40,
+                worktree=str(repo),
+                packet_path=str(repo / "packet.md"),
+                supervision_token="e" * 48,
+                adapter="grok-build",
+            )
+            root = full_run_root(repo, expected)
+            root.mkdir(parents=True)
+            (root / "transcript.log").write_text(
+                json.dumps(
+                    {
+                        "type": "end",
+                        "sessionId": "22222222-2222-2222-2222-222222222222",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            quiet = {
+                "ok": True,
+                "state": "healthy",
+                "next_action": "parked_monitor",
+                "material_transition": False,
+                "unchanged_healthy_poll_silent": True,
+                "poll_after_seconds": 0,
+            }
+            with (
+                mock.patch.object(full_run_module, "monitor_full_run", return_value=quiet),
+                mock.patch.object(full_run_module, "load_state", return_value=state),
+                mock.patch.object(full_run_module, "_all_follow_events", return_value=[]),
+            ):
+                result = await_full_run(
+                    repo,
+                    session_id=expected,
+                    sleep_fn=lambda _delay: None,
+                )
+            self.assertEqual(result["next_action"], "driver_wake_safety_tripwire")
+            self.assertIn("grok_stream_session_identity_mismatch", result["blocker"])
 
     def _complete(self) -> dict:
         return {
@@ -2167,7 +2346,8 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertIn("grok-4.5", argv)
             self.assertIn("--permission-mode", argv)
             self.assertIn("auto", argv)
-            self.assertIn("--yolo", argv)
+            self.assertIn("--always-approve", argv)
+            self.assertNotIn("--yolo", argv)
             self.assertIn("--effort", argv)
             self.assertIn("--max-turns", argv)
             self.assertIn("--output-format", argv)
@@ -2185,9 +2365,20 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertEqual(state.goal_launch_mode, "headless_slash_goal")
             self.assertNotIn("--goal", goal_argv)
             state.create_session = False
+            resume_goal_path = full_run_module._prepare_goal_prompt(
+                repo, full_run_root(repo, state.session_id), state
+            )
             resume_argv = build_full_run_argv(state)
             self.assertIn("--resume", resume_argv)
             self.assertNotIn("--session-id", resume_argv)
+            self.assertEqual(
+                resume_argv[resume_argv.index("--prompt-file") + 1],
+                str(resume_goal_path),
+            )
+            self.assertEqual(
+                resume_goal_path.read_text(encoding="utf-8"),
+                "/goal resume\n",
+            )
 
     def test_devin_create_and_resume_argv(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2307,6 +2498,9 @@ class FullRunGrokArgvTests(unittest.TestCase):
                     full_run_module,
                     "_assert_grok_auth_path_capability",
                     return_value=(0, 2, 93),
+                ), mock.patch(
+                    "cobbler_runtime.worker_routing.probe_grok_capabilities",
+                    return_value=_proven_test_grok_capabilities(),
                 ), mock.patch.object(
                     full_run_module,
                     "open_repo_text",
@@ -2453,9 +2647,13 @@ class FullRunGrokArgvTests(unittest.TestCase):
             )
             auth.chmod(0o600)
             with mock.patch.dict(os.environ, {"HOME": str(host_home)}, clear=False):
-                launched = launch_full_run(
-                    repo, session_id=session, grant_grok_auth=True
-                )
+                with mock.patch(
+                    "cobbler_runtime.worker_routing.probe_grok_capabilities",
+                    return_value=_proven_test_grok_capabilities(),
+                ):
+                    launched = launch_full_run(
+                        repo, session_id=session, grant_grok_auth=True
+                    )
             try:
                 deadline = time.time() + 4
                 payload: dict[str, object] = {}
@@ -5130,9 +5328,13 @@ class FullRunLifecycleTests(unittest.TestCase):
         )
         host_auth.chmod(0o600)
         with mock.patch.dict(os.environ, {"HOME": str(host_home)}, clear=False):
-            launched = launch_full_run(
-                self.repo, session_id=self.session, grant_grok_auth=True
-            )
+            with mock.patch(
+                "cobbler_runtime.worker_routing.probe_grok_capabilities",
+                return_value=_proven_test_grok_capabilities(),
+            ):
+                launched = launch_full_run(
+                    self.repo, session_id=self.session, grant_grok_auth=True
+                )
             self.assertEqual(launched["grok_auth_strategy"], "oauth_shared_file")
             self.assertNotIn(str(host_auth), json.dumps(launched, sort_keys=True))
             self.assertFalse(
@@ -5177,7 +5379,13 @@ class FullRunLifecycleTests(unittest.TestCase):
             rotated.chmod(0o600)
             rotated.replace(host_auth)
             rotated_bytes = host_auth.read_bytes()
-            resumed = launch_full_run(self.repo, session_id=self.session, resume=True)
+            with mock.patch(
+                "cobbler_runtime.worker_routing.probe_grok_capabilities",
+                return_value=_proven_test_grok_capabilities(),
+            ):
+                resumed = launch_full_run(
+                    self.repo, session_id=self.session, resume=True
+                )
             self.assertIn("--resume", resumed["argv"])
             index = resumed["argv"].index("--resume")
             self.assertEqual(resumed["argv"][index + 1], self.session)

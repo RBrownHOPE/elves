@@ -397,6 +397,7 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         probe_grok_capabilities(
             args.grok_executable,
             goal_auth_path=default_grok_auth if default_grok_auth.is_file() else None,
+            goal_behavioral_evidence=args.grok_goal_behavioral_evidence,
         )
         if args.probe_grok
         else GrokCapabilities(
@@ -423,7 +424,13 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         )
     except ValidationIssue as issue:
         return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
-    payload = {"ok": True, "decision": decision.to_dict(), "preferences_path": preference_state.path, "repository_policy_source": repo_policy_source}
+    payload = {
+        "ok": True,
+        "decision": decision.to_dict(),
+        "preferences_path": preference_state.path,
+        "repository_policy_source": repo_policy_source,
+        "grok_capabilities": grok.safe_snapshot(),
+    }
     if args.json:
         return _emit_json(payload, exit_code=0)
     print(
@@ -1552,7 +1559,14 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 session_path=acceptance_session,
                 plan_path=getattr(args, "plan", None),
                 adapter=adapter_name,
-                model=getattr(args, "model", None) or "grok-composer-2.5-fast",
+                model=(
+                    getattr(args, "model", None)
+                    or (
+                        "swe-1-7-lightning"
+                        if adapter_name == "devin-cli"
+                        else "auto"
+                    )
+                ),
                 permission_mode=getattr(args, "permission_mode", None) or "auto",
                 effort=getattr(args, "effort", None) or "medium",
                 executable=getattr(args, "executable", None),
@@ -1561,6 +1575,9 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 max_turns=int(getattr(args, "max_turns", 80) or 80),
                 fixture_script=getattr(args, "fixture_script", None),
                 credential_grant_names=list(getattr(args, "grant_env", None) or []) or None,
+                goal_behavioral_evidence=getattr(
+                    args, "grok_goal_behavioral_evidence", None
+                ),
             )
             if args.json:
                 return _emit_json(payload, exit_code=0)
@@ -2403,6 +2420,14 @@ def build_parser() -> argparse.ArgumentParser:
     i_fr_prepare.add_argument("--permission-mode", default="auto")
     i_fr_prepare.add_argument("--effort", default="medium")
     i_fr_prepare.add_argument(
+        "--grok-goal-behavioral-evidence",
+        default=None,
+        help=(
+            "Recorded terminal `/goal <objective>` canary evidence; omit to use "
+            "the one-packet fallback"
+        ),
+    )
+    i_fr_prepare.add_argument(
         "--executable",
         default=None,
         help="CLI executable (default: grok; fixture mode uses python3)",
@@ -2608,7 +2633,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--model",
         default=None,
         help=(
-            "Default model (Grok: grok-composer-2.5-fast, or aliases fast/deep; "
+            "Default model (Grok: auto for authenticated live default, or an exact catalog id; "
             "OpenCode: provider/model e.g. openrouter/qwen/qwen3-max)"
         ),
     )
@@ -2663,12 +2688,12 @@ def build_parser() -> argparse.ArgumentParser:
     i_launch.add_argument(
         "--model",
         default=None,
-        help="Model (default: prepare state or grok-composer-2.5-fast; Grok aliases: fast, deep)",
+        help="Model (default: prepare state or authenticated Grok live default)",
     )
     i_launch.add_argument(
         "--effort",
         default=None,
-        help="Grok --effort (default: medium; deep alias forces high unless overridden)",
+        help="Grok --effort/--reasoning-effort (default: medium)",
     )
     i_launch.add_argument(
         "--check",

@@ -702,9 +702,12 @@ def build_readonly_invocation(
         )
 
     if name == "grok-build":
+        from .implement import require_exact_grok_session_uuid  # noqa: PLC0415
+
         # Full packet/task written to prompt_path by dispatcher; argv references path.
         argv_list = [exe]
         if exact_session:
+            exact_session = require_exact_grok_session_uuid(exact_session)
             argv_list.extend(["--resume", exact_session])
         argv_list.extend(
             [
@@ -1749,6 +1752,9 @@ def build_session_resume_invocation(
         assert_no_ambiguous_session_flags(inv.argv)
         return inv
     if name == "grok-build":
+        from .implement import require_exact_grok_session_uuid  # noqa: PLC0415
+
+        sid = require_exact_grok_session_uuid(sid)
         argv = [exe or "grok", "--resume", sid]
         if requested_model:
             argv.extend(["--model", requested_model])

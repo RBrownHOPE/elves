@@ -1036,16 +1036,21 @@ class SessionCommandBuilderTests(unittest.TestCase):
                     self.assertNotIn(token, joined)
                 assert_no_ambiguous_session_flags(inv.argv)
             with self.subTest(adapter=adapter, op="resume"):
+                session_id = (
+                    "11111111-1111-1111-1111-111111111111"
+                    if adapter == "grok-build"
+                    else "exact-session-id-123"
+                )
                 inv = build_session_resume_invocation(
                     adapter=adapter,
                     profile=adapter,
-                    session_id="exact-session-id-123",
+                    session_id=session_id,
                     executable="tool" if adapter == "custom-cli" else None,
                     requested_model="example-model",
                     cwd="/verified/worktree",
                 )
                 joined = " ".join(inv.argv)
-                self.assertIn("exact-session-id-123", joined)
+                self.assertIn(session_id, joined)
                 for token in forbidden_substrings:
                     self.assertNotIn(token, inv.argv)
                 # Bare --resume without id is forbidden; exact --resume <id> is required.
@@ -1113,6 +1118,15 @@ class SessionCommandBuilderTests(unittest.TestCase):
         self.assertIn("--session-id", inv.argv)
         self.assertIn(inv.session_id or "", inv.argv)
         self.assertNotIn("--new-session", inv.argv)
+
+    def test_grok_resume_rejects_non_uuid_identity(self) -> None:
+        with self.assertRaises(ValidationIssue) as caught:
+            build_session_resume_invocation(
+                adapter="grok-build",
+                profile="grok-build",
+                session_id="not-a-uuid",
+            )
+        self.assertEqual(caught.exception.code, "invalid_grok_session_uuid")
 
 
 class DoctorSessionFieldsTests(unittest.TestCase):

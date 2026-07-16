@@ -38,11 +38,13 @@ class NativeWorkerSpec:
     visibility_ready: bool = False
     visibility_mode: str = "commit_only"
     watcher_command: str | None = None
+    git_write_roots: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["argv"] = list(self.argv)
         payload["resume_argv"] = list(self.resume_argv) if self.resume_argv else None
+        payload["git_write_roots"] = list(self.git_write_roots)
         return payload
 
 
@@ -71,6 +73,43 @@ def _exact_session_id(session_id: str) -> str:
     return value
 
 
+def _git_write_roots(worktree: Path) -> tuple[str, ...]:
+    """Return linked-worktree Git metadata roots outside the worker sandbox."""
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(worktree.resolve()),
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-dir",
+                "--git-common-dir",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return ()
+    if result.returncode != 0:
+        return ()
+    workspace = worktree.resolve()
+    candidates = [Path(line.strip()).resolve() for line in result.stdout.splitlines() if line.strip()]
+    external: list[Path] = []
+    for candidate in candidates:
+        try:
+            candidate.relative_to(workspace)
+            continue
+        except ValueError:
+            pass
+        if any(candidate == root or candidate.is_relative_to(root) for root in external):
+            continue
+        external = [root for root in external if not root.is_relative_to(candidate)]
+        external.append(candidate)
+    return tuple(str(path) for path in external)
+
+
 def build_native_worker_spec(
     *,
     host: str,
@@ -94,6 +133,7 @@ def build_native_worker_spec(
         )
     requested_model = requested_model.strip()
     cwd = str(worktree.resolve())
+    git_write_roots = _git_write_roots(worktree)
     model_policy = "host_pinned_current_model"
     if visibility_mode not in {"commit_only", "native_host_agent_view", "follow_log"}:
         raise ValidationIssue("invalid_visibility_mode", f"Unknown visibility mode `{visibility_mode}`")
@@ -118,21 +158,17 @@ def build_native_worker_spec(
             "codex", "exec", "--json", "--ignore-user-config", "--ignore-rules",
             "--sandbox", "workspace-write", "-c", f'model_reasoning_effort="{effort_token}"',
         ]
+        for root in git_write_roots:
+            common.extend(["--add-dir", root])
         common.extend(["--model", requested_model])
         if session_id is None:
             argv = (*common, "-C", cwd, "-")
             resume = None
         else:
             sid = _exact_session_id(session_id)
-            # `exec resume` has neither -C nor --sandbox. Bind the OS cwd in the
-            # supervisor and preserve the writable worker contract through the
-            # equivalent config override instead of falling back to read-only.
-            argv = tuple([
-                "codex", "exec", "resume", "--json", "--ignore-user-config", "--ignore-rules",
-                "-c", 'sandbox_mode="workspace-write"',
-                "-c", f'model_reasoning_effort="{effort_token}"',
-                "--model", requested_model, sid, "-",
-            ])
+            # Keep exec-level sandbox and additional-write-root options before
+            # the resume subcommand. The supervisor binds the exact OS cwd.
+            argv = tuple(common + ["resume", sid, "-"])
             resume = argv
         return NativeWorkerSpec(
             host="codex", profile="elves-native-worker", effort=effort_token,
@@ -140,6 +176,7 @@ def build_native_worker_spec(
             separate_session=True, cwd=cwd, argv=tuple(argv), stdin_packet=True,
             session_id_source="thread.started.thread_id", session_id=session_id, resume_argv=resume,
             visibility_ready=visibility_ready, visibility_mode=visibility_mode, watcher_command=watcher_command,
+            git_write_roots=git_write_roots,
         )
 
     if host_token in {"claude", "claude-code"}:
@@ -147,6 +184,8 @@ def build_native_worker_spec(
             "claude", "--print", "--output-format", "stream-json", "--input-format", "text",
             "--effort", effort_token, "--permission-mode", "acceptEdits",
         ]
+        for root in git_write_roots:
+            common.extend(["--add-dir", root])
         common.extend(["--model", requested_model])
         if session_id is None:
             # Claude accepts a caller-generated UUID, providing exact identity before launch.
@@ -162,6 +201,7 @@ def build_native_worker_spec(
             separate_session=True, cwd=cwd, argv=argv, stdin_packet=True,
             session_id_source="requested_session_id", session_id=sid, resume_argv=argv if session_id else None,
             visibility_ready=visibility_ready, visibility_mode=visibility_mode, watcher_command=watcher_command,
+            git_write_roots=git_write_roots,
         )
     raise ValidationIssue("unsupported_host", f"Unsupported native worker host `{host}`")
 
