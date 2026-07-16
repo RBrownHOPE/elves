@@ -904,7 +904,7 @@ class WriteResumeCliTests(unittest.TestCase):
                 str(root),
                 "--json",
                 "--session-id",
-                "write-session",
+                "22222222-2222-2222-2222-222222222222",
                 "--adapter",
                 "grok-build",
                 "--model",
@@ -930,7 +930,7 @@ class WriteResumeCliTests(unittest.TestCase):
             root = Path(tmp)
             registry = SessionRegistry(root)
             registry.create(
-                session_id="write-session",
+                session_id="22222222-2222-2222-2222-222222222222",
                 harness="grok-build",
                 profile="grok-build-write",
                 role="implement",
@@ -940,7 +940,7 @@ class WriteResumeCliTests(unittest.TestCase):
                 worktree=str(root),
                 source_head="a" * 40,
             )
-            registry.activate("write-session")
+            registry.activate("22222222-2222-2222-2222-222222222222")
             result = self._invoke(root)
             self.assertNotEqual(result.returncode, 0, result.stdout)
             payload = json.loads(result.stdout)
@@ -951,7 +951,7 @@ class WriteResumeCliTests(unittest.TestCase):
             root = Path(tmp)
             registry = SessionRegistry(root)
             registry.create(
-                session_id="write-session",
+                session_id="22222222-2222-2222-2222-222222222222",
                 harness="grok-build",
                 profile="grok-build-write",
                 role="implement",
@@ -961,7 +961,7 @@ class WriteResumeCliTests(unittest.TestCase):
                 worktree=str(root),
                 source_head="b" * 40,
             )
-            registry.activate("write-session")
+            registry.activate("22222222-2222-2222-2222-222222222222")
             result = self._invoke(root, "--profile", "grok-build-write")
             self.assertNotEqual(result.returncode, 0, result.stdout)
             payload = json.loads(result.stdout)
@@ -976,7 +976,7 @@ class WriteResumeCliTests(unittest.TestCase):
             plan.write_text("stable\n", encoding="utf-8")
             registry = SessionRegistry(root)
             registry.create(
-                session_id="write-session",
+                session_id="22222222-2222-2222-2222-222222222222",
                 harness="grok-build",
                 profile="grok-build-write",
                 role="implement",
@@ -987,7 +987,7 @@ class WriteResumeCliTests(unittest.TestCase):
                 source_head="a" * 40,
                 plan_path=plan,
             )
-            registry.activate("write-session")
+            registry.activate("22222222-2222-2222-2222-222222222222")
             exact = self._invoke(root, "--profile", "grok-build-write")
             self.assertEqual(exact.returncode, 0, exact.stdout)
             plan.write_text("changed on disk\n", encoding="utf-8")
@@ -1036,16 +1036,21 @@ class SessionCommandBuilderTests(unittest.TestCase):
                     self.assertNotIn(token, joined)
                 assert_no_ambiguous_session_flags(inv.argv)
             with self.subTest(adapter=adapter, op="resume"):
+                session_id = (
+                    "11111111-1111-1111-1111-111111111111"
+                    if adapter == "grok-build"
+                    else "exact-session-id-123"
+                )
                 inv = build_session_resume_invocation(
                     adapter=adapter,
                     profile=adapter,
-                    session_id="exact-session-id-123",
+                    session_id=session_id,
                     executable="tool" if adapter == "custom-cli" else None,
                     requested_model="example-model",
                     cwd="/verified/worktree",
                 )
                 joined = " ".join(inv.argv)
-                self.assertIn("exact-session-id-123", joined)
+                self.assertIn(session_id, joined)
                 for token in forbidden_substrings:
                     self.assertNotIn(token, inv.argv)
                 # Bare --resume without id is forbidden; exact --resume <id> is required.
@@ -1102,6 +1107,26 @@ class SessionCommandBuilderTests(unittest.TestCase):
         self.assertIsNotNone(inv.session_id)
         self.assertIn("--session-id", inv.argv)
         self.assertIn(inv.session_id or "", inv.argv)
+
+    def test_host_allocated_grok_create_id_uses_supported_session_flag(self) -> None:
+        inv = build_session_create_invocation(
+            adapter="grok-build",
+            profile="grok-build",
+            executable="grok",
+        )
+        self.assertIsNotNone(inv.session_id)
+        self.assertIn("--session-id", inv.argv)
+        self.assertIn(inv.session_id or "", inv.argv)
+        self.assertNotIn("--new-session", inv.argv)
+
+    def test_grok_resume_rejects_non_uuid_identity(self) -> None:
+        with self.assertRaises(ValidationIssue) as caught:
+            build_session_resume_invocation(
+                adapter="grok-build",
+                profile="grok-build",
+                session_id="not-a-uuid",
+            )
+        self.assertEqual(caught.exception.code, "invalid_grok_session_uuid")
 
 
 class DoctorSessionFieldsTests(unittest.TestCase):

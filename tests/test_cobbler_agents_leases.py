@@ -2323,19 +2323,20 @@ class GrokWriteProfileTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, "grok_headless_worktree_resume_forbidden")
 
     def test_write_resume_requires_cwd_and_exact_id(self) -> None:
+        session_id = "11111111-1111-4111-8111-111111111111"
         inv = build_write_resume_invocation(
             adapter="grok-build",
-            session_id="exact-child",
+            session_id=session_id,
             cwd="/verified/worktree",
             version="0.2.93",
         )
-        self.assertIn("exact-child", inv.argv)
+        self.assertIn(session_id, inv.argv)
         self.assertIn("/verified/worktree", inv.argv)
         self.assertNotIn("--worktree", inv.argv)
         with self.assertRaises(ValidationIssue):
             build_write_resume_invocation(
                 adapter="grok-build",
-                session_id="exact-child",
+                session_id=session_id,
                 cwd="",
                 version="0.2.93",
             )

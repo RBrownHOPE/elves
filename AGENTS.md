@@ -1,5 +1,5 @@
 ---
-version: "2.5.0"
+version: "2.6.0"
 ---
 
 # Elves: Codex repository adapter
@@ -25,8 +25,8 @@ subscription-native Codex/Claude worker at plan-matched effort; permitted Grok i
 capability-probed. Safe preferences are shared at
 `${XDG_CONFIG_HOME:-~/.config}/elves/config.json`. Repository safety vetoes win; convenience order
 is explicit run intent, repository defaults, global preferences, then built-ins. Repository allow
-is not Grok consent. Regular clear Grok work pins Composer 2.5 Fast; genuinely complex work may
-explicitly pin Grok 4.5.
+is not Grok consent. Grok models come only from the authenticated live catalog; `/goal` is a
+capability-proven enhancement with a compatible one-packet fallback, not a provider requirement.
 Default landing remains **chat-to-work**
 (or **chat-to-land** when authorized); aliases `\land-pr` / `/land-pr`. Honor **Stop Gate** /
 `continuation_guard`. Landable is **plan Acceptance with proof**. Installed helpers use the

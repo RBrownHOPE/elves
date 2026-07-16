@@ -366,6 +366,14 @@ def cmd_preferences(args: argparse.Namespace) -> int:
 
 def cmd_route_worker(args: argparse.Namespace) -> int:
     """Explain a model-free worker recommendation."""
+    if args.grok_goal_behavioral_evidence and not args.probe_grok:
+        issue = ValidationIssue(
+            "grok_goal_canary_probe_required",
+            "Goal canary artifacts can be qualified only against the installed Grok binary",
+            path="grok_goal_behavioral_evidence",
+            hint="Pass --probe-grok with the bounded JSON canary artifact path",
+        )
+        return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
     try:
         preference_state = preference_snapshot()
     except ValidationIssue as issue:
@@ -378,6 +386,8 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         explicit["worker"]["native_effort"] = args.effort
     if args.allow_grok:
         explicit["worker"]["allow_grok"] = True
+    if args.grok_worker_model:
+        explicit["worker"]["grok_model"] = args.grok_worker_model
     repo_root = Path(args.repo_root or ".").resolve()
     try:
         repo_policy, repo_policy_source = discover_repository_worker_policy(
@@ -388,16 +398,24 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
     if args.prohibit_grok:
         repo_policy.setdefault("worker", {})["allow_grok"] = False
         repo_policy_source = "explicit_cli_veto"
+    default_grok_auth = Path(
+        os.environ.get("GROK_AUTH_PATH") or (Path.home() / ".grok" / "auth.json")
+    )
     grok = (
-        probe_grok_capabilities(args.grok_executable)
+        probe_grok_capabilities(
+            args.grok_executable,
+            goal_auth_path=default_grok_auth if default_grok_auth.is_file() else None,
+            goal_behavioral_evidence=args.grok_goal_behavioral_evidence,
+        )
         if args.probe_grok
         else GrokCapabilities(
             installed=args.grok_installed,
             authenticated=args.grok_authenticated,
             models=tuple(args.grok_model or ()),
+            default_model=args.grok_default_model,
             goal_entrypoint_advertised=args.grok_goal_advertised,
-            goal_mode_behaviorally_verified=bool(args.grok_goal_behavioral_evidence),
-            goal_behavioral_evidence=args.grok_goal_behavioral_evidence,
+            goal_mode_behaviorally_verified=False,
+            goal_behavioral_evidence=None,
             version=args.grok_version,
         )
     )
@@ -414,7 +432,13 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         )
     except ValidationIssue as issue:
         return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
-    payload = {"ok": True, "decision": decision.to_dict(), "preferences_path": preference_state.path, "repository_policy_source": repo_policy_source}
+    payload = {
+        "ok": True,
+        "decision": decision.to_dict(),
+        "preferences_path": preference_state.path,
+        "repository_policy_source": repo_policy_source,
+        "grok_capabilities": grok.safe_snapshot(),
+    }
     if args.json:
         return _emit_json(payload, exit_code=0)
     print(
@@ -1543,7 +1567,14 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 session_path=acceptance_session,
                 plan_path=getattr(args, "plan", None),
                 adapter=adapter_name,
-                model=getattr(args, "model", None) or "grok-composer-2.5-fast",
+                model=(
+                    getattr(args, "model", None)
+                    or (
+                        "swe-1-7-lightning"
+                        if adapter_name == "devin-cli"
+                        else "auto"
+                    )
+                ),
                 permission_mode=getattr(args, "permission_mode", None) or "auto",
                 effort=getattr(args, "effort", None) or "medium",
                 executable=getattr(args, "executable", None),
@@ -1552,6 +1583,9 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 max_turns=int(getattr(args, "max_turns", 80) or 80),
                 fixture_script=getattr(args, "fixture_script", None),
                 credential_grant_names=list(getattr(args, "grant_env", None) or []) or None,
+                goal_behavioral_evidence=getattr(
+                    args, "grok_goal_behavioral_evidence", None
+                ),
             )
             if args.json:
                 return _emit_json(payload, exit_code=0)
@@ -1976,10 +2010,21 @@ def build_parser() -> argparse.ArgumentParser:
     route_worker.add_argument("--grok-installed", action="store_true")
     route_worker.add_argument("--grok-authenticated", action="store_true")
     route_worker.add_argument("--grok-model", action="append")
+    route_worker.add_argument("--grok-default-model")
+    route_worker.add_argument(
+        "--grok-worker-model",
+        help="Explicit catalog-returned Grok model to select instead of the live default",
+    )
     route_worker.add_argument("--grok-goal-advertised", action="store_true")
-    route_worker.add_argument("--grok-goal-behavioral-evidence", help="Recorded behavioral verification id/path for headless goal mode")
+    route_worker.add_argument(
+        "--grok-goal-behavioral-evidence",
+        help=(
+            "Path to a bounded JSON terminal-canary artifact; requires --probe-grok "
+            "and must match the installed version/build"
+        ),
+    )
     route_worker.add_argument("--grok-version")
-    route_worker.add_argument("--probe-grok", action="store_true", help="Silently probe Grok version, auth, models, and advertised goal entrypoint (not behavioral qualification)")
+    route_worker.add_argument("--probe-grok", action="store_true", help="Safely probe installed Grok flags, live catalog/default, ACP, and optional isolated goal evidence")
     route_worker.add_argument("--grok-executable", default="grok")
     route_worker.add_argument("--json", action="store_true")
     route_worker.set_defaults(func=cmd_route_worker)
@@ -2381,9 +2426,21 @@ def build_parser() -> argparse.ArgumentParser:
         default="grok-build",
         help="grok-build (default), devin-cli, or fixture (explicit test mode only)",
     )
-    i_fr_prepare.add_argument("--model", default="grok-composer-2.5-fast")
+    i_fr_prepare.add_argument(
+        "--model",
+        default="auto",
+        help="Catalog-returned model id, or auto for the authenticated live default",
+    )
     i_fr_prepare.add_argument("--permission-mode", default="auto")
     i_fr_prepare.add_argument("--effort", default="medium")
+    i_fr_prepare.add_argument(
+        "--grok-goal-behavioral-evidence",
+        default=None,
+        help=(
+            "Path to a bounded terminal `/goal <objective>` JSON canary artifact; "
+            "omit to use the one-packet fallback"
+        ),
+    )
     i_fr_prepare.add_argument(
         "--executable",
         default=None,
@@ -2590,7 +2647,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--model",
         default=None,
         help=(
-            "Default model (Grok: grok-composer-2.5-fast, or aliases fast/deep; "
+            "Default model (Grok: auto for authenticated live default, or an exact catalog id; "
             "OpenCode: provider/model e.g. openrouter/qwen/qwen3-max)"
         ),
     )
@@ -2645,12 +2702,12 @@ def build_parser() -> argparse.ArgumentParser:
     i_launch.add_argument(
         "--model",
         default=None,
-        help="Model (default: prepare state or grok-composer-2.5-fast; Grok aliases: fast, deep)",
+        help="Model (default: prepare state or authenticated Grok live default)",
     )
     i_launch.add_argument(
         "--effort",
         default=None,
-        help="Grok --effort (default: medium; deep alias forces high unless overridden)",
+        help="Grok --effort/--reasoning-effort (default: medium)",
     )
     i_launch.add_argument(
         "--check",

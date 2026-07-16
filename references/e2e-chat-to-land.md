@@ -179,7 +179,10 @@ Copy-paste prompts: [`kickoff-prompt-template.md`](kickoff-prompt-template.md) s
 
 - Survival-guide Run Control records E2E mode, delegation/Git/monitor policy, and re-drive budget.
 - Before any worker launch, `acceptance_contract.py sync-session`/`validate` reconciles exact
-  plan/session criterion text and exact normalized Batch sets. Trusted full-run prepare receives
+  plan/session criterion text, exact normalized Batch sets, and the required session `run_id` plus
+  exact 40-character `start_head`. Sync derives batch and Master Acceptance rows symmetrically and
+  may migrate an exact legacy `collision_tripwire` to `start_head` without touching evidence.
+  Trusted full-run prepare receives
   the canonical `--session` (or the repo-root `.elves-session.json`) and immutably binds that
   plan/session mapping to the packet;
   use the exact recipe in [`grok-implementer-launch-prompt.md`](grok-implementer-launch-prompt.md).
@@ -187,6 +190,9 @@ Copy-paste prompts: [`kickoff-prompt-template.md`](kickoff-prompt-template.md) s
 - Trusted full-run uses one packet/session, `branch_progress`, bounded events/report, a parked host,
   and cumulative terminal review; legacy bounded re-drive remains available after an actual return.
 - Chat-to-work and chat-to-land share staging/readiness and differ only in explicit merge authority.
+- Final Completion follows the committed-evidence sequence in
+  [`schema-and-acceptance.md`](schema-and-acceptance.md): commit the session, run the strict landing
+  check and terminal readiness, then remove operational run memory and attest the cleanup tip.
 
 ---
 

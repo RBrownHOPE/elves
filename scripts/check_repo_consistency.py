@@ -106,6 +106,26 @@ def main() -> int:
         )
     )
     errors.extend(
+        find_missing_phrases(
+            {
+                label: read_text(REPO_ROOT / label)
+                for label in GROK_OPEN_SOURCE_WORKER_PHRASES
+            },
+            GROK_OPEN_SOURCE_WORKER_PHRASES,
+            "open-source Grok worker",
+        )
+    )
+    errors.extend(
+        find_forbidden_phrases(
+            {
+                label: read_text(REPO_ROOT / label)
+                for label in GROK_OPEN_SOURCE_WORKER_FORBIDDEN_PHRASES
+            },
+            GROK_OPEN_SOURCE_WORKER_FORBIDDEN_PHRASES,
+            "open-source Grok worker",
+        )
+    )
+    errors.extend(
         find_forbidden_phrases(
             single_kickoff_texts,
             SINGLE_KICKOFF_FORBIDDEN_PHRASES,

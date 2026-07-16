@@ -12,14 +12,89 @@
 Before worker launch, plan / session / packet acceptance id→criterion mappings must match.
 Missing, extra, duplicate, or text-mismatched criteria block launch.
 
+`sync-session` derives both batch rows and top-level `master_acceptance` rows from the
+authoritative plan. It accepts the bare and bracketed spellings above, keeps the exact parsed
+criterion text, and preserves existing `met`, `evidence`, and other runtime fields. It refuses to
+rewrite or remove a row that already carries proof.
+
+The staging session must also record a non-empty `run_id` and an exact 40-character `start_head`.
+`start_head` is the canonical machine-readable collision tripwire. If an older session has only an
+exact 40-character `collision_tripwire`, explicit `sync-session --write` may copy that value to
+`start_head`. If both fields exist, they must match. New sessions should write only `start_head`.
+The final landing check additionally proves that `start_head` is a real ancestor commit and that
+the recorded branch matches the active branch.
+
 Helpers (installed skill root):
 
 ```bash
+python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" sync-session \
+  --repo-root . --session .elves-session.json --write
 python3 "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py" validate \
   --repo-root . --session .elves-session.json
 python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" \
   --session <session-path> --repo-root .
 ```
+
+## Canonical final session schema
+
+This is the minimum acceptance-bearing shape used for strict landing. Other run-control and worker
+fields may remain alongside it.
+
+```json
+{
+  "run_id": "project-task-2026-07-16",
+  "branch": "codex/project-task",
+  "start_head": "0123456789abcdef0123456789abcdef01234567",
+  "plan_path": "docs/plans/project-task.md",
+  "batches": [
+    {
+      "id": "B0",
+      "status": "complete",
+      "acceptance": [
+        {
+          "id": "B0-A1",
+          "criterion": "Exact criterion text from the plan.",
+          "met": true,
+          "evidence": "Command, artifact, metric, or commit that proves it."
+        }
+      ]
+    }
+  ],
+  "master_acceptance": [
+    {
+      "id": "M-A1",
+      "criterion": "Exact master criterion text from the plan.",
+      "met": true,
+      "evidence": "Cumulative review or end-to-end proof."
+    }
+  ]
+}
+```
+
+The plan is authoritative. Session criteria match it verbatim by stable ID. `sync-session` should
+create the rows before launch so the driver adds evidence later instead of hand-copying criteria.
+
+## Canonical landing and cleanup order
+
+The strict landing check intentionally reads committed evidence. A session that is ignored by the
+target repository is not exempt.
+
+1. Complete the plan checkboxes and session evidence, then run `validate`. The rows should already
+   come from the staging-time `sync-session --write`; if they don't, synchronize before attaching
+   evidence.
+2. Commit the plan, `.elves-session.json`, and current run documents together. If the repository
+   ignores the session, use `git add -f .elves-session.json`. The committed evidence tip is
+   intentional run history.
+3. Run `elves_landing_check.py --session .elves-session.json --repo-root .` at that committed tip,
+   followed by the one terminal readiness review and its selected proof.
+4. Only after acceptance and readiness pass, remove the operational session, survival guide, and
+   execution log from the PR in one cleanup commit. Use `git rm` to delete an ordinary tracked
+   session, or `git rm --cached .elves-session.json` when retaining an ignored local recovery copy.
+5. Run the post-cleanup tip attestation. Reuse the acceptance and product proof from the preceding
+   commit unless cleanup touched a relevant product or proof input.
+
+Do not rerun the strict landing check after its required session has been removed. The cleanup
+commit follows the proven evidence tip; it does not bypass or replace that proof.
 
 ## Full-run event/report v1
 

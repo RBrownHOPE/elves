@@ -142,3 +142,25 @@ echo "verify.sh passed"
 ```
 
 Edit this during planning to add project-specific checks. Keep it under 60 lines. If it grows larger, split it into focused scripts and call them from here.
+
+## 7. Quote-insensitive asset-path sweeps
+
+**When:** A web change adds, moves, or rewrites static assets or asset references.
+
+**What it catches:** Hard-coded root paths that may point at the wrong public directory, including
+double-quoted JSX or HTML references that a single-quote-only search would miss.
+
+Search for both quote styles and adjust the path families for the project:
+
+```bash
+rg -n "[\"']/(video|audio|data)/" \
+  --glob '*.{html,htm,js,jsx,ts,tsx,css,md,mdx}' .
+```
+
+Do not narrow the pattern to one spelling such as `'/video/`; common JSX and HTML use
+`src="/video/..."`. Treat every match as a lead, not a failure. Check whether the referenced file
+exists at the path the framework actually serves, including case sensitivity and base-path rules.
+
+This sweep is a focused static check. It does not prove that bundling, deployment rewrites, routing,
+or the browser request succeeds. For user-facing asset changes, follow it with the smallest relevant
+browser or deployed-preview check and confirm that the asset request returns successfully.

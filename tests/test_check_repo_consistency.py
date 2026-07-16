@@ -131,6 +131,63 @@ class ConsistencyPhraseTests(unittest.TestCase):
         self.assertTrue(any("v2.0+" in phrase for phrase in agents))
         self.assertTrue(any("v2.1" in phrase for phrase in agents))
 
+    def test_grok_worker_corpus_covers_every_claimed_public_surface(self) -> None:
+        required = {
+            "SKILL.md",
+            "AGENTS.md",
+            "README.md",
+            "CHANGELOG.md",
+            "docs/elves/learnings.md",
+            "references/adaptive-worker-routing.md",
+            "references/cobbler-setup-recipes.md",
+            "references/grok-implementer-launch-prompt.md",
+            "references/grok-open-source-worker.md",
+            "guide/index.html",
+            "references/host-parity.md",
+        }
+        self.assertEqual(
+            set(self.consistency.GROK_OPEN_SOURCE_WORKER_PHRASES), required
+        )
+        for label, phrases in self.consistency.GROK_OPEN_SOURCE_WORKER_PHRASES.items():
+            with self.subTest(label=label):
+                self.assertTrue(any("one-packet" in phrase for phrase in phrases))
+        for label in (
+            "references/grok-open-source-worker.md",
+            "guide/index.html",
+            "references/host-parity.md",
+        ):
+            with self.subTest(terminal_evidence=label):
+                self.assertTrue(
+                    any(
+                        "terminal" in phrase
+                        for phrase in self.consistency.GROK_OPEN_SOURCE_WORKER_PHRASES[
+                            label
+                        ]
+                    )
+                )
+
+    def test_grok_worker_consistency_rejects_stale_fixed_model_policy(self) -> None:
+        label = "docs/elves/learnings.md"
+        stale = "use permitted Grok Composer 2.5 Fast for regular clear work"
+        errors = self.consistency.find_forbidden_phrases(
+            {label: stale},
+            {label: self.consistency.GROK_OPEN_SOURCE_WORKER_FORBIDDEN_PHRASES[label]},
+            "open-source Grok worker",
+        )
+        self.assertEqual(len(errors), 1)
+        self.assertIn(stale, errors[0])
+
+    def test_grok_worker_consistency_rejects_status_only_goal_claim(self) -> None:
+        label = "references/grok-open-source-worker.md"
+        phrases = self.consistency.GROK_OPEN_SOURCE_WORKER_PHRASES[label]
+        text = "The /goal status probe proves command resolution."
+        errors = self.consistency.find_missing_phrases(
+            {label: text}, {label: phrases}, "open-source Grok worker"
+        )
+        self.assertTrue(errors)
+        self.assertTrue(any("terminal state" in error for error in errors))
+        self.assertTrue(any("one-packet fallback" in error for error in errors))
+
     def test_single_kickoff_forbidden_corpus_catches_legacy_default_drift(self) -> None:
         label = "README.md"
         stale = "**Two-step operator flow**"

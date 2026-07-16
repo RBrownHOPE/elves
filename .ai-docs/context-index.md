@@ -41,6 +41,9 @@ the runtime surfaces, and the checks that usually matter before editing.
 - `references/council-provider-config.md`: optional provider-backed Cobbler configuration.
 - `references/codex-goals.md`: how Goals keeps Codex moving while Cobbler coordinates the Elves
   loop.
+- `references/adaptive-worker-routing.md` and `references/grok-open-source-worker.md`: deterministic
+  native-first worker choice and the optional open-source Grok capability, launch, follow, fallback,
+  and recovery contract.
 - `references/math-*.md`: Cobbler-managed math domain workflow templates, ledgers, and provider
   role guidance.
 
@@ -122,13 +125,13 @@ For this repo, use the canonical aggregate verifier instead of maintaining a dup
 list:
 
 ```bash
-python3 scripts/verify_repo.py --version 2.5.0
+python3 scripts/verify_repo.py --version 2.6.0
 ```
 
 Before final readiness on an active run, use:
 
 ```bash
-python3 scripts/verify_repo.py --version 2.5.0 --final-readiness --session <session-path>
+python3 scripts/verify_repo.py --version 2.6.0 --final-readiness --session <session-path>
 ```
 
 The aggregate verifier includes `git diff --check`; focused tests remain useful while iterating.

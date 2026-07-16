@@ -13,6 +13,8 @@ gates, the same optional-upgrade pattern as the math module’s provider routes.
 Smart host plans and gates; one persistent Grok Build session implements the full delegated scope.
 This installed reference is self-contained. A source checkout may also contain repo-only worked
 plans under `docs/plans/`; installed bundles must not depend on those files.
+For the concise install-to-recovery path and current open-source capability contract, start with
+[`grok-open-source-worker.md`](grok-open-source-worker.md).
 
 For the stricter host-import writer lease (detached commits, host audit/import only), use the
 advanced worker flow in [`councilelves-launch-prompt.md`](councilelves-launch-prompt.md) and
@@ -53,13 +55,13 @@ python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --session-id <exact-uuid> --branch <feature-branch> --start-head <sha> \
   --packet <absolute-full-run-packet> --worktree <absolute-worktree> \
   --session <canonical-.elves-session.json> \
-  --adapter grok-build --model grok-composer-2.5-fast --permission-mode auto \
+  --adapter grok-build --model auto --permission-mode auto \
   --effort medium --max-turns 80
 
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
   --session-id <exact-uuid> --grant-grok-auth --grant-github-push
 
-python3 scripts/cobbler_agents.py implement full-run-monitor --json \
+python3 scripts/cobbler_agents.py implement full-run-await --json \
   --session-id <exact-uuid>
 
 # After host review of the exact pending checkpoint:
@@ -91,9 +93,9 @@ exposes only the validated canonical owner-private host `auth.json` through Grok
 raw transcript tails are disabled for this route. For API-key use, replace that flag with
 `--grant-env XAI_API_KEY`, which is preferred for CI or untrusted lanes. Never combine the routes,
 grant `GROK_HOME`, or inherit the host HOME; a launch without either supported strategy fails before
-Grok can enter an unattended device-login wait. Shared OAuth requires Grok Build 0.2.93+ with its
-native capability marker; unsupported binaries fail before spawn and must upgrade or use the
-API-key route.
+Grok can enter an unattended device-login wait. Shared OAuth requires a capability-proven installed
+build with native `GROK_AUTH_PATH`; unsupported binaries fail before spawn and must upgrade or use
+the API-key route.
 
 Before spawn, Elves probes and binds an exact native Mach-O/ELF Grok executable plus its full safe
 ancestor chain in an isolated credential-free environment, then validates the auth file plus its
@@ -133,7 +135,7 @@ aliases fail before state changes or launch.
 
 ```bash
 python3 scripts/cobbler_agents.py implement prepare \
-  --branch <b> --worktree <path> --model grok-composer-2.5-fast --session-id <uuid>
+  --branch <b> --worktree <path> --model <live-model-id> --session-id <uuid>
 
 python3 scripts/cobbler_agents.py implement launch \
   --session-id <uuid> --packet .elves/runtime/packets/batch-1.md --cwd <worktree>
@@ -155,14 +157,14 @@ for `prepare` / `status` / argv emission.
 
 | Setting | Value | Why |
 |---------|-------|-----|
-| Session | exact UUID create once; exact `--resume` only after interruption | preserve context without per-batch re-prompts |
+| Session | caller UUID via `--session-id` create once; exact `--resume` after interruption | installed grammar; never emit unsupported `--new-session` |
 | Unattended tools | **`--yolo`** (alias `--always-approve`) | required for headless edits; `--permission-mode auto` alone is not enough |
 | Effort | **`medium`** default (`--effort medium`) | `high` roughly doubles tiny-task latency; reserve high for hard batches |
 | Subagents | enabled | never pass `--no-subagents` |
 | Unit of work | whole delegated run per full-run packet | avoid per-batch host tax |
 | Prompt | `--prompt-file` packet **or** `-p` text — never both | CLI rejects combining them |
-| Model default | `grok-composer-2.5-fast` | regular/default Grok Build work |
-| Model aliases | `fast` → `grok-composer-2.5-fast`; `deep` → `grok-4.5` + `--effort high` | operator shorthand on `implement prepare/launch --model` (re-check `grok models`) |
+| Model default | authenticated live-catalog parsed default | never select an invented or unavailable identifier |
+| Explicit model | exact member returned by the live catalog | every id is invalid unless returned live |
 | Optional verify | `--check` on `full-run-prepare` (or legacy `launch` / `resume-batch`) | passes Grok CLI `--check` (post-work verification; higher latency — opt-in) |
 | Git default | `branch_progress` (Mode A1) | Grok commits/pushes progress slices on the feature branch |
 | Failure UX | `error_human` on failed `--exec` | short mapped messages for auth / tool-config / rate-limit dumps |
@@ -187,7 +189,7 @@ Whole-batch implement (~3 minutes for docs+CLI+tests on this repo):
 ```bash
 grok --prompt-file .elves/runtime/packets/batch-1.md \
   --cwd <worktree> \
-  --model grok-composer-2.5-fast \
+  --model <live-model-id> \
   --yolo \
   --effort medium \
   --max-turns 80 \
@@ -200,7 +202,7 @@ Resume next batch in the same session (use `sessionId` from prior JSON):
 grok --resume <sessionId> \
   --prompt-file .elves/runtime/packets/batch-N.md \
   --cwd <worktree> \
-  --model grok-composer-2.5-fast \
+  --model <live-model-id> \
   --yolo \
   --effort medium \
   --max-turns 80 \
@@ -213,7 +215,7 @@ Positional prompt, **no** `-p` / `--prompt-file` headless flags:
 
 ```bash
 cd <worktree>
-grok --model grok-composer-2.5-fast \
+grok --model <live-model-id> \
   "Read and execute .elves/runtime/packets/batch-1.md end-to-end."
 ```
 
@@ -424,11 +426,13 @@ write status=blocked, populate blockers with concrete bounded and redacted reaso
 ```
 
 
-## Native Grok goal evidence (v2.2)
+## Native Grok goal evidence
 
 Help detection records only an `advertised_headless_entrypoint`. Set goal mode true only after a
-separate recorded behavioral verification proves the noninteractive packet contract. If only TUI
-`/goal` is present—or advertisement remains unverified—use `headless_compatible_fallback` and the
-packet/prompt launch path. Claude Code and Codex remain complete without Grok. Drivers should
-prefer `full-run-await` (or `full-run-monitor --wait`) so one tool call blocks until a material
+model-free isolated `/goal status` probe proves command resolution and a recorded behavioral
+verification proves the noninteractive packet contract. The launcher supplies `/goal` through the
+supported prompt/prompt-file surface; it does not invent a `--goal` flag. If goal behavior is
+unavailable, keep an otherwise qualified Grok provider and record `headless_compatible_fallback`
+for the one-packet prompt path. Claude Code and Codex remain complete without Grok. Drivers should
+prefer `full-run-await` (or `full-run-monitor --wait`) for sanitized streaming until a material
 transition.

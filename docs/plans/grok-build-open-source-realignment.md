@@ -1,292 +1,290 @@
-# Plan: Realign the Grok handoff to open-source grok-build
+# Plan: Integrate open-source Grok Build as an autonomous goal worker
 
 ## Mission
 
-Elves' optional Grok worker lane was built against the closed, npm-era `grok` CLI and is pinned to
-**Grok Build 0.2.93** throughout. The open-source tool at `xai-org/grok-build` is a Rust rewrite
-(`xai-grok-*` crates, binary still `grok`, installed via `x.ai/cli`). Our emitted argv, our OAuth
-env var, our hardcoded model ids, and our "goal mode" probing were all derived from the older
-lineage and several no longer match the real parser.
+Align Elves' optional Grok Build lane with the published `xai-org/grok-build` source and the
+installed CLI that Elves actually launches. The useful integration is a clean autonomous handoff:
+Elves supplies one complete implementation packet, Grok uses capability-proven headless `/goal` or
+the compatible one-packet prompt fallback, and a sanitized streaming view exposes progress without
+waking the driver for routine narration.
 
-Realign the **optional** Grok lane to the open-source grok-build: verify the real CLI surface against
-an installed binary, correct the drifted argv/auth/model assumptions, re-baseline the version story,
-and add the net-new onboarding that tells users to install and authenticate the open-source build.
+Native Codex and Claude Code workers remain the default. Grok remains optional and must still pass
+the repository permission, authentication, model, and isolation checks before selection.
 
-Done means: a parity harness proves the argv we emit matches an installed `grok`; the optional Grok
-full-run and the read-only Grok council/review lens both launch with **zero invalid-flag failures**;
-auth is exposed through `GROK_HOME`; models come from the live `grok models` catalog with a safe
-fallback; and the docs point users at open-source grok-build. Native-first behavior and every
-non-Grok lane are untouched.
+Done means the read-only lens and trusted full-run lane emit no invalid flags, a capability-proven
+Grok launch uses goal mode and streaming output, older or reduced-capability installs fall back
+honestly to the existing one-packet launch, and one final cumulative review can verify the result
+without batch-by-batch driver review.
 
-## Planning Classification
+## Planning classification
 
-- **Execution reasoning:** `medium` — mostly deterministic argv, config, and documentation work, but
-  it must be reconciled against a live binary and must not weaken the credential-isolation kernel.
-- **Review risk:** `high` — the Grok launch path touches argv correctness, credential isolation, and
-  the trusted-worker authority boundary; a wrong flag or auth path silently breaks unattended
-  launches or quietly weakens isolation.
-- **Worker recommendation for this run:** separate native worker inheriting the live driver model at
-  `medium` (this is our own repo; dogfood the native lane).
-- **Terminal review emphasis:** no unverified flag reaches spawn; credential isolation strength is
-  unchanged; the provider-neutral contract stays the fallback; the native happy path is not modified.
+- **Execution reasoning:** `medium`. Most changes are deterministic CLI adaptation, parsing, and
+  documentation. The worker must preserve several security and authority boundaries exactly.
+- **Review risk:** `high`. Authentication isolation, autonomous launch semantics, terminal-state
+  detection, and protected-ref authority deserve extra attention in final review.
+- **Worker route:** a separate subscription-native Codex worker, inheriting the available model at
+  `medium` effort. This avoids asking Grok to rewrite its own Elves adapter.
+- **Review emphasis:** auth isolation, goal fallback, streaming parser safety, model honesty, and no
+  behavioral change to native Codex or Claude Code lanes.
+
+## Ground truth established during planning
+
+The planning probe used installed Grok Build `0.2.101` and the open-source repository as a semantic
+reference. The installed binary remains launch authority because the public repository is
+periodically synchronized and may not exactly match a released build.
+
+- `--permission-mode auto`, `--no-subagents`, `--no-memory`, `--disable-web-search`, `--check`,
+  `--output-format streaming-json`, `--json-schema`, and `agent stdio` are present.
+- Session creation accepts `--session-id <UUID>`; Elves' current `--new-session` is invalid.
+- `GROK_AUTH_PATH` is implemented upstream. It is the narrow credential projection Elves should
+  retain alongside its private `HOME` and `GROK_HOME`; broadening the projected config is not a fix.
+- Headless `/goal status` resolves successfully in an isolated probe that uses the narrow auth
+  projection without catalog lookup or model inference. This proves command resolution only. The
+  source shows that headless prompts share the slash-command resolver and that `/goal` drives the
+  autonomous goal harness.
+- Goal behavior requires a validated terminal-canary JSON artifact bound to the exact installed
+  version/build, canonical session, packet-backed prompt digest, successful exit, and matching end
+  event. The 0.2.101 canary did not reach terminal state, so this run uses the one-packet fallback.
+- `streaming-json` emits newline-delimited typed events, including text, thought, end, and error
+  records with session and usage metadata. New event types may appear and must be tolerated.
+- `grok agent stdio` exposes a richer ACP transport, including tool calls, plans, permissions, and
+  reconnect semantics. It is a later transport option, not required for this integration.
+- The authenticated live catalog reports `grok-composer-2.5-fast` as default and also offers
+  `grok-4.5`. Elves must select only models returned by the live catalog.
 
 ## Scope
 
-### In Scope
+### In scope
 
-- A **parity harness** that snapshots the installed `grok` (`--version`, `--help`, `models`,
-  presence of `agent`) and diffs it against the argv `adapters.py` emits for `grok-build`, producing
-  a verified confirmed/refuted/unknown drift ledger.
-- Corrected Grok argv in `scripts/cobbler_runtime/adapters.py` (read-only lens and session-create)
-  and the full-run launch invariants in `references/grok-implementer-launch-prompt.md`.
-- Auth realignment in `scripts/cobbler_runtime/full_run.py`: expose the validated owner-private
-  `auth.json` through `GROK_HOME`; remove the `GROK_AUTH_PATH` mechanism; re-baseline or soften the
-  `0.2.93` version floor and the ~27 in-repo `0.2.93` references.
-- Model policy in `scripts/cobbler_runtime/worker_routing.py`: prefer the live `grok models` catalog,
-  keep `grok-composer-2.5-fast` / `grok-4.5` only as fallbacks, and recognize the `grok-build`
-  default, the `auto` meta-id, and `grok-code-fast-1`.
-- Net-new install/auth **onboarding** that points users at open-source grok-build, plus reconciling
-  the "goal mode" language with reality (there is no goal abstraction; the unattended primitive is
-  headless `-p --max-turns N` + `--resume`).
-- Focused tests, installed-bundle parity (`sync_installed_skills`), and CHANGELOG/learnings updates.
+- A redaction-safe capability contract based on `grok version --json`, `grok --help`, `grok models`,
+  `grok agent stdio --help`, and a model-free `/goal status` probe.
+- Correct session creation and exact emitted-argv tests for read-only, create, resume, and trusted
+  full-run paths.
+- Preservation and accurate documentation of the private-home plus `GROK_AUTH_PATH` OAuth grant.
+- Separation of basic Grok provider qualification from the optional goal-mode enhancement.
+- A capability-proven headless `/goal` launch for trusted full runs, with the current one-packet
+  headless launch as the explicit fallback.
+- Streaming JSON as the default trusted-Grok follow transport, decoded into a sanitized operator
+  view with terminal, error, usage, and exact-session handling.
+- Live-catalog default-model parsing and catalog-constrained selection.
+- Focused tests, onboarding, host-parity documentation, changelog, and learnings updates.
 
-### Out of Scope
+### Out of scope
 
-- Native `--output-format streaming-json` follow transport and `--json-schema` report enforcement
-  (**Phase 2**, separate plan).
-- The ACP (`grok agent stdio`) permission-gated lane (**Phase 2** spike, separate plan).
-- Making Grok a default or non-optional route; the native-first happy path is unchanged.
-- Any change to the native Claude Code / Codex worker lanes, landing authority, or merge policy.
-- Changing the credential-isolation *design* (private HOME, executable/ancestor validation); this
-  plan re-points which env var carries auth, it does not relax isolation.
-- Vendoring community plugins; MCP/marketplace packaging; media pipeline.
-- Publishing a release, moving a tag, or merging this PR.
+- Replacing the headless transport with ACP or building a persistent JSON-RPC permission client.
+- Requiring a JSON-schema completion report before accepting otherwise valid committed work.
+- Making Grok the default worker or changing native Codex and Claude Code worker behavior.
+- Relaxing authentication, worktree, branch, protected-ref, PR, or merge boundaries.
+- Parallel worker lanes, plugins, media generation, or other new Grok features.
+- During the delegated implementation run: publishing a release, moving a tag, merging, or
+  changing the release version. Those host-owned landing steps require later user authorization.
 
 ## Batches
 
-### Batch 0 [B0]: Ground-truth parity harness
+### Batch 0 [B0]: Establish the executable capability contract
 
-**Coordinator-to-implementer handoff:**
+**Coordinator-to-implementer handoff**
 
-- **Intent / why:** convert inferred CLI drift into evidence before any product argv changes. Half of
-  the suspected drift is read from `xai-org/grok-build` source, not confirmed against the binary we
-  actually launch. The fixes in B1–B3 must land on a verified ledger, not on assumptions.
-- **Non-obvious rationale:** the binary is named `grok` in both lineages, so version alone does not
-  prove which tool is installed; confirm the open-source build by the presence of the `agent`
-  subcommand and the Rust `--help` shape. Availability of a flag in source `main` does not prove it
-  exists on the operator's installed version.
-- **Build On targets:** `scripts/cobbler_runtime/worker_routing.py` (`probe_grok_capabilities`
-  already runs `grok models` / `grok --help`), existing `tests/` fixtures, `scripts/verify_repo.py`.
-- **Owned surfaces:** a new parity/snapshot helper and its focused test; no product argv changes.
-- **Forbidden surfaces:** canonical run memory, credentials, protected refs, other worktrees.
-- **Acceptance evidence:** a normalized capability snapshot from a real binary plus a drift ledger
-  that marks every suspected item confirmed or refuted with `--help` evidence.
-- **Failure modes / pitfalls:** an unauthenticated binary still answers `--help`/`--version` but not
-  `models`; record `models` as `unavailable` with reason rather than fabricating a catalog.
-- **HEAD / run-doc paths / route-session identity / output format:** build on the staged branch tip;
-  canonical paths in `.elves-session.json`; commit concrete slices with the Elves subject schema.
+- **Intent:** make every Grok-specific choice inspectable before product launch code depends on it.
+- **Build on:** `probe_grok_capabilities` in `scripts/cobbler_runtime/worker_routing.py`, adapter argv
+  builders in `scripts/cobbler_runtime/adapters.py`, and existing route tests.
+- **Owned surfaces:** Grok capability probing, safe normalized snapshots, fixtures, and focused tests.
+- **Forbidden surfaces:** product launch argv, credentials, canonical run memory, remotes, PRs,
+  protected refs, and non-Grok adapters.
+- **Pitfalls:** unauthenticated `models` calls and network failures are valid states; report them as
+  unavailable with a reason. Never serialize secrets or raw OAuth output.
+- **Acceptance evidence:** focused fixtures plus a safe live snapshot and confirmed/refuted ledger.
 
-**Tasks:**
-- [ ] Add a helper that snapshots the installed `grok` (`--version`, `--help`, `models`, `agent`
-  presence) into a normalized, redaction-safe structure.
-- [ ] Diff that snapshot against the argv `adapters.py` emits for the `grok-build` read-only and
-  session-create paths and the documented full-run launch invariants; emit a confirmed/refuted/unknown
-  drift ledger.
-- [ ] Record the lineage answer (open-source Rust build vs. legacy CLI) and whether `agent stdio` and
-  `--output-format streaming-json` exist on the installed version, to scope Phase 2.
+**Tasks**
+
+- [x] Add a normalized capability snapshot that records version, supported flags, authenticated
+  model catalog and default, goal behavior, streaming/schema support, and ACP presence.
+- [x] Compare the argv Elves can emit with that capability set and make unsupported items explicit.
+- [x] Record the upstream source commit used for semantic comparison without treating it as release
+  authority.
 
 **Acceptance criteria:**
-- [ ] B0-A1: The harness runs against a real authenticated `grok` and emits a normalized capability
-  snapshot; when auth is absent it records `models` as `unavailable` with a reason rather than
-  inventing a catalog.
-- [ ] [B0-A2] Every suspected drift item in **Notes** (`--permission-mode auto`, `--no-subagents`,
-  `--no-memory`, `--disable-web-search`, `--new-session`, `--check`) is marked confirmed or refuted
-  with a quoted `--help` line as evidence.
-- [ ] B0-A3: The ledger answers whether the installed binary is the open-source Rust build (by
-  `agent` subcommand presence and `--help` shape) and whether `streaming-json`/`agent stdio` exist.
-- [ ] [B0-A4] This batch changes no product argv; the harness is additive and its test is isolated.
 
-**Docs likely touched:** learnings; a short harness usage note. Product docs unchanged in B0.
+- [x] [B0-A1] The snapshot handles authenticated and unauthenticated installs honestly, records unavailable capabilities with reasons, and never contains credentials or raw OAuth output.
+- [x] [B0-A2] The capability ledger proves the supported read-only, session, goal, streaming, schema, and ACP surfaces and explicitly identifies `--new-session` as unsupported.
+- [x] [B0-A3] A model-free isolated `/goal status` probe using the narrow auth projection verifies goal-command resolution independently from catalog lookup and model inference.
+- [x] [B0-A4] Batch 0 is additive: it changes no product launch argv or non-Grok adapter behavior.
 
-**Risk:** `standard` — depends on a reachable, authenticated binary; degrade gracefully to offline
-`--help`/`--version` when `models` is unavailable.
-**Caution:** same binary name across lineages; never infer the tool from version alone.
-**Affected surfaces:** new parity helper, capability probing, its focused test.
-**Constitution impacts:** deterministic orchestration; secret-safe snapshots.
-**Review focus:** snapshot redaction, honest `unavailable` handling, evidence-quality of the ledger.
-**Focused tests:** parity-harness unit test with recorded `--help` fixtures (real + legacy shapes).
+**Risk:** `standard`
+
+**Review focus:** redaction, honest unknown states, and separation of installed-release evidence from
+upstream-source evidence.
+
+**Focused tests:** capability snapshot and ledger fixtures, including missing auth and unknown event
+shapes.
+
 **Depends on:** none.
 
-### Batch 1 [B1]: Argv parity fixes
+### Batch 1 [B1]: Correct session and authentication semantics
 
-**Tasks:**
-- [ ] Apply every **confirmed** drift fix from B0 to `adapters.py`: replace `--permission-mode auto`
-  with a confirmed autonomous mode (`bypassPermissions`/`acceptEdits`) or rely on `--yolo`; replace
-  `--no-subagents` with `--disallowed-tools Agent`; move memory/web-search suppression to
-  `GROK_MEMORY` env / `--disallowed-tools`; replace `--new-session` with `--session-id <uuidv7>`;
-  drop `--check` unless B0 confirmed it.
-- [ ] Update `_RESERVED_CONTROL_FLAGS["grok-build"]`, `build_readonly_invocation`, and
-  `build_session_create_invocation` to the verified flag set; keep `decode_grok_json` (confirmed
-  correct) and tolerate the additional real fields (`requestId`, `usage`, `structuredOutput`).
-- [ ] Update the full-run launch invariants in `references/grok-implementer-launch-prompt.md` to the
-  verified flags and remove the invalid-flag anti-patterns.
+**Coordinator-to-implementer handoff**
+
+- **Intent:** remove the confirmed invalid flag while preserving the isolation design that already
+  matches the open-source implementation.
+- **Build on:** Grok builders in `adapters.py`, auth environment construction in `full_run.py`, and
+  the launch contract in `references/grok-implementer-launch-prompt.md`.
+- **Owned surfaces:** Grok argv, reserved-control flags, auth documentation, and focused tests.
+- **Forbidden surfaces:** non-Grok argv, XAI API-key behavior, permission widening, ambient home or
+  git identity, PR/merge authority, and unrelated version references.
+- **Pitfalls:** a new session requires a caller-generated UUID. `--resume` is a different operation.
+  `GROK_AUTH_PATH` is valid and narrower than projecting a user's full Grok home.
+- **Acceptance evidence:** exact emitted argv and private-environment tests against the installed
+  capability contract.
+
+**Tasks**
+
+- [x] Replace `--new-session` with caller-generated `--session-id <UUID>` and preserve exact resume
+  semantics.
+- [x] Keep only capability-confirmed read-only and autonomous flags in emitted argv.
+- [x] Retain the validated private `HOME`/`GROK_HOME` and narrow `GROK_AUTH_PATH` OAuth projection;
+  clarify that the minimum version is a capability floor, not a product-lineage claim.
 
 **Acceptance criteria:**
-- [ ] [B1-A1] The argv emitted for the read-only Grok lens and the full-run launch contains only
-  flags B0 marked confirmed-present; the parity harness passes against the installed binary.
-- [ ] B1-A2: A refuted flag never appears in any emitted `grok-build` argv (regression: an assertion
-  test over the emitted argv rejects the removed flags).
-- [ ] [B1-A3] Regression preservation: no other adapter's emitted argv changes; `decode_grok_json`
-  still parses `{text, stopReason, sessionId}` and ignores the extra fields.
 
-**Docs likely touched:** `references/grok-implementer-launch-prompt.md`, adapter notes, learnings.
+- [x] [B1-A1] Read-only, create, resume, and trusted full-run argv contain only installed-binary-supported flags, and new sessions use a caller-generated UUID through `--session-id`.
+- [x] [B1-A2] OAuth launches retain private `HOME` and `GROK_HOME` plus the validated narrow `GROK_AUTH_PATH`; ambient config, SSH state, and git identity are not inherited.
+- [x] [B1-A3] XAI API-key behavior and every non-Grok adapter's emitted argv remain unchanged.
+- [x] [B1-A4] A reduced-capability or unsupported Grok install fails or falls back with a concrete reason instead of entering an interactive login or invalid-flag loop.
 
-**Risk:** `high` — a wrong autonomous-mode choice either fails to auto-approve writes or over-permits.
-**Caution:** `--yolo` is auto-approve; `--allow`/`--deny` are additive rules and **deny wins even
-under `--yolo`** — prefer them for the untrusted lane rather than widening blanket approval.
-**Affected surfaces:** `adapters.py`, grok launch reference, adapter tests.
-**Constitution impacts:** worker authority boundary, unattended autonomy.
-**Review focus:** exact flag set vs. ledger, session-id create grammar, no invalid flag at spawn.
-**Focused tests:** adapter argv builders (read-only + create), reserved-flag guard.
+**Risk:** `high`
+
+**Review focus:** UUID grammar, isolation strength, and no accidental widening of autonomous
+permissions.
+
+**Focused tests:** adapter create/resume/read-only builders, reserved flags, and full-run auth
+environment isolation.
+
 **Depends on:** B0.
 
-### Batch 2 [B2]: Auth via GROK_HOME and version re-baseline
+### Batch 2 [B2]: Add goal-mode launch and streaming follow
 
-**Tasks:**
-- [ ] Expose the validated owner-private `auth.json` to the worker through `GROK_HOME` only; remove
-  the `GROK_AUTH_PATH` mechanism from `full_run.py` and its references while keeping the private-HOME,
-  executable-probe, and ancestor-validation isolation exactly as strong.
-- [ ] Re-derive the supported version floor from a real `grok --version` (`GROK_AUTH_PATH_MIN_VERSION`
-  and the ~27 `0.2.93` references); soften prose that hard-pins the legacy version.
-- [ ] Keep the `XAI_API_KEY` path unchanged; document `grok login --device-auth` as the headless
-  device-code flow and note the enterprise auth env vars as optional.
+**Coordinator-to-implementer handoff**
 
-**Acceptance criteria:**
-- [ ] [B2-A1] The OAuth grant path exposes `auth.json` via `GROK_HOME`; no `GROK_AUTH_PATH` remains in
-  code or docs; isolation tests (private HOME, executable/ancestor validation) still pass unchanged.
-- [ ] B2-A2: The version floor and in-repo version references reflect the open-source tool's real
-  `grok --version`; `scripts/check_repo_consistency.py` passes.
-- [ ] [B2-A3] Regression preservation: the `XAI_API_KEY` (CI/untrusted) launch path is unchanged and
-  still forbidden from combining with the OAuth route.
+- **Intent:** give Grok one complete autonomous objective and expose its progress without routine
+  driver inference.
+- **Build on:** worker packet generation, trusted full-run supervisor, parked follow mode, and the
+  existing provider-neutral one-packet fallback.
+- **Owned surfaces:** Grok goal qualification and argv, streaming decoder, sanitized follow output,
+  crash/terminal handling, and focused tests.
+- **Forbidden surfaces:** worker merge/PR/protected-ref authority, periodic driver narration,
+  canonical run memory, ACP transport, native worker supervision, and acceptance relaxation.
+- **Pitfalls:** provider availability must not depend on goal support. Unknown stream event types are
+  forward-compatible. Thought/tool text may contain secrets and must use the existing sanitizer.
+- **Acceptance evidence:** fixtures and one bounded authenticated canary in a throwaway repository.
 
-**Docs likely touched:** `references/grok-implementer-launch-prompt.md`, SKILL/AGENTS pins, CHANGELOG.
+**Tasks**
 
-**Risk:** `high` — auth env drift can send the worker into an unattended device-login wait.
-**Caution:** one canonical `auth.json` preserves Grok's lock/refresh-token rotation; do not fan it out.
-**Affected surfaces:** `full_run.py`, launch reference, consistency checker fixtures.
-**Constitution impacts:** credential isolation, no ambient HOME/SSH/git identity inheritance.
-**Review focus:** isolation strength unchanged, no lingering `GROK_AUTH_PATH`, version accuracy.
-**Focused tests:** full-run auth-grant isolation tests; consistency checker.
-**Depends on:** B0.
-
-### Batch 3 [B3]: Live models, onboarding, and honest long-running language
-
-**Tasks:**
-- [ ] Make `worker_routing.py` prefer the live `grok models` catalog; keep `GROK_COMPOSER_MODEL` /
-  `GROK_COMPLEX_MODEL` as documented fallbacks; recognize the `grok-build` default, the `auto`
-  meta-id, and `grok-code-fast-1`.
-- [ ] Simplify or repoint the "goal mode" probing (`detect_native_grok_goal` and its behavioral-
-  verification scaffolding) to reflect that no goal abstraction exists; the supported unattended
-  primitive is headless `-p --max-turns N` + `--resume`.
-- [ ] Add a net-new **install/authenticate** onboarding section pointing at open-source grok-build
-  (`curl -fsSL https://x.ai/cli/install.sh | bash`, `grok --version`, `grok login` or `XAI_API_KEY`,
-  links to `xai-org/grok-build` and `docs.x.ai/build`); thread it through SKILL/AGENTS/references/README.
+- [x] Qualify Grok from permission, authentication, and live-model evidence; record goal capability
+  separately as an enhancement.
+- [x] When goal support is proven, launch `/goal` with one complete packet-backed objective. When it
+  is not, use the compatible one-packet headless path and state the fallback.
+- [x] Decode `streaming-json` into sanitized progress, session identity, usage, terminal, and error
+  records; tolerate unknown types and preserve raw private logs for recovery.
+- [x] Keep the driver parked during ordinary progress and wake it only for terminal completion or an
+  existing material safety/stall condition.
 
 **Acceptance criteria:**
-- [ ] [B3-A1] Model selection uses the live catalog when available and documents the exact fallback
-  when it is not; `grok-composer-2.5-fast` / `grok-4.5` are no longer the sole hardcoded truth.
-- [ ] B3-A2: A user with no prior Grok setup can follow one onboarding section to install and
-  authenticate open-source grok-build; the section names the install command, auth options, and
-  upstream links.
-- [ ] [B3-A3] "Goal mode" language across SKILL/AGENTS/references reflects reality; no doc claims a
-  behaviorally verified goal mode that the tool does not provide.
-- [ ] [B3-A4] Regression preservation: the native-first default flow and non-Grok routing text are
-  unchanged; docs/code parity (`check_repo_consistency`, `sync_installed_skills`) passes.
 
-**Docs likely touched:** README, SKILL, AGENTS, `references/*grok*`, `references/model-onboarding.md`,
-CHANGELOG, learnings, `.ai-docs/*` where durable.
+- [x] [B2-A1] Grok provider qualification is independent from goal support, and an unavailable goal capability selects the documented one-packet fallback without disabling an otherwise valid provider.
+- [x] [B2-A2] An isolated authenticated throwaway-repository canary records whether the packet-backed headless `/goal` launch reaches terminal state with the exact requested session identity; a complete terminal artifact enables goal mode, while an incomplete canary keeps goal mode disabled and proves selection of the one-packet fallback.
+- [x] [B2-A3] The streaming follow view exposes sanitized progress, usage, terminal state, and typed errors; it tolerates unknown event types and never requires timed driver narration.
+- [x] [B2-A4] Worker branch, commit, crash recovery, acceptance, protected-ref, PR, and merge authority remain identical to the provider-neutral full-run contract.
 
-**Risk:** `standard` — onboarding can drift into making Grok feel required; keep it clearly optional.
-**Caution:** the live catalog is authoritative but network-dependent; fallback must be explicit.
-**Affected surfaces:** `worker_routing.py`, `implement.py` goal detection, public docs, examples.
-**Constitution impacts:** provider honesty, native-first simplicity, host parity.
-**Review focus:** optionality of Grok, fallback honesty, no phantom capabilities, doc/code parity.
-**Focused tests:** routing/model-selection tests, consistency and installed-bundle parity tests.
-**Depends on:** B0, B1, B2.
+**Risk:** `high`
 
-## Master Acceptance
+**Review focus:** honest fallback, secret-safe streaming, exact terminal/session handling, and no new
+authority.
 
-- [ ] [M-A1] The optional Grok lane — read-only council/review lens and trusted full-run — launches
-  against the open-source grok-build with zero invalid-flag failures, proven by the B0 parity harness
-  run against a real binary.
-- [ ] [M-A2] Auth is exposed through `GROK_HOME`, models come from the live catalog with a documented
-  fallback, the version story reflects the open-source tool, and credential-isolation strength is
-  unchanged.
-- [ ] [M-A3] Users are told how to install and authenticate open-source grok-build, and
-  SKILL/AGENTS/references/README/CHANGELOG/learnings agree with the shipped behavior; native-first
-  and all non-Grok lanes are untouched.
-- [ ] [M-A4] One terminal readiness review of `git diff origin/main...HEAD` finds no unresolved
-  serious issue, and the branch is presented as a reviewed PR without merging.
+**Focused tests:** goal detection/routing matrix, stream decoder fixtures, supervisor terminal/error
+cases, and one bounded live canary.
 
-## Non-Negotiables
+**Depends on:** B0 and B1.
 
-- Native-first is preserved; Grok stays strictly optional. The native happy path and every non-Grok
-  lane are not modified by this plan.
-- No unverified flag may reach a real spawn: every Grok flag Elves emits must be confirmed against the
-  installed binary by the B0 ledger before B1 changes it.
-- Credential-isolation strength (private HOME, executable/ancestor validation, no ambient
-  HOME/SSH/git identity) must not weaken; this plan re-points auth, it does not relax isolation.
-- The provider-neutral shared contract remains the fallback; native-Grok optimizations
-  (streaming-json, `--json-schema`, ACP) are additive Phase 2 work, never a replacement, and are out
-  of scope here.
-- The user owns whether Elves may merge; this run ends at a reviewed PR and does not merge.
+### Batch 3 [B3]: Align models, onboarding, and public contracts
 
-## Test Strategy
+**Coordinator-to-implementer handoff**
 
-- **Primary new gate:** the B0 parity harness — emitted `grok-build` argv must match the installed
-  `grok --help`. This is the gate that would have caught the `--no-subagents`/`--no-memory`/
-  `--disable-web-search` triple in the read-only lens.
-- **During implementation:** focused unit tests for touched adapter, routing, and full-run surfaces
-  only; commit verified slices with the Elves subject schema.
-- **Terminal gate:** one cumulative `python3 scripts/verify_repo.py --version Unreleased`, plus
-  `check_repo_consistency.py` and `sync_installed_skills.py` parity.
-- **Known baseline:** the clean branch may report the public-API approval manifest as stale for the
-  current version; identify it rather than hiding it, and reconcile only if final readiness requires.
+- **Intent:** make the new lane understandable and prevent model names or public instructions from
+  drifting away from the executable contract.
+- **Build on:** `worker_routing.py`, model onboarding, Grok launch reference, README, guide, SKILL,
+  both host adapters, changelog, and learnings.
+- **Owned surfaces:** live-catalog parsing/selection and Grok-specific public documentation.
+- **Forbidden surfaces:** changing native-first defaults, inventing unavailable models, marketing
+  copy, release/tag/merge actions, and host-specific workflow forks.
+- **Pitfalls:** `models` is network/auth dependent. A hardcoded model is not safe merely because an
+  upstream source file mentions it.
+- **Acceptance evidence:** catalog fixtures, doc consistency, installed-bundle parity, and focused
+  routing tests.
 
-## Notes
+**Tasks**
 
-- **Ground-truth source:** `xai-org/grok-build` `main` (Rust). Authoritative CLI parser is
-  `crates/codegen/xai-grok-pager/src/app/cli.rs`; headless engine `headless.rs`. Binary is `grok`
-  (symlink to `xai-grok-pager`); install `curl -fsSL https://x.ai/cli/install.sh | bash`.
-- **Confirmed correct today (do not "fix"):** `-p`/`--prompt-file`; `--output-format json` →
-  `{text, stopReason, sessionId, requestId, usage, structuredOutput, …}`; `--yolo` (alias
-  `--always-approve`); `--reasoning-effort`/`--effort`; `--max-turns`; `--resume <id>` /
-  `-s/--session-id`; `XAI_API_KEY`; exact-session resume; checkpoints are **TUI-only** (`/rewind`,
-  `/fork`), so our git rollback-ref design stays correct; there is no real "goal mode".
-- **Suspected drift for B0 to adjudicate:** CLI `--permission-mode` values are
-  `default|dontAsk|bypassPermissions|acceptEdits|plan` (`auto` is a *config* value, not a CLI flag);
-  subagents are gated by `--disallowed-tools Agent` / `GROK_SUBAGENTS` (no `--no-subagents`); memory
-  via `GROK_MEMORY` (no `--no-memory`); web search is a tool (`--disallowed-tools`, no
-  `--disable-web-search`); new session via `--session-id <uuidv7>` (no `--new-session`); `--check`
-  not seen in the parser.
-- **Auth:** OAuth tokens live at `$GROK_HOME/auth.json` (default `~/.grok`); there is no
-  `GROK_AUTH_PATH` in the real tool. Headless device flow is `grok login --device-auth`. Optional
-  enterprise: `GROK_AUTH_PROVIDER_COMMAND`, `GROK_DEPLOYMENT_KEY`, OIDC (`GROK_OIDC_*`).
-- **Models:** the production catalog is fetched remotely and cached to `~/.grok/models_cache.json`;
-  the repo ships only a fallback (`grok-build` default). `grok-code-fast-1` and the `auto` meta-id are
-  real; `grok-composer-2.5-fast` / `grok-4.5` are plausible but must come from `grok models`.
-- **Lineage question:** `docs/plans/adaptive-worker-routing.md` notes a locally observed
-  `Grok Build 0.2.101`. B0 must confirm whether that install is the open-source Rust build (same
-  `x.ai/cli` channel, `agent` subcommand present) or a separate legacy binary; the answer decides
-  whether B1–B3 re-point one tool or must support two.
-- **Phase 2 (separate plan):** native `--output-format streaming-json` as the follow transport;
-  `--json-schema references/implement-done-report.schema.json` to enforce the final report at
-  generation time; the ACP lane (`grok agent stdio`, JSON-RPC 2.0, native permission requests) as the
-  structured replacement for the cooperative `high_risk_checkpoint` machinery. Principle: optimize the
-  grok adapter behind the neutral contract, never replace it.
+- [x] Parse the live default model and select only catalog-returned models. Prefer the live default
+  for regular work and `grok-4.5` for complex work only when present and explicitly selected by the
+  routing policy.
+- [x] Add concise installation, authentication, capability, goal/fallback, and follow-view guidance
+  linked to the open-source repository and official Build documentation.
+- [x] Align SKILL, AGENTS, Claude/Codex references, README, guide, examples, changelog, and learnings
+  without duplicating the canonical workflow.
 
-<!-- v2.3 risk/proof policy pins -->
-- thin safety kernel; risk low|standard|high independent of trust trusted|untrusted
-- validate once, verify changes, attest final
-- impact-selected proof during work; broad proof once at terminal readiness and explicit high-risk checkpoints
-- mid-run nonblocking new/unresolved PR feedback; terminal waits for required checks
+**Acceptance criteria:**
+
+- [x] [B3-A1] Model selection uses the authenticated live catalog and parsed default; no unavailable model, including `auto` or `grok-code-fast-1`, is selected unless the catalog returns it.
+- [x] [B3-A2] A user can install, authenticate, capability-check, launch, follow, and recover the optional open-source Grok worker from one concise documentation path.
+- [x] [B3-A3] SKILL, AGENTS, Claude/Codex references, README, guide, examples, changelog, and learnings agree on native-first routing, goal enhancement, one-packet fallback, and authority boundaries.
+- [x] [B3-A4] Installed Codex and Claude Code bundle checks pass, and native worker routing remains parity-aligned, commit-capable, and authority-safe.
+
+**Risk:** `standard`
+
+**Review focus:** catalog-constrained selection, Grok optionality, host parity, and plain-language
+onboarding.
+
+**Focused tests:** model-catalog and routing fixtures, repository consistency, guide checks, and
+installed-bundle smoke checks.
+
+**Depends on:** B0, B1, and B2.
+
+## Master acceptance
+
+- [x] [M-A1] Against installed open-source Grok Build, the optional read-only and trusted full-run lanes emit no invalid flags and use capability-proven goal plus streaming behavior or the documented compatible fallback.
+- [x] [M-A2] Authentication isolation, session create/resume identity, model selection, crash recovery, and worker authority match the executable and provider-neutral contracts exactly.
+- [x] [M-A3] Native Codex and Claude Code remain the default and parity-aligned, while all user-facing and installed Elves documentation accurately describes the optional open-source Grok path.
+- [x] [M-A4] Focused proof, one cumulative final review, targeted revisions, and terminal repository checks leave a reviewed PR ready for the user without merging or moving a version tag.
+
+## Non-negotiables
+
+- Native-first remains the built-in default. Repository permission is not user consent to use Grok.
+- The installed binary is launch authority. Upstream source explains semantics but never licenses an
+  unverified flag or model on an older installed release.
+- Credential isolation may not weaken. Keep the narrow `GROK_AUTH_PATH` projection and private home
+  unless executable evidence requires a different equally narrow mechanism.
+- The worker may commit and push only its feature branch. It may not own PRs, protected refs, merge,
+  tags, or canonical run memory.
+- Batch gates verify claimed work and focused tests. The driver performs one cumulative review after
+  the worker finishes, with extra attention to the high-risk surfaces named above.
+- The user has not authorized merge or release work.
+
+## Test strategy
+
+- Establish a redaction-safe, model-free live capability baseline before launch.
+- During implementation, run focused tests for the adapter, route, auth, stream, and supervisor
+  surface changed in that batch. Do not repeat unaffected suites between batches.
+- Use one bounded authenticated `/goal` canary in an isolated throwaway repository to select either
+  proven goal mode or the honest one-packet fallback. It is behavioral evidence, not a
+  network-dependent CI requirement.
+- At terminal review, run the affected suites once, `scripts/check_repo_consistency.py`, installed
+  Codex/Claude bundle smokes, `git diff --check`, the acceptance check, and
+  `scripts/verify_repo.py --version Unreleased` once.
+- A revision reruns only tests invalidated by that revision, followed by the final lightweight
+  consistency and acceptance checks.
+
+## Deferred follow-ups
+
+- Evaluate ACP after the headless goal/streaming lane has real usage data. Its richer plans, tool
+  calls, and permission events may justify a persistent client later.
+- Consider optional JSON-schema completion reports as convenience evidence. Missing reports must not
+  invalidate otherwise proven committed work; the driver can reconstruct an Elves report.

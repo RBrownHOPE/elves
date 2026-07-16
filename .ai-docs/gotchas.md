@@ -31,10 +31,10 @@
   `XAI_API_KEY` or use `--grant-grok-auth`, which keeps private per-run Grok state but points
   Grok's native `GROK_AUTH_PATH` at the validated canonical owner-private `auth.json`. Do not copy
   OAuth state: refresh-token rotation can invalidate the host copy and strand the only fresh token.
-  Shared OAuth is trusted-Lane-A-only and requires Grok Build 0.2.93+ with the native capability
-  marker. Require a native Mach-O/ELF artifact, probe and bind its full safe ancestor chain in an
-  isolated credential-free environment, reject scripts, and reject permissive ACLs on either the
-  executable/auth file or any ancestor;
+  Shared OAuth is trusted-Lane-A-only and requires an installed native Grok binary whose auth and
+  launch capabilities pass the isolated probes. Require a native Mach-O/ELF artifact, bind its full
+  safe ancestor chain in a credential-free environment, reject scripts, and reject permissive ACLs
+  on either the executable/auth file or any ancestor;
   stop-artifact authentication is not a hard privilege boundary against that same-user worker.
 - `.elves-session.json` is ignored by default in the repo baseline, but live Elves runs may need to
   force-add it so the branch carries structured session state during the run.
@@ -43,7 +43,7 @@
 - PR review automation only becomes useful once the branch is pushed and the PR exists. Opening the
   PR late starves the review loop.
 - This repo has no package-managed lint/typecheck/build pipeline. Use
-  `python3 scripts/verify_repo.py --version 2.1.1` as the canonical aggregate proof command, plus
+  `python3 scripts/verify_repo.py --version 2.6.0` as the canonical aggregate proof command, plus
   `--final-readiness --session <session-path>` for live landing readiness.
 - Provider wording drifts easily. Normal Cobbler and ordinary Elves must not require OpenRouter.
   Math may show `openrouter:<model-id>` as an optional role route, but default config should keep

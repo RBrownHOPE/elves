@@ -29,6 +29,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -151,6 +152,8 @@ MAX_JSON_INTEGER_BITS = 256
 MAX_JSON_NUMBER_CHARS = 128
 MAX_TRANSCRIPT_TAIL_BYTES = 256 * 1024
 MAX_TRANSCRIPT_LINE_CHARS = 1000
+MAX_GROK_STREAM_RECORD_BYTES = 1024 * 1024
+GROK_STREAM_READ_CHUNK_BYTES = 256 * 1024
 MAX_GROK_AUTH_BYTES = 64 * 1024
 MAX_EVENT_FUTURE_SKEW_SECONDS = 300
 MAX_STOP_REQUEST_BYTES = 4096
@@ -1098,6 +1101,14 @@ class FullRunState:
     staged_packet_identity: dict[str, Any] | None = None
     packet_sha256: str | None = None
     packet_size: int | None = None
+    goal_prompt_path: str | None = None
+    goal_prompt_identity: dict[str, Any] | None = None
+    goal_prompt_sha256: str | None = None
+    goal_prompt_size: int | None = None
+    # Private artifact locator is revalidated on every create/resume launch.
+    # goal_behavioral_evidence is the safe normalized proof id only.
+    goal_behavioral_artifact_path: str | None = None
+    goal_behavioral_evidence: str | None = None
     packet_contract_sha256: str | None = None
     acceptance_criteria: dict[str, str] = field(default_factory=dict)
     acceptance_plan_path: str | None = None
@@ -1111,7 +1122,7 @@ class FullRunState:
     acknowledged_high_risk_checkpoints: list[str] = field(default_factory=list)
     pending_high_risk_checkpoint: str | None = None
     adapter: str = "grok-build"
-    model: str = DEFAULT_MODEL
+    model: str = "auto"
     permission_mode: str = DEFAULT_PERMISSION_MODE
     effort: str = DEFAULT_EFFORT
     executable: str = DEFAULT_EXECUTABLE
@@ -1210,6 +1221,10 @@ class FullRunState:
         nullable_strings = (
             "staged_packet_path",
             "packet_sha256",
+            "goal_prompt_path",
+            "goal_prompt_sha256",
+            "goal_behavioral_artifact_path",
+            "goal_behavioral_evidence",
             "packet_contract_sha256",
             "acceptance_plan_path",
             "acceptance_plan_sha256",
@@ -1271,7 +1286,7 @@ class FullRunState:
                 not isinstance(value, int) or isinstance(value, bool) or value <= 0
             ):
                 raise TypeError(f"{field_name} must be a positive integer")
-        for field_name in ("packet_size", "batch"):
+        for field_name in ("packet_size", "goal_prompt_size", "batch"):
             value = data.get(field_name)
             if value is not None and (
                 not isinstance(value, int) or isinstance(value, bool) or value < 0
@@ -1290,6 +1305,7 @@ class FullRunState:
             raise TypeError("exit_code must be an integer or null")
         nullable_mapping_fields = (
             "staged_packet_identity",
+            "goal_prompt_identity",
             "grok_auth_path_identity",
             "grok_executable_identity",
             "devin_auth_identity",
@@ -5632,6 +5648,31 @@ def _write_private_packet_copy(
         ) from exc
 
 
+def _prepare_goal_prompt(repo_root: Path, root: Path, state: FullRunState) -> Path:
+    """Create a private goal command; resume never resets the existing objective."""
+    staged = _revalidate_staged_packet_binding(repo_root, state)
+    packet_raw = _read_private_packet_copy(repo_root, staged)
+    goal_raw = b"/goal " + packet_raw if state.create_session else b"/goal resume\n"
+    if len(goal_raw) > MAX_PACKET_BYTES:
+        raise ValidationIssue(
+            "full_run_goal_prompt_too_large",
+            "Goal command plus staged packet exceeds the packet byte limit",
+        )
+    goal_path = root / "goal-prompt.md"
+    _write_private_packet_copy(repo_root, goal_path, goal_raw)
+    observed = _read_private_packet_copy(repo_root, goal_path)
+    if observed != goal_raw:
+        raise ValidationIssue(
+            "full_run_goal_prompt_changed",
+            "Private goal prompt does not match the packet-backed objective",
+        )
+    state.goal_prompt_path = str(goal_path)
+    state.goal_prompt_identity = _private_staged_packet_identity(goal_path)
+    state.goal_prompt_sha256 = hashlib.sha256(goal_raw).hexdigest()
+    state.goal_prompt_size = len(goal_raw)
+    return goal_path
+
+
 def _read_private_packet_copy(repo_root: Path, packet_path: Path) -> bytes:
     _private_staged_packet_identity(packet_path)
     try:
@@ -6170,7 +6211,7 @@ def prepare_full_run(
     session_path: str | Path | None = None,
     plan_path: str | Path | None = None,
     adapter: str = "grok-build",
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     permission_mode: str = DEFAULT_PERMISSION_MODE,
     effort: str = DEFAULT_EFFORT,
     executable: str | None = None,
@@ -6179,6 +6220,7 @@ def prepare_full_run(
     max_turns: int = 80,
     fixture_script: str | Path | None = None,
     credential_grant_names: Sequence[str] | None = None,
+    goal_behavioral_evidence: str | None = None,
     allow_overwrite: bool = False,
 ) -> dict[str, Any]:
     """Create private full-run artifact tree for one exact session."""
@@ -6208,10 +6250,12 @@ def prepare_full_run(
             "fixture_script_only_for_fixture_adapter",
             "fixture_script is only valid with adapter=fixture",
         )
-    if adapter_name == "devin-cli" and (not model or model == DEFAULT_MODEL):
+    if adapter_name == "devin-cli" and (
+        not model or model in {DEFAULT_MODEL, "auto"}
+    ):
         model = "swe-1-7-lightning"
     elif not model:
-        model = DEFAULT_MODEL
+        model = "auto" if adapter_name == "grok-build" else DEFAULT_MODEL
 
     git_metadata = _validate_full_run_git_contract(
         Path(repo_root),
@@ -6404,6 +6448,13 @@ def prepare_full_run(
         supervision_canary_passed=supervision_canary_passed,
         runtime_dir=str(root),
         provider_session_id=None,
+        output_format="streaming-json" if adapter_name == "grok-build" else "json",
+        goal_behavioral_artifact_path=(
+            str(Path(str(goal_behavioral_evidence).strip()).expanduser().resolve())
+            if goal_behavioral_evidence
+            else None
+        ),
+        goal_behavioral_evidence=None,
         notes=[
             "Trusted full-run supervisor prepared; host parks after launch",
             f"adapter={adapter_name}",
@@ -6448,6 +6499,7 @@ def prepare_full_run(
     # This is the host-only stop capability used to derive the public descendant
     # marker. It is not operator telemetry; retain it only in private state.
     public_state.pop("supervision_token", None)
+    public_state.pop("goal_behavioral_artifact_path", None)
     return {
         "ok": True,
         "action": "full_run_prepare",
@@ -6551,7 +6603,11 @@ def build_full_run_argv(state: FullRunState) -> list[str]:
     """Adapter-aware argv. Fixture mode uses explicit python + script + packet."""
     from .implement import detect_native_grok_goal  # noqa: PLC0415
 
-    launch_packet = state.staged_packet_path or state.packet_path
+    launch_packet = (
+        state.goal_prompt_path
+        if state.goal_mode_behaviorally_verified and state.goal_prompt_path
+        else state.staged_packet_path or state.packet_path
+    )
     if state.adapter == "fixture":
         if not state.fixture_script:
             raise ValidationIssue(
@@ -6584,9 +6640,13 @@ def build_full_run_argv(state: FullRunState) -> list[str]:
     detection = detect_native_grok_goal(state.executable)
     # Record actual capability; do not invent flags. Headless packet launch is
     # the compatible fallback when no public --goal entrypoint exists.
-    state.goal_launch_mode = str(detection.get("mode") or "headless_compatible_fallback")
-    state.goal_entrypoint_advertised = bool(detection.get("advertised_headless_entrypoint"))
-    state.goal_mode_behaviorally_verified = bool(detection.get("goal_mode_behaviorally_verified"))
+    state.goal_entrypoint_advertised = bool(
+        detection.get("advertised_headless_entrypoint")
+    )
+    if state.goal_mode_behaviorally_verified and state.goal_prompt_path:
+        state.goal_launch_mode = "headless_slash_goal"
+    else:
+        state.goal_launch_mode = "headless_compatible_fallback"
     return build_launch_argv(
         session_id=state.session_id,
         packet=launch_packet,
@@ -6601,7 +6661,7 @@ def build_full_run_argv(state: FullRunState) -> list[str]:
         output_format=state.output_format,
         adapter=state.adapter,
         check=bool(state.check),
-        native_goal=bool(detection.get("native_goal")),
+        native_goal=state.goal_mode_behaviorally_verified,
     )
 
 
@@ -7087,6 +7147,76 @@ def launch_full_run(
                 parent_env=parent_env,
             )
 
+        if state.adapter == "grok-build":
+            from .worker_routing import probe_grok_capabilities  # noqa: PLC0415
+
+            grok_capabilities = probe_grok_capabilities(
+                state.executable,
+                goal_auth_path=(
+                    Path(launch_env["GROK_AUTH_PATH"])
+                    if launch_env.get("GROK_AUTH_PATH")
+                    else None
+                ),
+                goal_api_key=launch_env.get("XAI_API_KEY"),
+                command_env=launch_env,
+                goal_behavioral_evidence=state.goal_behavioral_artifact_path,
+            )
+            core_unavailable = grok_capabilities.core_launch_unavailable_reason(
+                create=not resume,
+                check=bool(state.check),
+            )
+            if core_unavailable:
+                raise ValidationIssue(
+                    "grok_launch_capability_unavailable",
+                    "Installed Grok Build lacks a required noninteractive launch capability",
+                    hint=core_unavailable,
+                )
+            if not grok_capabilities.authenticated or not grok_capabilities.models:
+                catalog = grok_capabilities.capability("model_catalog")
+                raise ValidationIssue(
+                    "grok_live_catalog_unavailable",
+                    "Grok launch requires an authenticated live model catalog",
+                    hint=(catalog.reason if catalog is not None else "model_catalog_not_probed"),
+                )
+            requested_model = str(state.model or "").strip()
+            if requested_model == "auto":
+                if not grok_capabilities.default_model:
+                    raise ValidationIssue(
+                        "grok_live_default_model_unavailable",
+                        "Grok live catalog did not identify a default model",
+                    )
+                state.model = grok_capabilities.default_model
+            elif requested_model not in grok_capabilities.models:
+                raise ValidationIssue(
+                    "grok_model_not_in_live_catalog",
+                    f"Requested Grok model `{requested_model}` is absent from the authenticated live catalog",
+                )
+            state.goal_mode_behaviorally_verified = (
+                grok_capabilities.goal_mode_behaviorally_verified
+            )
+            state.goal_entrypoint_advertised = (
+                grok_capabilities.goal_entrypoint_advertised
+            )
+            state.goal_behavioral_evidence = (
+                grok_capabilities.goal_behavioral_evidence
+            )
+            if state.goal_mode_behaviorally_verified:
+                _prepare_goal_prompt(Path(repo_root), root, state)
+                state.notes.append(
+                    "goal_behavioral_evidence="
+                    f"{grok_capabilities.goal_behavioral_evidence or 'verified'}"
+                )
+            else:
+                state.goal_prompt_path = None
+                state.goal_prompt_identity = None
+                state.goal_prompt_sha256 = None
+                state.goal_prompt_size = None
+                goal_evidence = grok_capabilities.capability("goal_behavior")
+                state.notes.append(
+                    "goal_fallback="
+                    f"{goal_evidence.reason if goal_evidence is not None else 'not_probed'}"
+                )
+
         # Never return credential values. Names are strict environment
         # identifiers and cannot smuggle KEY=VALUE material into state/output.
         # This snapshot occurs only after both explicit auth routes have added
@@ -7139,16 +7269,35 @@ def launch_full_run(
                     "resume argv is not bound to the exact captured session id",
                 )
         state.last_argv = list(provider_argv)
+        selected_packet_identity = (
+            state.goal_prompt_identity
+            if state.goal_mode_behaviorally_verified
+            else state.staged_packet_identity
+        )
+        selected_packet_sha256 = (
+            state.goal_prompt_sha256
+            if state.goal_mode_behaviorally_verified
+            else state.packet_sha256
+        )
+        selected_packet_size = (
+            state.goal_prompt_size
+            if state.goal_mode_behaviorally_verified
+            else state.packet_size
+        )
         supervisor_argv = _provider_supervisor_argv(
             root=root,
             session_id=session_id,
             provider_argv=provider_argv,
             attempt=state.attempt,
             supervisor_executable=state.supervisor_executable,
-            staged_packet_path=str(state.staged_packet_path),
-            staged_packet_identity=dict(state.staged_packet_identity or {}),
-            packet_sha256=str(state.packet_sha256),
-            packet_size=int(state.packet_size or 0),
+            staged_packet_path=str(
+                state.goal_prompt_path
+                if state.goal_mode_behaviorally_verified
+                else state.staged_packet_path
+            ),
+            staged_packet_identity=dict(selected_packet_identity or {}),
+            packet_sha256=str(selected_packet_sha256),
+            packet_size=int(selected_packet_size or 0),
             provider_executable_identity=(
                 state.grok_executable_identity
                 if state.adapter == "grok-build"
@@ -7626,6 +7775,486 @@ def format_follow_stream_line(
     if summary:
         return f"{ts} [{batch_s}] {etype} @ {short_head} — {summary}"
     return f"{ts} [{batch_s}] {etype} @ {short_head}"
+
+
+_GROK_STREAM_USAGE_KEYS = frozenset(
+    {
+        "inputTokens",
+        "outputTokens",
+        "cacheReadTokens",
+        "cacheWriteTokens",
+        "totalTokens",
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "total_tokens",
+    }
+)
+
+
+def decode_grok_streaming_event(
+    line: str,
+    *,
+    shared_oauth: bool = False,
+    exact_values: Sequence[str] = (),
+    expected_session_id: str | None = None,
+    credential_grant_state: FullRunState | None = None,
+    force_redact_provider_fields: bool = False,
+) -> dict[str, Any] | None:
+    """Decode one Grok JSONL record into a bounded, sanitized follow record."""
+    if (
+        not isinstance(line, str)
+        or not line.strip()
+        or len(line.encode("utf-8")) > MAX_GROK_STREAM_RECORD_BYTES
+    ):
+        return None
+    if credential_grant_state is not None and not _persisted_grant_metadata_valid(
+        credential_grant_state
+    ):
+        raise ValidationIssue(
+            "grok_follow_redaction_context_unverified",
+            "Persisted launch credential evidence cannot be verified for follow mode",
+        )
+    expected_uuid: str | None = None
+    if expected_session_id is not None:
+        try:
+            expected_uuid = str(uuid.UUID(str(expected_session_id)))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValidationIssue(
+                "grok_follow_requested_session_invalid",
+                "Requested Grok follow identity is not an exact UUID",
+            ) from exc
+        if expected_uuid != str(expected_session_id):
+            raise ValidationIssue(
+                "grok_follow_requested_session_invalid",
+                "Requested Grok follow identity is not a canonical UUID",
+            )
+    try:
+        raw = _loads_bounded_json(line, label="Grok streaming event")
+        _assert_bounded_json_structure(raw, label="Grok streaming event")
+    except (TypeError, ValueError, RecursionError, StorageError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, Mapping):
+        return None
+    raw_type = str(raw.get("type") or "unknown")
+    session_id = raw.get("sessionId", raw.get("session_id"))
+    stop_reason = raw.get("stopReason", raw.get("stop_reason"))
+    error_code = raw.get("code", raw.get("errorType", raw.get("error_type")))
+    content = raw.get("data", raw.get("message", ""))
+    provider_secret_detected = bool(
+        force_redact_provider_fields
+        or _contains_full_run_secret(
+            raw,
+            exact_values=tuple(exact_values),
+            credential_grant_state=credential_grant_state,
+        )
+    )
+    event_type = (
+        raw_type
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,63}", raw_type)
+        else "unknown"
+    )
+    known = event_type in {"text", "thought", "end", "error", "usage"}
+    record: dict[str, Any] = {
+        "event_type": event_type if known else "unknown",
+        "unknown_event_type": (
+            None if known or provider_secret_detected else event_type
+        ),
+        "terminal": event_type in {"end", "error"},
+    }
+    if session_id is not None:
+        try:
+            streamed_uuid = str(uuid.UUID(str(session_id)))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValidationIssue(
+                "grok_stream_session_identity_invalid",
+                "Grok stream reported a non-UUID session identity",
+            ) from exc
+        if streamed_uuid != str(session_id) or (
+            expected_uuid is not None and streamed_uuid != expected_uuid
+        ):
+            raise ValidationIssue(
+                "grok_stream_session_identity_mismatch",
+                "Grok stream session identity differs from the requested UUID",
+            )
+        # When redacting a provider record, retain only the host-bound identity.
+        # A provider-supplied UUID can itself be credential-shaped data.
+        if not provider_secret_detected:
+            record["session_id"] = expected_uuid or streamed_uuid
+    if (
+        not provider_secret_detected
+        and isinstance(stop_reason, str)
+        and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,63}", stop_reason)
+    ):
+        record["stop_reason"] = stop_reason
+    usage_source = raw.get("usage") if isinstance(raw.get("usage"), Mapping) else raw
+    usage = {
+        str(key): value
+        for key, value in usage_source.items()
+        if key in _GROK_STREAM_USAGE_KEYS
+        and not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and value >= 0
+    }
+    if usage:
+        record["usage"] = usage
+    if (
+        event_type == "error"
+        and not provider_secret_detected
+        and isinstance(error_code, str)
+        and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,63}", error_code)
+    ):
+        record["error_type"] = error_code
+    if provider_secret_detected:
+        record["summary"] = "[REDACTED:credential_grant]"
+    elif not shared_oauth and event_type in {"text", "error"}:
+        if isinstance(content, str) and content:
+            cleaned = _redact_full_run_text(content, exact_values=exact_values).strip()
+            if cleaned:
+                record["summary"] = cleaned[:197] + "..." if len(cleaned) > 200 else cleaned
+    elif event_type == "thought":
+        record["summary"] = "reasoning activity"
+    return record
+
+
+def _grok_stream_provider_text(line: str) -> str:
+    """Return only provider-controlled strings that the follow formatter may expose."""
+    if (
+        not isinstance(line, str)
+        or not line.strip()
+        or len(line.encode("utf-8")) > MAX_GROK_STREAM_RECORD_BYTES
+    ):
+        return ""
+    try:
+        raw = _loads_bounded_json(line, label="Grok streaming event")
+        _assert_bounded_json_structure(raw, label="Grok streaming event")
+    except (TypeError, ValueError, RecursionError, StorageError, json.JSONDecodeError):
+        return ""
+    if not isinstance(raw, Mapping):
+        return ""
+    raw_type = str(raw.get("type") or "unknown")
+    fragments: list[str] = []
+    if raw_type not in {"text", "thought", "end", "error", "usage"}:
+        fragments.append(raw_type)
+    session_id = raw.get("sessionId", raw.get("session_id"))
+    if isinstance(session_id, str):
+        fragments.append(session_id)
+    stop_reason = raw.get("stopReason", raw.get("stop_reason"))
+    if isinstance(stop_reason, str):
+        fragments.append(stop_reason)
+    if raw_type == "error":
+        code = raw.get("code", raw.get("errorType", raw.get("error_type")))
+        if isinstance(code, str):
+            fragments.append(code)
+    if raw_type in {"text", "error"}:
+        content = raw.get("data", raw.get("message", ""))
+        if isinstance(content, str):
+            fragments.append(content)
+    return "".join(fragments)
+
+
+@dataclass
+class GrokStreamingRedactionState:
+    """Quarantine enough provider text to catch credentials split across events."""
+
+    pending: list[tuple[str, bool]] = field(default_factory=list)
+
+
+def _grok_stream_credential_lengths(
+    *,
+    exact_values: Sequence[str],
+    credential_grant_state: FullRunState | None,
+) -> tuple[int, ...]:
+    lengths = {
+        len(value)
+        for value in exact_values
+        if isinstance(value, str) and value
+    }
+    if credential_grant_state is not None:
+        if not _persisted_grant_metadata_valid(credential_grant_state):
+            raise ValidationIssue(
+                "grok_follow_redaction_context_unverified",
+                "Persisted launch credential evidence cannot be verified for follow mode",
+            )
+        lengths.update(
+            length
+            for length in credential_grant_state.credential_grant_lengths.values()
+            if isinstance(length, int) and not isinstance(length, bool) and length > 0
+        )
+    return tuple(sorted(lengths))
+
+
+def _grok_stream_credential_record_indexes(
+    fragments: Sequence[str],
+    *,
+    exact_values: Sequence[str],
+    credential_grant_state: FullRunState | None,
+) -> set[int]:
+    """Locate records participating in an exact or HMAC-backed credential match."""
+    text = "".join(fragments)
+    if not text:
+        return set()
+    ranges: list[tuple[int, int]] = []
+    for value in exact_values:
+        if not isinstance(value, str) or not value:
+            continue
+        start = 0
+        while (match := text.find(value, start)) >= 0:
+            ranges.append((match, match + len(value)))
+            start = match + 1
+    if credential_grant_state is not None:
+        for name in credential_grant_state.credential_granted_names:
+            length = credential_grant_state.credential_grant_lengths[name]
+            expected = credential_grant_state.credential_grant_digests[name]
+            if length <= 0 or len(text) < length:
+                continue
+            for start in range(0, len(text) - length + 1):
+                candidate = text[start : start + length]
+                if hmac.compare_digest(
+                    _credential_grant_digest(
+                        credential_grant_state, name, candidate
+                    ),
+                    expected,
+                ):
+                    ranges.append((start, start + length))
+    fragment_ranges: list[tuple[int, int]] = []
+    offset = 0
+    for fragment in fragments:
+        end = offset + len(fragment)
+        fragment_ranges.append((offset, end))
+        offset = end
+    affected: set[int] = set()
+    for match_start, match_end in ranges:
+        participants = {
+            index
+            for index, (fragment_start, fragment_end) in enumerate(fragment_ranges)
+            if fragment_start < match_end and fragment_end > match_start
+        }
+        # Provider-controlled fields are concatenated in display order. This
+        # catches both adjacent JSONL chunks and a credential divided among
+        # multiple metadata fields inside one record.
+        affected.update(participants)
+    return affected
+
+
+def format_grok_streaming_follow_line(record: Mapping[str, Any]) -> str:
+    """Format a sanitized Grok stream record without exposing raw JSON."""
+    event_type = str(record.get("event_type") or "unknown")
+    if event_type == "unknown" and record.get("unknown_event_type"):
+        event_type = f"unknown[{record['unknown_event_type']}]"
+    parts = [f"grok:{event_type}"]
+    if record.get("session_id"):
+        parts.append(f"session={record['session_id']}")
+    if record.get("stop_reason"):
+        parts.append(f"stop={record['stop_reason']}")
+    if record.get("error_type"):
+        parts.append(f"error={record['error_type']}")
+    usage = record.get("usage")
+    if isinstance(usage, Mapping) and usage:
+        parts.append(
+            "usage=" + ",".join(f"{key}:{usage[key]}" for key in sorted(usage))
+        )
+    if record.get("terminal"):
+        parts.append("terminal")
+    summary = str(record.get("summary") or "").strip()
+    return " ".join(parts) + (f" — {summary}" if summary else "")
+
+
+def grok_streaming_follow_lines(
+    raw_lines: Sequence[str],
+    *,
+    shared_oauth: bool = False,
+    exact_values: Sequence[str] = (),
+    already_seen: int = 0,
+    expected_session_id: str | None = None,
+    credential_grant_state: FullRunState | None = None,
+    redaction_state: GrokStreamingRedactionState | None = None,
+) -> tuple[list[str], int]:
+    """Return sanitized Grok JSONL follow lines with cross-event credential quarantine.
+
+    Incremental callers pass one persistent ``redaction_state``. The function
+    withholds at most one credential-length suffix, so a token split across two
+    streaming text chunks is detected before either fragment becomes visible.
+    One-shot callers are flushed after scanning the complete supplied sequence.
+    """
+    cursor = max(0, int(already_seen))
+    selected_lines = list(raw_lines)[cursor:]
+    state = redaction_state or GrokStreamingRedactionState()
+    combined = [*state.pending, *((line, False) for line in selected_lines)]
+    lengths = _grok_stream_credential_lengths(
+        exact_values=exact_values,
+        credential_grant_state=credential_grant_state,
+    )
+    provider_fragments = [
+        _grok_stream_provider_text(line) for line, _force in combined
+    ]
+    affected_records = _grok_stream_credential_record_indexes(
+        provider_fragments,
+        exact_values=exact_values,
+        credential_grant_state=credential_grant_state,
+    )
+    combined = [
+        (line, force_redact or index in affected_records)
+        for index, (line, force_redact) in enumerate(combined)
+    ]
+
+    terminal_seen = False
+    for line, _force in combined:
+        try:
+            raw = _loads_bounded_json(line, label="Grok streaming event")
+        except (TypeError, ValueError, RecursionError, StorageError, json.JSONDecodeError):
+            continue
+        if isinstance(raw, Mapping) and raw.get("type") in {"end", "error"}:
+            terminal_seen = True
+            break
+
+    # A generic monitor transition is not proof that no adjacent provider chunk
+    # remains. Persistent followers release their quarantine only after an
+    # actual terminal stream record; otherwise a transition between two token
+    # fragments could expose both halves over successive polls.
+    should_flush = bool(terminal_seen or redaction_state is None)
+    keep_start = len(combined)
+    if combined and lengths and not should_flush:
+        quarantine_chars = max(lengths) - 1
+        accumulated = 0
+        for index in range(len(combined) - 1, -1, -1):
+            fragment = _grok_stream_provider_text(combined[index][0])
+            if not fragment:
+                continue
+            keep_start = index
+            accumulated += len(fragment)
+            if accumulated >= quarantine_chars:
+                break
+    released = combined if should_flush or not lengths else combined[:keep_start]
+    state.pending = [] if should_flush or not lengths else combined[keep_start:]
+
+    decoded: list[dict[str, Any]] = []
+    for line, force_redact in released:
+        record = decode_grok_streaming_event(
+            line,
+            shared_oauth=shared_oauth,
+            exact_values=exact_values,
+            expected_session_id=expected_session_id,
+            credential_grant_state=credential_grant_state,
+            force_redact_provider_fields=force_redact,
+        )
+        if record is not None:
+            decoded.append(record)
+    decoded_total = sum(
+        1
+        for line in selected_lines
+        if decode_grok_streaming_event(
+            line,
+            shared_oauth=shared_oauth,
+            exact_values=exact_values,
+            expected_session_id=expected_session_id,
+            credential_grant_state=credential_grant_state,
+        )
+        is not None
+    )
+    return [format_grok_streaming_follow_line(item) for item in decoded], cursor + decoded_total
+
+
+@dataclass
+class GrokTranscriptCursor:
+    """Byte-accurate cursor for an append-only or atomically rotated JSONL transcript."""
+
+    dev: int | None = None
+    ino: int | None = None
+    offset: int = 0
+    partial: bytes = b""
+
+
+def _read_grok_transcript_records(
+    repo_root: Path,
+    path: Path,
+    cursor: GrokTranscriptCursor,
+) -> tuple[list[str], GrokTranscriptCursor]:
+    """Read every newly appended complete JSONL record without rolling-tail loss."""
+    candidate = guard_repo_path(repo_root, path)
+    try:
+        before = candidate.lstat()
+    except FileNotFoundError:
+        return [], cursor
+    except OSError as exc:
+        raise ValidationIssue(
+            "grok_follow_transcript_unavailable",
+            f"Grok transcript metadata is unavailable ({type(exc).__name__})",
+        ) from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise ValidationIssue(
+            "grok_follow_transcript_unsafe",
+            "Grok transcript is not a regular file",
+        )
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = -1
+    try:
+        descriptor = os.open(candidate, flags)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+        ):
+            raise ValidationIssue(
+                "grok_follow_transcript_identity_changed",
+                "Grok transcript changed identity while opening",
+            )
+        same_identity = (cursor.dev, cursor.ino) == (opened.st_dev, opened.st_ino)
+        offset = cursor.offset if same_identity and opened.st_size >= cursor.offset else 0
+        partial = cursor.partial if same_identity and offset else b""
+        os.lseek(descriptor, offset, os.SEEK_SET)
+        records: list[str] = []
+        while True:
+            chunk = os.read(descriptor, GROK_STREAM_READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            offset += len(chunk)
+            buffered = partial + chunk
+            pieces = buffered.split(b"\n")
+            partial = pieces.pop()
+            for raw in pieces:
+                if not raw.strip():
+                    continue
+                if len(raw) > MAX_GROK_STREAM_RECORD_BYTES:
+                    raise ValidationIssue(
+                        "grok_follow_record_too_large",
+                        "Grok streaming JSONL record exceeds the safe byte limit",
+                    )
+                try:
+                    records.append(raw.decode("utf-8", errors="strict"))
+                except UnicodeDecodeError as exc:
+                    raise ValidationIssue(
+                        "grok_follow_record_invalid_utf8",
+                        "Grok streaming JSONL record is not valid UTF-8",
+                    ) from exc
+            if len(partial) > MAX_GROK_STREAM_RECORD_BYTES:
+                raise ValidationIssue(
+                    "grok_follow_record_too_large",
+                    "Partial Grok streaming JSONL record exceeds the safe byte limit",
+                )
+        after = candidate.lstat()
+        if (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino):
+            raise ValidationIssue(
+                "grok_follow_transcript_identity_changed",
+                "Grok transcript rotated while it was being read",
+            )
+        return records, GrokTranscriptCursor(
+            dev=int(opened.st_dev),
+            ino=int(opened.st_ino),
+            offset=offset,
+            partial=partial,
+        )
+    except ValidationIssue:
+        raise
+    except OSError as exc:
+        raise ValidationIssue(
+            "grok_follow_transcript_unavailable",
+            f"Grok transcript cannot be read safely ({type(exc).__name__})",
+        ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 def follow_stream_lines(
@@ -8953,6 +9582,8 @@ def await_full_run(
     started = mono()
     follow_enabled = bool(follow) and not bool(quiet)
     seen_events = 0
+    grok_transcript_cursor = GrokTranscriptCursor()
+    grok_redaction_state = GrokStreamingRedactionState()
     seen_attempt: int | None = None
     stream_lines: list[str] = []
     write = stream_writer
@@ -8970,6 +9601,8 @@ def await_full_run(
                 if seen_attempt != state.attempt:
                     # A supervised resume archives and resets events.jsonl.
                     seen_events = 0
+                    grok_transcript_cursor = GrokTranscriptCursor()
+                    grok_redaction_state = GrokStreamingRedactionState()
                     seen_attempt = state.attempt
                 events_tail = _all_follow_events(Path(repo_root), state)
                 if not events_tail:
@@ -8987,7 +9620,58 @@ def await_full_run(
                     stream_lines.append(line)
                     if write is not None:
                         write(line)
-            except Exception:  # noqa: BLE001 — stream is best-effort
+                if state.adapter == "grok-build":
+                    launch_context_verified, exact_secret_values = (
+                        _launch_evidence_context(state)
+                    )
+                    if not launch_context_verified:
+                        raise ValidationIssue(
+                            "grok_follow_redaction_context_unverified",
+                            "Grok follow cannot verify persisted launch redaction evidence",
+                        )
+                    transcript_lines, grok_transcript_cursor = (
+                        _read_grok_transcript_records(
+                            Path(repo_root),
+                            full_run_root(Path(repo_root), state.session_id)
+                            / "transcript.log",
+                            grok_transcript_cursor,
+                        )
+                    )
+                    grok_lines, _decoded_count = grok_streaming_follow_lines(
+                        transcript_lines,
+                        shared_oauth=shared_oauth,
+                        exact_values=tuple(exact_secret_values),
+                        expected_session_id=state.session_id,
+                        credential_grant_state=state,
+                        redaction_state=grok_redaction_state,
+                    )
+                    for line in grok_lines:
+                        stream_lines.append(line)
+                        if write is not None:
+                            write(line)
+            except ValidationIssue as issue:
+                if issue.code.startswith("grok_follow_") or issue.code.startswith(
+                    "grok_stream_"
+                ):
+                    result = dict(observed)
+                    result.update(
+                        {
+                            "ok": False,
+                            "state": "failed",
+                            "material_transition": True,
+                            "unchanged_healthy_poll_silent": False,
+                            "next_action": "driver_wake_safety_tripwire",
+                            "blocker": f"Grok follow safety check failed ({issue.code})",
+                            "awaited": True,
+                            "follow": follow_enabled,
+                            "follow_model_inference": FOLLOW_MODE_MODEL_INFERENCE,
+                            "follow_replaces_timed_chat": FOLLOW_MODE_REPLACES_TIMED_CHAT,
+                            "follow_stream_lines": list(stream_lines),
+                            "merge_authority": False,
+                        }
+                    )
+                    return result
+            except Exception:  # noqa: BLE001 — non-security display remains best-effort
                 pass
         material = bool(
             observed.get("material_transition")

@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import hashlib
+import json
+import os
 import re
 import shutil
+import stat
 import subprocess
+import tempfile
+import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -16,6 +22,22 @@ REASONING_LEVELS = ("low", "medium", "high")
 REVIEW_RISKS = ("low", "standard", "high")
 GROK_COMPOSER_MODEL = "grok-composer-2.5-fast"
 GROK_COMPLEX_MODEL = "grok-4.5"
+GROK_UPSTREAM_SOURCE_URL = "https://github.com/xai-org/grok-build"
+GROK_UPSTREAM_SEMANTIC_COMMIT = "c1b5909ec707c069f1d21a93917af044e71da0d7"
+MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES = 64 * 1024
+MAX_GROK_GOAL_CANARY_PROMPT_BYTES = 32 * 1024
+
+
+@dataclass(frozen=True)
+class GrokCapabilityEvidence:
+    """Redaction-safe evidence for one installed-binary capability."""
+
+    state: str
+    source: str
+    reason: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"state": self.state, "source": self.source, "reason": self.reason}
 
 
 @dataclass(frozen=True)
@@ -26,53 +48,698 @@ class GrokCapabilities:
     goal_entrypoint_advertised: bool = False
     goal_mode_behaviorally_verified: bool = False
     goal_behavioral_evidence: str | None = None
+    # Private input locator retained only so a resumed full-run can revalidate
+    # the same artifact. It is intentionally absent from safe_snapshot().
+    goal_behavioral_artifact_path: str | None = None
     version: str | None = None
+    installed_build_commit: str | None = None
+    default_model: str | None = None
+    capability_ledger: tuple[tuple[str, GrokCapabilityEvidence], ...] = ()
 
     def supports(self, model: str) -> bool:
         return self.installed and self.authenticated and model in self.models
+
+    def capability(self, name: str) -> GrokCapabilityEvidence | None:
+        return dict(self.capability_ledger).get(name)
+
+    def core_launch_unavailable_reason(
+        self,
+        *,
+        create: bool = True,
+        check: bool = False,
+    ) -> str | None:
+        """Return the first missing capability for the actual trusted launch argv."""
+        if not self.capability_ledger:
+            return None
+        required = [
+            "prompt_file",
+            "cwd",
+            "model",
+            "permission_mode",
+            "always_approve",
+            "reasoning_effort",
+            "max_turns",
+            "output_format",
+            "streaming_json",
+            "session_id" if create else "resume",
+        ]
+        if check:
+            required.append("check")
+        for name in required:
+            evidence = self.capability(name)
+            if evidence is None or evidence.state != "proven":
+                detail = evidence.reason if evidence is not None else "not_probed"
+                return f"capability_unavailable:{name}:{detail}"
+        return None
+
+    def safe_snapshot(self) -> dict[str, Any]:
+        """Return normalized facts only; never retain command output or auth diagnostics."""
+        return {
+            "schema_version": 1,
+            "installed": self.installed,
+            "version": self.version,
+            "installed_build_commit": self.installed_build_commit,
+            "authenticated": self.authenticated,
+            "models": list(self.models),
+            "default_model": self.default_model,
+            "semantic_reference": {
+                "url": GROK_UPSTREAM_SOURCE_URL,
+                "commit": GROK_UPSTREAM_SEMANTIC_COMMIT,
+                "authority": "semantic_reference_only",
+            },
+            "capabilities": {
+                name: evidence.to_dict() for name, evidence in self.capability_ledger
+            },
+        }
+
+
+_GROK_HELP_CAPABILITIES: tuple[tuple[str, str], ...] = (
+    ("prompt_file", "--prompt-file"),
+    ("cwd", "--cwd"),
+    ("model", "--model"),
+    ("permission_mode", "--permission-mode"),
+    ("always_approve", "--always-approve"),
+    ("reasoning_effort", "--reasoning-effort"),
+    ("max_turns", "--max-turns"),
+    ("output_format", "--output-format"),
+    ("no_subagents", "--no-subagents"),
+    ("no_memory", "--no-memory"),
+    ("disable_web_search", "--disable-web-search"),
+    ("check", "--check"),
+    ("session_id", "--session-id"),
+    ("resume", "--resume"),
+    ("new_session", "--new-session"),
+    ("streaming_json", "streaming-json"),
+    ("json_schema", "--json-schema"),
+)
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_MODEL_ID_RE = r"[A-Za-z0-9][A-Za-z0-9._:/-]*"
+_MODEL_ROW_RE = re.compile(
+    rf"(?im)^\s*(?P<marker>[-*])\s+(?P<model>{_MODEL_ID_RE})"
+    rf"(?P<default>\s+\(default\))?\s*$"
+)
+_DEFAULT_MODEL_RE = re.compile(
+    rf"(?im)^\s*Default model:\s*(?P<model>{_MODEL_ID_RE})\s*$"
+)
+_SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _parse_live_model_catalog(stdout: str) -> tuple[tuple[str, ...], str | None]:
+    """Parse only anchored rows from `grok models`, never diagnostic prose."""
+    clean = _ANSI_ESCAPE_RE.sub("", stdout or "")
+    header = re.search(r"(?im)^\s*Available models:\s*$", clean)
+    if header is None:
+        return (), None
+    rows = list(_MODEL_ROW_RE.finditer(clean[header.end() :]))
+    models = tuple(dict.fromkeys(match.group("model") for match in rows))
+    default_match = _DEFAULT_MODEL_RE.search(clean)
+    default_model = default_match.group("model") if default_match else None
+    default_rows = [
+        match
+        for match in rows
+        if match.group("model") == default_model
+        and (match.group("marker") == "*" or match.group("default"))
+    ]
+    if not models or default_model not in models or len(default_rows) != 1:
+        return (), None
+    return models, default_model
+
+
+def _goal_canary_unavailable(reason: str) -> tuple[GrokCapabilityEvidence, None]:
+    return (
+        GrokCapabilityEvidence(
+            state="unavailable",
+            source="validated_terminal_goal_canary_artifact",
+            reason=reason,
+        ),
+        None,
+    )
+
+
+def _read_goal_canary_artifact(path_value: str) -> bytes:
+    """Read one bounded regular artifact without following a symlink."""
+    path = Path(path_value).expanduser()
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError("artifact_not_regular")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or (metadata.st_dev, metadata.st_ino) != (before.st_dev, before.st_ino)
+        ):
+            raise ValueError("artifact_not_regular")
+        if stat.S_IMODE(metadata.st_mode) & 0o022:
+            raise ValueError("artifact_writable_by_others")
+        if metadata.st_size > MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES:
+            raise ValueError("artifact_too_large")
+        raw = os.read(descriptor, MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES + 1)
+        if len(raw) > MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES:
+            raise ValueError("artifact_too_large")
+        return raw
+    finally:
+        os.close(descriptor)
+
+
+def validate_grok_goal_canary_artifact(
+    artifact_path: str | None,
+    *,
+    installed_version: str | None,
+    installed_build_commit: str | None,
+) -> tuple[GrokCapabilityEvidence, str | None]:
+    """Validate terminal goal proof bound to the exact installed Grok build.
+
+    Artifact schema v1 is a bounded JSON object with:
+    ``artifact_type``, ``schema_version``, installed version/build, canonical
+    ``session_id``, exact ``prompt`` plus ``prompt_sha256``, zero ``exit_code``,
+    and the exact successful streaming ``terminal_event``.
+    """
+    value = str(artifact_path or "").strip()
+    if not value:
+        return _goal_canary_unavailable("terminal_objective_canary_not_recorded")
+    if not installed_version or not installed_build_commit:
+        return _goal_canary_unavailable("installed_build_identity_unavailable")
+    try:
+        raw = _read_goal_canary_artifact(value)
+    except (OSError, RuntimeError, ValueError):
+        return _goal_canary_unavailable("goal_canary_artifact_unavailable_or_unsafe")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _goal_canary_unavailable("goal_canary_artifact_malformed")
+    if not isinstance(payload, Mapping):
+        return _goal_canary_unavailable("goal_canary_artifact_malformed")
+    required = {
+        "artifact_type",
+        "schema_version",
+        "installed_version",
+        "installed_build_commit",
+        "session_id",
+        "prompt",
+        "prompt_sha256",
+        "exit_code",
+        "terminal_event",
+    }
+    if set(payload) != required:
+        return _goal_canary_unavailable("goal_canary_artifact_schema_invalid")
+    if (
+        payload.get("artifact_type") != "grok_goal_terminal_canary"
+        or payload.get("schema_version") != 1
+        or payload.get("installed_version") != installed_version
+        or str(payload.get("installed_build_commit") or "").lower()
+        != installed_build_commit.lower()
+    ):
+        return _goal_canary_unavailable("goal_canary_artifact_build_mismatch")
+    session_id = payload.get("session_id")
+    try:
+        canonical_session = str(uuid.UUID(str(session_id)))
+    except (AttributeError, TypeError, ValueError):
+        return _goal_canary_unavailable("goal_canary_artifact_session_invalid")
+    if canonical_session != session_id:
+        return _goal_canary_unavailable("goal_canary_artifact_session_invalid")
+    prompt = payload.get("prompt")
+    if not isinstance(prompt, str):
+        return _goal_canary_unavailable("goal_canary_artifact_prompt_invalid")
+    prompt_raw = prompt.encode("utf-8")
+    if (
+        not prompt.startswith("/goal ")
+        or not prompt[len("/goal ") :].strip()
+        or len(prompt_raw) > MAX_GROK_GOAL_CANARY_PROMPT_BYTES
+    ):
+        return _goal_canary_unavailable("goal_canary_artifact_prompt_invalid")
+    prompt_sha256 = payload.get("prompt_sha256")
+    if (
+        not isinstance(prompt_sha256, str)
+        or not _SHA256_RE.fullmatch(prompt_sha256)
+        or hashlib.sha256(prompt_raw).hexdigest() != prompt_sha256
+    ):
+        return _goal_canary_unavailable("goal_canary_artifact_prompt_digest_mismatch")
+    if isinstance(payload.get("exit_code"), bool) or payload.get("exit_code") != 0:
+        return _goal_canary_unavailable("goal_canary_artifact_not_successful")
+    terminal = payload.get("terminal_event")
+    if (
+        not isinstance(terminal, Mapping)
+        or terminal.get("type") != "end"
+        or terminal.get("sessionId") != canonical_session
+    ):
+        return _goal_canary_unavailable("goal_canary_artifact_terminal_invalid")
+    evidence_id = "grok-goal-canary:v1:" + hashlib.sha256(raw).hexdigest()[:24]
+    return (
+        GrokCapabilityEvidence(
+            state="proven",
+            source="validated_terminal_goal_canary_artifact",
+            reason="terminal_objective_canary_validated_for_installed_build",
+        ),
+        evidence_id,
+    )
+
+
+def _contains_positive_usage(value: Any) -> bool:
+    """Reject any nested positive token/usage accounting from a model-free probe."""
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            key_text = str(key).lower().replace("_", "")
+            if (
+                ("usage" in key_text or "token" in key_text)
+                and not isinstance(child, bool)
+                and isinstance(child, (int, float))
+                and child > 0
+            ):
+                return True
+            if _contains_positive_usage(child):
+                return True
+    elif isinstance(value, (list, tuple)):
+        return any(_contains_positive_usage(child) for child in value)
+    return False
+
+
+def _probe_reason(result: Any | None, error: BaseException | None) -> str:
+    if error is not None:
+        return f"probe_error:{type(error).__name__}"
+    return f"command_failed:exit_{getattr(result, 'returncode', 'unknown')}"
+
+
+def probe_grok_goal_resolution(
+    located: str,
+    *,
+    runner: Any = subprocess.run,
+    auth_path: Path | None = None,
+    api_key: str | None = None,
+) -> tuple[GrokCapabilityEvidence, str | None]:
+    """Resolve `/goal status` with narrow auth but without catalog/model inference."""
+    if auth_path is None and not api_key:
+        return (
+            GrokCapabilityEvidence(
+                state="unavailable",
+                source="isolated_auth_projected_command_probe",
+                reason="narrow_auth_projection_not_provided",
+            ),
+            None,
+        )
+    resolved_auth: Path | None = None
+    if auth_path is not None:
+        try:
+            resolved_auth = auth_path.expanduser().resolve(strict=True)
+        except (OSError, RuntimeError):
+            return (
+                GrokCapabilityEvidence(
+                    state="unavailable",
+                    source="isolated_auth_projected_command_probe",
+                    reason="narrow_auth_projection_unavailable",
+                ),
+                None,
+            )
+    with tempfile.TemporaryDirectory(prefix="elves-grok-goal-probe-") as tmp:
+        root = Path(tmp)
+        session_id = str(uuid.uuid4())
+        env = {
+            "HOME": str(root),
+            "GROK_HOME": str(root / "grok"),
+            "XDG_CONFIG_HOME": str(root / "config"),
+            "XDG_CACHE_HOME": str(root / "cache"),
+            "XDG_DATA_HOME": str(root / "data"),
+            "PATH": os.environ.get("PATH") or os.defpath,
+            "LANG": os.environ.get("LANG") or "C.UTF-8",
+        }
+        if resolved_auth is not None:
+            env["GROK_AUTH_PATH"] = str(resolved_auth)
+        elif api_key:
+            env["XAI_API_KEY"] = api_key
+        for name in ("grok", "config", "cache", "data"):
+            (root / name).mkdir(mode=0o700)
+        argv = [
+            located,
+            "--session-id",
+            session_id,
+            "--permission-mode",
+            "plan",
+            "--no-subagents",
+            "--no-memory",
+            "--disable-web-search",
+            "--output-format",
+            "streaming-json",
+            "--single",
+            "/goal status",
+        ]
+        try:
+            result = runner(
+                argv,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=8,
+                env=env,
+                cwd=tmp,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return (
+                GrokCapabilityEvidence(
+                    state="unavailable",
+                    source="isolated_auth_projected_command_probe",
+                    reason=f"probe_error:{type(exc).__name__}",
+                ),
+                None,
+            )
+    event_types: list[str] = []
+    exact_session = False
+    goal_status_resolved = False
+    malformed = False
+    positive_usage = False
+    for line in (result.stdout or "").splitlines():
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            malformed = True
+            continue
+        if not isinstance(event, Mapping):
+            malformed = True
+            continue
+        positive_usage = positive_usage or _contains_positive_usage(event)
+        event_type = str(event.get("type") or "")
+        event_types.append(event_type)
+        if event_type == "text" and "No goal is currently set" in str(event.get("data") or ""):
+            goal_status_resolved = True
+        if event_type == "end" and event.get("sessionId") == session_id:
+            exact_session = True
+    inference_events = {"thought", "tool", "tool_call", "usage"}.intersection(event_types)
+    if (
+        getattr(result, "returncode", 1) == 0
+        and goal_status_resolved
+        and exact_session
+        and not inference_events
+        and not positive_usage
+        and not malformed
+    ):
+        evidence_id = "isolated:/goal-status:text+end:exact-session:no-model-events"
+        return (
+            GrokCapabilityEvidence(
+                state="proven",
+                source="isolated_auth_projected_command_probe",
+                reason="slash_command_resolved_without_model_events",
+            ),
+            evidence_id,
+        )
+    combined = ((result.stdout or "") + "\n" + (result.stderr or "")).lower()
+    if "not signed in" in combined or "authenticate" in combined:
+        reason = "authentication_required_before_command_resolution"
+    elif malformed:
+        reason = "malformed_streaming_probe_output"
+    elif inference_events or positive_usage:
+        reason = "unexpected_model_events"
+    else:
+        reason = f"goal_status_not_resolved:exit_{getattr(result, 'returncode', 'unknown')}"
+    return (
+        GrokCapabilityEvidence(
+            state="unavailable",
+            source="isolated_auth_projected_command_probe",
+            reason=reason,
+        ),
+        None,
+    )
 
 
 def probe_grok_capabilities(
     executable: str = "grok",
     *,
     runner: Any = subprocess.run,
+    goal_auth_path: Path | None = None,
+    goal_api_key: str | None = None,
+    command_env: Mapping[str, str] | None = None,
+    goal_behavioral_evidence: str | None = None,
 ) -> GrokCapabilities:
     """Silently inventory Grok without launching an inference turn.
 
-    `grok models` is the authentication/model qualification. Goal support is
-    delegated to the repository's existing behavioral help probe; a TUI-only
-    `/goal` mention is never upgraded into headless goal support.
+    `grok models` is the authentication/model qualification. Goal-command
+    resolution and terminal behavioral proof are separate: only a validated
+    exact-build canary artifact upgrades headless goal support.
     """
     located = shutil.which(executable)
     if not located:
-        return GrokCapabilities()
+        return GrokCapabilities(
+            capability_ledger=(
+                (
+                    "install",
+                    GrokCapabilityEvidence(
+                        state="unavailable",
+                        source="executable_lookup",
+                        reason="executable_not_found",
+                    ),
+                ),
+            )
+        )
     common = {"check": False, "capture_output": True, "text": True, "timeout": 5}
-    try:
-        version_result = runner([located, "--version"], **common)
-        models_result = runner([located, "models"], **common)
-        help_result = runner([located, "--help"], **common)
-    except (OSError, subprocess.SubprocessError):
-        return GrokCapabilities(installed=True)
-    version_text = (version_result.stdout or version_result.stderr or "").strip()
+    if command_env is not None:
+        common["env"] = dict(command_env)
+    results: dict[str, Any | None] = {}
+    errors: dict[str, BaseException | None] = {}
+    for name, argv in (
+        ("version", [located, "version", "--json"]),
+        ("models", [located, "models"]),
+        ("help", [located, "--help"]),
+        ("acp", [located, "agent", "stdio", "--help"]),
+    ):
+        try:
+            results[name] = runner(argv, **common)
+            errors[name] = None
+        except (OSError, subprocess.SubprocessError) as exc:
+            results[name] = None
+            errors[name] = exc
+
+    version_result = results["version"]
+    models_result = results["models"]
+    help_result = results["help"]
+    version_text = ""
+    if version_result is not None:
+        version_text = (version_result.stdout or version_result.stderr or "").strip()
     version_match = re.search(r"\d+\.\d+(?:\.\d+)?", version_text)
-    model_text = models_result.stdout or ""
-    models = tuple(sorted(set(re.findall(r"\bgrok-[a-z0-9][a-z0-9._-]*", model_text.lower()))))
+    build_match = re.search(r"\(([0-9a-f]{7,40})\)", version_text, re.I)
+    version_command_ok = bool(
+        version_result is not None and getattr(version_result, "returncode", 1) == 0
+    )
+    if not version_command_ok:
+        version_match = None
+        build_match = None
+    model_stdout = models_result.stdout or "" if models_result is not None else ""
+    model_combined = (
+        model_stdout + "\n" + (models_result.stderr or "")
+        if models_result is not None
+        else ""
+    )
+    model_lower = model_combined.lower()
+    auth_failed = bool(
+        re.search(
+            r"not signed in|not logged in|not authenticated|unauthori[sz]ed|authentication required",
+            model_lower,
+        )
+    )
+    catalog_failed = bool(
+        re.search(r"failed to fetch models|model refresh failed|settings fetch failed", model_lower)
+    )
+    models_command_ok = models_result is not None and getattr(models_result, "returncode", 1) == 0
+    parsed_models, parsed_default = _parse_live_model_catalog(model_stdout)
+    models_available = bool(
+        models_command_ok
+        and not auth_failed
+        and not catalog_failed
+        and parsed_models
+        and parsed_default in parsed_models
+    )
+    models = parsed_models if models_available else ()
+    default_model = parsed_default if models_available else None
+    ledger: list[tuple[str, GrokCapabilityEvidence]] = [
+        (
+            "install",
+            GrokCapabilityEvidence(
+                state="proven",
+                source="executable_lookup",
+                reason="installed_binary_resolved",
+            ),
+        )
+    ]
+    if version_match:
+        ledger.append(
+            (
+                "version",
+                GrokCapabilityEvidence(
+                    state="proven",
+                    source="installed_binary:version_json",
+                    reason="semantic_version_parsed",
+                ),
+            )
+        )
+    else:
+        ledger.append(
+            (
+                "version",
+                GrokCapabilityEvidence(
+                    state="unavailable",
+                    source="installed_binary:version_json",
+                    reason=(
+                        "version_unparseable"
+                        if version_result is not None and getattr(version_result, "returncode", 1) == 0
+                        else _probe_reason(version_result, errors["version"])
+                    ),
+                ),
+            )
+        )
+    if models_available:
+        model_reason = "authenticated_live_catalog_returned"
+        auth_state = "proven"
+        catalog_state = "proven"
+    elif auth_failed:
+        model_reason = "authentication_rejected"
+        auth_state = "refuted"
+        catalog_state = "unavailable"
+    elif catalog_failed:
+        model_reason = "live_catalog_unavailable"
+        auth_state = "unavailable"
+        catalog_state = "unavailable"
+    else:
+        model_reason = _probe_reason(models_result, errors["models"])
+        auth_state = "unavailable"
+        catalog_state = "unavailable"
+    ledger.extend(
+        (
+            (
+                "authentication",
+                GrokCapabilityEvidence(
+                    state=auth_state,
+                    source="installed_binary:models",
+                    reason=model_reason,
+                ),
+            ),
+            (
+                "model_catalog",
+                GrokCapabilityEvidence(
+                    state=catalog_state,
+                    source="installed_binary:models",
+                    reason=model_reason,
+                ),
+            ),
+        )
+    )
     goal_advertised = False
-    if getattr(help_result, "returncode", 1) == 0:
+    help_available = help_result is not None and getattr(help_result, "returncode", 1) == 0
+    help_text = ""
+    if help_available:
+        help_text = help_result.stdout or help_result.stderr or ""
         from .implement import detect_native_grok_goal
 
         goal_advertised = bool(
-            detect_native_grok_goal(help_text=help_result.stdout or help_result.stderr or "").get(
+            detect_native_grok_goal(help_text=help_text).get(
                 "advertised_headless_entrypoint"
             )
         )
+    for name, marker in _GROK_HELP_CAPABILITIES:
+        if help_available:
+            present = marker in help_text
+            ledger.append(
+                (
+                    name,
+                    GrokCapabilityEvidence(
+                        state="proven" if present else "refuted",
+                        source="installed_binary:--help",
+                        reason="advertised_by_help" if present else "not_advertised_by_help",
+                    ),
+                )
+            )
+        else:
+            ledger.append(
+                (
+                    name,
+                    GrokCapabilityEvidence(
+                        state="unavailable",
+                        source="installed_binary:--help",
+                        reason=_probe_reason(help_result, errors["help"]),
+                    ),
+                )
+            )
+    help_capabilities = {name: marker in help_text for name, marker in _GROK_HELP_CAPABILITIES}
+    read_only_markers = ("permission_mode", "no_subagents", "no_memory", "disable_web_search")
+    ledger.append(
+        (
+            "read_only_controls",
+            GrokCapabilityEvidence(
+                state=(
+                    "proven"
+                    if help_available and all(help_capabilities[name] for name in read_only_markers)
+                    else "refuted" if help_available else "unavailable"
+                ),
+                source="installed_binary:--help",
+                reason=(
+                    "all_read_only_controls_advertised"
+                    if help_available and all(help_capabilities[name] for name in read_only_markers)
+                    else "read_only_controls_incomplete"
+                    if help_available
+                    else _probe_reason(help_result, errors["help"])
+                ),
+            ),
+        )
+    )
+    acp_result = results["acp"]
+    acp_available = (
+        acp_result is not None
+        and getattr(acp_result, "returncode", 1) == 0
+        and "agent over stdio" in ((acp_result.stdout or "") + (acp_result.stderr or "")).lower()
+    )
+    goal_resolution_evidence, _goal_resolution_id = probe_grok_goal_resolution(
+        located,
+        runner=runner,
+        auth_path=goal_auth_path,
+        api_key=goal_api_key,
+    )
+    goal_behavior_evidence, recorded_goal_evidence = (
+        validate_grok_goal_canary_artifact(
+            goal_behavioral_evidence,
+            installed_version=version_match.group(0) if version_match else None,
+            installed_build_commit=(
+                build_match.group(1).lower() if build_match else None
+            ),
+        )
+    )
+    ledger.extend(
+        (
+            (
+                "goal_command_resolution",
+                goal_resolution_evidence,
+            ),
+            (
+                "goal_behavior",
+                goal_behavior_evidence,
+            ),
+            (
+                "acp",
+                GrokCapabilityEvidence(
+                    state="proven" if acp_available else "unavailable",
+                    source="installed_binary:agent_stdio_help",
+                    reason=(
+                        "agent_stdio_advertised"
+                        if acp_available
+                        else _probe_reason(acp_result, errors["acp"])
+                    ),
+                ),
+            ),
+        )
+    )
     return GrokCapabilities(
         installed=True,
-        authenticated=getattr(models_result, "returncode", 1) == 0,
+        authenticated=models_available,
         models=models,
         goal_entrypoint_advertised=goal_advertised,
-        goal_mode_behaviorally_verified=False,
+        goal_mode_behaviorally_verified=bool(recorded_goal_evidence),
+        goal_behavioral_evidence=recorded_goal_evidence,
+        goal_behavioral_artifact_path=(
+            str(goal_behavioral_evidence).strip()
+            if recorded_goal_evidence and goal_behavioral_evidence
+            else None
+        ),
         version=version_match.group(0) if version_match else None,
+        installed_build_commit=build_match.group(1).lower() if build_match else None,
+        default_model=default_model,
+        capability_ledger=tuple(ledger),
     )
 
 
@@ -192,6 +859,15 @@ def decide_worker_route(
     elif global_worker.get("provider") == "grok":
         consent_source = "global_provider_preference"
     permitted = consent_source != "none"
+    requested_grok_model, requested_grok_model_source = _choice(
+        (
+            ("explicit_run_intent", explicit_worker),
+            ("repository_default", repo_worker),
+            ("global_preferences", global_worker),
+        ),
+        "grok_model",
+        None,
+    )
     reasons: list[str] = []
     fallback: dict[str, str] | None = None
 
@@ -206,24 +882,44 @@ def decide_worker_route(
         elif not permitted:
             fallback = {"requested": "grok", "actual": "native", "reason": "grok_not_explicitly_permitted"}
         else:
-            candidate = GROK_COMPLEX_MODEL if execution == "high" else GROK_COMPOSER_MODEL
+            candidate = (
+                str(requested_grok_model)
+                if requested_grok_model is not None
+                else grok_info.default_model
+            )
             goal_qualified = bool(
                 grok_info.goal_mode_behaviorally_verified
                 and grok_info.goal_behavioral_evidence
             )
-            if grok_info.supports(candidate) and goal_qualified:
+            core_unavailable = grok_info.core_launch_unavailable_reason()
+            if candidate and grok_info.supports(candidate) and not core_unavailable:
                 selected_provider = "grok"
                 selected_model = candidate
-                model_policy = "explicit_grok_model_pin"
-                goal_mode = True
+                model_policy = (
+                    "explicit_catalog_model_pin"
+                    if requested_grok_model is not None
+                    else "authenticated_live_catalog_default"
+                )
+                goal_mode = goal_qualified
                 reasons.append("permitted_grok_capability_matches_plan")
+                if not goal_qualified:
+                    fallback = {
+                        "requested": "grok_goal",
+                        "actual": "grok_packet_prompt",
+                        "reason": "goal_mode_not_behaviorally_verified",
+                    }
+                    reasons.append("compatible_one_packet_fallback")
             else:
                 if not (grok_info.installed and grok_info.authenticated):
                     missing = "unavailable_or_unauthenticated"
+                elif not candidate:
+                    missing = "live_default_model_unavailable"
                 elif not grok_info.supports(candidate):
                     missing = f"model_unavailable:{candidate}"
+                elif core_unavailable:
+                    missing = core_unavailable
                 else:
-                    missing = "goal_mode_not_behaviorally_verified"
+                    missing = "grok_provider_unqualified"
                 fallback = {"requested": "grok", "actual": "native", "reason": missing}
 
     if selected_provider == "native":
@@ -248,7 +944,17 @@ def decide_worker_route(
             "worker_effort": "plan_execution_reasoning" if effort_is_auto else effort_source,
             "grok_consent": consent_source,
             "grok_safety_veto": "repository_policy" if prohibited else "none",
-            "grok_goal_evidence": grok_info.goal_behavioral_evidence or "none",
+            "grok_goal_evidence": (
+                "validated_terminal_goal_canary_artifact"
+                if grok_info.goal_mode_behaviorally_verified
+                and grok_info.goal_behavioral_evidence
+                else "none"
+            ),
+            "grok_model": (
+                requested_grok_model_source
+                if requested_grok_model is not None
+                else "authenticated_live_catalog_default"
+            ),
         },
         fallback=fallback,
         advisory_driver_upgrade=advisory,

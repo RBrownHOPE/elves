@@ -4,6 +4,40 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-07-16
+
+### Open-source Grok Build worker
+
+- Treat the installed Grok Build executable as launch authority: record a redacted capability
+  ledger, use caller-generated `--session-id` identities plus exact resume, and identify
+  unsupported `--new-session` without entering an invalid-flag or login loop.
+- Keep private `HOME`/`GROK_HOME` isolation and the narrow `GROK_AUTH_PATH` OAuth projection;
+  qualify the provider independently from behaviorally proven headless `/goal`, with a compatible
+  one-packet fallback when goal enhancement is unavailable. Goal proof now requires a bounded,
+  build-bound terminal-canary artifact rather than a free-form assertion.
+- Select only authenticated live-catalog models and follow streaming JSON through bounded,
+  sanitized progress, usage, terminal, and typed-error events, including credentials split across
+  adjacent stream records.
+- Native Codex and Claude Code routes stay commit-capable in linked worktrees through narrow Git
+  metadata paths, stripped ambient Git credentials, and terminal feature-ancestry/protected-ref
+  verification instead of granting the entire shared `.git` directory.
+- Add the open-source worker path to the README, practical guide, setup recipes, launch prompt, and
+  host-parity reference, with one detailed operational reference for capability checks, launch,
+  follow, fallback, and recovery.
+
+### Native-worker and landing hardening
+
+- Fix current Claude Code streaming launches by adding the required `--verbose` flag. Supervised
+  Claude workers now use safe mode with classifier-backed `auto` permissions so they can commit
+  unattended; edit-only `acceptEdits` is no longer presented as commit-capable.
+- Report a bounded, redacted stderr tail when a native worker exits nonzero before its first
+  provider event, making launch grammar and authentication failures visible in ordinary status.
+- Validate `run_id` and the exact `start_head` collision tripwire during staging, safely migrate an
+  exact legacy tripwire during explicit sync, and cover symmetric batch and Master Acceptance row
+  derivation for both stable-ID spellings without overwriting evidence.
+- Document the committed-session landing check and cleanup order, plus quote-insensitive static
+  asset sweeps followed by browser or preview verification.
+
 ## [2.5.0] - 2026-07-15
 
 ### User guide and GitHub Pages
@@ -29,8 +63,7 @@ All notable changes to the Elves skill are documented here.
 - Correct native session grammar and exact identity capture: caller-assigned Claude UUIDs and
   Codex `thread.started.thread_id` resumed only through `codex exec resume <id>` from the registered
   worktree working directory.
-- Probe optional Grok without inference. Regular clear work pins `grok-composer-2.5-fast`; genuinely
-  complex execution explicitly pins `grok-4.5`; repository vetoes remain absolute, remembered
+- Probe optional Grok without inference. Repository vetoes remain absolute, remembered
   current-run/global Grok selection supplies consent, and advertised goal syntax remains distinct
   from behavioral verification.
 - Add a supervised native-worker launch/status/follow lifecycle with private per-run structured

@@ -102,9 +102,9 @@ silently deleting it.
 
 - [2026-07-15] Adaptive implementation routing is deterministic and host-parity preserving: prefer
   a separate subscription-native Codex/Claude worker with inherited model policy and plan-matched
-  effort; use permitted Grok Composer 2.5 Fast for regular clear work and Grok 4.5 only for
-  genuinely complex execution. Availability is not permission, and unqualified routes fall back
-  honestly.
+  effort. When Grok is permitted, use the authenticated live catalog's parsed default unless the
+  operator explicitly selects another exact catalog member. Availability is not permission, and
+  unqualified routes fall back honestly.
 - [2026-07-15] Safe worker convenience may be remembered globally at the shared XDG Elves config
   path, but explicit run intent and repository policy outrank it. Never persist credentials or
   merge/destructive/protected-ref/approval-bypass authority. Exact-session continuity may benefit
@@ -143,9 +143,22 @@ silently deleting it.
   for maintainer dogfood). Prefer contributor PRs (or issues) when optional paths fail.
 - [2026-07-13] When the user has Grok Build and explicitly requests trusted full-run delegation,
   prefer one complete packet, one exact persistent session, `branch_progress`, and a parked host via
-  `full-run-prepare|full-run-launch|full-run-monitor|full-run-logs`. `full-run-stop` is cancellation
-  or recovery only. Keep `prepare|launch|gate|resume-batch|status` as the legacy bounded route and
-  use `untrusted` host-import leases only when the hard writer boundary is required.
+  `full-run-prepare|full-run-launch|full-run-await|full-run-reconcile|full-run-logs`.
+  `full-run-stop` is cancellation or recovery only. Keep
+  `prepare|launch|gate|resume-batch|status` as the legacy bounded route and use `untrusted`
+  host-import leases only when the hard writer boundary is required.
+- [2026-07-15] For open-source Grok Build, the installed executable is launch authority and
+  upstream source is semantic reference. Build 0.2.101 proves caller-assigned `--session-id`, exact
+  resume, `/goal status` command resolution with the narrow auth projection and no model inference,
+  streaming JSON, JSON schema, ACP, and the existing autonomous/read-only flags; it rejects
+  `--new-session`. Its exact authenticated packet-backed `/goal` canary did not reach terminal state,
+  so goal behavior remains unproven and the one-packet prompt fallback is required. Qualify
+  provider/auth/live catalog independently from goal behavior, select only catalog-returned models
+  using the parsed default unless another exact catalog member is explicitly selected, preserve
+  private `HOME`/`GROK_HOME` plus the narrow `GROK_AUTH_PATH`, and never persist raw OAuth or provider
+  output. Future goal enablement requires a bounded, mode-safe terminal-canary JSON artifact tied to
+  the exact installed build, canonical session, prompt digest, successful exit, and matching end
+  event; persisted state keeps only its digest ID.
 - [2026-07-13] An isolated headless Grok process cannot inherit an interactive subscription login
   accidentally. Require exactly one explicit strategy before spawn: grant `XAI_API_KEY` by name, or
   for trusted Lane A keep the run's private `GROK_HOME` while exposing only the validated canonical
@@ -173,12 +186,21 @@ silently deleting it.
 
 ## Known Traps
 
-- [2026-07-15] Codex `exec resume` does not accept the fresh-launch `--sandbox` flag and, when
-  user config is ignored, can silently resume a worker read-only. Preserve the worker contract with
-  `-c sandbox_mode="workspace-write"`, bind the exact worktree through the supervisor OS CWD, and
-  assert both in grammar tests. Structured JSONL inside a hidden host tool call is not a user-visible
-  worker stream; bind and surface a proven native agent view or exact private follow command before
-  parking.
+- [2026-07-15] A subscription-native Codex or Claude worker can edit a linked worktree while its
+  sandbox still denies the shared parent Git directory and `index.lock`. Staging must prove commit
+  capability before launch or use a qualified checkout layout whose feature-branch Git metadata is
+  writable without granting protected-ref authority. A private JSONL follow log also isn't a
+  readable operator view when the host hides tool output. Keep the exact follow command, and explore
+  a temporary local HTML view as a later usability improvement rather than waking the driver for
+  routine narration.
+
+- [2026-07-15] Codex `exec resume` has no resume-local `-C`, `--sandbox`, or `--add-dir` flags.
+  Current Codex accepts the exec-level sandbox and additional-write-root options before the
+  `resume` subcommand; bind the exact worktree through the supervisor OS CWD and keep those options
+  before `resume`. Do not preserve the older `-c sandbox_mode="workspace-write"` workaround because
+  it omits the narrow linked-worktree Git roots. Structured JSONL inside a hidden host tool call is
+  not a user-visible worker stream; bind and surface a proven native agent view or exact private
+  follow command before parking.
 
 - [2026-07-12] Grok Build headless turns can exit before detached commits despite incomplete work.
   Prefer absolute `--prompt-file` paths (worker CWD is not the host runtime dir). If the process

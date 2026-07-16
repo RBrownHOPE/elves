@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,9 @@ from cobbler_runtime.adapters import (  # noqa: E402
     build_session_resume_invocation,
 )
 from cobbler_runtime.native_worker import (  # noqa: E402
+    _native_git_contract,
+    _native_worker_child_env,
+    _verify_native_git_contract,
     build_native_worker_spec,
     native_worker_paths,
     native_worker_profiles,
@@ -37,11 +41,41 @@ from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.worker_routing import (  # noqa: E402
     GROK_COMPLEX_MODEL,
     GROK_COMPOSER_MODEL,
+    GrokCapabilityEvidence,
     GrokCapabilities,
     decide_worker_route,
     probe_grok_capabilities,
     discover_repository_worker_policy,
 )
+
+
+def _write_goal_canary_artifact(
+    root: Path,
+    *,
+    mutation: dict[str, object] | None = None,
+) -> Path:
+    session_id = "11111111-1111-1111-1111-111111111111"
+    prompt = "/goal Create canary.txt containing exactly goal-canary-ok"
+    payload: dict[str, object] = {
+        "artifact_type": "grok_goal_terminal_canary",
+        "schema_version": 1,
+        "installed_version": "0.2.101",
+        "installed_build_commit": "5bc4b5dfadcf",
+        "session_id": session_id,
+        "prompt": prompt,
+        "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "exit_code": 0,
+        "terminal_event": {
+            "type": "end",
+            "sessionId": session_id,
+            "stopReason": "EndTurn",
+        },
+    }
+    payload.update(mutation or {})
+    path = root / "goal-canary.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.chmod(0o600)
+    return path
 
 
 class GlobalPreferencesTests(unittest.TestCase):
@@ -117,11 +151,12 @@ class RouteDecisionMatrixTests(unittest.TestCase):
             installed=True,
             authenticated=True,
             models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL),
+            default_model=GROK_COMPOSER_MODEL,
             goal_entrypoint_advertised=True,
             goal_mode_behaviorally_verified=True,
             goal_behavioral_evidence="fixture:headless-goal-contract-v1",
         )
-        for reasoning, expected in (("low", GROK_COMPOSER_MODEL), ("medium", GROK_COMPOSER_MODEL), ("high", GROK_COMPLEX_MODEL)):
+        for reasoning, expected in (("low", GROK_COMPOSER_MODEL), ("medium", GROK_COMPOSER_MODEL), ("high", GROK_COMPOSER_MODEL)):
             decision = self.decide(
                 execution_reasoning=reasoning,
                 explicit_intent={"worker": {"provider": "grok"}},
@@ -130,6 +165,13 @@ class RouteDecisionMatrixTests(unittest.TestCase):
             self.assertEqual(decision.provider, "grok")
             self.assertEqual(decision.worker_model, expected)
             self.assertTrue(decision.goal_mode)
+        explicit_complex = self.decide(
+            execution_reasoning="high",
+            explicit_intent={"worker": {"provider": "grok", "grok_model": GROK_COMPLEX_MODEL}},
+            grok=capabilities,
+        )
+        self.assertEqual(explicit_complex.worker_model, GROK_COMPLEX_MODEL)
+        self.assertEqual(explicit_complex.worker_model_policy, "explicit_catalog_model_pin")
 
     def test_unavailable_and_repo_prohibited_fall_back_honestly(self) -> None:
         requested = {"worker": {"provider": "grok"}}
@@ -139,7 +181,7 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         prohibited = self.decide(
             explicit_intent=requested,
             repo_policy={"worker": {"allow_grok": False}},
-            grok=GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), goal_entrypoint_advertised=True, goal_mode_behaviorally_verified=True, goal_behavioral_evidence="fixture:verified"),
+            grok=GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), default_model=GROK_COMPOSER_MODEL, goal_entrypoint_advertised=True, goal_mode_behaviorally_verified=True, goal_behavioral_evidence="fixture:verified"),
         )
         self.assertEqual(prohibited.provider, "native")
         self.assertEqual(prohibited.fallback["reason"], "repository_policy_prohibits_grok")
@@ -169,7 +211,7 @@ class RouteDecisionMatrixTests(unittest.TestCase):
 
     def test_global_grok_is_remembered_consent_but_repository_veto_wins(self) -> None:
         caps = GrokCapabilities(
-            installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,),
+            installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), default_model=GROK_COMPOSER_MODEL,
             goal_mode_behaviorally_verified=True, goal_behavioral_evidence="fixture:verified",
         )
         selected = self.decide(global_preferences={"worker": {"provider": "grok"}}, grok=caps)
@@ -192,30 +234,314 @@ class RouteDecisionMatrixTests(unittest.TestCase):
     @mock.patch("cobbler_runtime.worker_routing.shutil.which", return_value="/usr/bin/grok")
     def test_silent_grok_probe_separates_auth_models_and_goal_qualification(self, _which) -> None:
         def runner(argv, **_kwargs):
-            if argv[-1] == "--version":
-                return subprocess.CompletedProcess(argv, 0, "Grok Build 0.2.101\n", "")
+            if argv[-2:] == ["version", "--json"]:
+                return subprocess.CompletedProcess(
+                    argv, 0, '{"currentVersion":"0.2.101 (5bc4b5dfadcf)"}\n', ""
+                )
             if argv[-1] == "models":
-                return subprocess.CompletedProcess(argv, 0, f"{GROK_COMPOSER_MODEL}\n{GROK_COMPLEX_MODEL}\n", "")
-            return subprocess.CompletedProcess(argv, 0, "Options:\n  /goal TUI only\n", "")
-        result = probe_grok_capabilities(runner=runner)
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    f"Default model: {GROK_COMPOSER_MODEL}\n"
+                    "Available models:\n"
+                    f"  * {GROK_COMPOSER_MODEL} (default)\n"
+                    f"  - {GROK_COMPLEX_MODEL}\n",
+                    "",
+                )
+            if argv[1:4] == ["agent", "stdio", "--help"]:
+                return subprocess.CompletedProcess(argv, 0, "Run the agent over stdio\n", "")
+            if argv[-1] == "/goal status":
+                session_id = argv[argv.index("--session-id") + 1]
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    json.dumps({"type": "text", "data": "No goal is currently set. Use /goal <objective>."})
+                    + "\n"
+                    + json.dumps({"type": "end", "sessionId": session_id})
+                    + "\n",
+                    "",
+                )
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                "Options:\n"
+                "  --prompt-file <PATH>\n"
+                "  --cwd <PATH>\n"
+                "  --model <MODEL>\n"
+                "  --permission-mode <MODE>\n"
+                "  --always-approve\n"
+                "  --reasoning-effort <EFFORT>\n"
+                "  --max-turns <N>\n"
+                "  --no-subagents\n"
+                "  --no-memory\n"
+                "  --disable-web-search\n"
+                "  --check\n"
+                "  --session-id <UUID>\n"
+                "  --resume <UUID>\n"
+                "  --output-format <text|streaming-json>\n"
+                "  --json-schema <SCHEMA>\n"
+                "  /goal TUI only\n",
+                "",
+            )
+        with tempfile.TemporaryDirectory() as tmp:
+            auth = Path(tmp) / "auth.json"
+            auth.write_text("fixture-not-a-credential", encoding="utf-8")
+            result = probe_grok_capabilities(runner=runner, goal_auth_path=auth)
         self.assertTrue(result.installed)
         self.assertTrue(result.authenticated)
         self.assertEqual(result.version, "0.2.101")
+        self.assertEqual(result.installed_build_commit, "5bc4b5dfadcf")
+        self.assertEqual(result.default_model, GROK_COMPOSER_MODEL)
         self.assertIn(GROK_COMPOSER_MODEL, result.models)
+        self.assertIn(GROK_COMPLEX_MODEL, result.models)
         self.assertFalse(result.goal_entrypoint_advertised)
         self.assertFalse(result.goal_mode_behaviorally_verified)
+        snapshot = result.safe_snapshot()
+        self.assertEqual(snapshot["capabilities"]["session_id"]["state"], "proven")
+        self.assertEqual(snapshot["capabilities"]["new_session"]["state"], "refuted")
+        self.assertEqual(snapshot["capabilities"]["goal_command_resolution"]["state"], "proven")
+        self.assertEqual(snapshot["capabilities"]["goal_behavior"]["state"], "unavailable")
+        self.assertEqual(snapshot["capabilities"]["acp"]["state"], "proven")
+        self.assertNotIn("stdout", json.dumps(snapshot))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            auth = Path(tmp) / "auth.json"
+            auth.write_text("fixture-not-a-credential", encoding="utf-8")
+            artifact = _write_goal_canary_artifact(Path(tmp))
+            verified = probe_grok_capabilities(
+                runner=runner,
+                goal_auth_path=auth,
+                goal_behavioral_evidence=str(artifact),
+            )
+        self.assertTrue(verified.goal_mode_behaviorally_verified)
+        self.assertRegex(
+            verified.goal_behavioral_evidence or "",
+            r"^grok-goal-canary:v1:[0-9a-f]{24}$",
+        )
+        self.assertEqual(verified.goal_behavioral_artifact_path, str(artifact))
+        decision = self.decide(
+            explicit_intent={"worker": {"provider": "grok"}},
+            grok=verified,
+        )
+        self.assertEqual(
+            decision.provenance["grok_goal_evidence"],
+            "validated_terminal_goal_canary_artifact",
+        )
+        self.assertNotIn(str(artifact), json.dumps(decision.to_dict()))
+
+        invalid = probe_grok_capabilities(
+            runner=runner,
+            goal_behavioral_evidence="canary:terminal:end:exact-session",
+        )
+        self.assertFalse(invalid.goal_mode_behaviorally_verified)
+        self.assertIsNone(invalid.goal_behavioral_evidence)
+        self.assertEqual(
+            invalid.capability("goal_behavior").reason,
+            "goal_canary_artifact_unavailable_or_unsafe",
+        )
+
+    @mock.patch("cobbler_runtime.worker_routing.shutil.which", return_value="/usr/bin/grok")
+    def test_goal_canary_artifact_rejects_build_session_terminal_and_digest_drift(self, _which) -> None:
+        def runner(argv, **_kwargs):
+            if argv[-2:] == ["version", "--json"]:
+                return subprocess.CompletedProcess(
+                    argv, 0, '{"currentVersion":"0.2.101 (5bc4b5dfadcf)"}', ""
+                )
+            if argv[-1] == "models":
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    f"Default model: {GROK_COMPOSER_MODEL}\n"
+                    "Available models:\n"
+                    f"  - {GROK_COMPLEX_MODEL}\n"
+                    f"  * {GROK_COMPOSER_MODEL} (default)\n",
+                    "",
+                )
+            if argv[1:4] == ["agent", "stdio", "--help"]:
+                return subprocess.CompletedProcess(argv, 0, "Run the agent over stdio", "")
+            return subprocess.CompletedProcess(argv, 0, "--session-id --resume", "")
+
+        mutations = (
+            (
+                {"installed_build_commit": "aaaaaaaaaaaa"},
+                "goal_canary_artifact_build_mismatch",
+            ),
+            ({"session_id": "NOT-A-UUID"}, "goal_canary_artifact_session_invalid"),
+            (
+                {
+                    "terminal_event": {
+                        "type": "end",
+                        "sessionId": "22222222-2222-2222-2222-222222222222",
+                    }
+                },
+                "goal_canary_artifact_terminal_invalid",
+            ),
+            ({"prompt_sha256": "0" * 64}, "goal_canary_artifact_prompt_digest_mismatch"),
+            ({"exit_code": 1}, "goal_canary_artifact_not_successful"),
+        )
+        for mutation, reason in mutations:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp:
+                artifact = _write_goal_canary_artifact(Path(tmp), mutation=mutation)
+                result = probe_grok_capabilities(
+                    runner=runner,
+                    goal_behavioral_evidence=str(artifact),
+                )
+                self.assertFalse(result.goal_mode_behaviorally_verified)
+                self.assertIsNone(result.goal_behavioral_evidence)
+                self.assertEqual(result.capability("goal_behavior").reason, reason)
+
+    @mock.patch("cobbler_runtime.worker_routing.shutil.which", return_value="/usr/bin/grok")
+    def test_grok_snapshot_does_not_promote_network_fallback_or_auth_diagnostics(self, _which) -> None:
+        secret = "oauth-secret-must-not-survive"
+
+        def runner(argv, **_kwargs):
+            if argv[-2:] == ["version", "--json"]:
+                return subprocess.CompletedProcess(argv, 0, '{"currentVersion":"0.2.101"}', "")
+            if argv[-1] == "models":
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    "You are logged in.\nDefault model: grok-build\n* grok-build (default)\n",
+                    f"Failed to fetch models: network error; diagnostic={secret}",
+                )
+            if argv[1:4] == ["agent", "stdio", "--help"]:
+                return subprocess.CompletedProcess(argv, 0, "Run the agent over stdio", "")
+            return subprocess.CompletedProcess(argv, 0, "--session-id --resume --output-format", "")
+
+        result = probe_grok_capabilities(runner=runner)
+        snapshot = result.safe_snapshot()
+        self.assertFalse(result.authenticated)
+        self.assertEqual(result.models, ())
+        self.assertIsNone(result.default_model)
+        self.assertEqual(snapshot["capabilities"]["model_catalog"]["reason"], "live_catalog_unavailable")
+        self.assertEqual(snapshot["capabilities"]["goal_command_resolution"]["reason"], "narrow_auth_projection_not_provided")
+        self.assertEqual(snapshot["capabilities"]["goal_behavior"]["reason"], "terminal_objective_canary_not_recorded")
+        self.assertNotIn(secret, json.dumps(snapshot))
+
+    @mock.patch("cobbler_runtime.worker_routing.shutil.which", return_value="/usr/bin/grok")
+    def test_goal_status_rejects_nested_positive_usage(self, _which) -> None:
+        def runner(argv, **_kwargs):
+            if argv[-2:] == ["version", "--json"]:
+                return subprocess.CompletedProcess(argv, 0, '{"currentVersion":"0.2.101"}', "")
+            if argv[-1] == "models":
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    "Default model: grok-build\nAvailable models:\n  * grok-build (default)\n",
+                    "",
+                )
+            if argv[1:4] == ["agent", "stdio", "--help"]:
+                return subprocess.CompletedProcess(argv, 0, "Run the agent over stdio", "")
+            if argv[-1] == "/goal status":
+                sid = argv[argv.index("--session-id") + 1]
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    json.dumps({"type": "text", "data": "No goal is currently set."})
+                    + "\n"
+                    + json.dumps({"type": "end", "sessionId": sid, "meta": {"usage": {"inputTokens": 1}}})
+                    + "\n",
+                    "",
+                )
+            return subprocess.CompletedProcess(argv, 0, "--session-id --resume", "")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            auth = Path(tmp) / "auth.json"
+            auth.write_text("fixture", encoding="utf-8")
+            caps = probe_grok_capabilities(runner=runner, goal_auth_path=auth)
+        self.assertEqual(
+            caps.capability("goal_command_resolution").reason,
+            "unexpected_model_events",
+        )
+        self.assertFalse(caps.goal_mode_behaviorally_verified)
+
+    @mock.patch("cobbler_runtime.worker_routing.shutil.which", return_value="/usr/bin/grok")
+    def test_catalog_parser_rejects_diagnostics_auth_text_and_uncontained_default(self, _which) -> None:
+        outputs = (
+            "You are not authenticated.\nDefault model: grok-build\nAvailable models:\n  * grok-build (default)\n",
+            "Default model: absent\nAvailable models:\n  * grok-build\n",
+            "Default model: grok-build\nAvailable models:\ndiagnostic mentions grok-build\n",
+        )
+        for output in outputs:
+            with self.subTest(output=output):
+                def runner(argv, **_kwargs):
+                    if argv[-2:] == ["version", "--json"]:
+                        return subprocess.CompletedProcess(argv, 0, '{"currentVersion":"0.2.101"}', "")
+                    if argv[-1] == "models":
+                        return subprocess.CompletedProcess(argv, 0, output, "")
+                    if argv[1:4] == ["agent", "stdio", "--help"]:
+                        return subprocess.CompletedProcess(argv, 0, "Run the agent over stdio", "")
+                    return subprocess.CompletedProcess(argv, 0, "--session-id --resume", "")
+                caps = probe_grok_capabilities(runner=runner)
+                self.assertFalse(caps.authenticated)
+                self.assertEqual(caps.models, ())
+                self.assertIsNone(caps.default_model)
 
     def test_advertised_goal_is_not_behaviorally_verified(self) -> None:
-        caps = GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), goal_entrypoint_advertised=True)
+        caps = GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), default_model=GROK_COMPOSER_MODEL, goal_entrypoint_advertised=True)
         decision = self.decide(explicit_intent={"worker": {"provider": "grok"}}, grok=caps)
-        self.assertEqual(decision.provider, "native")
+        self.assertEqual(decision.provider, "grok")
         self.assertEqual(decision.fallback["reason"], "goal_mode_not_behaviorally_verified")
+        self.assertEqual(decision.fallback["actual"], "grok_packet_prompt")
         self.assertFalse(decision.goal_mode)
         unrecorded = GrokCapabilities(
-            installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,),
+            installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), default_model=GROK_COMPOSER_MODEL,
             goal_entrypoint_advertised=True, goal_mode_behaviorally_verified=True,
         )
         self.assertFalse(self.decide(explicit_intent={"worker": {"provider": "grok"}}, grok=unrecorded).goal_mode)
+
+    def test_reduced_grok_install_falls_back_with_capability_reason(self) -> None:
+        caps = GrokCapabilities(
+            installed=True,
+            authenticated=True,
+            models=(GROK_COMPOSER_MODEL,),
+            default_model=GROK_COMPOSER_MODEL,
+            capability_ledger=(
+                ("prompt_file", GrokCapabilityEvidence("proven", "fixture", "ok")),
+                ("cwd", GrokCapabilityEvidence("proven", "fixture", "ok")),
+                ("model", GrokCapabilityEvidence("proven", "fixture", "ok")),
+                ("permission_mode", GrokCapabilityEvidence("proven", "fixture", "ok")),
+                ("always_approve", GrokCapabilityEvidence("proven", "fixture", "ok")),
+                ("reasoning_effort", GrokCapabilityEvidence("proven", "fixture", "ok")),
+                ("max_turns", GrokCapabilityEvidence("proven", "fixture", "ok")),
+                ("output_format", GrokCapabilityEvidence("proven", "fixture", "ok")),
+                ("session_id", GrokCapabilityEvidence("refuted", "fixture", "not_advertised_by_help")),
+                ("streaming_json", GrokCapabilityEvidence("proven", "fixture", "ok")),
+            ),
+        )
+        decision = self.decide(
+            explicit_intent={"worker": {"provider": "grok"}},
+            grok=caps,
+        )
+        self.assertEqual(decision.provider, "native")
+        self.assertEqual(
+            decision.fallback["reason"],
+            "capability_unavailable:session_id:not_advertised_by_help",
+        )
+
+    def test_catalog_selection_never_invents_auto_or_legacy_models(self) -> None:
+        caps = GrokCapabilities(
+            installed=True,
+            authenticated=True,
+            models=(GROK_COMPOSER_MODEL,),
+            default_model=GROK_COMPOSER_MODEL,
+        )
+        for unavailable in ("auto", "grok-code-fast-1", GROK_COMPLEX_MODEL):
+            with self.subTest(unavailable=unavailable):
+                decision = self.decide(
+                    explicit_intent={
+                        "worker": {
+                            "provider": "grok",
+                            "grok_model": unavailable,
+                        }
+                    },
+                    grok=caps,
+                )
+                self.assertEqual(decision.provider, "native")
+                self.assertEqual(
+                    decision.fallback["reason"],
+                    f"model_unavailable:{unavailable}",
+                )
 
     def test_route_model_reaches_production_full_run_argv(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -223,21 +549,25 @@ class RouteDecisionMatrixTests(unittest.TestCase):
             packet.write_text("fixture\n", encoding="utf-8")
             caps = GrokCapabilities(
                 installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL),
+                default_model=GROK_COMPOSER_MODEL,
                 goal_mode_behaviorally_verified=True, goal_behavioral_evidence="fixture:verified",
             )
             for reasoning, expected in (("medium", GROK_COMPOSER_MODEL), ("high", GROK_COMPLEX_MODEL)):
-                decision = self.decide(execution_reasoning=reasoning, explicit_intent={"worker": {"provider": "grok"}}, grok=caps)
-                state = FullRunState(session_id="exact-session", branch="feature", start_head="a" * 40, worktree=tmp, packet_path=str(packet), model=decision.worker_model or "")
+                intent = {"worker": {"provider": "grok"}}
+                if reasoning == "high":
+                    intent["worker"]["grok_model"] = GROK_COMPLEX_MODEL
+                decision = self.decide(execution_reasoning=reasoning, explicit_intent=intent, grok=caps)
+                state = FullRunState(session_id="11111111-1111-1111-1111-111111111111", branch="feature", start_head="a" * 40, worktree=tmp, packet_path=str(packet), model=decision.worker_model or "")
                 with mock.patch("cobbler_runtime.implement.detect_native_grok_goal", return_value={"mode": "headless_compatible_fallback"}):
                     argv = build_full_run_argv(state)
                 self.assertEqual(argv[argv.index("--model") + 1], expected)
 
-    def test_full_run_state_regular_default_is_composer(self) -> None:
+    def test_full_run_state_grok_default_defers_to_live_catalog(self) -> None:
         state = FullRunState(
             session_id="exact-session", branch="feature", start_head="a" * 40,
             worktree=str(REPO_ROOT), packet_path=str(REPO_ROOT / "README.md"),
         )
-        self.assertEqual(state.model, GROK_COMPOSER_MODEL)
+        self.assertEqual(state.model, "auto")
 
 
 class NativeWorkerGrammarTests(unittest.TestCase):
@@ -346,10 +676,15 @@ class NativeWorkerGrammarTests(unittest.TestCase):
         resumed = build_native_worker_spec(
             host="codex", worktree=REPO_ROOT, effort="medium", requested_model="current-model", session_id=thread
         )
-        self.assertEqual(resumed.argv[:3], ("codex", "exec", "resume"))
+        self.assertEqual(resumed.argv[:2], ("codex", "exec"))
+        self.assertIn("resume", resumed.argv)
         self.assertIn("thread-123", resumed.argv)
         self.assertNotIn("-C", resumed.argv)
-        self.assertIn('sandbox_mode="workspace-write"', resumed.argv)
+        self.assertIn("--sandbox", resumed.argv)
+        if resumed.git_write_roots:
+            self.assertIn("--add-dir", resumed.argv)
+            for root in resumed.git_write_roots:
+                self.assertIn(root, resumed.argv)
         self.assertEqual(resumed.cwd, str(REPO_ROOT.resolve()))
 
     def test_claude_create_resume_profiles_are_separate_and_exact(self) -> None:
@@ -358,20 +693,142 @@ class NativeWorkerGrammarTests(unittest.TestCase):
         )
         self.assertIn("--session-id", created.argv)
         self.assertNotIn("-", created.argv)
+        self.assertIn("--verbose", created.argv)
+        self.assertIn("--safe-mode", created.argv)
         self.assertIn("--effort", created.argv)
+        self.assertEqual(
+            created.argv[created.argv.index("--permission-mode") + 1], "auto"
+        )
+        self.assertNotIn("acceptEdits", created.argv)
+        self.assertEqual(created.commit_mode, "classifier_approved_worker_commit")
         sid = created.argv[created.argv.index("--session-id") + 1]
         resumed = build_native_worker_spec(
             host="claude", worktree=REPO_ROOT, effort="high", requested_model="current-model", session_id=sid
         )
         self.assertIn("--resume", resumed.argv)
         self.assertNotIn("--continue", resumed.argv)
+        self.assertIn("--verbose", resumed.argv)
+        self.assertIn("--safe-mode", resumed.argv)
+        self.assertEqual(
+            resumed.argv[resumed.argv.index("--permission-mode") + 1], "auto"
+        )
         self.assertTrue(resumed.separate_session)
         self.assertFalse(resumed.cache_handoff)
+        if resumed.git_write_roots:
+            self.assertIn("--add-dir", resumed.argv)
+            for root in resumed.git_write_roots:
+                self.assertIn(root, resumed.argv)
         profiles = native_worker_profiles()
         self.assertEqual(profiles["codex"]["model_policy"], profiles["claude"]["model_policy"])
         self.assertFalse(profiles["codex"]["worker_merge_authority"])
         self.assertFalse(profiles["codex"]["visibility_ready"])
         self.assertNotIn("live_stream", profiles["codex"])
+
+    def test_linked_worktree_adds_only_external_git_metadata_for_both_hosts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            main = Path(tmp) / "main"
+            linked = Path(tmp) / "linked"
+            subprocess.run(["git", "init", "-q", str(main)], check=True)
+            subprocess.run(["git", "-C", str(main), "config", "user.name", "Elves Test"], check=True)
+            subprocess.run(["git", "-C", str(main), "config", "user.email", "elves@example.invalid"], check=True)
+            (main / "tracked.txt").write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(main), "add", "tracked.txt"], check=True)
+            subprocess.run(["git", "-C", str(main), "commit", "-qm", "base"], check=True)
+            subprocess.run(
+                ["git", "-C", str(main), "worktree", "add", "-qb", "feat/linked", str(linked)],
+                check=True,
+            )
+            common = (main / ".git").resolve()
+            git_dir = Path(
+                subprocess.run(
+                    ["git", "-C", str(linked), "rev-parse", "--path-format=absolute", "--git-dir"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+            ).resolve()
+            expected_roots = (
+                str(git_dir),
+                str((common / "objects").resolve()),
+                str((common / "refs" / "heads" / "feat").resolve()),
+                str((common / "logs" / "refs" / "heads" / "feat").resolve()),
+            )
+            codex = build_native_worker_spec(
+                host="codex",
+                worktree=linked,
+                effort="medium",
+                requested_model="current-model",
+                session_id="thread-123",
+            )
+            claude = build_native_worker_spec(
+                host="claude",
+                worktree=linked,
+                effort="medium",
+                requested_model="current-model",
+                session_id="11111111-1111-1111-1111-111111111111",
+            )
+            for spec in (codex, claude):
+                self.assertEqual(spec.git_write_roots, expected_roots)
+                self.assertIn("--add-dir", spec.argv)
+                self.assertNotIn(str(common), spec.git_write_roots)
+                for root in expected_roots:
+                    self.assertIn(root, spec.argv)
+                if spec.host == "codex":
+                    self.assertIn("workspace-write", spec.argv)
+                    self.assertEqual(spec.commit_mode, "sandboxed_worker_commit")
+                else:
+                    self.assertEqual(
+                        spec.argv[spec.argv.index("--permission-mode") + 1], "auto"
+                    )
+                    self.assertEqual(
+                        spec.commit_mode, "classifier_approved_worker_commit"
+                    )
+            self.assertLess(codex.argv.index("--add-dir"), codex.argv.index("resume"))
+
+            contract = _native_git_contract(linked)
+            env_root = linked / ".elves" / "runtime" / "native-worker-test"
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "GH_TOKEN": "must-not-cross",
+                    "SSH_AUTH_SOCK": "/tmp/must-not-cross",
+                    "OPENAI_API_KEY": "provider-only",
+                },
+                clear=False,
+            ):
+                child_env = _native_worker_child_env(
+                    host="codex", worktree=linked, runtime_dir=env_root
+                )
+            self.assertNotIn("GH_TOKEN", child_env)
+            self.assertNotIn("SSH_AUTH_SOCK", child_env)
+            self.assertEqual(child_env["OPENAI_API_KEY"], "provider-only")
+            self.assertEqual(child_env["GIT_ALLOW_PROTOCOL"], "file")
+            self.assertEqual(
+                child_env["GIT_CONFIG_VALUE_1"], "disabled://native-worker-no-push"
+            )
+            self.assertEqual(_verify_native_git_contract(linked, contract), [])
+            (linked / "tracked.txt").write_text("feature\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(linked), "commit", "-qam", "feature"], check=True)
+            subprocess.run(
+                ["git", "-C", str(main), "update-ref", "refs/heads/master", "refs/heads/feat/linked"],
+                check=True,
+            )
+            violations = _verify_native_git_contract(linked, contract)
+            self.assertTrue(any("protected ref" in item for item in violations))
+
+    def test_standalone_checkout_needs_no_additional_git_write_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = Path(tmp) / "checkout"
+            subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+            for host in ("codex", "claude"):
+                spec = build_native_worker_spec(
+                    host=host,
+                    worktree=checkout,
+                    effort="medium",
+                    requested_model="current-model",
+                )
+                self.assertEqual(spec.git_write_roots, ())
+                self.assertNotIn("--add-dir", spec.argv)
 
     def test_supervised_fallback_refuses_to_infer_the_driver_model(self) -> None:
         with self.assertRaises(ValidationIssue) as caught:
@@ -391,6 +848,13 @@ class NativeWorkerGrammarTests(unittest.TestCase):
         self.assertNotIn("--cwd", resumed.argv)
         self.assertEqual(resumed.cwd, str(REPO_ROOT))
 
+        grok = build_session_create_invocation(adapter="grok-build", profile="grok-build")
+        self.assertIsNotNone(grok.session_id)
+        self.assertIn("--session-id", grok.argv)
+        self.assertIn(grok.session_id or "", grok.argv)
+        self.assertNotIn("--new-session", grok.argv)
+        self.assertEqual(len((grok.session_id or "").split("-")), 5)
+
     def test_cli_preferences_and_route_are_isolated_and_inspectable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
@@ -409,6 +873,41 @@ class NativeWorkerGrammarTests(unittest.TestCase):
             payload = json.loads(route.stdout)
             self.assertEqual(payload["decision"]["provider"], "native")
             self.assertEqual(payload["decision"]["worker_transport"], "claude_code")
+            self.assertIn("grok_capabilities", payload)
+            self.assertNotIn("stdout", json.dumps(payload["grok_capabilities"]))
+
+    def test_cli_rejects_goal_artifact_without_installed_binary_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["XDG_CONFIG_HOME"] = tmp
+            cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
+            artifact = _write_goal_canary_artifact(Path(tmp))
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(cli),
+                    "route-worker",
+                    "--host",
+                    "codex",
+                    "--execution-reasoning",
+                    "medium",
+                    "--review-risk",
+                    "standard",
+                    "--grok-goal-behavioral-evidence",
+                    str(artifact),
+                    "--json",
+                ],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(
+                payload["issues"][0]["code"],
+                "grok_goal_canary_probe_required",
+            )
 
     def test_fixture_supervisor_binds_private_follow_log_and_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -459,6 +958,88 @@ class NativeWorkerGrammarTests(unittest.TestCase):
             )
             self.assertEqual(followed.returncode, 0, followed.stderr)
             self.assertIn("fixture stderr", followed.stdout)
+
+    def test_zero_event_nonzero_exit_surfaces_bounded_stderr_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = root / "failing-worker.py"
+            packet = root / "packet.md"
+            fixture.write_text(
+                "import sys\n"
+                "label = 'api_' + 'key'\n"
+                "value = 'redaction-' + 'marker-1234567890'\n"
+                "print('x' * 2500 + f' {label}={value} launch failure marker', file=sys.stderr, flush=True)\n"
+                "raise SystemExit(9)\n",
+                encoding="utf-8",
+            )
+            packet.write_text("packet body\n", encoding="utf-8")
+            cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
+            launched = subprocess.run(
+                [
+                    sys.executable,
+                    str(cli),
+                    "native-worker",
+                    "launch",
+                    "--host",
+                    "fixture",
+                    "--worktree",
+                    str(root),
+                    "--effort",
+                    "low",
+                    "--model",
+                    "fixture-model",
+                    "--fixture-script",
+                    str(fixture),
+                    "--repo-root",
+                    str(root),
+                    "--run-id",
+                    "fast-failure",
+                    "--packet",
+                    str(packet),
+                    "--json",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(launched.returncode, 0, launched.stderr)
+            state = json.loads(launched.stdout)["worker"]
+            if state["status"] not in {"complete", "failed"}:
+                for _ in range(50):
+                    status = subprocess.run(
+                        [
+                            sys.executable,
+                            str(cli),
+                            "native-worker",
+                            "status",
+                            "--repo-root",
+                            str(root),
+                            "--run-id",
+                            "fast-failure",
+                            "--json",
+                        ],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertEqual(status.returncode, 0, status.stderr)
+                    state = json.loads(status.stdout)["worker"]
+                    if state["status"] in {"complete", "failed"}:
+                        break
+                    import time
+
+                    time.sleep(0.05)
+            self.assertEqual(state["status"], "failed")
+            self.assertEqual(state["exit_code"], 9)
+            self.assertEqual(state["provider_event_count"], 0)
+            self.assertEqual(
+                state["failure_reason"],
+                "native_worker_child_exit_before_provider_event",
+            )
+            self.assertIn("launch failure marker", state["stderr_tail"])
+            self.assertIn("[REDACTED:secret_assignment]", state["stderr_tail"])
+            self.assertNotIn("redaction-marker-1234567890", state["stderr_tail"])
+            self.assertLessEqual(len(state["stderr_tail"]), 2000)
 
 
 if __name__ == "__main__":

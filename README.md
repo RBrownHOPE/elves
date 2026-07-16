@@ -7,7 +7,7 @@ worker without locking the run to one model provider. The capable Claude Code or
 and reviews. A subscription-native or optional external worker implements. Durable run files let
 the work survive context compaction.
 
-**Current release: v2.5.0.** You write the plan and own the merge decision. The agent does the middle.
+**Current release: v2.6.0.** You write the plan and own the merge decision. The agent does the middle.
 
 **New to Elves? Read the [practical user guide](https://aigorahub.github.io/elves/).** It covers
 installation, the first run, worker choice, live progress, review, and optional landing for both
@@ -74,12 +74,12 @@ python3 ~/.claude/skills/elves/scripts/install_doctor.py --startup
 # Codex (use this instead):
 python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.5.0
+python3 scripts/verify_repo.py --version 2.6.0
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.5.0 --final-readiness \
+python3 scripts/verify_repo.py --version 2.6.0 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.5.0 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.6.0 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 
@@ -378,7 +378,8 @@ python3 scripts/cobbler_agents.py implement rollback-ref --json \
 # 2) Prepare supervisor artifacts for one exact session
 python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --session-id <exact-uuid> --branch <feature-branch> --start-head <sha> \
-  --worktree <path> --packet <packet.json> --session .elves-session.json
+  --worktree <path> --packet <packet.json> --session .elves-session.json \
+  --adapter grok-build --model auto
 
 # 3) Background-launch Grok with exactly one explicit auth strategy.
 # Existing Grok subscription/OAuth login (trusted Lane A only): share only canonical auth.json.
@@ -394,8 +395,8 @@ python3 scripts/cobbler_agents.py implement full-run-launch --json \
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
   --session-id <exact-uuid> --grant-devin-auth --grant-github-push
 
-# 4) Parked monitor (no per-push re-entry)
-python3 scripts/cobbler_agents.py implement full-run-monitor --json \
+# 4) Parked sanitized stream (no per-push re-entry)
+python3 scripts/cobbler_agents.py implement full-run-await --json \
   --session-id <exact-uuid>
 
 # After reviewing an exact staged high-risk checkpoint wake:
@@ -423,9 +424,16 @@ trusted-Lane-A `--grant-grok-auth`. The OAuth option validates the canonical own
 rest of `~/.grok`. One canonical file lets Grok's own locking and atomic refresh preserve rotating
 tokens. Credential values and the canonical path never enter status summaries or bounded driver
 output, and raw transcript tails are disabled for shared OAuth because historical token values may
-rotate. Shared OAuth requires Grok Build 0.2.93+ with the native capability marker; unsupported
-builds fail before spawn and must upgrade or use the named API-key route. Prefer that API-key route
-for CI or any lane that is not trusted.
+rotate. Unsupported builds fail before spawn and must upgrade or use the named API-key route.
+Prefer that API-key route for CI or any lane that is not trusted.
+
+Grok launch behavior is capability-driven. New sessions use a caller-generated UUID through the
+installed binary's supported `--session-id` flag and recover with exact `--resume`; Elves never
+emits unsupported `--new-session`. Models come only from the authenticated live catalog and its
+parsed default. Behaviorally proven headless `/goal` enhances an otherwise valid provider; if goal
+is unavailable, Elves records and uses the compatible one-packet prompt fallback. The default
+stream follower exposes only sanitized progress, bounded usage, terminal state, and typed errors.
+See the concise [open-source Grok Build worker path](references/grok-open-source-worker.md).
 
 For `devin-cli`, `--grant-devin-auth` validates the host's canonical `~/.config/devin/config.json`
 and `~/.local/share/devin/credentials.toml` (or the equivalent `XDG_*` paths), checks owner-only
@@ -1543,7 +1551,14 @@ file itself is stored. An explicit `--plan <plan-path>` is only an equality
 assertion and must match it; do not substitute generic plan, survival-guide, or execution-log paths.
 Before the session exists, use `acceptance_contract.py validate --repo-root . --plan <plan-path>`
 for a plan-only syntax check. `sync-session` preserves matching proof and refuses to erase or
-rewrite evidenced criteria.
+rewrite evidenced criteria. It derives batch and Master Acceptance rows from the plan and requires
+the staged session to carry a non-empty `run_id` plus the exact 40-character `start_head`; an exact
+legacy `collision_tripwire` can be migrated explicitly. The strict landing check reads committed
+session evidence. If the target repository ignores `.elves-session.json`, force-add it for the
+evidence commit, run the landing check and terminal readiness, then remove operational run memory in
+the cleanup commit and attest that cleanup tip. See
+[`references/schema-and-acceptance.md`](references/schema-and-acceptance.md) for the canonical
+session shape and order.
 During staging, before any host-native or delegated worker launch, parse that plan and report bad
 acceptance syntax with the line and expected replacement. Reconcile the session and worker packet
 against the plan's exact id-to-criterion mapping at the same point, and require the session batch

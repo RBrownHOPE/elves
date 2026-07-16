@@ -60,8 +60,14 @@ python3 scripts/cobbler_agents.py route-worker --json \
   --host codex --execution-reasoning medium --review-risk high --probe-grok
 ```
 
-An operator may bind previously recorded proof with
-`--grok-goal-behavioral-evidence <verification-id-or-path>`; the help probe alone never sets it.
+Use `--host claude` when Claude Code is the live driver. The host value matters when an optional
+provider falls back to the subscription-native worker.
+
+An operator may bind a previously recorded terminal canary with
+`--grok-goal-behavioral-evidence <artifact.json>` while using `--probe-grok`. The bounded JSON
+artifact must validate against the exact installed version/build, canonical session, prompt digest,
+successful exit, and matching terminal event. The help probe alone never sets goal mode, and an
+invalid or incomplete artifact keeps the one-packet fallback.
 
 Native workers inherit the current driver model unless an explicit model is routed. Effort follows
 the plan's low/medium/high execution classification; the driver itself is never downgraded. High
@@ -69,10 +75,17 @@ review risk may advise a stronger terminal-review driver without changing it in 
 
 When Grok Build is explicitly permitted and silently qualifies:
 
-- regular clear low/medium execution pins `grok-composer-2.5-fast`;
-- genuinely complex high execution pins `grok-4.5`;
-- missing install, auth, model, consent, or behaviorally verified goal mode records an honest
-  native fallback. Help text proves only an advertised entrypoint; a TUI-only `/goal` proves less.
+- choose the parsed default from the authenticated live `grok models` catalog unless the operator
+  explicitly requests another catalog member;
+- never invent `auto`, `grok-code-fast-1`, `grok-4.5`, or any other unavailable model;
+- missing install, auth, live catalog, supported session grammar, consent, or another core launch
+  capability records an honest native fallback with a concrete reason;
+- goal support is separate: behaviorally verified headless `/goal` enhances the launch, while an
+  otherwise qualified provider uses the recorded one-packet prompt fallback when goal is absent.
+  Help text alone proves only an advertised entrypoint.
+
+The installed executable is launch authority; upstream source is semantic reference only. See
+[`grok-open-source-worker.md`](grok-open-source-worker.md) for the complete optional-worker path.
 
 ## Host transports, same contract
 
@@ -83,6 +96,7 @@ When Grok Build is explicitly permitted and silently qualifies:
 | Worktree | native isolated worktree or supervisor CWD | `-C` on create; supervisor OS CWD on resume |
 | Model | inherit unless explicitly pinned | inherit unless explicitly pinned |
 | Effort | `--effort <level>` | `model_reasoning_effort=<level>` |
+| Unattended commit | Claude `auto` classifier; `acceptEdits` is not commit-capable | workspace-write sandbox plus narrow Git roots |
 | Visibility | capability-proven native agent view or private follow log | capability-proven native agent view or private follow log |
 
 Build an inspectable CLI-fallback launch specification with `native-worker spec --host claude|codex
@@ -92,11 +106,23 @@ the host must supply the observed current model (or an explicit routed model) an
 it. Every path uses a separate session, never uses `--last`, and never claims a cross-session cache
 handoff.
 
+The supervised Claude transport uses `--safe-mode --print --verbose
+--output-format stream-json` and `--permission-mode auto`. Current Claude requires `--verbose` for
+that streaming combination. `acceptEdits` can apply file edits but cannot approve the Bash calls
+needed for an unattended commit, so Elves does not describe it as commit-capable. Claude's `auto`
+classifier supplies the approval boundary without using `bypassPermissions`; the stripped child
+environment still disables network Git push, and terminal Git-contract checks constrain the result
+to the assigned feature branch. A Claude version without this grammar fails visibly rather than
+silently falling back to edit-only behavior.
+
 `native-worker launch` supervises the child and tees redacted structured stdout/stderr into a
 mode-0600 per-run follow log. It returns an exact `native-worker follow --run-id <id>` command
 before the driver parks; `native-worker status` reports the bound PID, session, worktree,
-visibility state, and exit status. A spec with neither a proven host view nor a follow log reports
-`visibility_ready=false` and `visibility_mode=commit_only`.
+visibility state, commit mode, and exit status. When a child exits nonzero before emitting any
+provider event, status also includes a bounded redacted stderr tail so launch grammar and
+authentication failures are diagnosable without opening the raw follow log. A spec with neither a
+proven host view nor a follow log reports `visibility_ready=false` and
+`visibility_mode=commit_only`.
 
 ## Cache and authority limits
 

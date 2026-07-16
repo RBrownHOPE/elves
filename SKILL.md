@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "2.5.0"
+  version: "2.6.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -36,7 +36,7 @@ handoff remains valid for huge/unstable plans.
 `references/joyful-runs-contract.md`, `landing-authority.md`, `follow-mode.md`,
 `proof-and-review.md`, `host-parity.md`, `schema-and-acceptance.md`.
 
-**User guide (v2.5):** `https://aigorahub.github.io/elves/` is the short task-first path for
+**User guide (v2.6):** `https://aigorahub.github.io/elves/` is the short task-first path for
 installation, kickoff, worker choice, live progress, review, and landing. The references above
 remain the detailed workflow contracts.
 
@@ -145,11 +145,13 @@ separate native worker lifecycle is unavailable.
 
 Optional Grok Build is selected only when available **and permitted**. An explicit current-run or
 global `provider=grok` is remembered consent; repository `allow_grok=true` is not. Repository
-`allow_grok=false` remains an absolute veto. Regular clear work pins
-`grok-composer-2.5-fast`; genuinely complex execution may explicitly pin `grok-4.5`. Advertised
-goal syntax is recorded separately and goal mode requires behavioral verification. Missing
-auth/model/goal capability or repository prohibition falls back honestly to native. See
-`references/adaptive-worker-routing.md`.
+`allow_grok=false` remains an absolute veto. Model selection comes from the authenticated live
+catalog and its parsed default; an explicit model (including `grok-4.5`) is valid only when that
+catalog returns it. Installed-binary capability evidence is launch authority. Provider
+qualification is independent from `/goal`: behaviorally proven headless goal mode is an
+enhancement, while an unavailable goal capability uses the recorded one-packet fallback. Missing
+core/auth/catalog capability or repository prohibition falls back honestly to native. See
+`references/adaptive-worker-routing.md` and `references/grok-open-source-worker.md`.
 
 **Optional work drivers:** trusted Grok Build full-run
 (`implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs`;
@@ -418,8 +420,10 @@ Surface the **Elves Report path** in the final notification. No external assets/
 ## Final Completion
 
 Finite mode only. Acceptance-bearing Final Readiness Review **before** operational-artifact
-cleanup. Independent review subagent when available. Then remove survival guide / execution log /
-`.elves-session.json` from the PR (keep plan by default; keep learnings). Post-cleanup tip
+cleanup. The strict landing check runs on committed session evidence even when the target repository
+ignores `.elves-session.json`; see `references/schema-and-acceptance.md` for the force-add and
+cleanup sequence. Independent review subagent when available. Then remove survival guide / execution
+log / `.elves-session.json` from the PR (keep plan by default; keep learnings). Post-cleanup tip
 attestation. Notify with report path. Merge only if authorized — regular merge commit only.
 
 ## Staying Unattended

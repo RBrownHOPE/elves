@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .context import is_secret_env_name
 from .schema import ValidationIssue
 
 
@@ -35,14 +36,17 @@ class NativeWorkerSpec:
     session_id: str | None = None
     resume_argv: tuple[str, ...] | None = None
     cache_handoff: bool = False
+    commit_mode: str = "worker_commit"
     visibility_ready: bool = False
     visibility_mode: str = "commit_only"
     watcher_command: str | None = None
+    git_write_roots: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["argv"] = list(self.argv)
         payload["resume_argv"] = list(self.resume_argv) if self.resume_argv else None
+        payload["git_write_roots"] = list(self.git_write_roots)
         return payload
 
 
@@ -59,8 +63,20 @@ def native_worker_profiles() -> dict[str, dict[str, Any]]:
         "cache_handoff": False,
     }
     return {
-        "codex": {**common, "transport": "codex_exec", "worktree_binding": "-C create; OS cwd resume", "session_identity": "thread.started.thread_id"},
-        "claude": {**common, "transport": "claude_code", "worktree_binding": "supervisor cwd or native isolated worktree", "session_identity": "caller-assigned UUID"},
+        "codex": {
+            **common,
+            "transport": "codex_exec",
+            "worktree_binding": "-C create; OS cwd resume",
+            "session_identity": "thread.started.thread_id",
+            "commit_mode": "sandboxed_worker_commit",
+        },
+        "claude": {
+            **common,
+            "transport": "claude_code",
+            "worktree_binding": "supervisor cwd or native isolated worktree",
+            "session_identity": "caller-assigned UUID",
+            "commit_mode": "classifier_approved_worker_commit",
+        },
     }
 
 
@@ -69,6 +85,94 @@ def _exact_session_id(session_id: str) -> str:
     if not value or value in {"last", "latest", "--last"} or value.startswith("-"):
         raise ValidationIssue("invalid_exact_session_id", "An exact worker session id is required")
     return value
+
+
+def _git_write_roots(worktree: Path) -> tuple[str, ...]:
+    """Return the least-privilege Git roots needed to commit in a linked worktree.
+
+    A linked checkout stores its index and HEAD under ``.git/worktrees`` while
+    objects and branch refs live in the common repository. Granting the common
+    ``.git`` directory would also grant config, hooks, tags, and protected refs.
+    Keep the write surface to the linked-worktree metadata, object store, and
+    the parent directories of the exact feature ref and its reflog. Terminal
+    verification still rejects any sibling-ref movement.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(worktree.resolve()),
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-dir",
+                "--git-common-dir",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return ()
+    if result.returncode != 0:
+        return ()
+    rows = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if len(rows) != 2:
+        return ()
+    workspace = worktree.resolve()
+    git_dir, common_dir = (Path(row).resolve() for row in rows)
+    # A standalone checkout keeps its metadata under the workspace. This helper
+    # exists only for linked-worktree metadata outside the sandbox root.
+    try:
+        git_dir.relative_to(workspace)
+        return ()
+    except ValueError:
+        pass
+    branch_result = subprocess.run(
+        ["git", "-C", str(workspace), "symbolic-ref", "--quiet", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    branch_ref = branch_result.stdout.strip()
+    if branch_result.returncode != 0 or not branch_ref.startswith("refs/heads/"):
+        raise ValidationIssue(
+            "native_worker_feature_branch_required",
+            "Commit-capable native workers require an attached feature branch",
+        )
+    relative_ref = Path(branch_ref.removeprefix("refs/heads/"))
+    if len(relative_ref.parts) < 2 or any(part in {"", ".", ".."} for part in relative_ref.parts):
+        raise ValidationIssue(
+            "native_worker_branch_namespace_required",
+            "Commit-capable linked workers require a namespaced feature branch",
+            hint="Use a branch such as codex/<task> or claude/<task>",
+        )
+    ref_parent = (common_dir / "refs" / "heads" / relative_ref.parent).resolve()
+    log_parent = (common_dir / "logs" / "refs" / "heads" / relative_ref.parent).resolve()
+    candidates = (git_dir, common_dir / "objects", ref_parent, log_parent)
+    external: list[Path] = []
+    for raw_candidate in candidates:
+        candidate = raw_candidate.resolve()
+        if not candidate.is_dir():
+            raise ValidationIssue(
+                "native_worker_git_metadata_unavailable",
+                "Required linked-worktree Git metadata directory is unavailable",
+                path=str(candidate),
+            )
+        try:
+            candidate.relative_to(workspace)
+            continue
+        except ValueError:
+            pass
+        if candidate == common_dir:
+            raise ValidationIssue(
+                "native_worker_git_authority_too_broad",
+                "Native worker Git access may not include the shared common directory",
+            )
+        if candidate in external:
+            continue
+        external.append(candidate)
+    return tuple(str(path) for path in external)
 
 
 def build_native_worker_spec(
@@ -94,6 +198,7 @@ def build_native_worker_spec(
         )
     requested_model = requested_model.strip()
     cwd = str(worktree.resolve())
+    git_write_roots = _git_write_roots(worktree)
     model_policy = "host_pinned_current_model"
     if visibility_mode not in {"commit_only", "native_host_agent_view", "follow_log"}:
         raise ValidationIssue("invalid_visibility_mode", f"Unknown visibility mode `{visibility_mode}`")
@@ -109,7 +214,7 @@ def build_native_worker_spec(
             host="fixture", profile="elves-native-worker-fixture", effort=effort_token,
             model_policy=model_policy, requested_model=requested_model, separate_session=True,
             cwd=cwd, argv=argv, stdin_packet=True, session_id_source="fixture_session_id",
-            session_id=sid, visibility_ready=visibility_ready, visibility_mode=visibility_mode,
+            session_id=sid, commit_mode="fixture", visibility_ready=visibility_ready, visibility_mode=visibility_mode,
             watcher_command=watcher_command,
         )
 
@@ -118,35 +223,36 @@ def build_native_worker_spec(
             "codex", "exec", "--json", "--ignore-user-config", "--ignore-rules",
             "--sandbox", "workspace-write", "-c", f'model_reasoning_effort="{effort_token}"',
         ]
+        for root in git_write_roots:
+            common.extend(["--add-dir", root])
         common.extend(["--model", requested_model])
         if session_id is None:
             argv = (*common, "-C", cwd, "-")
             resume = None
         else:
             sid = _exact_session_id(session_id)
-            # `exec resume` has neither -C nor --sandbox. Bind the OS cwd in the
-            # supervisor and preserve the writable worker contract through the
-            # equivalent config override instead of falling back to read-only.
-            argv = tuple([
-                "codex", "exec", "resume", "--json", "--ignore-user-config", "--ignore-rules",
-                "-c", 'sandbox_mode="workspace-write"',
-                "-c", f'model_reasoning_effort="{effort_token}"',
-                "--model", requested_model, sid, "-",
-            ])
+            # Keep exec-level sandbox and additional-write-root options before
+            # the resume subcommand. The supervisor binds the exact OS cwd.
+            argv = tuple(common + ["resume", sid, "-"])
             resume = argv
         return NativeWorkerSpec(
             host="codex", profile="elves-native-worker", effort=effort_token,
             model_policy=model_policy, requested_model=requested_model,
             separate_session=True, cwd=cwd, argv=tuple(argv), stdin_packet=True,
             session_id_source="thread.started.thread_id", session_id=session_id, resume_argv=resume,
+            commit_mode="sandboxed_worker_commit",
             visibility_ready=visibility_ready, visibility_mode=visibility_mode, watcher_command=watcher_command,
+            git_write_roots=git_write_roots,
         )
 
     if host_token in {"claude", "claude-code"}:
         common = [
-            "claude", "--print", "--output-format", "stream-json", "--input-format", "text",
-            "--effort", effort_token, "--permission-mode", "acceptEdits",
+            "claude", "--safe-mode", "--print", "--verbose",
+            "--output-format", "stream-json", "--input-format", "text",
+            "--effort", effort_token, "--permission-mode", "auto",
         ]
+        for root in git_write_roots:
+            common.extend(["--add-dir", root])
         common.extend(["--model", requested_model])
         if session_id is None:
             # Claude accepts a caller-generated UUID, providing exact identity before launch.
@@ -161,7 +267,9 @@ def build_native_worker_spec(
             model_policy=model_policy, requested_model=requested_model,
             separate_session=True, cwd=cwd, argv=argv, stdin_packet=True,
             session_id_source="requested_session_id", session_id=sid, resume_argv=argv if session_id else None,
+            commit_mode="classifier_approved_worker_commit",
             visibility_ready=visibility_ready, visibility_mode=visibility_mode, watcher_command=watcher_command,
+            git_write_roots=git_write_roots,
         )
     raise ValidationIssue("unsupported_host", f"Unsupported native worker host `{host}`")
 
@@ -176,6 +284,18 @@ def parse_codex_thread_id(jsonl: str) -> str:
         if event.get("type") == "thread.started" and isinstance(event.get("thread_id"), str):
             return _exact_session_id(event["thread_id"])
     raise ValidationIssue("worker_session_id_missing", "Codex output did not contain thread.started.thread_id")
+
+
+_NATIVE_WORKER_STDERR_TAIL_CHARS = 2_000
+
+
+def _is_provider_event(line: str) -> bool:
+    """Return whether one stdout line is a structured provider event."""
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(event, dict) and isinstance(event.get("type"), str)
 
 
 def _run_key(run_id: str) -> str:
@@ -236,6 +356,140 @@ def _process_identity_matches(pid_value: object, expected_start: object) -> bool
     return None
 
 
+def _native_git_contract(worktree: Path) -> dict[str, Any]:
+    """Capture the feature-only Git authority contract without a network probe."""
+    from .full_run import (  # imported lazily to keep module initialization acyclic
+        _git_branch,
+        _git_head,
+        _origin_config_digest,
+        snapshot_protected_refs,
+    )
+
+    branch = _git_branch(worktree)
+    head = _git_head(worktree)
+    if not branch or not head:
+        raise ValidationIssue(
+            "native_worker_feature_branch_required",
+            "Native worker launch requires an attached feature branch with a valid tip",
+        )
+    return {
+        "assigned_branch": branch,
+        "start_head": head,
+        "protected_refs": snapshot_protected_refs(
+            worktree, feature_branch=branch, include_remote=False
+        ),
+        "origin_config_digest": _origin_config_digest(worktree),
+    }
+
+
+def _native_worker_child_env(
+    *, host: str, worktree: Path, runtime_dir: Path
+) -> dict[str, str]:
+    """Project provider auth while removing ambient Git/network credentials."""
+    from .full_run import _read_host_git_identity_value
+
+    parent = dict(os.environ)
+    provider_secret_names = {
+        "codex": {"OPENAI_API_KEY", "CODEX_API_KEY"},
+        "claude-code": {"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"},
+    }.get(host, set())
+    forbidden_exact = {
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GITLAB_TOKEN",
+        "SSH_AUTH_SOCK",
+        "SSH_AGENT_PID",
+        "GIT_ASKPASS",
+        "SSH_ASKPASS",
+        "GCM_INTERACTIVE",
+    }
+    env: dict[str, str] = {}
+    for name, value in parent.items():
+        if name in forbidden_exact or name.startswith("GIT_"):
+            continue
+        if is_secret_env_name(name) and name not in provider_secret_names:
+            continue
+        env[name] = value
+    # Subscription-backed Codex and Claude may need their own explicit provider
+    # token. No other secret-valued environment entry crosses the boundary.
+    for name in provider_secret_names:
+        if parent.get(name):
+            env[name] = parent[name]
+
+    empty_gh = runtime_dir / "empty-gh-config"
+    empty_gh.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(empty_gh, 0o700)
+    false_executable = "/usr/bin/false" if Path("/usr/bin/false").exists() else "false"
+    env.update(
+        {
+            "GH_CONFIG_DIR": str(empty_gh),
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_ASKPASS": false_executable,
+            "SSH_ASKPASS": false_executable,
+            "GIT_SSH_COMMAND": false_executable,
+            "GIT_ALLOW_PROTOCOL": "file",
+            "GIT_CONFIG_COUNT": "2",
+            "GIT_CONFIG_KEY_0": "credential.helper",
+            "GIT_CONFIG_VALUE_0": "",
+            "GIT_CONFIG_KEY_1": "remote.origin.pushurl",
+            "GIT_CONFIG_VALUE_1": "disabled://native-worker-no-push",
+        }
+    )
+    if host != "fixture":
+        name = _read_host_git_identity_value(worktree, "user.name", parent_env=parent)
+        email = _read_host_git_identity_value(worktree, "user.email", parent_env=parent)
+        env.update(
+            {
+                "GIT_AUTHOR_NAME": name,
+                "GIT_AUTHOR_EMAIL": email,
+                "GIT_COMMITTER_NAME": name,
+                "GIT_COMMITTER_EMAIL": email,
+            }
+        )
+    return env
+
+
+def _verify_native_git_contract(worktree: Path, state: dict[str, Any]) -> list[str]:
+    """Verify feature ancestry, origin config, and every protected local ref."""
+    from .full_run import (
+        _git_branch,
+        _git_head,
+        _is_ancestor,
+        _origin_config_digest,
+        verify_protected_refs_unchanged,
+    )
+
+    errors: list[str] = []
+    branch = _git_branch(worktree)
+    head = _git_head(worktree)
+    expected_branch = str(state.get("assigned_branch") or "")
+    start_head = str(state.get("start_head") or "")
+    if branch != expected_branch:
+        errors.append(
+            f"assigned branch changed: expected {expected_branch or '<missing>'}, observed {branch or '<detached>'}"
+        )
+    if not head or not start_head or not _is_ancestor(worktree, start_head, head):
+        errors.append("final feature tip is not a descendant of the registered start tip")
+    if _origin_config_digest(worktree) != state.get("origin_config_digest"):
+        errors.append("origin configuration changed during native worker execution")
+    expected_refs = state.get("protected_refs")
+    if not isinstance(expected_refs, dict):
+        errors.append("protected-ref snapshot is missing")
+    else:
+        errors.extend(
+            verify_protected_refs_unchanged(
+                worktree,
+                expected_refs,
+                feature_branch=expected_branch,
+                include_remote=False,
+            )
+        )
+    return errors
+
+
 def launch_native_worker(
     *, repo_root: Path, run_id: str, spec: NativeWorkerSpec, packet: Path, cli_path: Path
 ) -> dict[str, Any]:
@@ -243,12 +497,30 @@ def launch_native_worker(
     if state_path.exists():
         raise ValidationIssue("native_worker_run_exists", f"Native worker run `{run_id}` already exists")
     watcher = shlex.join([sys.executable, str(cli_path.resolve()), "native-worker", "follow", "--repo-root", str(repo_root.resolve()), "--run-id", run_id])
+    worktree = Path(spec.cwd).resolve()
+    git_contract = (
+        {
+            "assigned_branch": None,
+            "start_head": None,
+            "protected_refs": {},
+            "origin_config_digest": None,
+        }
+        if spec.host == "fixture"
+        else _native_git_contract(worktree)
+    )
     state = {
-        "version": 1, "run_id": run_id, "status": "launching", "host": spec.host,
+        "version": 2, "run_id": run_id, "status": "launching", "host": spec.host,
         "worktree": spec.cwd, "argv": list(spec.argv), "session_id": spec.session_id,
         "session_id_source": spec.session_id_source, "pid": None, "pid_start": None,
         "follow_log": str(log_path), "visibility_ready": True, "visibility_mode": "follow_log",
         "watcher_command": watcher, "exit_code": None,
+        "commit_mode": spec.commit_mode,
+        "provider_event_count": 0,
+        "stderr_tail": None,
+        "git_write_roots": list(spec.git_write_roots),
+        "git_network_push": "disabled",
+        "git_authority_mode": "fixture" if spec.host == "fixture" else "feature_only",
+        **git_contract,
     }
     _write_private_json(state_path, state)
     packet_path = packet.resolve(strict=True)
@@ -289,9 +561,28 @@ def supervise_native_worker(*, repo_root: Path, run_id: str, packet: Path) -> in
             break
         time.sleep(0.02)
     log_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    worktree = Path(str(state["worktree"])).resolve()
+    child_env = _native_worker_child_env(
+        host=str(state.get("host") or ""),
+        worktree=worktree,
+        runtime_dir=state_path.parent,
+    )
+    provider_event_count = 0
+    stderr_tail = ""
+    child_started = time.monotonic()
     with packet.open("r", encoding="utf-8") as packet_handle, log_path.open("a", encoding="utf-8") as log:
         os.chmod(log_path, 0o600)
-        child = subprocess.Popen(state["argv"], cwd=state["worktree"], stdin=packet_handle, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+        child = subprocess.Popen(
+            state["argv"],
+            cwd=state["worktree"],
+            env=child_env,
+            stdin=packet_handle,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            close_fds=True,
+        )
         state["pid"] = child.pid
         state["pid_start"] = _process_start(child.pid)
         _write_private_json(state_path, state)
@@ -308,6 +599,12 @@ def supervise_native_worker(*, repo_root: Path, run_id: str, packet: Path) -> in
                 redacted = redact_text(line.rstrip("\n"))
                 log.write(json.dumps({"stream": key.data, "line": redacted.text}, sort_keys=True) + "\n")
                 log.flush()
+                if key.data == "stdout" and _is_provider_event(line):
+                    provider_event_count += 1
+                elif key.data == "stderr":
+                    stderr_tail = (stderr_tail + redacted.text + "\n")[
+                        -_NATIVE_WORKER_STDERR_TAIL_CHARS:
+                    ]
                 if state["host"] == "codex" and not state.get("session_id"):
                     try:
                         state["session_id"] = parse_codex_thread_id(line)
@@ -316,6 +613,7 @@ def supervise_native_worker(*, repo_root: Path, run_id: str, packet: Path) -> in
                     else:
                         _write_private_json(state_path, state)
         code = child.wait()
+    child_runtime_seconds = round(time.monotonic() - child_started, 3)
     text = log_path.read_text(encoding="utf-8", errors="replace")
     if state["host"] == "codex":
         try:
@@ -323,8 +621,41 @@ def supervise_native_worker(*, repo_root: Path, run_id: str, packet: Path) -> in
             state["session_id"] = parse_codex_thread_id(structured)
         except (ValidationIssue, KeyError, json.JSONDecodeError):
             pass
+    authority_errors = (
+        []
+        if state.get("git_authority_mode") == "fixture"
+        else _verify_native_git_contract(worktree, state)
+    )
     state["exit_code"] = code
-    state["status"] = "complete" if code == 0 else "failed"
+    state["provider_event_count"] = provider_event_count
+    state["child_runtime_seconds"] = child_runtime_seconds
+    state["stderr_tail"] = (
+        stderr_tail.rstrip("\n")
+        if code != 0 and provider_event_count == 0 and stderr_tail
+        else None
+    )
+    state["authority_verified"] = not authority_errors
+    state["authority_errors"] = authority_errors
+    state["final_head"] = (
+        subprocess.run(
+            ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        or None
+    )
+    if authority_errors:
+        state["status"] = "failed"
+        state["failure_reason"] = "native_worker_git_authority_violation"
+    else:
+        state["status"] = "complete" if code == 0 else "failed"
+        if code != 0:
+            state["failure_reason"] = (
+                "native_worker_child_exit_before_provider_event"
+                if provider_event_count == 0
+                else "native_worker_child_nonzero_exit"
+            )
     _write_private_json(state_path, state)
     return code
 

@@ -83,6 +83,8 @@ class AcceptanceContractCliTests(unittest.TestCase):
         self.plan_path.write_text(text, encoding="utf-8")
 
     def write_session(self, session: dict[str, object]) -> None:
+        session.setdefault("run_id", "acceptance-contract-test")
+        session.setdefault("start_head", "a" * 40)
         self.session_path.write_text(
             json.dumps(session, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -131,6 +133,8 @@ class AcceptanceContractCliTests(unittest.TestCase):
         session_path.parent.mkdir(parents=True)
         session = session_for_plan()
         session["plan_path"] = "docs/plans/plan.md"
+        session["run_id"] = "nested-session-test"
+        session["start_head"] = "a" * 40
         session_path.write_text(
             json.dumps(session, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -598,6 +602,162 @@ class AcceptanceContractCliTests(unittest.TestCase):
         )
         self.assertEqual(dry_run.returncode, 0, dry_run.stdout + dry_run.stderr)
         self.assertEqual(json.loads(dry_run.stdout), after)
+
+    def test_sync_session_derives_bare_and_bracketed_master_rows_symmetrically(self) -> None:
+        self.write_plan(
+            "# Plan\n\n"
+            "## Batch 0: Staging\n\n"
+            "**Acceptance criteria:**\n\n"
+            "- [ ] B0-A1: Batch criterion.\n\n"
+            "## Master Acceptance\n\n"
+            "- [ ] M-A1: Bare master criterion.\n"
+            "- [ ] [M-A2] Bracketed master criterion.\n"
+        )
+        self.write_session(
+            {
+                "plan_path": "plan.md",
+                "batches": [],
+                "master_acceptance": [
+                    {
+                        "id": "M-A1",
+                        "criterion": "Bare master criterion.",
+                        "met": True,
+                        "evidence": "Existing end-to-end proof.",
+                        "reviewer_note": "preserve me",
+                    }
+                ],
+            }
+        )
+
+        result = self.run_cli(
+            "sync-session",
+            "--session",
+            self.session_path.name,
+            "--write",
+            "--json",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        session = json.loads(self.session_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            [
+                (row["id"], row["criterion"])
+                for row in session["master_acceptance"]
+            ],
+            [
+                ("M-A1", "Bare master criterion."),
+                ("M-A2", "Bracketed master criterion."),
+            ],
+        )
+        self.assertTrue(session["master_acceptance"][0]["met"])
+        self.assertEqual(
+            session["master_acceptance"][0]["evidence"],
+            "Existing end-to-end proof.",
+        )
+        self.assertEqual(
+            session["master_acceptance"][0]["reviewer_note"],
+            "preserve me",
+        )
+        self.assertFalse(session["master_acceptance"][1]["met"])
+        self.assertEqual(session["master_acceptance"][1]["evidence"], "")
+
+    def test_validate_requires_final_landing_identity_during_staging(self) -> None:
+        self.write_plan()
+        session = session_for_plan()
+        self.session_path.write_text(
+            json.dumps(session, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_cli(
+            "validate",
+            "--session",
+            self.session_path.name,
+            "--json",
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        codes = {issue["code"] for issue in json.loads(result.stdout)["issues"]}
+        self.assertIn("session_run_id_missing", codes)
+        self.assertIn("session_start_head_invalid", codes)
+
+    def test_sync_session_derives_start_head_from_exact_collision_tripwire(self) -> None:
+        self.write_plan()
+        session = session_for_plan()
+        session["run_id"] = "run-with-legacy-tripwire"
+        session["collision_tripwire"] = "b" * 40
+        self.session_path.write_text(
+            json.dumps(session, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_cli(
+            "sync-session",
+            "--session",
+            self.session_path.name,
+            "--write",
+            "--json",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        after = json.loads(self.session_path.read_text(encoding="utf-8"))
+        self.assertEqual(after["start_head"], "b" * 40)
+        self.assertEqual(after["collision_tripwire"], "b" * 40)
+
+        validated = self.run_cli(
+            "validate",
+            "--session",
+            self.session_path.name,
+            "--json",
+        )
+        self.assertEqual(validated.returncode, 0, validated.stdout + validated.stderr)
+
+    def test_validate_rejects_abbreviated_or_mismatched_collision_tripwire(self) -> None:
+        self.write_plan()
+        cases = (
+            (
+                "abbreviated",
+                "deadbeef",
+                "deadbeef",
+                {
+                    "session_start_head_invalid",
+                    "session_collision_tripwire_invalid",
+                },
+            ),
+            (
+                "mismatch",
+                "a" * 40,
+                "b" * 40,
+                {"session_collision_tripwire_mismatch"},
+            ),
+        )
+        for name, start_head, tripwire, expected in cases:
+            with self.subTest(name=name):
+                session = session_for_plan()
+                session.update(
+                    {
+                        "run_id": "identity-test",
+                        "start_head": start_head,
+                        "collision_tripwire": tripwire,
+                    }
+                )
+                self.session_path.write_text(
+                    json.dumps(session, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+
+                result = self.run_cli(
+                    "validate",
+                    "--session",
+                    self.session_path.name,
+                    "--json",
+                )
+
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                codes = {
+                    issue["code"] for issue in json.loads(result.stdout)["issues"]
+                }
+                self.assertTrue(expected <= codes, codes)
 
     def test_sync_session_refuses_to_rewrite_evidenced_criterion(self) -> None:
         self.write_plan()
