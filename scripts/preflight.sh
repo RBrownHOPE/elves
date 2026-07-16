@@ -6,6 +6,7 @@
 # Usage:
 #   ./scripts/preflight.sh
 #   ./scripts/preflight.sh --create-worktree <branch> [--dry-run] [--base <ref>] [--worktree-dir <path>]
+#   ./scripts/preflight.sh --gc-worktrees [--apply] [--base <ref>] [--path <worktree-dir>]
 #
 # Exit codes:
 #   0 — no critical failures (warnings may be present)
@@ -67,6 +68,14 @@ if [ "$#" -gt 0 ]; then
   if ! command -v python3 &>/dev/null; then
     echo "error: python3 is required for preflight worktree helper mode" >&2
     exit 1
+  fi
+  if [ "${1}" = "--gc-worktrees" ]; then
+    shift
+    if [ ! -f "${SCRIPT_DIR}/worktree_gc.py" ]; then
+      echo "error: ${SCRIPT_DIR}/worktree_gc.py is missing" >&2
+      exit 1
+    fi
+    exec python3 "${SCRIPT_DIR}/worktree_gc.py" "$@"
   fi
   if [ ! -f "${SCRIPT_DIR}/preflight_worktree.py" ]; then
     echo "error: ${SCRIPT_DIR}/preflight_worktree.py is missing" >&2

@@ -256,10 +256,10 @@ class WorktreeGcTests(unittest.TestCase):
         self.assertTrue(repo.exists())
         self.assertTrue(worktree.exists())
         sections = self.report_sections(result.stdout)
-        main_lines = [line for line in sections["kept"] if str(repo) in line]
+        main_lines = [line for line in sections["kept"] if line.startswith(f"{repo}  branch:")]
         self.assertEqual(len(main_lines), 1, result.stdout)
         self.assertIn("main worktree (never a candidate)", main_lines[0])
-        self_lines = [line for line in sections["kept"] if str(worktree) in line]
+        self_lines = [line for line in sections["kept"] if line.startswith(f"{worktree}  branch:")]
         self.assertEqual(len(self_lines), 1, result.stdout)
         self.assertIn("invoking directory (never a candidate)", self_lines[0])
 
