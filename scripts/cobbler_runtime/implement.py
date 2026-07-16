@@ -39,7 +39,7 @@ from .storage import (
     read_json,
 )
 
-DEFAULT_MODEL = "grok-composer-2.5-fast"
+DEFAULT_MODEL = "auto"
 DEFAULT_PERMISSION_MODE = "auto"
 DEFAULT_LANE = "fast"
 DEFAULT_GIT_MODE = "branch_progress"
@@ -49,7 +49,7 @@ FORBIDDEN_DEFAULT_PERMISSION = "dontAsk"
 # Empirically required for unattended headless tool use (Grok Build 0.2.93 docs + dogfood).
 # --permission-mode auto alone does not auto-approve writes; --yolo / --always-approve does.
 
-GROK_LIVE_DEFAULT = "auto"
+GROK_LIVE_DEFAULT = DEFAULT_MODEL
 
 
 def require_exact_grok_session_uuid(session_id: str) -> str:
@@ -1903,7 +1903,12 @@ def launch_payload(
     if not is_opencode and not is_devin:
         from .worker_routing import probe_grok_capabilities  # noqa: PLC0415
 
-        capabilities = probe_grok_capabilities(executable or DEFAULT_EXECUTABLE)
+        probe_executable = (
+            executable
+            or (state.executable if state else None)
+            or DEFAULT_EXECUTABLE
+        )
+        capabilities = probe_grok_capabilities(probe_executable)
         unavailable = capabilities.core_launch_unavailable_reason(
             create=bool(create),
             check=bool(check),

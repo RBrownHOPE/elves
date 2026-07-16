@@ -23,8 +23,11 @@ semantics do not. See [`adaptive-worker-routing.md`](adaptive-worker-routing.md)
 
 - **Codex Goals** — host continuation plumbing for long Codex sessions. Not Grok.
 - **Grok Build goal mode** — optional trusted-worker orchestration when capability-proven.
-  Otherwise the compatible one-packet fallback is recorded honestly without disabling an
-  authenticated provider whose core launch capabilities and live catalog qualify.
+  `/goal status` uses the narrow auth projection and proves command resolution independently of
+  catalog lookup and model inference. Separately recorded terminal objective-canary evidence is
+  required for behavioral goal mode; otherwise the compatible one-packet fallback is recorded
+  honestly without disabling an authenticated provider whose core launch capabilities and live
+  catalog qualify.
 
 Both hosts apply the same installed-binary capability ledger, caller-generated Grok session UUID,
 narrow auth projection, catalog-only model selection, and sanitized streaming follower. See

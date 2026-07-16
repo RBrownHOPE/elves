@@ -167,13 +167,13 @@ class BuildLaunchArgvTests(unittest.TestCase):
             )
         self.assertEqual(argv[0], "grok")
         self.assertIn("--resume", argv)
-        self.assertIn("sess-abc", argv)
+        self.assertIn(TEST_GROK_SESSION, argv)
         self.assertNotIn("--session-id", argv)
         self.assertIn("--permission-mode", argv)
         self.assertEqual(argv[argv.index("--permission-mode") + 1], DEFAULT_PERMISSION_MODE)
         self.assertEqual(argv[argv.index("--model") + 1], DEFAULT_MODEL)
         self.assertIn("--prompt-file", argv)
-        self.assertIn("--yolo", argv)
+        self.assertIn("--always-approve", argv)
         self.assertIn("--effort", argv)
         self.assertEqual(argv[argv.index("--effort") + 1], "medium")
         self.assertIn("--max-turns", argv)
@@ -400,12 +400,12 @@ class PrepareImplementTests(unittest.TestCase):
             with self.assertRaises(ValidationIssue):
                 prepare_implement(Path(tmp), permission_mode="dontAsk")
 
-    def test_prepare_resolves_model_alias(self) -> None:
+    def test_prepare_keeps_legacy_model_name_as_exact_catalog_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             payload = prepare_implement(root, model="deep", session_id="s")
-            self.assertEqual(payload["state"]["model"], "grok-4.5")
-            self.assertTrue(
+            self.assertEqual(payload["state"]["model"], "deep")
+            self.assertFalse(
                 any("alias" in n.lower() for n in payload["state"]["notes"])
             )
 

@@ -686,6 +686,27 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup</code></pre>
           <code>/goal</code> is an enhancement, and a compatible one-packet prompt is the recorded
           fallback.</p>
 
+        <h3>Use the optional open-source Grok worker</h3>
+        <p>Install from the <a href="https://github.com/xai-org/grok-build">official Grok Build
+          source</a>, then authenticate once. The first <code>grok</code> launch opens the browser
+          login flow.</p>
+
+        <div class="code-block">
+          <button class="copy" type="button" data-copy="grok-setup">Copy</button>
+          <pre><code id="grok-setup">curl -fsSL https://x.ai/cli/install.sh | bash
+grok
+
+python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" route-worker --json \
+  --host codex --execution-reasoning medium --review-risk high \
+  --provider grok --allow-grok --probe-grok</code></pre>
+        </div>
+
+        <p>The capability check uses the narrow OAuth projection. Its <code>/goal status</code>
+          probe is independent of catalog lookup and model inference, but proves command resolution
+          only. Goal mode additionally requires an authenticated objective canary to reach terminal
+          state and return the requested session identity. Without that evidence, Elves keeps the
+          qualified provider and records the compatible one-packet fallback.</p>
+
         <div class="note">
           <strong>Cache handoff is not promised.</strong> A separate session may receive provider
           cache hits, but Elves cannot export the live driver's active conversation memory or model
@@ -711,12 +732,37 @@ export ELVES_SKILL_ROOT="$HOME/.claude/skills/elves"
 export ELVES_SKILL_ROOT="$HOME/.codex/skills/elves"</code></pre>
         </div>
 
-        <p>Then run the exact command Elves printed. It has this form:</p>
+        <p>Then run the exact command Elves printed. Native workers use:</p>
 
         <div class="code-block">
           <button class="copy" type="button" data-copy="follow">Copy</button>
           <pre><code id="follow">python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
   native-worker follow --run-id &lt;run-id&gt;</code></pre>
+        </div>
+
+        <p>Grok full runs use the registered session ID instead:</p>
+
+        <div class="code-block">
+          <button class="copy" type="button" data-copy="grok-follow">Copy</button>
+          <pre><code id="grok-follow">python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
+  implement full-run-await --session-id &lt;session-id&gt;</code></pre>
+        </div>
+
+        <p>After reconciling the registered session and feature branch, resume that exact Grok
+          identity with:</p>
+
+        <div class="code-block">
+          <button class="copy" type="button" data-copy="grok-recover">Copy</button>
+          <pre><code id="grok-recover">python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
+  implement full-run-prepare --session-id &lt;session-id&gt; \
+  --branch &lt;feature-branch&gt; --start-head &lt;start-head&gt; --worktree &lt;path&gt; \
+  --packet &lt;packet.json&gt; --session .elves-session.json \
+  --adapter grok-build --model auto --resume
+python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
+  implement full-run-launch --session-id &lt;session-id&gt; --resume \
+  --grant-grok-auth --grant-github-push
+python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
+  implement full-run-await --session-id &lt;session-id&gt;</code></pre>
         </div>
 
         <p>The worker should also commit meaningful slices. Those commits are a durable progress

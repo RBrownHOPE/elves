@@ -904,7 +904,7 @@ class WriteResumeCliTests(unittest.TestCase):
                 str(root),
                 "--json",
                 "--session-id",
-                "write-session",
+                "22222222-2222-2222-2222-222222222222",
                 "--adapter",
                 "grok-build",
                 "--model",
@@ -930,7 +930,7 @@ class WriteResumeCliTests(unittest.TestCase):
             root = Path(tmp)
             registry = SessionRegistry(root)
             registry.create(
-                session_id="write-session",
+                session_id="22222222-2222-2222-2222-222222222222",
                 harness="grok-build",
                 profile="grok-build-write",
                 role="implement",
@@ -940,7 +940,7 @@ class WriteResumeCliTests(unittest.TestCase):
                 worktree=str(root),
                 source_head="a" * 40,
             )
-            registry.activate("write-session")
+            registry.activate("22222222-2222-2222-2222-222222222222")
             result = self._invoke(root)
             self.assertNotEqual(result.returncode, 0, result.stdout)
             payload = json.loads(result.stdout)
@@ -951,7 +951,7 @@ class WriteResumeCliTests(unittest.TestCase):
             root = Path(tmp)
             registry = SessionRegistry(root)
             registry.create(
-                session_id="write-session",
+                session_id="22222222-2222-2222-2222-222222222222",
                 harness="grok-build",
                 profile="grok-build-write",
                 role="implement",
@@ -961,7 +961,7 @@ class WriteResumeCliTests(unittest.TestCase):
                 worktree=str(root),
                 source_head="b" * 40,
             )
-            registry.activate("write-session")
+            registry.activate("22222222-2222-2222-2222-222222222222")
             result = self._invoke(root, "--profile", "grok-build-write")
             self.assertNotEqual(result.returncode, 0, result.stdout)
             payload = json.loads(result.stdout)
@@ -976,7 +976,7 @@ class WriteResumeCliTests(unittest.TestCase):
             plan.write_text("stable\n", encoding="utf-8")
             registry = SessionRegistry(root)
             registry.create(
-                session_id="write-session",
+                session_id="22222222-2222-2222-2222-222222222222",
                 harness="grok-build",
                 profile="grok-build-write",
                 role="implement",
@@ -987,7 +987,7 @@ class WriteResumeCliTests(unittest.TestCase):
                 source_head="a" * 40,
                 plan_path=plan,
             )
-            registry.activate("write-session")
+            registry.activate("22222222-2222-2222-2222-222222222222")
             exact = self._invoke(root, "--profile", "grok-build-write")
             self.assertEqual(exact.returncode, 0, exact.stdout)
             plan.write_text("changed on disk\n", encoding="utf-8")

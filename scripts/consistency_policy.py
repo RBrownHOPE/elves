@@ -2417,3 +2417,39 @@ ADAPTIVE_WORKER_ROUTING_PHRASES = {
         "prompt/KV cache",
     ],
 }
+
+GROK_OPEN_SOURCE_WORKER_PHRASES = {
+    "references/grok-open-source-worker.md": [
+        "https://github.com/xai-org/grok-build",
+        "curl -fsSL https://x.ai/cli/install.sh | bash",
+        "--allow-grok --probe-grok",
+        "narrow auth projection",
+        "command resolution",
+        "terminal state",
+        "one-packet fallback",
+        "full-run-launch --json",
+        "full-run-await --json",
+        "--resume --grant-grok-auth",
+        "/goal resume",
+    ],
+    "guide/index.html": [
+        "https://github.com/xai-org/grok-build",
+        "curl -fsSL https://x.ai/cli/install.sh | bash",
+        "--provider grok --allow-grok --probe-grok",
+        "narrow OAuth projection",
+        "command resolution",
+        "terminal",
+        "one-packet fallback",
+        "implement full-run-await --session-id",
+        "implement full-run-launch --session-id",
+        "--grant-grok-auth --grant-github-push",
+    ],
+    "references/host-parity.md": [
+        "narrow auth projection",
+        "command resolution",
+        "catalog lookup and model inference",
+        "terminal objective-canary evidence",
+        "one-packet fallback",
+        "catalog qualify",
+    ],
+}

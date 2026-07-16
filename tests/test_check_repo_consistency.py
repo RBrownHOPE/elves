@@ -131,6 +131,31 @@ class ConsistencyPhraseTests(unittest.TestCase):
         self.assertTrue(any("v2.0+" in phrase for phrase in agents))
         self.assertTrue(any("v2.1" in phrase for phrase in agents))
 
+    def test_grok_worker_corpus_covers_reference_guide_and_host_parity(self) -> None:
+        required = {
+            "references/grok-open-source-worker.md",
+            "guide/index.html",
+            "references/host-parity.md",
+        }
+        self.assertEqual(
+            set(self.consistency.GROK_OPEN_SOURCE_WORKER_PHRASES), required
+        )
+        for label, phrases in self.consistency.GROK_OPEN_SOURCE_WORKER_PHRASES.items():
+            with self.subTest(label=label):
+                self.assertTrue(any("one-packet fallback" in phrase for phrase in phrases))
+                self.assertTrue(any("terminal" in phrase for phrase in phrases))
+
+    def test_grok_worker_consistency_rejects_status_only_goal_claim(self) -> None:
+        label = "references/grok-open-source-worker.md"
+        phrases = self.consistency.GROK_OPEN_SOURCE_WORKER_PHRASES[label]
+        text = "The /goal status probe proves command resolution."
+        errors = self.consistency.find_missing_phrases(
+            {label: text}, {label: phrases}, "open-source Grok worker"
+        )
+        self.assertTrue(errors)
+        self.assertTrue(any("terminal state" in error for error in errors))
+        self.assertTrue(any("one-packet fallback" in error for error in errors))
+
     def test_single_kickoff_forbidden_corpus_catches_legacy_default_drift(self) -> None:
         label = "README.md"
         stale = "**Two-step operator flow**"

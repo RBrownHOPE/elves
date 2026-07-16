@@ -180,6 +180,14 @@ silently deleting it.
 
 ## Known Traps
 
+- [2026-07-15] A subscription-native Codex or Claude worker can edit a linked worktree while its
+  sandbox still denies the shared parent Git directory and `index.lock`. Staging must prove commit
+  capability before launch or use a qualified checkout layout whose feature-branch Git metadata is
+  writable without granting protected-ref authority. A private JSONL follow log also isn't a
+  readable operator view when the host hides tool output. Keep the exact follow command, and explore
+  a temporary local HTML view as a later usability improvement rather than waking the driver for
+  routine narration.
+
 - [2026-07-15] Codex `exec resume` does not accept the fresh-launch `--sandbox` flag and, when
   user config is ignored, can silently resume a worker read-only. Preserve the worker contract with
   `-c sandbox_mode="workspace-write"`, bind the exact worktree through the supervisor OS CWD, and

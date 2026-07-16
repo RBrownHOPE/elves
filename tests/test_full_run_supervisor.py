@@ -3512,7 +3512,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 self.assertNotIn(forbidden, observed["keys"])
 
             state = full_run_module.FullRunState(
-                session_id="exact-grok-binding",
+                session_id="33333333-3333-3333-3333-333333333333",
                 branch="feat/x",
                 start_head="a" * 40,
                 worktree=str(root),
