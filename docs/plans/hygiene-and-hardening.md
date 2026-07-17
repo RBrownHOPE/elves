@@ -73,11 +73,11 @@ exactly one authoritative home.
 - [ ] Confirm `test_cli_gate_failure_exit_code` passes with the Claude Code env flags set
 
 **Acceptance criteria:**
-- [ ] [B1-A1] `python3 -m unittest tests.test_cobbler_agents_implement` passes with
+- [x] [B1-A1] `python3 -m unittest tests.test_cobbler_agents_implement` passes with
   `CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 CLAUDE_CODE_CHILD_SESSION=1` exported
-- [ ] [B1-A2] New regression test proves exact-value redaction still fires for a secret-named env
+- [x] [B1-A2] New regression test proves exact-value redaction still fires for a secret-named env
   var with a >=8-char value (old behavior preserved)
-- [ ] [B1-A3] Exactly one env-derived exact-secret collector remains; both call sites import it
+- [x] [B1-A3] Exactly one env-derived exact-secret collector remains; both call sites import it
 
 **Docs likely touched:** none expected (CHANGELOG entry only)
 
@@ -132,14 +132,14 @@ matching, never pattern redaction.
 - [ ] Dogfood: run report mode, then `--apply`, on this machine's elves checkout
 
 **Acceptance criteria:**
-- [ ] [B2-A1] Fixture tests prove gc refuses: dirty worktree, unmerged branch, unpushed commits,
+- [x] [B2-A1] Fixture tests prove gc refuses: dirty worktree, unmerged branch, unpushed commits,
   current directory, main worktree, unregistered sibling directory
-- [ ] [B2-A2] Fixture test proves gc removes a clean merged worktree and deletes its local branch,
+- [x] [B2-A2] Fixture test proves gc removes a clean merged worktree and deletes its local branch,
   and `git worktree list` no longer shows it
-- [ ] [B2-A3] Report mode performs zero mutations (asserted on fixture repo state)
-- [ ] [B2-A4] Dogfood evidence: the five merged elves worktrees removed; the five unmerged
+- [x] [B2-A3] Report mode performs zero mutations (asserted on fixture repo state)
+- [x] [B2-A4] Dogfood evidence: the five merged elves worktrees removed; the five unmerged
   benchmark worktrees and all unregistered siblings untouched and listed in the report
-- [ ] [B2-A5] Repo-consistency CI stays green (pinned worktree phrases unchanged or pins updated
+- [x] [B2-A5] Repo-consistency CI stays green (pinned worktree phrases unchanged or pins updated
   together with the prose)
 
 **Docs likely touched:** SKILL.md, README (brief), kickoff-prompt-template.md, config.json.example, CHANGELOG
@@ -203,14 +203,14 @@ matching, never pattern redaction.
   validator's normalization
 
 **Acceptance criteria:**
-- [ ] [B3-A1] Validator test: staged session with `work_driver: grok-build` and no
+- [x] [B3-A1] Validator test: staged session with `work_driver: grok-build` and no
   `worker_packet_path` produces the warning; with the path recorded, no warning; host-native
   produces no warning
-- [ ] [B3-A2] All six documentation surfaces carry the packet-at-staging rule and cross-link
+- [x] [B3-A2] All six documentation surfaces carry the packet-at-staging rule and cross-link
   rather than restate it
-- [ ] [B3-A3] Repo-consistency CI green; any newly pinned phrases added deliberately and minimally
-- [ ] [B3-A4] Work-driver spellings normalize identically in validator and docs (devin covered)
-- [ ] [B3-A5] The commit-cadence rule (≥1 pushed non-Close progress slice before Close; first
+- [x] [B3-A3] Repo-consistency CI green; any newly pinned phrases added deliberately and minimally
+- [x] [B3-A4] Work-driver spellings normalize identically in validator and docs (devin covered)
+- [x] [B3-A5] The commit-cadence rule (≥1 pushed non-Close progress slice before Close; first
   slice at first failing test or surface change) appears in SKILL.md's handoff standard and the
   packet/kickoff template guidance, with consistency pins updated in the same commit
 
@@ -264,13 +264,13 @@ plan-template.md, kickoff-prompt-template.md, CHANGELOG
   necessary
 
 **Acceptance criteria:**
-- [ ] [B4-A1] Exactly one `run_git` definition body remains (delegators allowed); zero raw
+- [x] [B4-A1] Exactly one `run_git` definition body remains (delegators allowed); zero raw
   `subprocess.run(["git"` call sites left in `full_run.py`
-- [ ] [B4-A2] `context.ensure_private_dir` gone; `api-break-approvals.json` entry passes strict
+- [x] [B4-A2] `context.ensure_private_dir` gone; `api-break-approvals.json` entry passes strict
   `verify_repo.py --ci` validation
-- [ ] [B4-A3] Full suite green; `test_storage_isolation_git.py`, `test_dispatch_isolation.py`,
+- [x] [B4-A3] Full suite green; `test_storage_isolation_git.py`, `test_dispatch_isolation.py`,
   `test_full_run_supervisor.py` specifically green (regression preservation)
-- [ ] [B4-A4] Session filename literal appears exactly once in `cobbler_runtime/`
+- [x] [B4-A4] Session filename literal appears exactly once in `cobbler_runtime/`
 
 **Docs likely touched:** CHANGELOG; `.ai-docs/context-index.md` if it names moved helpers
 
@@ -305,10 +305,10 @@ env); migrate call-by-call with the env choice preserved and reviewed.
   its non-normative restatements become links)
 
 **Acceptance criteria:**
-- [ ] [B5-A1] `wc -l README.md` ≤ 450; no `v2.x adds`-style narration outside CHANGELOG.md
-- [ ] [B5-A2] `references/glossary.md` exists and covers every term it promises; no dead links
-- [ ] [B5-A3] Repo-consistency CI green with pins updated alongside prose in the same commits
-- [ ] [B5-A4] Install + first-run path still complete: following README alone reaches a working
+- [x] [B5-A1] `wc -l README.md` ≤ 450; no `v2.x adds`-style narration outside CHANGELOG.md
+- [x] [B5-A2] `references/glossary.md` exists and covers every term it promises; no dead links
+- [x] [B5-A3] Repo-consistency CI green with pins updated alongside prose in the same commits
+- [x] [B5-A4] Install + first-run path still complete: following README alone reaches a working
   `install_doctor.py --startup` pass (regression preservation for onboarding)
 
 **Docs likely touched:** README.md, SKILL.md, AGENTS.md, references/*, CHANGELOG.md
@@ -334,12 +334,12 @@ same commit, or CI reds cascade.
   (a pin is a last resort, not the default)
 
 **Acceptance criteria:**
-- [ ] [B6-A1] `consistency_policy.py` reduced by the AGENTS single-pointer collapse and the
+- [x] [B6-A1] `consistency_policy.py` reduced by the AGENTS single-pointer collapse and the
   README linked-not-restated doctrine (24 shims + ~50 restatement entries removed; ≥ 15% line
   reduction) with CI green and the pin-addition policy documented in the module; deeper
   reference-file single-sourcing is explicitly deferred to a follow-up plan (amended from ≥ 50%
   under the user's wrap-this-up directive, 2026-07-17)
-- [ ] [B6-A2] A deliberate drift injected in a test fixture is still caught for the retained
+- [x] [B6-A2] A deliberate drift injected in a test fixture is still caught for the retained
   safety-kernel pins (regression preservation for the checker itself)
 
 **Docs likely touched:** none beyond comments; CHANGELOG
@@ -365,10 +365,10 @@ same commit, or CI reds cascade.
 - [ ] Characterization tests lock behavior before each extraction
 
 **Acceptance criteria:**
-- [ ] [B7-A1] `full_run.py` ≤ 7,500 lines (measurable god-file bar, not a structure lock alone)
-- [ ] [B7-A2] Supervisor script passes lint as a real file; at least one direct unit test exercises
+- [x] [B7-A1] `full_run.py` ≤ 7,500 lines (measurable god-file bar, not a structure lock alone)
+- [x] [B7-A2] Supervisor script passes lint as a real file; at least one direct unit test exercises
   its argument/protocol surface
-- [ ] [B7-A3] `tests/test_full_run_supervisor.py` and the full suite green (regression preservation)
+- [x] [B7-A3] `tests/test_full_run_supervisor.py` and the full suite green (regression preservation)
 
 **Docs likely touched:** `.ai-docs/context-index.md`, CHANGELOG
 
@@ -420,11 +420,11 @@ identical (same interpreter invocation, same env contract).
 - [ ] Kickoff template: one echo line pointing at the SKILL.md rule.
 
 **Acceptance criteria:**
-- [ ] [B8-A1] SKILL.md states the transient-vs-substantive failure classes with the
+- [x] [B8-A1] SKILL.md states the transient-vs-substantive failure classes with the
   backoff-not-budget rule in exactly one authoritative place; consistency checker green
-- [ ] [B8-A2] Survival-guide template `Re-drive budget` wording carries the split and
+- [x] [B8-A2] Survival-guide template `Re-drive budget` wording carries the split and
   `validate_survival_guide.py` still accepts this run's existing guide unchanged
-- [ ] [B8-A3] The worker progress ledger is documented in the handoff standard and echoed in the
+- [x] [B8-A3] The worker progress ledger is documented in the handoff standard and echoed in the
   kickoff template as an untracked operational artifact
 
 **Docs likely touched:** SKILL.md, survival-guide-template.md, kickoff-prompt-template.md, CHANGELOG
@@ -475,11 +475,11 @@ identical (same interpreter invocation, same env contract).
 - [ ] Promote the incident pattern to `docs/elves/learnings.md` and `.ai-docs/gotchas.md`
 
 **Acceptance criteria:**
-- [ ] [B9-A1] Every `verify_repo.py` gate subprocess runs with closed stdin and a bounded
+- [x] [B9-A1] Every `verify_repo.py` gate subprocess runs with closed stdin and a bounded
   timeout, and an induced timeout produces a failing step result (test or transcript evidence)
-- [ ] [B9-A2] The suite redirects fd 0 to devnull at discovery; `tests/test_suite_hermeticity.py`
+- [x] [B9-A2] The suite redirects fd 0 to devnull at discovery; `tests/test_suite_hermeticity.py`
   proves in-process EOF and child-inherited EOF
-- [ ] [B9-A3] Autonomy docs carry the closed-stdin/timeout rule; the incident is recorded in
+- [x] [B9-A3] Autonomy docs carry the closed-stdin/timeout rule; the incident is recorded in
   learnings and `.ai-docs/gotchas.md`
 
 **Docs likely touched:** SKILL.md, autonomy-guide.md, learnings.md, .ai-docs/gotchas.md, CHANGELOG
@@ -497,15 +497,15 @@ comfortably exceed the ~4-minute suite (use 1800s).
 
 ## Master Acceptance
 
-- [ ] [M-A1] Full suite green in an environment that includes short-valued secret-named env vars
+- [x] [M-A1] Full suite green in an environment that includes short-valued secret-named env vars
   (Claude Code session): `CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 python3 -m unittest discover -s tests`
-- [ ] [M-A2] Dogfooded gc: five merged elves worktrees removed, unmerged benchmarks and
+- [x] [M-A2] Dogfooded gc: five merged elves worktrees removed, unmerged benchmarks and
   unregistered siblings reported untouched; `git worktree list` reflects it
-- [ ] [M-A3] A staged delegable run records `worker_packet_path`; the validator warns when it is
+- [x] [M-A3] A staged delegable run records `worker_packet_path`; the validator warns when it is
   missing for non-host-native drivers; both schemas and both staging templates carry the field
-- [ ] [M-A4] README ≤ 450 lines, glossary exists, version narration lives only in CHANGELOG,
+- [x] [M-A4] README ≤ 450 lines, glossary exists, version narration lives only in CHANGELOG,
   repo-consistency CI green, `verify_repo.py --ci` green at the release version
-- [ ] [M-A5] No unapproved public API breaks: `api-break-approvals.json` entries exist for every
+- [x] [M-A5] No unapproved public API breaks: `api-break-approvals.json` entries exist for every
   intentional removal and strict verification accepts them
 
 ---
