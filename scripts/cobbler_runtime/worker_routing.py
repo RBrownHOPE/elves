@@ -16,7 +16,16 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .config import load_json_file, load_toml_file
-from .schema import ValidationIssue
+from .prewalk import PrewalkCapabilities
+from .schema import (
+    NativeWorkerPhaseRole,
+    NativeWorkerPhaseRoute,
+    PrewalkCapabilityState,
+    PrewalkInstructionFidelity,
+    PrewalkMode,
+    PrewalkRoutePair,
+    ValidationIssue,
+)
 
 
 REASONING_LEVELS = ("low", "medium", "high")
@@ -758,11 +767,13 @@ class RouteDecision:
     advisory_driver_upgrade: str | None
     goal_mode: bool
     reasons: tuple[str, ...]
+    prewalk: PrewalkRoutePair | None = None
     model_calls_made: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["reasons"] = list(self.reasons)
+        payload["prewalk"] = self.prewalk.to_dict() if self.prewalk else None
         return payload
 
 
@@ -802,6 +813,7 @@ def decide_worker_route(
     repo_policy: Mapping[str, Any] | None = None,
     grok: GrokCapabilities | None = None,
     driver_effort: str | None = None,
+    prewalk_capabilities: PrewalkCapabilities | None = None,
 ) -> RouteDecision:
     """Return an inspectable route. Repository policy is the final safety veto."""
     host_token = host.strip().lower().replace("_", "-")
@@ -840,6 +852,33 @@ def decide_worker_route(
         "native_effort",
         "auto",
     )
+    prewalk_value, prewalk_source = _choice(
+        (
+            ("explicit_run_intent", explicit_worker),
+            ("repository_default", repo_worker),
+            ("global_preferences", global_worker),
+        ),
+        "prewalk",
+        "auto",
+    )
+    guide_effort_value, guide_effort_source = _choice(
+        (
+            ("explicit_run_intent", explicit_worker),
+            ("repository_default", repo_worker),
+            ("global_preferences", global_worker),
+        ),
+        "prewalk_guide_effort",
+        "high",
+    )
+    guide_model_value, guide_model_source = _choice(
+        (
+            ("explicit_run_intent", explicit_worker),
+            ("repository_default", repo_worker),
+            ("global_preferences", global_worker),
+        ),
+        "prewalk_guide_model",
+        None,
+    )
     provider = str(provider).lower()
     effort_is_auto = effort == "auto"
     effort = execution if effort_is_auto else str(effort).lower()
@@ -847,6 +886,12 @@ def decide_worker_route(
         raise ValidationIssue("invalid_provider_preference", f"Unknown worker provider `{provider}`")
     if effort not in REASONING_LEVELS:
         raise ValidationIssue("invalid_worker_effort", f"Unknown worker effort `{effort}`")
+    prewalk_token = str(prewalk_value).lower()
+    if prewalk_token not in {mode.value for mode in PrewalkMode}:
+        raise ValidationIssue("invalid_prewalk_mode", f"Unknown prewalk mode `{prewalk_value}`")
+    guide_effort = str(guide_effort_value).lower()
+    if guide_effort not in REASONING_LEVELS:
+        raise ValidationIssue("invalid_worker_effort", f"Unknown guide effort `{guide_effort}`")
 
     grok_info = grok or GrokCapabilities()
     prohibited = repo_worker.get("allow_grok") is False
@@ -930,6 +975,81 @@ def decide_worker_route(
     if risk == "high" and driver_effort in {"low", "medium"}:
         advisory = "consider_high_effort_driver_for_terminal_review"
 
+    requested_prewalk = PrewalkMode(prewalk_token)
+    caps = prewalk_capabilities or PrewalkCapabilities(
+        host=host_token,
+        transport=("codex_exec" if host_token == "codex" else "claude_code"),
+    )
+    prewalk_transport = (
+        "codex_exec" if host_token == "codex" else "claude_code"
+    )
+    guide_model = str(guide_model_value).strip() if guide_model_value else None
+    guide_policy = "explicit_guide_model_pin" if guide_model else "inherit_live_driver_model"
+    capability_state = (
+        PrewalkCapabilityState.QUALIFIED
+        if caps.qualified()
+        else PrewalkCapabilityState.ADVERTISED
+        if caps.advertised_exact_resume or caps.advertised_route_override_on_resume
+        else PrewalkCapabilityState.UNAVAILABLE
+    )
+    actual_prewalk = "off"
+    prewalk_fallback: str | None = None
+    if requested_prewalk is not PrewalkMode.OFF:
+        if selected_provider != "native":
+            prewalk_fallback = "prewalk_capability_unavailable:external_provider_not_qualified"
+        elif requested_prewalk is PrewalkMode.AUTO and execution == "low":
+            prewalk_fallback = "prewalk_atomic_task_skipped"
+        elif caps.qualified():
+            actual_prewalk = "exact_session"
+            reasons.append("trajectory_preserving_prewalk_qualified")
+        else:
+            prewalk_fallback = caps.unavailable_reason() or "prewalk_capability_unavailable"
+        if requested_prewalk is PrewalkMode.REQUIRED and actual_prewalk != "exact_session":
+            failure_code = (
+                prewalk_fallback.split(":", 1)[0]
+                if prewalk_fallback
+                else "prewalk_capability_unavailable"
+            )
+            raise ValidationIssue(
+                failure_code,
+                "Required prewalk is unavailable for the selected native transport",
+                hint=prewalk_fallback,
+            )
+    if prewalk_fallback:
+        reasons.append(f"honest_prewalk_fallback:{prewalk_fallback}")
+    try:
+        fidelity = PrewalkInstructionFidelity(caps.instruction_fidelity)
+    except ValueError:
+        fidelity = PrewalkInstructionFidelity.UNSUPPORTED
+    prewalk_route = PrewalkRoutePair(
+        requested_mode=requested_prewalk,
+        actual_mode=actual_prewalk,
+        guide=NativeWorkerPhaseRoute(
+            role=NativeWorkerPhaseRole.GUIDE,
+            transport=prewalk_transport,
+            model_policy=guide_policy,
+            model=guide_model,
+            effort=guide_effort,
+        ),
+        execution=NativeWorkerPhaseRoute(
+            role=NativeWorkerPhaseRole.EXECUTION,
+            transport=prewalk_transport,
+            model_policy=model_policy,
+            model=selected_model,
+            effort=effort,
+        ),
+        capability_state=capability_state,
+        advertised_exact_resume=caps.advertised_exact_resume,
+        advertised_route_override_on_resume=caps.advertised_route_override_on_resume,
+        behaviorally_verified_session_continuity=caps.behaviorally_verified_session_continuity,
+        behaviorally_verified_instruction_pruning=caps.behaviorally_verified_instruction_pruning,
+        worktree_binding_verified=caps.worktree_binding_verified,
+        stream_identity_verified=caps.stream_identity_verified,
+        instruction_fidelity=fidelity,
+        fallback_reason=prewalk_fallback,
+        qualification_model_calls_made=caps.model_calls_made,
+    )
+
     return RouteDecision(
         provider=selected_provider,
         worker_transport=("codex_exec" if host_token == "codex" else "claude_code") if selected_provider == "native" else "grok_build",
@@ -941,6 +1061,9 @@ def decide_worker_route(
         provenance={
             "provider": provider_source,
             "worker_effort": "plan_execution_reasoning" if effort_is_auto else effort_source,
+            "prewalk": prewalk_source,
+            "prewalk_guide_effort": guide_effort_source,
+            "prewalk_guide_model": guide_model_source,
             "grok_consent": consent_source,
             "grok_safety_veto": "repository_policy" if prohibited else "none",
             "grok_goal_evidence": (
@@ -959,4 +1082,5 @@ def decide_worker_route(
         advisory_driver_upgrade=advisory,
         goal_mode=goal_mode,
         reasons=tuple(reasons),
+        prewalk=prewalk_route,
     )

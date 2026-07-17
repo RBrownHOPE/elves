@@ -53,6 +53,9 @@
 ## Verification evidence
 
 - Staging validation: `acceptance_contract.py sync-session --write` and `validate` passed.
-- Focused tests: pending.
+- B0 first slice: 38 prewalk artifact, meaningful-edit, capability, preference, and routing tests
+  pass. The new host-neutral module keeps provider process control out of the schema/validator layer,
+  static help remains advertised-only, and unqualified auto routing stays single-phase.
+- Focused tests: B0 contract/routing slice green; supervisor lifecycle remains pending.
 - Canonical verification: pending.
 - Terminal cumulative review: pending.

@@ -58,6 +58,38 @@ class ContextSharingPolicy(str, Enum):
     REHYDRATE_FROM_DISK = "rehydrate_from_disk"
 
 
+class PrewalkMode(str, Enum):
+    """Operator request for trajectory-preserving native-worker prewalk."""
+
+    OFF = "off"
+    AUTO = "auto"
+    REQUIRED = "required"
+
+
+class NativeWorkerPhaseRole(str, Enum):
+    """Provider-neutral role of one child in a logical native-worker run."""
+
+    GUIDE = "prewalk"
+    EXECUTION = "execution"
+
+
+class PrewalkInstructionFidelity(str, Enum):
+    """What is actually known about the temporary guide instruction on resume."""
+
+    PRUNED = "pruned"
+    TURN_SCOPED = "turn_scoped"
+    RETAINED_SAFE = "retained_safe"
+    UNSUPPORTED = "unsupported"
+
+
+class PrewalkCapabilityState(str, Enum):
+    """Qualification layer for native prewalk transport behavior."""
+
+    UNAVAILABLE = "unavailable"
+    ADVERTISED = "advertised"
+    QUALIFIED = "qualified"
+
+
 DEFAULT_ROLES: tuple[RoleName, ...] = (
     RoleName.PLANNING,
     RoleName.IMPLEMENT,
@@ -135,6 +167,60 @@ class ValidationIssue(Exception):
         if self.hint is not None:
             payload["hint"] = self.hint
         return payload
+
+
+@dataclass(frozen=True)
+class NativeWorkerPhaseRoute:
+    """One explicit guide or execution route without host-specific CLI flags."""
+
+    role: NativeWorkerPhaseRole
+    transport: str
+    model_policy: str
+    model: str | None
+    effort: str
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["role"] = self.role.value
+        return payload
+
+
+@dataclass(frozen=True)
+class PrewalkRoutePair:
+    """Deterministic route/fidelity decision for one logical worker trajectory."""
+
+    requested_mode: PrewalkMode
+    actual_mode: str
+    guide: NativeWorkerPhaseRoute
+    execution: NativeWorkerPhaseRoute
+    capability_state: PrewalkCapabilityState
+    advertised_exact_resume: bool
+    advertised_route_override_on_resume: bool
+    behaviorally_verified_session_continuity: bool
+    behaviorally_verified_instruction_pruning: bool
+    worktree_binding_verified: bool
+    stream_identity_verified: bool
+    instruction_fidelity: PrewalkInstructionFidelity
+    fallback_reason: str | None = None
+    qualification_model_calls_made: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "requested_mode": self.requested_mode.value,
+            "actual_mode": self.actual_mode,
+            "guide": self.guide.to_dict(),
+            "execution": self.execution.to_dict(),
+            "capability_state": self.capability_state.value,
+            "advertised_exact_resume": self.advertised_exact_resume,
+            "advertised_route_override_on_resume": self.advertised_route_override_on_resume,
+            "behaviorally_verified_session_continuity": self.behaviorally_verified_session_continuity,
+            "behaviorally_verified_instruction_pruning": self.behaviorally_verified_instruction_pruning,
+            "worktree_binding_verified": self.worktree_binding_verified,
+            "stream_identity_verified": self.stream_identity_verified,
+            "instruction_fidelity": self.instruction_fidelity.value,
+            "fallback_reason": self.fallback_reason,
+            "qualification_model_calls_made": self.qualification_model_calls_made,
+        }
 
 
 @dataclass(frozen=True)

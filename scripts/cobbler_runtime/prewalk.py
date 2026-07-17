@@ -1,0 +1,692 @@
+"""Host-neutral contracts for exact-session native-worker prewalk.
+
+Prewalk is a trajectory property: one worker session explores, writes a bounded
+TODO, makes a real task edit, and then resumes in the same worktree on the
+execution route.  This module intentionally owns no provider subprocess loop;
+it supplies deterministic schemas, prompts, path safety, digests, capability
+evidence, and the model-free transition check used by the native supervisor.
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from datetime import datetime
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import stat
+import subprocess
+from typing import Any, Mapping, Sequence
+
+from .schema import ValidationIssue
+
+
+PREWALK_SCHEMA_VERSION = 1
+PREWALK_STATE_VERSION = 3
+PREWALK_DEFAULT_TODO_LIMIT = 10
+PREWALK_MIN_TODO_LIMIT = 5
+PREWALK_MAX_TODO_LIMIT = 12
+PREWALK_CONTINUATION_INPUT = "Continue."
+PREWALK_CAPABILITY_ARTIFACT_MAX_BYTES = 64 * 1024
+PREWALK_RUNTIME_ARTIFACT_MAX_BYTES = 256 * 1024
+PREWALK_PACKET_MAX_BYTES = 4 * 1024 * 1024
+PREWALK_MODES = ("off", "auto", "required")
+PREWALK_ACTUAL_MODES = ("off", "exact_session")
+PREWALK_INSTRUCTION_FIDELITIES = (
+    "pruned",
+    "turn_scoped",
+    "retained_safe",
+    "unsupported",
+)
+PREWALK_FAILURE_CODES = frozenset(
+    {
+        "prewalk_capability_unavailable",
+        "prewalk_exact_resume_unqualified",
+        "prewalk_route_change_unqualified",
+        "prewalk_session_id_missing",
+        "prewalk_session_continuity_violation",
+        "prewalk_worktree_continuity_violation",
+        "prewalk_todo_missing",
+        "prewalk_todo_invalid",
+        "prewalk_todo_limit_exceeded",
+        "prewalk_checkpoint_missing",
+        "prewalk_checkpoint_invalid",
+        "prewalk_meaningful_edit_missing",
+        "prewalk_changed_path_forbidden",
+        "prewalk_packet_replayed",
+        "prewalk_instruction_pruning_unqualified",
+        "prewalk_guide_exit_before_checkpoint",
+        "prewalk_execution_resume_failed",
+        "prewalk_post_edit_cold_fallback_forbidden",
+    }
+)
+
+_TODO_ID_RE = re.compile(r"PW-(\d{2})\Z")
+_SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
+_SAFE_RUN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_STAGING_ONLY_PREFIXES = (
+    ".elves/",
+    "docs/plans/",
+    "docs/elves/survival-guide-",
+    "docs/elves/execution-log-",
+    "docs/elves/reports/",
+)
+
+
+@dataclass(frozen=True)
+class PrewalkPaths:
+    root: str
+    todo: str
+    checkpoint: str
+    session_identity: str
+
+    def to_dict(self) -> dict[str, str]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class PrewalkCapabilities:
+    host: str
+    transport: str
+    installed_version: str | None = None
+    advertised_exact_resume: bool = False
+    advertised_route_override_on_resume: bool = False
+    behaviorally_verified_session_continuity: bool = False
+    behaviorally_verified_instruction_pruning: bool = False
+    worktree_binding_verified: bool = False
+    stream_identity_verified: bool = False
+    instruction_fidelity: str = "unsupported"
+    evidence_source: str = "not_probed"
+    model_calls_made: bool = False
+
+    def qualified(self) -> bool:
+        return bool(
+            self.advertised_exact_resume
+            and self.advertised_route_override_on_resume
+            and self.behaviorally_verified_session_continuity
+            and self.worktree_binding_verified
+            and self.stream_identity_verified
+            and self.instruction_fidelity != "unsupported"
+        )
+
+    def unavailable_reason(self) -> str | None:
+        if not self.advertised_exact_resume:
+            return "prewalk_exact_resume_unqualified"
+        if not self.advertised_route_override_on_resume:
+            return "prewalk_route_change_unqualified"
+        if not self.behaviorally_verified_session_continuity:
+            return "prewalk_exact_resume_unqualified"
+        if not self.worktree_binding_verified or not self.stream_identity_verified:
+            return "prewalk_capability_unavailable"
+        if self.instruction_fidelity == "unsupported":
+            return "prewalk_instruction_pruning_unqualified"
+        return None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["qualified"] = self.qualified()
+        payload["unavailable_reason"] = self.unavailable_reason()
+        return payload
+
+
+@dataclass(frozen=True)
+class PrewalkTransitionEvidence:
+    session_continuity: bool
+    worktree_continuity: bool
+    todo_valid: bool
+    meaningful_edit_valid: bool
+    first_edit_todo_id: str
+    changed_paths: tuple[str, ...]
+    diff_sha256: str
+    task_complete: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["changed_paths"] = list(self.changed_paths)
+        return payload
+
+
+def _run_key(run_id: str) -> str:
+    value = run_id.strip()
+    if not _SAFE_RUN_RE.fullmatch(value):
+        raise ValidationIssue(
+            "prewalk_checkpoint_invalid",
+            "Prewalk run ids must be bounded safe identifiers",
+            path="run_id",
+        )
+    readable = "".join(ch if ch.isalnum() else "_" for ch in value)[:24]
+    return f"{readable}-{hashlib.sha256(value.encode()).hexdigest()[:16]}"
+
+
+def prewalk_paths(worktree: Path, run_id: str) -> PrewalkPaths:
+    root = worktree.resolve() / ".elves" / "runtime" / "prewalk" / _run_key(run_id)
+    return PrewalkPaths(
+        root=str(root),
+        todo=str(root / "todo.json"),
+        checkpoint=str(root / "checkpoint.json"),
+        session_identity=str(root / "session.json"),
+    )
+
+
+def _safe_runtime_path(path: Path, *, runtime_root: Path, code: str) -> Path:
+    root = runtime_root.resolve()
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValidationIssue(code, "Prewalk artifact path escapes its runtime root", path=str(path)) from exc
+    return resolved
+
+
+def _read_bounded_regular_json(
+    path: Path,
+    *,
+    runtime_root: Path | None,
+    missing_code: str,
+    invalid_code: str,
+    limit: int,
+) -> dict[str, Any]:
+    target = _safe_runtime_path(path, runtime_root=runtime_root, code=invalid_code) if runtime_root else path.resolve()
+    try:
+        before = target.lstat()
+    except FileNotFoundError as exc:
+        raise ValidationIssue(missing_code, "Required prewalk artifact is missing", path=str(target)) from exc
+    if not stat.S_ISREG(before.st_mode) or target.is_symlink():
+        raise ValidationIssue(invalid_code, "Prewalk artifact must be a regular non-symlink file", path=str(target))
+    if before.st_size > limit:
+        raise ValidationIssue(invalid_code, "Prewalk artifact exceeds its bounded size", path=str(target))
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValidationIssue(invalid_code, "Prewalk artifact is not valid bounded JSON", path=str(target)) from exc
+    if not isinstance(data, dict):
+        raise ValidationIssue(invalid_code, "Prewalk artifact must be a JSON object", path=str(target))
+    return data
+
+
+def _required_text(value: object, *, path: str, code: str, max_chars: int = 2_000) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > max_chars:
+        raise ValidationIssue(code, "Required prewalk text is missing or unbounded", path=path)
+    return value.strip()
+
+
+def _rfc3339(value: object, *, path: str, code: str) -> str:
+    text = _required_text(value, path=path, code=code, max_chars=64)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValidationIssue(code, "Expected an RFC3339 timestamp", path=path) from exc
+    if parsed.tzinfo is None:
+        raise ValidationIssue(code, "Prewalk timestamps require an explicit timezone", path=path)
+    return text
+
+
+def _todo_limit(value: int) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or not PREWALK_MIN_TODO_LIMIT <= value <= PREWALK_MAX_TODO_LIMIT:
+        raise ValidationIssue(
+            "prewalk_todo_limit_exceeded",
+            f"Prewalk TODO limit must be between {PREWALK_MIN_TODO_LIMIT} and {PREWALK_MAX_TODO_LIMIT}",
+            path="todo_limit",
+        )
+    return value
+
+
+def validate_todo_artifact(
+    data: Mapping[str, Any],
+    *,
+    run_id: str,
+    session_id: str,
+    todo_limit: int = PREWALK_DEFAULT_TODO_LIMIT,
+    allow_all_complete: bool = False,
+) -> dict[str, Any]:
+    """Validate and normalize the durable cross-host TODO contract."""
+    limit = _todo_limit(todo_limit)
+    code = "prewalk_todo_invalid"
+    if data.get("schema_version") != PREWALK_SCHEMA_VERSION:
+        raise ValidationIssue(code, "Unsupported prewalk TODO schema", path="schema_version")
+    if data.get("run_id") != run_id:
+        raise ValidationIssue(code, "Prewalk TODO run identity does not match", path="run_id")
+    if data.get("session_id") != session_id:
+        raise ValidationIssue(code, "Prewalk TODO session identity does not match", path="session_id")
+    _rfc3339(data.get("created_at"), path="created_at", code=code)
+    _rfc3339(data.get("updated_at"), path="updated_at", code=code)
+    items = data.get("items")
+    if not isinstance(items, list) or not items:
+        raise ValidationIssue(code, "Prewalk TODO must contain at least one item", path="items")
+    if len(items) > limit:
+        raise ValidationIssue(
+            "prewalk_todo_limit_exceeded",
+            f"Prewalk TODO has {len(items)} items; configured limit is {limit}",
+            path="items",
+        )
+    active = 0
+    normalized: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(items, start=1):
+        path = f"items[{index - 1}]"
+        if not isinstance(raw, Mapping):
+            raise ValidationIssue(code, "Prewalk TODO items must be objects", path=path)
+        item_id = _required_text(raw.get("id"), path=f"{path}.id", code=code, max_chars=16)
+        match = _TODO_ID_RE.fullmatch(item_id)
+        if match is None or int(match.group(1)) != index or item_id in seen:
+            raise ValidationIssue(code, "Prewalk TODO ids must be unique ordered PW-01 identifiers", path=f"{path}.id")
+        seen.add(item_id)
+        status_value = raw.get("status")
+        if status_value not in {"pending", "in_progress", "complete"}:
+            raise ValidationIssue(code, "Invalid prewalk TODO status", path=f"{path}.status")
+        if status_value == "in_progress":
+            active += 1
+        normalized.append(
+            {
+                "id": item_id,
+                "description": _required_text(raw.get("description"), path=f"{path}.description", code=code),
+                "acceptance": _required_text(raw.get("acceptance"), path=f"{path}.acceptance", code=code),
+                "validation": _required_text(raw.get("validation"), path=f"{path}.validation", code=code),
+                "status": str(status_value),
+            }
+        )
+    if active > 1:
+        raise ValidationIssue(code, "At most one prewalk TODO item may be in progress", path="items")
+    if all(item["status"] == "complete" for item in normalized) and not allow_all_complete:
+        raise ValidationIssue(code, "An all-complete TODO requires an explicit task-complete checkpoint", path="items")
+    result = dict(data)
+    result["items"] = normalized
+    return result
+
+
+def _safe_repo_path(value: object, *, path: str, code: str) -> str:
+    text = _required_text(value, path=path, code=code, max_chars=1_000).replace("\\", "/")
+    pure = PurePosixPath(text)
+    if pure.is_absolute() or text.startswith(".git/") or text == ".git" or any(part in {"", ".", ".."} for part in pure.parts):
+        raise ValidationIssue(code, "Prewalk changed paths must be safe repository-relative paths", path=path)
+    return pure.as_posix()
+
+
+def validate_checkpoint_artifact(
+    data: Mapping[str, Any],
+    *,
+    run_id: str,
+    session_id: str,
+    todo: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate a first-edit or task-complete checkpoint against its TODO."""
+    code = "prewalk_checkpoint_invalid"
+    if data.get("schema_version") != PREWALK_SCHEMA_VERSION:
+        raise ValidationIssue(code, "Unsupported prewalk checkpoint schema", path="schema_version")
+    if data.get("run_id") != run_id or data.get("session_id") != session_id:
+        raise ValidationIssue(code, "Prewalk checkpoint identity does not match the run/session", path="session_id")
+    kind = data.get("kind")
+    if kind not in {"first_meaningful_edit", "task_complete"}:
+        raise ValidationIssue(code, "Unknown prewalk checkpoint kind", path="kind")
+    todo_id = _required_text(data.get("todo_id"), path="todo_id", code=code, max_chars=16)
+    items = {str(item.get("id")): item for item in todo.get("items", []) if isinstance(item, Mapping)}
+    if todo_id not in items:
+        raise ValidationIssue(code, "Checkpoint references a missing TODO item", path="todo_id")
+    changed = data.get("changed_paths")
+    if not isinstance(changed, list) or not changed or len(changed) > 100:
+        raise ValidationIssue(code, "Checkpoint changed_paths must be a non-empty bounded list", path="changed_paths")
+    normalized_paths = [
+        _safe_repo_path(value, path=f"changed_paths[{index}]", code=code)
+        for index, value in enumerate(changed)
+    ]
+    if len(set(normalized_paths)) != len(normalized_paths):
+        raise ValidationIssue(code, "Checkpoint changed_paths must be unique", path="changed_paths")
+    _required_text(data.get("summary"), path="summary", code=code, max_chars=500)
+    attempts = data.get("validation_attempted")
+    if not isinstance(attempts, list) or len(attempts) > 20:
+        raise ValidationIssue(code, "validation_attempted must be a bounded list", path="validation_attempted")
+    normalized_attempts: list[dict[str, Any]] = []
+    for index, raw in enumerate(attempts):
+        if not isinstance(raw, Mapping):
+            raise ValidationIssue(code, "Validation attempts must be objects", path=f"validation_attempted[{index}]")
+        exit_code = raw.get("exit_code")
+        if not isinstance(exit_code, int) or isinstance(exit_code, bool):
+            raise ValidationIssue(code, "Validation attempt exit_code must be an integer", path=f"validation_attempted[{index}].exit_code")
+        normalized_attempts.append(
+            {
+                "command": _required_text(raw.get("command"), path=f"validation_attempted[{index}].command", code=code, max_chars=1_000),
+                "exit_code": exit_code,
+            }
+        )
+    if data.get("ready_for_execution_model") is not True:
+        raise ValidationIssue(code, "Checkpoint must explicitly declare readiness", path="ready_for_execution_model")
+    _rfc3339(data.get("created_at"), path="created_at", code=code)
+    if kind == "first_meaningful_edit" and items[todo_id].get("status") == "pending":
+        raise ValidationIssue(code, "First-edit TODO item may not remain pending", path="todo_id")
+    if kind == "task_complete" and any(item.get("status") != "complete" for item in items.values()):
+        raise ValidationIssue(code, "Task-complete checkpoint requires every TODO item complete", path="kind")
+    result = dict(data)
+    result["changed_paths"] = normalized_paths
+    result["validation_attempted"] = normalized_attempts
+    return result
+
+
+def load_and_validate_transition_artifacts(
+    *,
+    paths: PrewalkPaths,
+    run_id: str,
+    session_id: str,
+    todo_limit: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    root = Path(paths.root)
+    raw_checkpoint = _read_bounded_regular_json(
+        Path(paths.checkpoint),
+        runtime_root=root,
+        missing_code="prewalk_checkpoint_missing",
+        invalid_code="prewalk_checkpoint_invalid",
+        limit=PREWALK_RUNTIME_ARTIFACT_MAX_BYTES,
+    )
+    allow_complete = raw_checkpoint.get("kind") == "task_complete"
+    raw_todo = _read_bounded_regular_json(
+        Path(paths.todo),
+        runtime_root=root,
+        missing_code="prewalk_todo_missing",
+        invalid_code="prewalk_todo_invalid",
+        limit=PREWALK_RUNTIME_ARTIFACT_MAX_BYTES,
+    )
+    todo = validate_todo_artifact(
+        raw_todo,
+        run_id=run_id,
+        session_id=session_id,
+        todo_limit=todo_limit,
+        allow_all_complete=allow_complete,
+    )
+    checkpoint = validate_checkpoint_artifact(
+        raw_checkpoint,
+        run_id=run_id,
+        session_id=session_id,
+        todo=todo,
+    )
+    return todo, checkpoint
+
+
+def _run_git(worktree: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(worktree), *args],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValidationIssue("prewalk_worktree_continuity_violation", "Unable to inspect the registered prewalk worktree") from exc
+
+
+def observed_changed_paths(worktree: Path, start_head: str) -> tuple[str, ...]:
+    diff = _run_git(worktree, "diff", "--name-only", "--no-renames", "-z", start_head, "--")
+    untracked = _run_git(worktree, "ls-files", "--others", "--exclude-standard", "-z")
+    if diff.returncode != 0 or untracked.returncode != 0:
+        raise ValidationIssue("prewalk_worktree_continuity_violation", "Unable to derive the prewalk worktree delta")
+    raw = [value for value in (diff.stdout + untracked.stdout).split("\0") if value]
+    normalized = {_safe_repo_path(value, path="changed_paths", code="prewalk_changed_path_forbidden") for value in raw}
+    return tuple(sorted(normalized))
+
+
+def _path_matches(path: str, prefixes: Sequence[str]) -> bool:
+    for raw in prefixes:
+        prefix = raw.replace("\\", "/")
+        while prefix.startswith("./"):
+            prefix = prefix[2:]
+        if path == prefix.rstrip("/") or path.startswith(prefix.rstrip("/") + "/") or path.startswith(prefix):
+            return True
+    return False
+
+
+def _diff_digest(worktree: Path, start_head: str, changed_paths: Sequence[str]) -> str:
+    digest = hashlib.sha256()
+    diff = _run_git(worktree, "diff", "--binary", start_head, "--", *changed_paths)
+    if diff.returncode != 0:
+        raise ValidationIssue("prewalk_worktree_continuity_violation", "Unable to hash the prewalk delta")
+    digest.update(diff.stdout.encode("utf-8", errors="replace"))
+    for path in changed_paths:
+        target = worktree / path
+        if target.is_file() and _run_git(worktree, "ls-files", "--error-unmatch", "--", path).returncode != 0:
+            digest.update(path.encode())
+            try:
+                digest.update(target.read_bytes())
+            except OSError as exc:
+                raise ValidationIssue("prewalk_worktree_continuity_violation", "Unable to hash an untracked prewalk edit", path=path) from exc
+    return digest.hexdigest()
+
+
+def validate_meaningful_edit(
+    *,
+    worktree: Path,
+    start_head: str,
+    assigned_branch: str,
+    todo: Mapping[str, Any],
+    checkpoint: Mapping[str, Any],
+    starting_worktree_clean: bool,
+    forbidden_paths: Sequence[str] = (),
+    authority_errors: Sequence[str] = (),
+) -> PrewalkTransitionEvidence:
+    """Prove the edit boundary without judging whether the edit is correct."""
+    root = worktree.resolve()
+    top = _run_git(root, "rev-parse", "--show-toplevel")
+    branch = _run_git(root, "branch", "--show-current")
+    ancestor = _run_git(root, "merge-base", "--is-ancestor", start_head, "HEAD")
+    if (
+        not starting_worktree_clean
+        or top.returncode != 0
+        or Path(top.stdout.strip()).resolve() != root
+        or branch.returncode != 0
+        or branch.stdout.strip() != assigned_branch
+        or ancestor.returncode != 0
+    ):
+        raise ValidationIssue(
+            "prewalk_worktree_continuity_violation",
+            "Prewalk worktree, branch, clean start, or ancestry no longer matches staging",
+            path=str(root),
+        )
+    if authority_errors:
+        raise ValidationIssue(
+            "prewalk_changed_path_forbidden",
+            "Prewalk guide changed Git authority or a protected surface",
+            hint="; ".join(str(item) for item in authority_errors[:3]),
+        )
+    changed = observed_changed_paths(root, start_head)
+    if not changed:
+        raise ValidationIssue("prewalk_meaningful_edit_missing", "Guide phase produced no repository edit")
+    if any(_path_matches(path, forbidden_paths) for path in changed):
+        raise ValidationIssue("prewalk_changed_path_forbidden", "Guide phase changed a forbidden surface")
+    meaningful = tuple(path for path in changed if not _path_matches(path, _STAGING_ONLY_PREFIXES))
+    if not meaningful:
+        raise ValidationIssue("prewalk_meaningful_edit_missing", "Guide phase changed only runtime or staging memory")
+    declared = tuple(str(value) for value in checkpoint.get("changed_paths", ()))
+    if not declared or not set(declared).issubset(changed) or not set(declared).intersection(meaningful):
+        raise ValidationIssue(
+            "prewalk_checkpoint_invalid",
+            "Checkpoint changed paths must be an observed subset containing a meaningful edit",
+            path="changed_paths",
+        )
+    log = _run_git(root, "log", "--format=%s", f"{start_head}..HEAD")
+    if log.returncode != 0:
+        raise ValidationIssue("prewalk_worktree_continuity_violation", "Unable to inspect guide commits")
+    if any("· Close]" in subject for subject in log.stdout.splitlines()):
+        raise ValidationIssue("prewalk_checkpoint_invalid", "Guide phase may not create a Close commit at transition")
+    todo_id = str(checkpoint.get("todo_id") or "")
+    return PrewalkTransitionEvidence(
+        session_continuity=True,
+        worktree_continuity=True,
+        todo_valid=True,
+        meaningful_edit_valid=True,
+        first_edit_todo_id=todo_id,
+        changed_paths=changed,
+        diff_sha256=_diff_digest(root, start_head, changed),
+        task_complete=checkpoint.get("kind") == "task_complete",
+    )
+
+
+def packet_digest(path: Path) -> str:
+    target = path.resolve(strict=True)
+    metadata = target.stat()
+    if not target.is_file() or metadata.st_size > PREWALK_PACKET_MAX_BYTES:
+        raise ValidationIssue("prewalk_packet_replayed", "Worker packet must be one bounded regular file", path=str(target))
+    return hashlib.sha256(target.read_bytes()).hexdigest()
+
+
+def guide_prompt(*, run_id: str, paths: PrewalkPaths, todo_limit: int) -> str:
+    limit = _todo_limit(todo_limit)
+    return f"""Begin the implementation task directly.
+
+This is the guide turn for exact-session Elves prewalk run `{run_id}`. Explore the repository
+deeply enough to understand relevant behavior, abstractions, tests, and constraints. Do not stop
+after orientation and do not produce a read-only plan.
+
+Before editing, create at most {limit} concrete TODO items. Every item needs an observable
+acceptance condition and its own validation step. Use the host TODO mechanism when available and
+mirror the list to `{paths.todo}` using the Elves prewalk TODO schema. Read the exact session id
+from `{paths.session_identity}` before writing the TODO or checkpoint.
+
+Then make the first meaningful task edit. It may be a deliberately failing test when the TODO says
+so. Update that TODO item to in_progress or complete, write the first_meaningful_edit checkpoint to
+`{paths.checkpoint}`, and end this guide turn immediately. Do not create a Close commit and do not
+claim task completion unless every TODO item is truly complete. If the whole task is atomic, write
+a task_complete checkpoint instead.
+
+On the later exact-session continuation, complete the remaining TODO items and their validations,
+update the same TODO artifact, replace the checkpoint with an explicit task_complete checkpoint,
+and satisfy the normal worker completion contract. The next input will be only `Continue.`.
+
+The task packet follows and is sent exactly once:
+
+"""
+
+
+def recovery_prompt() -> str:
+    return (
+        "Continue the same prewalk guide turn after the transport interruption. "
+        "Do not reread or request the task packet. Finish the bounded TODO and first meaningful "
+        "edit checkpoint, then end this turn."
+    )
+
+
+def write_session_identity(path: Path, *, run_id: str, session_id: str) -> None:
+    target = path.resolve()
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(target.parent, 0o700)
+    temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    payload = {"schema_version": PREWALK_SCHEMA_VERSION, "run_id": run_id, "session_id": session_id}
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+        os.chmod(target, 0o600)
+    except Exception:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def fixture_prewalk_capabilities(host: str = "fixture") -> PrewalkCapabilities:
+    return PrewalkCapabilities(
+        host=host,
+        transport="fixture_process",
+        installed_version="fixture-v1",
+        advertised_exact_resume=True,
+        advertised_route_override_on_resume=True,
+        behaviorally_verified_session_continuity=True,
+        behaviorally_verified_instruction_pruning=False,
+        worktree_binding_verified=True,
+        stream_identity_verified=True,
+        instruction_fidelity="retained_safe",
+        evidence_source="deterministic_fixture",
+        model_calls_made=False,
+    )
+
+
+def advertised_prewalk_capabilities(
+    *, host: str, version: str | None, create_help: str, resume_help: str
+) -> PrewalkCapabilities:
+    token = host.strip().lower().replace("_", "-")
+    if token == "codex":
+        exact = "resume" in create_help and "SESSION_ID" in resume_help.upper()
+        route = "--model" in create_help and "--model" in resume_help and "model_reasoning_effort" in (create_help + resume_help)
+        transport = "codex_exec"
+    elif token in {"claude", "claude-code"}:
+        exact = "--session-id" in create_help and "--resume" in resume_help
+        route = "--model" in resume_help and "--effort" in resume_help
+        transport = "claude_code"
+        token = "claude"
+    else:
+        raise ValidationIssue("prewalk_capability_unavailable", f"Unsupported prewalk host `{host}`")
+    return PrewalkCapabilities(
+        host=token,
+        transport=transport,
+        installed_version=version,
+        advertised_exact_resume=exact,
+        advertised_route_override_on_resume=route,
+        instruction_fidelity="unsupported",
+        evidence_source="installed_help_only",
+        model_calls_made=False,
+    )
+
+
+def load_prewalk_capability_evidence(
+    path: Path,
+    *,
+    host: str,
+    installed_version: str | None,
+    advertised: PrewalkCapabilities,
+) -> PrewalkCapabilities:
+    data = _read_bounded_regular_json(
+        path,
+        runtime_root=None,
+        missing_code="prewalk_capability_unavailable",
+        invalid_code="prewalk_capability_unavailable",
+        limit=PREWALK_CAPABILITY_ARTIFACT_MAX_BYTES,
+    )
+    expected_host = host.strip().lower().replace("-code", "")
+    required = {
+        "artifact_type": "native_prewalk_behavioral_qualification",
+        "schema_version": 1,
+        "host": expected_host,
+        "installed_version": installed_version,
+        "create_exit_code": 0,
+        "resume_exit_code": 0,
+        "same_session_id": True,
+        "same_worktree": True,
+        "unique_guide_fact_observed": True,
+        "packet_replayed": False,
+        "stream_identity_verified": True,
+    }
+    for key, expected in required.items():
+        if data.get(key) != expected:
+            raise ValidationIssue(
+                "prewalk_capability_unavailable",
+                "Behavioral prewalk qualification does not match the installed host",
+                path=key,
+            )
+    fidelity = data.get("instruction_fidelity")
+    if fidelity not in PREWALK_INSTRUCTION_FIDELITIES or fidelity == "unsupported":
+        raise ValidationIssue("prewalk_instruction_pruning_unqualified", "Qualification must report usable instruction fidelity")
+    session_id = data.get("session_id")
+    if not isinstance(session_id, str) or not session_id.strip() or session_id.startswith("-"):
+        raise ValidationIssue("prewalk_session_id_missing", "Qualification lacks an exact safe session id")
+    for digest_key in ("guide_prompt_sha256", "continuation_sha256"):
+        if not isinstance(data.get(digest_key), str) or not _SHA256_RE.fullmatch(str(data[digest_key])):
+            raise ValidationIssue("prewalk_capability_unavailable", "Qualification digest is malformed", path=digest_key)
+    return PrewalkCapabilities(
+        host=advertised.host,
+        transport=advertised.transport,
+        installed_version=installed_version,
+        advertised_exact_resume=advertised.advertised_exact_resume,
+        advertised_route_override_on_resume=advertised.advertised_route_override_on_resume,
+        behaviorally_verified_session_continuity=True,
+        behaviorally_verified_instruction_pruning=fidelity == "pruned",
+        worktree_binding_verified=True,
+        stream_identity_verified=True,
+        instruction_fidelity=str(fidelity),
+        evidence_source=str(path.resolve()),
+        model_calls_made=False,
+    )

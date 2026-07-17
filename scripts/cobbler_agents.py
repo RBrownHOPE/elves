@@ -1980,7 +1980,10 @@ def build_parser() -> argparse.ArgumentParser:
         item.add_argument("--json", action="store_true")
         item.set_defaults(func=cmd_preferences)
     pref_set = preferences_sub.add_parser("set")
-    pref_set.add_argument("preference", choices=("worker.provider", "worker.native_effort"))
+    pref_set.add_argument(
+        "preference",
+        choices=("worker.provider", "worker.native_effort", "worker.prewalk"),
+    )
     pref_set.add_argument("value")
     pref_set.add_argument("--json", action="store_true")
     pref_set.set_defaults(func=cmd_preferences)
