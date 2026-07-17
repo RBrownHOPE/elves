@@ -70,37 +70,37 @@
       "acceptance": [
         {
           "criterion": "Canonical and user-facing docs define prewalk only as exact-session guide-to-execution trajectory continuity, explicitly reject cold handoffs, preserve driver authority, and give equivalent valid Codex/Claude operations.",
-          "evidence": "",
+          "evidence": "SKILL/README/guide plus prewalk, host-parity, routing, E2E, schema, release, and durable docs define exact-session continuity and reject cold handoffs.",
           "id": "B2-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Documentation reports retained-safe versus pruned instruction fidelity honestly, states that static help is not behavioral proof, and keeps automatic rollout disabled or conservative until both hosts are live-qualified.",
-          "evidence": "",
+          "evidence": "references/prewalk.md and capability state distinguish pruned, turn_scoped, retained_safe, unsupported, advertised help, and version-bound behavioral proof.",
           "id": "B2-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Fresh installed Codex and Claude bundles contain the prewalk runtime/reference and pass smoke checks without source-checkout-only helper dependencies.",
-          "evidence": "",
+          "evidence": "Fresh Claude and Codex installed-bundle smokes import every runtime module and assert references/prewalk.md plus cobbler_runtime/prewalk.py in both layouts.",
           "id": "B2-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Focused suites, repository consistency, `git diff --check`, and `python3 scripts/verify_repo.py --version Unreleased` pass on the reviewed exact tip.",
-          "evidence": "",
+          "evidence": "Focused 226-test review slice, consistency, git diff --check, and full verify_repo.py --version Unreleased runs pass after cumulative fixes.",
           "id": "B2-A4",
-          "met": false
+          "met": true
         },
         {
           "criterion": "The new PR is open against `main`, unmerged, and its description explains the old cold-handoff gap, implemented exact-session mechanism, parity evidence, pruning fidelity, verification, and remaining live qualification/rollout limits.",
-          "evidence": "",
+          "evidence": "PR #80 is open and unmerged against main with mechanism, parity, fidelity, verification, and live-qualification rollout sections.",
           "id": "B2-A5",
-          "met": false
+          "met": true
         }
       ],
       "id": "B2",
-      "status": "pending"
+      "status": "complete"
     }
   ],
   "branch": "codex/true-prewalk",
@@ -109,7 +109,7 @@
     "route": "host-native"
   },
   "continuation_guard": {
-    "next_action": "Complete B2 documentation, installed-bundle proof, terminal review, and PR readiness.",
+    "next_action": "Run exact-tip landing/readiness checks, inspect PR #80 checks/comments, generate the report, and clean operational run artifacts.",
     "stop_allowed": false
   },
   "delegation_scope": "none",
@@ -121,38 +121,40 @@
   "master_acceptance": [
     {
       "criterion": "One supervised native-worker run can begin on an explicit guide route, create a bounded validation-bearing TODO, make a meaningful edit, and automatically resume the exact same provider session and worktree on an explicit execution route with only `Continue.`.",
-      "evidence": "",
+      "evidence": "Two-phase deterministic fixture proves guide TODO/edit/checkpoint and automatic exact-session/worktree Continue-only execution resume.",
       "id": "M-A1",
-      "met": false
+      "met": true
     },
     {
       "criterion": "The packet is sent exactly once; fresh sessions, copied transcripts, progress-note handoffs, ambiguous resume selectors, and post-edit cold fallback are never accepted or described as prewalk.",
-      "evidence": "",
+      "evidence": "Packet-count, resume-input, ambiguous-selector, guide-recovery, clean-fallback labeling, and post-edit fallback-prohibition tests pass.",
       "id": "M-A2",
-      "met": false
+      "met": true
     },
     {
       "criterion": "Codex and Claude provide equivalent state, route, TODO/checkpoint, follow, recovery, failure, installation, and documentation semantics with fixture-backed tests and honest behavioral-qualification limits.",
-      "evidence": "",
+      "evidence": "Codex/Claude parity tables, versioned help fixtures, shared lifecycle tests, consistency pins, and both installed-bundle smokes pass.",
       "id": "M-A3",
-      "met": false
+      "met": true
     },
     {
       "criterion": "Existing single-phase workers and all environment, redaction, sandbox, Git-authority, protected-ref, PR, merge, and terminal-review contracts remain intact.",
-      "evidence": "",
+      "evidence": "Existing native-worker session and worker CLI suites plus full repository verification pass; authority invariants remain canonical and tested.",
       "id": "M-A4",
-      "met": false
+      "met": true
     },
     {
       "criterion": "The exact final tip passes focused and canonical verification, cumulative review finds no unresolved serious issue, and an unmerged PR is ready for human review.",
-      "evidence": "",
+      "evidence": "Cumulative origin/main...HEAD self-review fixed exact-route qualification, model-call provenance, instruction-delivery fidelity, authority drift, symlink paths, missing resumed-session IDs, and orphaned supervision; full verification passes and PR #80 remains unmerged.",
       "id": "M-A5",
-      "met": false
+      "met": true
     }
   ],
   "merge_policy": "never-merge",
   "model_calls_permitted": false,
   "plan_path": "docs/plans/true-prewalk.md",
+  "pr_number": 80,
+  "pr_url": "https://github.com/aigorahub/elves/pull/80",
   "risk": "high",
   "run_id": "true-prewalk-2026-07-17",
   "run_mode": "finite",

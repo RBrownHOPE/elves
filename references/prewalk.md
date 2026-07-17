@@ -88,12 +88,12 @@ python3 scripts/cobbler_agents.py native-worker prewalk-capabilities \
   --host claude --json
 ```
 
-A behavioral qualification artifact is bounded, mode-safe JSON bound to the exact host/version,
+A behavioral qualification artifact is bounded, mode-safe JSON bound to the exact host, transport, and version,
 session, guide and continuation digests, successful create/resume exits, same worktree/session, a
 guide-only fact observed after resume, one logical stream, no packet replay, the exact requested
 guide/execution model and effort, whether qualification made model calls, and an explicit
 instruction-fidelity result. Help-only probes report no model calls; a live behavioral artifact
-records its actual call provenance. Accepted fidelity is:
+  records its actual call provenance. Reported fidelity states are:
 
 - `pruned`: the temporary guide instruction is behaviorally proven absent after transition;
 - `turn_scoped`: the instruction is proven to apply only to the guide process and is not rebuilt
@@ -101,6 +101,11 @@ records its actual call provenance. Accepted fidelity is:
 - `retained_safe`: exact trajectory is proven and the cooperative guide instruction is safe to
   retain; this is usable but is not a prefix-pruning claim;
 - `unsupported`: no usable behavioral qualification; prewalk stays unavailable.
+
+The current supervised CLI transport sends the cooperative guide instruction in persisted session
+history, so this implementation activates only with `retained_safe` evidence. `pruned` and
+`turn_scoped` remain explicit future transport states and must not activate this path without a
+different, behaviorally proven instruction-delivery mechanism.
 
 Provider cache tokens are telemetry only. Cache hits neither prove nor gate trajectory continuity.
 

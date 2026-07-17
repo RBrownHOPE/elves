@@ -69,7 +69,17 @@ _SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 _SAFE_RUN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _STAGING_ONLY_PREFIXES = (
     ".elves/",
+    ".elves-session.json",
     "docs/plans/",
+    "docs/elves/learnings.md",
+    "docs/elves/survival-guide-",
+    "docs/elves/execution-log-",
+    "docs/elves/reports/",
+)
+_DRIVER_OWNED_PREFIXES = (
+    ".elves-session.json",
+    "docs/plans/",
+    "docs/elves/learnings.md",
     "docs/elves/survival-guide-",
     "docs/elves/execution-log-",
     "docs/elves/reports/",
@@ -113,7 +123,7 @@ class PrewalkCapabilities:
             and self.behaviorally_verified_session_continuity
             and self.worktree_binding_verified
             and self.stream_identity_verified
-            and self.instruction_fidelity != "unsupported"
+            and self.instruction_fidelity == "retained_safe"
             and self.qualified_guide_effort is not None
             and self.qualified_execution_effort is not None
         )
@@ -144,7 +154,7 @@ class PrewalkCapabilities:
             return "prewalk_exact_resume_unqualified"
         if not self.worktree_binding_verified or not self.stream_identity_verified:
             return "prewalk_capability_unavailable"
-        if self.instruction_fidelity == "unsupported":
+        if self.instruction_fidelity != "retained_safe":
             return "prewalk_instruction_pruning_unqualified"
         return None
 
@@ -506,6 +516,12 @@ def _diff_digest(worktree: Path, start_head: str, changed_paths: Sequence[str]) 
     digest.update(diff.stdout.encode("utf-8", errors="replace"))
     for path in changed_paths:
         target = worktree / path
+        if target.is_symlink():
+            raise ValidationIssue(
+                "prewalk_changed_path_forbidden",
+                "Prewalk changes may not use symlink targets",
+                path=path,
+            )
         if target.is_file() and _run_git(worktree, "ls-files", "--error-unmatch", "--", path).returncode != 0:
             digest.update(path.encode())
             try:
@@ -553,6 +569,27 @@ def validate_meaningful_edit(
     changed = observed_changed_paths(root, start_head)
     if not changed:
         raise ValidationIssue("prewalk_meaningful_edit_missing", "Guide phase produced no repository edit")
+    for path in changed:
+        target = root / path
+        if target.is_symlink():
+            raise ValidationIssue(
+                "prewalk_changed_path_forbidden",
+                "Guide phase changed a symlink target",
+                path=path,
+            )
+        try:
+            target.resolve().relative_to(root)
+        except ValueError as exc:
+            raise ValidationIssue(
+                "prewalk_changed_path_forbidden",
+                "Guide phase changed a path that resolves outside the worktree",
+                path=path,
+            ) from exc
+    if any(_path_matches(path, _DRIVER_OWNED_PREFIXES) for path in changed):
+        raise ValidationIssue(
+            "prewalk_changed_path_forbidden",
+            "Guide phase changed driver-owned canonical run memory",
+        )
     if any(_path_matches(path, forbidden_paths) for path in changed):
         raise ValidationIssue("prewalk_changed_path_forbidden", "Guide phase changed a forbidden surface")
     meaningful = tuple(path for path in changed if not _path_matches(path, _STAGING_ONLY_PREFIXES))
@@ -725,7 +762,12 @@ def probe_installed_prewalk_capabilities(
             return subprocess.CompletedProcess(argv, 1, "", type(exc).__name__)
 
     version_result = invoke([located, "--version"])
-    version_match = re.search(r"\d+\.\d+(?:\.\d+)?", version_result.stdout + version_result.stderr)
+    version_text = (
+        version_result.stdout + version_result.stderr
+        if version_result.returncode == 0
+        else ""
+    )
+    version_match = re.search(r"\d+\.\d+(?:\.\d+)?", version_text)
     version = version_match.group(0) if version_match else None
     if token == "codex":
         create_result = invoke([located, "exec", "--help"])
@@ -736,8 +778,16 @@ def probe_installed_prewalk_capabilities(
     advertised = advertised_prewalk_capabilities(
         host=token,
         version=version,
-        create_help=(create_result.stdout + create_result.stderr)[:PREWALK_RUNTIME_ARTIFACT_MAX_BYTES],
-        resume_help=(resume_result.stdout + resume_result.stderr)[:PREWALK_RUNTIME_ARTIFACT_MAX_BYTES],
+        create_help=(
+            (create_result.stdout + create_result.stderr)[:PREWALK_RUNTIME_ARTIFACT_MAX_BYTES]
+            if create_result.returncode == 0
+            else ""
+        ),
+        resume_help=(
+            (resume_result.stdout + resume_result.stderr)[:PREWALK_RUNTIME_ARTIFACT_MAX_BYTES]
+            if resume_result.returncode == 0
+            else ""
+        ),
     )
     if behavioral_evidence is None:
         return advertised
@@ -756,6 +806,17 @@ def load_prewalk_capability_evidence(
     installed_version: str | None,
     advertised: PrewalkCapabilities,
 ) -> PrewalkCapabilities:
+    if (
+        not isinstance(installed_version, str)
+        or not installed_version.strip()
+        or len(installed_version) > 128
+    ):
+        raise ValidationIssue(
+            "prewalk_capability_unavailable",
+            "Behavioral qualification requires an exact bounded installed version",
+            path="installed_version",
+        )
+    installed_version = installed_version.strip()
     data = _read_bounded_regular_json(
         path,
         runtime_root=None,
@@ -794,6 +855,15 @@ def load_prewalk_capability_evidence(
     for digest_key in ("guide_prompt_sha256", "continuation_sha256"):
         if not isinstance(data.get(digest_key), str) or not _SHA256_RE.fullmatch(str(data[digest_key])):
             raise ValidationIssue("prewalk_capability_unavailable", "Qualification digest is malformed", path=digest_key)
+    expected_continuation_digest = hashlib.sha256(
+        PREWALK_CONTINUATION_INPUT.encode("utf-8")
+    ).hexdigest()
+    if data.get("continuation_sha256") != expected_continuation_digest:
+        raise ValidationIssue(
+            "prewalk_capability_unavailable",
+            "Qualification did not prove the canonical minimal continuation input",
+            path="continuation_sha256",
+        )
     routes: dict[str, tuple[str | None, str]] = {}
     for role in ("guide", "execution"):
         route = data.get(f"{role}_route")
@@ -820,10 +890,10 @@ def load_prewalk_capability_evidence(
             )
         routes[role] = (model, str(effort))
     model_calls_made = data.get("model_calls_made")
-    if not isinstance(model_calls_made, bool):
+    if model_calls_made is not True:
         raise ValidationIssue(
             "prewalk_capability_unavailable",
-            "Qualification must report whether model calls were made",
+            "Live behavioral qualification must report its model calls",
             path="model_calls_made",
         )
     return PrewalkCapabilities(

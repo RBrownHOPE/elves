@@ -123,21 +123,21 @@ authority boundaries, and remain backward compatible with single-phase native wo
 
 **Tasks:**
 
-- [ ] Update the normative prewalk reference, SKILL, thin AGENTS adapter, README, host parity,
+- [x] Update the normative prewalk reference, SKILL, thin AGENTS adapter, README, host parity,
   adaptive routing, E2E/schema references, guide, changelog, TODO, learnings, and `.ai-docs`.
-- [ ] Add both host help fixtures and installed Codex/Claude bundle coverage for the runtime and docs.
-- [ ] Run focused proof, consistency checks, the canonical repository verifier, cumulative diff review,
+- [x] Add both host help fixtures and installed Codex/Claude bundle coverage for the runtime and docs.
+- [x] Run focused proof, consistency checks, the canonical repository verifier, cumulative diff review,
   any consolidated fixes, and exact-tip readiness checks.
-- [ ] Push `codex/true-prewalk` and open a new unmerged PR with the required mechanism, parity,
+- [x] Push `codex/true-prewalk` and open a new unmerged PR with the required mechanism, parity,
   instruction-fidelity, test, and rollout explanation.
 
 **Acceptance criteria:**
 
-- [ ] B2-A1: Canonical and user-facing docs define prewalk only as exact-session guide-to-execution trajectory continuity, explicitly reject cold handoffs, preserve driver authority, and give equivalent valid Codex/Claude operations.
-- [ ] B2-A2: Documentation reports retained-safe versus pruned instruction fidelity honestly, states that static help is not behavioral proof, and keeps automatic rollout disabled or conservative until both hosts are live-qualified.
-- [ ] B2-A3: Fresh installed Codex and Claude bundles contain the prewalk runtime/reference and pass smoke checks without source-checkout-only helper dependencies.
-- [ ] B2-A4: Focused suites, repository consistency, `git diff --check`, and `python3 scripts/verify_repo.py --version Unreleased` pass on the reviewed exact tip.
-- [ ] B2-A5: The new PR is open against `main`, unmerged, and its description explains the old cold-handoff gap, implemented exact-session mechanism, parity evidence, pruning fidelity, verification, and remaining live qualification/rollout limits.
+- [x] B2-A1: Canonical and user-facing docs define prewalk only as exact-session guide-to-execution trajectory continuity, explicitly reject cold handoffs, preserve driver authority, and give equivalent valid Codex/Claude operations.
+- [x] B2-A2: Documentation reports retained-safe versus pruned instruction fidelity honestly, states that static help is not behavioral proof, and keeps automatic rollout disabled or conservative until both hosts are live-qualified.
+- [x] B2-A3: Fresh installed Codex and Claude bundles contain the prewalk runtime/reference and pass smoke checks without source-checkout-only helper dependencies.
+- [x] B2-A4: Focused suites, repository consistency, `git diff --check`, and `python3 scripts/verify_repo.py --version Unreleased` pass on the reviewed exact tip.
+- [x] B2-A5: The new PR is open against `main`, unmerged, and its description explains the old cold-handoff gap, implemented exact-session mechanism, parity evidence, pruning fidelity, verification, and remaining live qualification/rollout limits.
 
 **Docs likely touched:** all specification-required canonical, user, release, and durable AI-facing docs.
 
@@ -151,11 +151,11 @@ authority boundaries, and remain backward compatible with single-phase native wo
 
 ## Master Acceptance
 
-- [ ] M-A1: One supervised native-worker run can begin on an explicit guide route, create a bounded validation-bearing TODO, make a meaningful edit, and automatically resume the exact same provider session and worktree on an explicit execution route with only `Continue.`.
-- [ ] M-A2: The packet is sent exactly once; fresh sessions, copied transcripts, progress-note handoffs, ambiguous resume selectors, and post-edit cold fallback are never accepted or described as prewalk.
-- [ ] M-A3: Codex and Claude provide equivalent state, route, TODO/checkpoint, follow, recovery, failure, installation, and documentation semantics with fixture-backed tests and honest behavioral-qualification limits.
-- [ ] M-A4: Existing single-phase workers and all environment, redaction, sandbox, Git-authority, protected-ref, PR, merge, and terminal-review contracts remain intact.
-- [ ] M-A5: The exact final tip passes focused and canonical verification, cumulative review finds no unresolved serious issue, and an unmerged PR is ready for human review.
+- [x] M-A1: One supervised native-worker run can begin on an explicit guide route, create a bounded validation-bearing TODO, make a meaningful edit, and automatically resume the exact same provider session and worktree on an explicit execution route with only `Continue.`.
+- [x] M-A2: The packet is sent exactly once; fresh sessions, copied transcripts, progress-note handoffs, ambiguous resume selectors, and post-edit cold fallback are never accepted or described as prewalk.
+- [x] M-A3: Codex and Claude provide equivalent state, route, TODO/checkpoint, follow, recovery, failure, installation, and documentation semantics with fixture-backed tests and honest behavioral-qualification limits.
+- [x] M-A4: Existing single-phase workers and all environment, redaction, sandbox, Git-authority, protected-ref, PR, merge, and terminal-review contracts remain intact.
+- [x] M-A5: The exact final tip passes focused and canonical verification, cumulative review finds no unresolved serious issue, and an unmerged PR is ready for human review.
 
 ## Non-Negotiables
 

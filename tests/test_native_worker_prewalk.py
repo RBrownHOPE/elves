@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -26,12 +28,15 @@ from cobbler_runtime.prewalk import (  # noqa: E402
     load_and_validate_transition_artifacts,
     load_prewalk_capability_evidence,
     prewalk_paths,
+    probe_installed_prewalk_capabilities,
     validate_checkpoint_artifact,
     validate_meaningful_edit,
     validate_todo_artifact,
 )
 from cobbler_runtime.native_worker import (  # noqa: E402
     build_native_worker_prewalk_spec,
+    native_worker_paths,
+    native_worker_status,
 )
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 
@@ -267,7 +272,9 @@ class MeaningfulEditTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "prewalk_meaningful_edit_missing")
         for path in (
             ".elves/runtime/prewalk/run/todo.json",
+            ".elves-session.json",
             "docs/plans/task.md",
+            "docs/elves/learnings.md",
             "docs/elves/execution-log-task.md",
         ):
             target = self.root / path
@@ -275,7 +282,33 @@ class MeaningfulEditTests(unittest.TestCase):
             target.write_text("staging only\n", encoding="utf-8")
         with self.assertRaises(ValidationIssue) as caught:
             self._validate("docs/plans/task.md")
-        self.assertEqual(caught.exception.code, "prewalk_meaningful_edit_missing")
+        self.assertEqual(caught.exception.code, "prewalk_changed_path_forbidden")
+
+    def test_rejects_changed_symlink_that_resolves_outside_worktree(self) -> None:
+        outside = self.root.parent / "outside.txt"
+        outside.write_text("outside\n", encoding="utf-8")
+        target = self.root / "src" / "escape.txt"
+        target.parent.mkdir()
+        target.symlink_to(outside)
+        with self.assertRaises(ValidationIssue) as caught:
+            self._validate("src/escape.txt")
+        self.assertEqual(caught.exception.code, "prewalk_changed_path_forbidden")
+
+    def test_rejects_mixed_product_and_driver_owned_run_memory_edits(self) -> None:
+        product = self.root / "src" / "example.py"
+        product.parent.mkdir()
+        product.write_text("edit\n", encoding="utf-8")
+        for path in (".elves-session.json", "docs/plans/active-run.md"):
+            with self.subTest(path=path):
+                memory = self.root / path
+                memory.parent.mkdir(parents=True, exist_ok=True)
+                memory.write_text("driver memory\n", encoding="utf-8")
+                with self.assertRaises(ValidationIssue) as caught:
+                    self._validate("src/example.py")
+                self.assertEqual(
+                    caught.exception.code, "prewalk_changed_path_forbidden"
+                )
+                memory.unlink()
 
     def test_rejects_forbidden_surface_and_authority_errors(self) -> None:
         target = self.root / "src" / "example.py"
@@ -397,6 +430,38 @@ class CapabilityEvidenceTests(unittest.TestCase):
                 installed_version="0.144.1",
                 advertised=advertised,
             )
+            payload["model_calls_made"] = False
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ValidationIssue) as caught:
+                load_prewalk_capability_evidence(
+                    path,
+                    host="codex",
+                    installed_version="0.144.1",
+                    advertised=advertised,
+                )
+            self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
+            payload["model_calls_made"] = True
+            payload["continuation_sha256"] = hashlib.sha256(b"Keep going").hexdigest()
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ValidationIssue) as caught:
+                load_prewalk_capability_evidence(
+                    path,
+                    host="codex",
+                    installed_version="0.144.1",
+                    advertised=advertised,
+                )
+            self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
+            payload["continuation_sha256"] = hashlib.sha256(b"Continue.").hexdigest()
+            payload["installed_version"] = None
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ValidationIssue) as caught:
+                load_prewalk_capability_evidence(
+                    path,
+                    host="codex",
+                    installed_version=None,
+                    advertised=advertised,
+                )
+            self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
         self.assertTrue(qualified.qualified())
         self.assertFalse(qualified.behaviorally_verified_instruction_pruning)
         self.assertEqual(qualified.instruction_fidelity, "retained_safe")
@@ -417,6 +482,14 @@ class CapabilityEvidenceTests(unittest.TestCase):
                 execution_effort="low",
             )
         )
+        for fidelity in ("pruned", "turn_scoped", "unsupported"):
+            with self.subTest(fidelity=fidelity):
+                unavailable = replace(qualified, instruction_fidelity=fidelity)
+                self.assertFalse(unavailable.qualified())
+                self.assertEqual(
+                    unavailable.unavailable_reason(),
+                    "prewalk_instruction_pruning_unqualified",
+                )
         with self.assertRaises(ValidationIssue) as caught:
             build_native_worker_prewalk_spec(
                 host="codex",
@@ -429,6 +502,25 @@ class CapabilityEvidenceTests(unittest.TestCase):
                 requested_mode="required",
             )
         self.assertEqual(caught.exception.code, "prewalk_route_change_unqualified")
+
+    def test_failed_help_commands_cannot_advertise_or_qualify_prewalk(self) -> None:
+        def failed_runner(argv, **_kwargs):
+            return subprocess.CompletedProcess(
+                argv,
+                1,
+                "Usage: resume SESSION_ID --session-id --resume --model --effort -c",
+                "",
+            )
+
+        with mock.patch(
+            "cobbler_runtime.prewalk.shutil.which", return_value="/usr/bin/codex"
+        ):
+            capabilities = probe_installed_prewalk_capabilities(
+                "codex", runner=failed_runner
+            )
+        self.assertFalse(capabilities.advertised_exact_resume)
+        self.assertFalse(capabilities.advertised_route_override_on_resume)
+        self.assertFalse(capabilities.qualified())
 
 
 class NativeTransportParityTests(unittest.TestCase):
@@ -528,8 +620,24 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
             "guide_record = {'packet_count': received.count('packet body\\n'), 'phase': phase}\n"
             "(record / 'guide.json').write_text(json.dumps(guide_record))\n"
             "(record / ('guide-' + phase + '.json')).write_text(json.dumps(guide_record))\n"
-            "print(json.dumps({'type':'thread.started','thread_id':sid}), flush=True)\n"
+            "if scenario != 'guide_no_id' and not (scenario == 'recovery_no_initial_id' and phase == 'prewalk'): print(json.dumps({'type':'thread.started','thread_id':sid}), flush=True)\n"
             "if scenario == 'guide_mismatch': print(json.dumps({'type':'turn.started','session_id':'different-session'}), flush=True)\n"
+            "if scenario == 'clean_branch_drift':\n"
+            "    if phase == 'prewalk':\n"
+            "        import subprocess\n"
+            "        subprocess.run(['git', 'switch', '-q', '-c', 'drift/clean-fallback'], check=True)\n"
+            "    raise SystemExit(7)\n"
+            "if scenario == 'clean_head_drift':\n"
+            "    if phase == 'prewalk':\n"
+            "        import subprocess\n"
+            "        pathlib.Path('product.txt').write_text('temporary committed edit\\n')\n"
+            "        subprocess.run(['git', 'add', 'product.txt'], check=True)\n"
+            "        subprocess.run(['git', 'commit', '-qm', 'temporary edit'], check=True)\n"
+            "        pathlib.Path('product.txt').write_text('base\\n')\n"
+            "        subprocess.run(['git', 'add', 'product.txt'], check=True)\n"
+            "        subprocess.run(['git', 'commit', '-qm', 'restore content'], check=True)\n"
+            "    raise SystemExit(7)\n"
+            "if scenario == 'recovery_no_initial_id' and phase == 'prewalk': raise SystemExit(7)\n"
             "if scenario == 'recovery_success' and phase == 'prewalk': raise SystemExit(7)\n"
             "if scenario == 'clean_fallback': raise SystemExit(7)\n"
             "if scenario == 'post_edit_failure':\n"
@@ -566,7 +674,7 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
             "    raise SystemExit(0)\n"
             "identity = json.loads(pathlib.Path(os.environ['ELVES_PREWALK_SESSION_PATH']).read_text())\n"
             "sid = 'different-session' if scenario == 'mismatch' else identity['session_id']\n"
-            "print(json.dumps({'type':'thread.started','thread_id':sid}), flush=True)\n"
+            "if scenario != 'execution_no_id': print(json.dumps({'type':'thread.started','thread_id':sid}), flush=True)\n"
             "if scenario == 'transient_recovery' and attempt == 1:\n"
             "    print('provider overloaded: 503 temporarily unavailable', file=sys.stderr, flush=True)\n"
             "    raise SystemExit(7)\n"
@@ -717,6 +825,13 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
         recovery = json.loads((record / "guide-prewalk_recovery.json").read_text())
         self.assertEqual(initial["packet_count"], 1)
         self.assertEqual(recovery["packet_count"], 0)
+        recovered_without_initial_event, _repo, _record = self._launch(
+            scenario="recovery_no_initial_id"
+        )
+        self.assertEqual(recovered_without_initial_event["status"], "complete")
+        self.assertEqual(
+            recovered_without_initial_event["prewalk"]["recovery_attempts"], 1
+        )
 
     def test_auto_fallback_is_explicitly_fresh_and_only_allowed_while_clean(self) -> None:
         state, repo, record = self._launch(scenario="clean_fallback", mode="auto")
@@ -737,6 +852,18 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
         self.assertFalse((record / "execution.json").exists())
         self.assertEqual((repo / "product.txt").read_text(), "uncheckpointed guide edit\n")
 
+    def test_clean_auto_fallback_rejects_branch_and_head_authority_drift(self) -> None:
+        for scenario in ("clean_branch_drift", "clean_head_drift"):
+            with self.subTest(scenario=scenario):
+                state, _repo, record = self._launch(scenario=scenario, mode="auto")
+                self.assertEqual(state["status"], "failed")
+                self.assertEqual(
+                    state["failure_reason"],
+                    "prewalk_worktree_continuity_violation",
+                )
+                self.assertEqual(state["packet"]["sent_count"], 1)
+                self.assertFalse((record / "execution.json").exists())
+
     def test_malformed_forbidden_and_branch_drift_transitions_fail_closed(self) -> None:
         malformed, _repo, _record = self._launch(scenario="malformed")
         self.assertEqual(malformed["failure_reason"], "prewalk_todo_invalid")
@@ -746,6 +873,16 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
         self.assertEqual(drifted["failure_reason"], "prewalk_worktree_continuity_violation")
 
     def test_session_mismatch_and_execution_failure_fail_closed(self) -> None:
+        guide_no_id, _repo, _record = self._launch(scenario="guide_no_id")
+        self.assertEqual(
+            guide_no_id["failure_reason"],
+            "prewalk_session_continuity_violation",
+        )
+        execution_no_id, _repo, _record = self._launch(scenario="execution_no_id")
+        self.assertEqual(
+            execution_no_id["failure_reason"],
+            "prewalk_session_continuity_violation",
+        )
         guide_mismatch, _repo, guide_record = self._launch(scenario="guide_mismatch")
         self.assertEqual(guide_mismatch["status"], "failed")
         self.assertEqual(
@@ -779,6 +916,60 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
         self.assertEqual(state["packet"]["sent_count"], 1)
         statuses = [entry["status"] for entry in state["status_history"]]
         self.assertIn("execution_backoff", statuses)
+
+    def test_orphaned_childless_backoff_state_fails_status_instead_of_hanging(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            state_path, _log_path = native_worker_paths(repo, "orphaned-backoff")
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "status": "execution_backoff",
+                        "pid": None,
+                        "pid_start": None,
+                        "supervisor_pid": 999_999_999,
+                        "supervisor_pid_start": "not-running",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path.chmod(0o600)
+            state = native_worker_status(repo, "orphaned-backoff")
+            self.assertEqual(state["status"], "failed")
+            self.assertEqual(
+                state["failure_reason"],
+                "native_worker_supervisor_identity_lost",
+            )
+
+    def test_live_child_is_not_reported_terminal_when_supervisor_is_lost(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            state_path, _log_path = native_worker_paths(repo, "orphaned-live-child")
+            state_path.parent.mkdir(parents=True)
+            process_start = subprocess.run(
+                ["ps", "-o", "lstart=", "-p", str(os.getpid())],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "status": "executing",
+                        "pid": os.getpid(),
+                        "pid_start": process_start,
+                        "supervisor_pid": 999_999_999,
+                        "supervisor_pid_start": "not-running",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path.chmod(0o600)
+            state = native_worker_status(repo, "orphaned-live-child")
+            self.assertEqual(state["status"], "executing")
+            self.assertTrue(state["process_identity_matches"])
+            self.assertFalse(state["supervisor_identity_matches"])
 
 
 if __name__ == "__main__":

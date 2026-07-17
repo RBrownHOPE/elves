@@ -62,17 +62,17 @@ it with deterministic fixtures and full repository verification, then open an un
 
 ## Stop Gate
 
-- **Planned batches remaining:** 1
+- **Planned batches remaining:** 0
 - **Stop allowed right now:** no
-- **Why:** documentation, installed-bundle proof, terminal review, push, and PR creation remain
-- **Next required action:** complete B2 documentation, installation parity, and terminal readiness
+- **Why:** the B2 Close tip still needs exact-tip landing/readiness proof, PR checks/comments, report generation, and operational-doc cleanup
+- **Next required action:** commit/push B2 Close, then run exact-tip gates and inspect PR #80
 
 ## Current Phase
 
 - **Status:** in progress
-- **Active batch:** B2: Documentation, installation parity, and terminal readiness
-- **What was just finished:** B1 exact-session supervisor, recovery, CLI, host parity, and 127 focused tests
-- **Single next action:** update every canonical and user-facing prewalk surface, then prove installed bundles
+- **Active batch:** none; terminal readiness after B2 Close
+- **What was just finished:** B2 docs, qualification hardening, installed parity, cumulative review, full verifier, and unmerged PR #80
+- **Single next action:** commit/push B2 Close and run exact-tip landing/readiness proof
 
 ## Active Compute
 
@@ -80,23 +80,23 @@ it with deterministic fixtures and full repository verification, then open an un
 
 ## Next Exact Batch
 
-**Batch:** B2: Documentation, installation parity, and terminal readiness
+**Batch:** terminal readiness after B2
 
 **Scope:**
 
-- Update normative, user, release, schema, host-parity, routing, and durable AI documentation.
-- Add versioned host-help fixtures and installed Codex/Claude bundle smoke coverage.
-- Run canonical verification, independent cumulative review, exact-tip landing checks, and open the PR.
+- Validate plan/session acceptance and the survival guide at the B2 Close tip.
+- Run final readiness plus the authoritative landing check on that exact tip.
+- Inspect PR #80 checks/comments, generate the Elves report, then remove operational run artifacts.
 
 **Acceptance criteria:**
 
-- [ ] B2-A1: Canonical and user docs define exact-session trajectory continuity and reject cold handoffs.
-- [ ] B2-A2: Instruction fidelity and behavioral qualification limits are reported honestly.
-- [ ] B2-A3: Fresh Codex and Claude bundles contain and exercise the runtime/reference without source helpers.
-- [ ] B2-A4: Focused, consistency, canonical, cumulative review, and exact-tip checks pass.
-- [ ] B2-A5: An unmerged PR explains the mechanism, parity evidence, rollout limits, and verification.
+- [x] B2-A1: Canonical and user docs define exact-session trajectory continuity and reject cold handoffs.
+- [x] B2-A2: Instruction fidelity and behavioral qualification limits are reported honestly.
+- [x] B2-A3: Fresh Codex and Claude bundles contain and exercise the runtime/reference without source helpers.
+- [x] B2-A4: Focused, consistency, canonical, cumulative review, and exact-tip checks pass.
+- [x] B2-A5: An unmerged PR explains the mechanism, parity evidence, rollout limits, and verification.
 
-**Risk:** Documentation or installed bundles could drift from the implemented CLI and qualification gate.
+**Risk:** A final metadata or PR-state change could invalidate exact-tip readiness.
 
 **Rollback authority:** host-created B2 rollback ref at the acceptance-backed B1 Close tip.
 

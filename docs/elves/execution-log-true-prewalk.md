@@ -52,7 +52,9 @@
 - B1 multi-phase supervisor/parity: complete. One version-3 supervisor owns guide, transition,
   execution, recovery, terminal authority, and one private follow stream. Clean `auto` fallback is
   explicitly a fresh single-phase run; dirty fallback is prohibited.
-- B2 docs/install/readiness/PR: pending.
+- B2 docs/install/readiness/PR: complete. The normative, user, parity, schema, guide, release,
+  prior-design, and durable AI surfaces now share the exact-trajectory definition; fresh Claude and
+  Codex installs ship and exercise the new reference/runtime; PR #80 is open and intentionally unmerged.
 
 ## Verification evidence
 
@@ -70,5 +72,17 @@
   exact-session transient recovery with the canonical 5/10/20-minute backoff policy.
 - Codex and Claude table tests pin distinct guide/execution models and efforts, exact session resume,
   registered CWD, narrow Git roots, and reject ambiguous latest/continue selectors.
-- Canonical verification: pending.
-- Terminal cumulative review: pending.
+- B2 focused proof: 226 prewalk, routing, consistency, installed-bundle, session, and worker
+  lifecycle review cases pass; `git diff --check` and repository consistency are clean.
+- Canonical verification: `python3 scripts/verify_repo.py --version Unreleased` passes before and
+  after the cumulative review fixes.
+- Read-only host probes: installed Codex 0.144.1 and Claude 2.1.207 advertise exact resume/route
+  overrides but remain honestly unqualified with `unsupported` fidelity and zero probe model calls.
+- Terminal cumulative self-review (live model calls prohibited) found and fixed connected gaps:
+  qualification is bound to exact routes and the current retained-safe delivery mechanism,
+  behavioral evidence reports actual model-call provenance, runtime artifacts reject symlinked
+  paths and driver-owned memory, clean fallback rejects Git authority drift, every resumed phase
+  must emit the exact session ID, and orphaned childless supervision fails closed. No unresolved
+  serious finding remains.
+- PR: https://github.com/aigorahub/elves/pull/80 is open against `main`, ready for checks and final
+  exact-tip landing proof, and remains unmerged.

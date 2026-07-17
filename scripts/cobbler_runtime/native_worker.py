@@ -1143,10 +1143,29 @@ def _clean_fallback_allowed(state: dict[str, Any], worktree: Path) -> bool:
     if state.get("requested_prewalk_mode") != "auto":
         return False
     try:
-        paths = observed_changed_paths(worktree, str(state["start_head"]))
+        if not _worktree_clean(worktree):
+            return False
+        if _final_head(worktree) != str(state["start_head"]):
+            return False
+        if _verify_native_git_contract(worktree, state):
+            return False
     except ValidationIssue:
         return False
-    return not any(not path.startswith(".elves/") for path in paths)
+    return True
+
+
+def _guide_recovery_failure_reason(state: dict[str, Any], worktree: Path) -> str:
+    try:
+        if _final_head(worktree) != str(state["start_head"]):
+            return "prewalk_worktree_continuity_violation"
+        if _verify_native_git_contract(worktree, state):
+            return "prewalk_worktree_continuity_violation"
+        paths = observed_changed_paths(worktree, str(state["start_head"]))
+    except ValidationIssue:
+        return "prewalk_worktree_continuity_violation"
+    if any(not path.startswith(".elves/") for path in paths):
+        return "prewalk_post_edit_cold_fallback_forbidden"
+    return "prewalk_guide_exit_before_checkpoint"
 
 
 def _run_clean_single_phase_fallback(
@@ -1312,14 +1331,6 @@ def _supervise_prewalk(
         expected_session_id=state.get("session_id"),
     )
     session_id = str(state.get("session_id") or "")
-    if guide.session_mismatch:
-        return _terminalize_native_worker(
-            state_path=state_path,
-            state=state,
-            worktree=worktree,
-            exit_code=1,
-            failure_reason="prewalk_session_continuity_violation",
-        )
     if not session_id:
         return _terminalize_native_worker(
             state_path=state_path,
@@ -1327,6 +1338,16 @@ def _supervise_prewalk(
             worktree=worktree,
             exit_code=1,
             failure_reason="prewalk_session_id_missing",
+        )
+    if guide.session_mismatch or (
+        guide.exit_code == 0 and session_id not in guide.observed_session_ids
+    ):
+        return _terminalize_native_worker(
+            state_path=state_path,
+            state=state,
+            worktree=worktree,
+            exit_code=1,
+            failure_reason="prewalk_session_continuity_violation",
         )
     if guide.exit_code != 0:
         state["prewalk"]["recovery_attempts"] = 1
@@ -1343,7 +1364,7 @@ def _supervise_prewalk(
             child_env=child_env,
             expected_session_id=session_id,
         )
-        if recovery.session_mismatch:
+        if recovery.session_mismatch or session_id not in recovery.observed_session_ids:
             return _terminalize_native_worker(
                 state_path=state_path,
                 state=state,
@@ -1360,20 +1381,12 @@ def _supervise_prewalk(
                     packet_text=packet_text,
                     child_env=child_env,
                 )
-            reason = (
-                "prewalk_post_edit_cold_fallback_forbidden"
-                if any(
-                    not path.startswith(".elves/")
-                    for path in observed_changed_paths(worktree, str(state["start_head"]))
-                )
-                else "prewalk_guide_exit_before_checkpoint"
-            )
             return _terminalize_native_worker(
                 state_path=state_path,
                 state=state,
                 worktree=worktree,
                 exit_code=recovery.exit_code,
-                failure_reason=reason,
+                failure_reason=_guide_recovery_failure_reason(state, worktree),
             )
     try:
         todo, checkpoint = load_and_validate_transition_artifacts(
@@ -1431,7 +1444,7 @@ def _supervise_prewalk(
         child_env=child_env,
         session_id=session_id,
     )
-    if execution.session_mismatch:
+    if execution.session_mismatch or session_id not in execution.observed_session_ids:
         return _terminalize_native_worker(
             state_path=state_path,
             state=state,
@@ -1549,14 +1562,14 @@ def native_worker_status(repo_root: Path, run_id: str) -> dict[str, Any]:
         supervisor_start = state.get("supervisor_pid_start")
         supervisor_matches = _process_identity_matches(supervisor_pid, supervisor_start)
         state["supervisor_identity_matches"] = supervisor_matches
-        if (
-            state.get("status") in child_statuses
-            and process_identity_matches is False
-            and supervisor_matches is False
-        ):
-            # A fast child can exit just before the supervisor atomically records
-            # its terminal state. Give that final write a short grace window so a
-            # status poll cannot turn a successful run into a false failure.
+        lost_active_supervision = supervisor_matches is False and (
+            state.get("status") not in child_statuses
+            or process_identity_matches is False
+        )
+        if lost_active_supervision:
+            # A fast supervisor can exit just before atomically recording its
+            # terminal state. Give that final write a short grace window before
+            # reporting lost supervision for child and childless active phases.
             latest = state
             for attempt in range(6):
                 if attempt:
@@ -1564,8 +1577,14 @@ def native_worker_status(repo_root: Path, run_id: str) -> dict[str, Any]:
                 latest = json.loads(state_path.read_text(encoding="utf-8"))
                 if latest.get("status") in {"complete", "failed"}:
                     return latest
+            prior_status = str(state.get("status") or "")
             state["status"] = "failed"
-            state["failure_reason"] = "supervisor_and_child_identity_lost"
+            state["failure_reason"] = (
+                "supervisor_and_child_identity_lost"
+                if prior_status in child_statuses
+                and process_identity_matches is False
+                else "native_worker_supervisor_identity_lost"
+            )
     return state
 
 
