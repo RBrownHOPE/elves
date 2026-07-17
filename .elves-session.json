@@ -88,7 +88,7 @@
         },
         {
           "criterion": "Focused suites, repository consistency, `git diff --check`, and `python3 scripts/verify_repo.py --version Unreleased` pass on the reviewed exact tip.",
-          "evidence": "Focused 226-test review slice, consistency, git diff --check, and full verify_repo.py --version Unreleased runs pass after cumulative fixes.",
+          "evidence": "Focused 226-test review slice, consistency, git diff --check, full and final-readiness verification pass; the exact local --ci gate passes after renaming one host-normalization variable that triggered the strict named-token secret scan.",
           "id": "B2-A4",
           "met": true
         },
@@ -109,7 +109,7 @@
     "route": "host-native"
   },
   "continuation_guard": {
-    "next_action": "Run exact-tip landing/readiness checks, inspect PR #80 checks/comments, generate the report, and clean operational run artifacts.",
+      "next_action": "Prove and push the CI secret-scan correction, rerun exact-tip landing/readiness, wait for PR #80 checks, then clean operational run artifacts.",
     "stop_allowed": false
   },
   "delegation_scope": "none",

@@ -64,15 +64,15 @@ it with deterministic fixtures and full repository verification, then open an un
 
 - **Planned batches remaining:** 0
 - **Stop allowed right now:** no
-- **Why:** the B2 Close tip still needs exact-tip landing/readiness proof, PR checks/comments, report generation, and operational-doc cleanup
-- **Next required action:** commit/push B2 Close, then run exact-tip gates and inspect PR #80
+- **Why:** the strict CI correction is locally proven but still needs commit/push, renewed exact-tip landing/readiness proof, green PR checks, and operational-doc cleanup
+- **Next required action:** commit/push the host-normalization rename, then rerun exact-tip gates and PR #80 checks
 
 ## Current Phase
 
 - **Status:** in progress
 - **Active batch:** none; terminal readiness after B2 Close
-- **What was just finished:** B2 docs, qualification hardening, installed parity, cumulative review, full verifier, and unmerged PR #80
-- **Single next action:** commit/push B2 Close and run exact-tip landing/readiness proof
+- **What was just finished:** acceptance-tip readiness and landing passed; the first PR CI run isolated one secret-scan naming false positive
+- **Single next action:** commit and push the locally proven CI correction
 
 ## Active Compute
 

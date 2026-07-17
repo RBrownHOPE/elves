@@ -86,3 +86,8 @@
   serious finding remains.
 - PR: https://github.com/aigorahub/elves/pull/80 is open against `main`, ready for checks and final
   exact-tip landing proof, and remains unmerged.
+- First CI pass exposed one strict secret-pattern false positive: the new host-normalization local
+  used the generic name `token` before assigning `"claude"`. Rename it to `host_name`, reproduce
+  the strict `--ci` gate locally, and require a green rerun before handoff.
+- Correction proof: focused capability/parity tests and
+  `python3 scripts/verify_repo.py --ci --version Unreleased --base-ref origin/main` pass locally.

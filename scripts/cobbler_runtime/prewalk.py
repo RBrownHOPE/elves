@@ -702,23 +702,23 @@ def fixture_prewalk_capabilities(host: str = "fixture") -> PrewalkCapabilities:
 def advertised_prewalk_capabilities(
     *, host: str, version: str | None, create_help: str, resume_help: str
 ) -> PrewalkCapabilities:
-    token = host.strip().lower().replace("_", "-")
-    if token == "codex":
+    host_name = host.strip().lower().replace("_", "-")
+    if host_name == "codex":
         exact = "resume" in create_help and "SESSION_ID" in resume_help.upper()
         config_override = ("--config" in create_help or "-c" in create_help) and (
             "--config" in resume_help or "-c" in resume_help
         )
         route = "--model" in create_help and "--model" in resume_help and config_override
         transport = "codex_exec"
-    elif token in {"claude", "claude-code"}:
+    elif host_name in {"claude", "claude-code"}:
         exact = "--session-id" in create_help and "--resume" in resume_help
         route = "--model" in resume_help and "--effort" in resume_help
         transport = "claude_code"
-        token = "claude"
+        host_name = "claude"
     else:
         raise ValidationIssue("prewalk_capability_unavailable", f"Unsupported prewalk host `{host}`")
     return PrewalkCapabilities(
-        host=token,
+        host=host_name,
         transport=transport,
         installed_version=version,
         advertised_exact_resume=exact,
