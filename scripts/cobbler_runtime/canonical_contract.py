@@ -195,6 +195,19 @@ INDEPENDENCE_INVARIANTS: tuple[str, ...] = (
     "worker_evidence_cannot_grant_merge_or_change_landing_outcome",
 )
 
+# Prewalk is a lifecycle inside one worker trajectory.  It never transfers the
+# driver's context and never changes host-owned authority or terminal review.
+PREWALK_INVARIANTS: tuple[str, ...] = (
+    "prewalk_requires_exact_worker_session_continuity",
+    "prewalk_requires_exact_registered_worktree_continuity",
+    "fresh_packet_handoff_is_not_prewalk",
+    "initial_worker_packet_sent_once",
+    "execution_resume_input_is_minimal_continuation",
+    "driver_does_not_review_first_edit_before_transition",
+    "post_edit_cold_fallback_forbidden",
+    "driver_authority_and_terminal_review_unchanged",
+)
+
 # ---------------------------------------------------------------------------
 # Safety kernel with destinations and proving tests
 # ---------------------------------------------------------------------------
@@ -803,6 +816,14 @@ def hosts_share_semantics() -> dict[str, Any]:
         },
         "optional_providers_required": False,
         "grok_required": False,
+        "prewalk": {
+            "semantic_parity_required": True,
+            "exact_create_resume": {
+                "claude_code": "caller UUID then --resume <uuid>",
+                "codex": "captured thread id then codex exec resume <id>",
+            },
+            "shared_contract": list(PREWALK_INVARIANTS),
+        },
     }
 
 
@@ -827,6 +848,7 @@ def contract_snapshot() -> dict[str, Any]:
         "proof_budget": PROOF_BUDGET_SLOGAN,
         "terminal_outcomes": list(TERMINAL_OUTCOMES),
         "independence_invariants": list(INDEPENDENCE_INVARIANTS),
+        "prewalk_invariants": list(PREWALK_INVARIANTS),
         "safety_kernel": safety_kernel_snapshot(),
         "migration_ledger": migration_ledger_snapshot(),
         "host_parity": hosts_share_semantics(),

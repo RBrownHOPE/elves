@@ -147,6 +147,34 @@ class ConsistencyPhraseTests(unittest.TestCase):
                     )
                 )
 
+    def test_prewalk_corpus_pins_trajectory_not_cold_handoff_claims(self) -> None:
+        required = {
+            "SKILL.md",
+            "AGENTS.md",
+            "README.md",
+            "references/prewalk.md",
+            "references/host-parity.md",
+            "references/adaptive-worker-routing.md",
+            "guide/index.html",
+            "CHANGELOG.md",
+        }
+        self.assertEqual(set(self.consistency.PREWALK_PHRASES), required)
+        for label, phrases in self.consistency.PREWALK_PHRASES.items():
+            with self.subTest(label=label):
+                self.assertTrue(phrases)
+        joined = " ".join(self.consistency.PREWALK_PHRASES["SKILL.md"])
+        self.assertIn("fresh session", joined.casefold())
+        self.assertIn("post-edit cold fallback", joined)
+
+    def test_prewalk_corpus_rejects_summary_only_approximation(self) -> None:
+        errors = self.consistency.find_missing_phrases(
+            {"SKILL.md": "Prewalk starts a new worker from a summary."},
+            {"SKILL.md": self.consistency.PREWALK_PHRASES["SKILL.md"]},
+            "exact-session prewalk",
+        )
+        self.assertTrue(errors)
+        self.assertTrue(any("fresh session" in error for error in errors))
+
     def test_grok_worker_consistency_rejects_stale_fixed_model_policy(self) -> None:
         label = "docs/elves/learnings.md"
         stale = "use permitted Grok Composer 2.5 Fast for regular clear work"

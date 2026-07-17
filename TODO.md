@@ -9,6 +9,13 @@ Project backlog and deferred tasks.
 
 ## Future Ideas
 
+- [x] Replace the old optional trajectory experiment with true exact-session native-worker
+  prewalk. Codex and Claude now share a feature-gated guide→meaningful-edit checkpoint→execution
+  supervisor, bounded TODO/checkpoint artifacts, honest instruction fidelity, deterministic
+  capability/routing state, parity fixtures, and installed-bundle coverage. Live behavioral
+  qualification and dogfood evaluation remain rollout phases, not implementation claims; see
+  `references/prewalk.md`.
+
 - [x] Add a lightweight process-retro pass to entropy checks.
   `SKILL.md`, `AGENTS.md`, `README.md`, and `references/execution-log-template.md` now tell Elves
   to spend a few minutes on repeated friction during entropy checks and tighten the survival guide,

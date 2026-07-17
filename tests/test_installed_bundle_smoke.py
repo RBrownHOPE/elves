@@ -86,6 +86,8 @@ class InstalledBundleSmokeTests(unittest.TestCase):
                 self.assertTrue((dest / "scripts" / "cobbler_runtime" / "implement.py").is_file())
                 self.assertTrue((dest / "scripts" / "cobbler_runtime" / "onboard.py").is_file())
                 self.assertTrue((dest / "scripts" / "cobbler_runtime" / "executables.py").is_file())
+                self.assertTrue((dest / "scripts" / "cobbler_runtime" / "prewalk.py").is_file())
+                self.assertTrue((dest / "references" / "prewalk.md").is_file())
                 self.assertFalse((dest / "aliases").exists())
             finally:
                 sync.REPO_ROOT = original_root
@@ -105,6 +107,34 @@ class InstalledBundleSmokeTests(unittest.TestCase):
             "missing required runtime dependency scripts/missing.py",
             result["failures"],
         )
+
+    def test_both_host_layouts_ship_prewalk_runtime_and_reference(self) -> None:
+        import sync_installed_skills as sync  # noqa: PLC0415
+
+        original_root = sync.REPO_ROOT
+        original_targets = sync.TARGETS
+        try:
+            for host in ("claude", "codex"):
+                with self.subTest(host=host), tempfile.TemporaryDirectory() as tmpdir:
+                    install_root = Path(tmpdir) / "skills"
+                    dest = install_root / "elves"
+                    sync.REPO_ROOT = REPO_ROOT
+                    cfg = dict(sync.build_targets(REPO_ROOT)[host])
+                    cfg["root"] = dest
+                    if host == "claude":
+                        cfg["alias_root"] = install_root
+                    else:
+                        cfg.pop("alias_root", None)
+                        cfg["managed_aliases"] = []
+                    sync.TARGETS = {host: cfg}
+                    self.assertEqual(sync.apply_target(host), [])
+                    self.assertTrue(
+                        (dest / "scripts" / "cobbler_runtime" / "prewalk.py").is_file()
+                    )
+                    self.assertTrue((dest / "references" / "prewalk.md").is_file())
+        finally:
+            sync.REPO_ROOT = original_root
+            sync.TARGETS = original_targets
 
     def test_installed_markdown_links_reject_unshipped_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

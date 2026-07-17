@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "2.7.0"
+  version: "2.8.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -33,9 +33,9 @@ handoff remains valid for huge/unstable plans.
 
 **Canonical contract (code):** `scripts/cobbler_runtime/canonical_contract.py`. Operator detail:
 `references/joyful-runs-contract.md`, `landing-authority.md`, `follow-mode.md`,
-`proof-and-review.md`, `host-parity.md`, `schema-and-acceptance.md`.
+`proof-and-review.md`, `host-parity.md`, `schema-and-acceptance.md`, `prewalk.md`.
 
-**User guide (v2.6):** `https://aigorahub.github.io/elves/` is the short task-first path for
+**User guide (v2.8):** `https://aigorahub.github.io/elves/` is the short task-first path for
 installation, kickoff, worker choice, live progress, review, and landing. The references above
 remain the detailed workflow contracts.
 
@@ -226,6 +226,20 @@ refreshed at each milestone and never committed — so a cold re-drive starts or
 gate or worker runs triggers a health check (near-zero CPU time against long wall time is the
 hang signature). After repeated transient deaths in one batch, the driver may split the batch or
 take it host-native without that counting against the budget; document the decision.
+
+**Exact-session prewalk.** Optional subscription-native prewalk means one worker trajectory:
+guide route → bounded TODO + first meaningful task edit + private checkpoint → automatic exact-ID,
+same-worktree execution-route resume with only `Continue.`. The packet is sent once. A fresh session
+with a copied packet or summary is not prewalk; post-edit cold fallback is forbidden. `off`, `auto`,
+and `required` are deterministic/model-free routing requests, but actual prewalk requires
+version-bound behavioral proof of exact session/worktree/stream continuity, route change, no packet
+replay, and honest instruction fidelity. The evidence schema can report `pruned`, `turn_scoped`,
+`retained_safe`, or `unsupported`; because the current transport persists the cooperative guide
+instruction, this implementation activates only for proven `retained_safe`. Static help proves only
+advertised grammar. Until both Codex and Claude transports are behaviorally qualified, the safe
+`auto` preference records actual mode `off`; `required` fails before launch. The driver still owns
+canonical memory, terminal review, PR, landing, and merge. Full contract and host grammar:
+`references/prewalk.md`.
 
 ## Git History as Operator UI
 
@@ -507,6 +521,8 @@ lanes remain useful but are not the default happy path.
 ## Host parity
 
 Claude Code and Codex provide the same workflow and safety. See `references/host-parity.md`.
+Exact-session prewalk must also preserve the same trajectory, checkpoint, visibility, fallback, and
+authority semantics on both hosts; supervised transport syntax may differ.
 **Codex Goals** are optional continuation plumbing — distinct from **Grok Build goal mode**.
 
 ## Compatibility notes

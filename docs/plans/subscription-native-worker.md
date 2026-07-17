@@ -220,10 +220,10 @@ directly, while the supervisor performs only deterministic process checks.
 
 ### 5. Optional trajectory experiment
 
-Only after the MVP is fast and reliable, test a dedicated worker session that begins at higher
-effort for orientation and the first meaningful edit, then resumes the same exact session at low
-effort. The transition should have no correctness gate and no driver review. It is an optional,
-capability-qualified optimization; unsupported hosts stay on the single-effort worker path.
+Implemented and superseded by the feature-gated exact-session prewalk contract in
+`references/prewalk.md`. The dedicated worker begins on the guide route, writes a bounded TODO and
+first-meaningful-edit checkpoint, then resumes the same exact session and worktree on the execution
+route without a driver correctness gate. Unsupported hosts stay on the single-phase worker path.
 
 ## Existing repository gaps to fix before CLI fallback
 

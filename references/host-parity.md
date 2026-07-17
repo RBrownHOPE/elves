@@ -21,6 +21,33 @@ semantics do not. See [`adaptive-worker-routing.md`](adaptive-worker-routing.md)
 When checking a route, pass `--host claude` from Claude Code and `--host codex` from Codex so any
 native fallback uses the live driver's transport.
 
+## Exact-session prewalk parity
+
+Prewalk is supported only through a behaviorally qualified supervised transport. Both hosts must
+provide the same guide→meaningful-edit checkpoint→execution lifecycle and make the same user claim;
+syntax alone is not parity.
+
+| Concern | Claude Code 2.1.207 grammar | Codex 0.144.1 grammar | Shared requirement |
+|---|---|---|---|
+| Fresh identity | caller-generated `--session-id <uuid>` | capture `thread.started.thread_id` | exact ID before transition |
+| Guide route | `--model`, `--effort` | `--model`, `model_reasoning_effort` | explicit guide model/effort |
+| Resume | `--resume <uuid>` | `codex exec resume <id>` | never `--continue`, `--last`, or latest |
+| Resume route | model/effort flags with resume | route/sandbox/Git-root flags before `resume` | explicit execution model/effort |
+| Worktree | supervisor CWD + narrow allowed roots | `-C` on create; supervisor OS CWD on resume | exact registered worktree/branch |
+| Stream | stream JSON | JSONL | one redacted logical follow stream with phase labels |
+| TODO/checkpoint | native mechanism plus private JSON mirror | native mechanism plus private JSON mirror | same bounded provider-neutral schema |
+| Instruction fidelity | version-bound behavioral evidence | version-bound behavioral evidence | honest `pruned`, `turn_scoped`, `retained_safe`, or `unsupported` |
+| Git authority | safe mode, `auto` classifier, narrow roots | workspace sandbox, narrow roots | no push/protected-ref/PR/merge authority |
+| Failure | exact-session recovery | exact-session recovery | no post-edit cold fallback; same stable codes |
+
+The packet appears only on the guide turn and execution receives only `Continue.`. Static help
+fixtures prove advertised create/resume/route flags but not conversation continuity or instruction
+pruning. The current persisted-instruction transport activates only for behaviorally proven
+`retained_safe`; `pruned` and `turn_scoped` remain schema states for future delivery mechanisms.
+Consequently the shipped code is feature-gated and `auto` remains actually off for an unqualified
+installed version on either host. A release must not claim general prewalk availability when one
+primary host would silently start a new session. See [`prewalk.md`](prewalk.md).
+
 ## Do not confuse
 
 - **Codex Goals** — host continuation plumbing for long Codex sessions. Not Grok.
