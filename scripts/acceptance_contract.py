@@ -175,7 +175,8 @@ def _emit(
 _HOST_NATIVE_WORK_DRIVERS: frozenset[str] = frozenset({"", "host-native", "n-a"})
 _DELEGATED_SCOPES: frozenset[str] = frozenset({"batch", "full-run"})
 _HANDOFF_MODES: frozenset[str] = frozenset({"fresh_start", "resume_active_batch"})
-_MAX_WORKER_PACKET_BYTES = 1_000_000
+# Match the trusted full-run packet boundary without importing its large runtime module.
+_MAX_WORKER_PACKET_BYTES = 1024 * 1024
 _MARKDOWN_HANDOFF_PREFIX = "<!-- elves-handoff-v1\n"
 _MARKDOWN_HANDOFF_SUFFIX = "\n-->"
 _HANDOFF_FIELDS: frozenset[str] = frozenset(
@@ -818,6 +819,8 @@ def _explicit_handoff_issues(
         return issues
     packet_state, capsule_issues = _packet_state_capsule(packet_text, packet_path)
     issues.extend(capsule_issues)
+    if any(issue.code == "worker_packet_invalid_json" for issue in capsule_issues):
+        return issues
     if packet_state is not None:
         unexpected_capsule_fields = sorted(set(packet_state) - _PACKET_CAPSULE_FIELDS)
         if unexpected_capsule_fields:

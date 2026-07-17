@@ -127,7 +127,7 @@ definitions under `acceptance`:
 }
 ```
 
-Both formats are bounded to 1,000,000 UTF-8 bytes and must define the same ID→criterion mapping as
+Both formats are bounded to 1 MiB (1,048,576 UTF-8 bytes) and must define the same ID→criterion mapping as
 the plan. JSON duplicate keys, Markdown capsules after other content, duplicate acceptance IDs,
 and missing/extra/text-drifted rows fail closed with stable diagnostics. Full-run prepare still
 performs its existing immutable plan/session/packet binding at the launch boundary; explicit

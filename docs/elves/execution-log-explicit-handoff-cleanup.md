@@ -2,8 +2,8 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-07-17 18:12 EDT
-- **Current phase:** v2.9.0 release-readiness slice ready
+- **Last updated:** 2026-07-17 18:22 EDT
+- **Current phase:** Cumulative-review fixes ready
 - **Active batch:** B0 — reconcile and harden explicit handoff v1
 - **Last completed batch:** none
 - **Next exact batch:** B0
@@ -46,6 +46,19 @@
   the newly added cleanup plan, which has been reviewed for README/changelog/consistency coverage.
 - Consistency, acceptance staging, guide HTML parsing, and `git diff --check` pass.
 - Next: commit/push this slice, re-read the guide, then rerun strict CI and cumulative review.
+
+## B0 broad proof and cumulative review: 2026-07-17 18:22 EDT
+
+- `verify_repo.py --ci --version 2.9.0 --base-ref origin/main` passed: 1,131 tests, consistency,
+  release, public API, Markdown links, secret scan, installed bundles, and cumulative diff checks.
+- Manual cumulative review checked compatibility, branch/path/commit identity, capsule bounds and
+  placement, Markdown/JSON parity, ownership partitioning, prewalk separation, and docs/version
+  alignment.
+- Fixed two review findings: align the explicit packet boundary with full-run's canonical 1 MiB
+  limit, and stop malformed JSON after one stable diagnostic instead of parsing it twice.
+- Added malformed-JSON cardinality coverage; 130 focused acceptance/consistency tests pass.
+- Next: commit/push review fixes, re-read the guide, rerun strict CI on the exact tip, then attach
+  acceptance evidence.
 
 ## Session Setup: 2026-07-17 17:38 EDT
 

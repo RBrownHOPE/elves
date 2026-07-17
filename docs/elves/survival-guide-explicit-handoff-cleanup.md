@@ -50,7 +50,7 @@ for both Markdown and JSON packets. Finish at a landable PR; do not merge.
 - **Planned batches remaining:** 1
 - **Stop allowed right now:** no
 - **Why:** validator reconciliation, docs, broad proof, PR creation, and cleanup remain
-- **Next required action:** commit and push the v2.9.0 release-readiness slice, re-read this guide, then rerun broad verification and cumulative review
+- **Next required action:** commit and push the cumulative-review fixes, re-read this guide, then rerun strict CI on the exact tip
 
 ## Effort Standard
 
@@ -68,10 +68,10 @@ Prefer exact compatibility and category proof over a smaller speculative patch.
 
 ## Current Phase
 
-- **Status:** v2.9.0 release-readiness slice ready
+- **Status:** cumulative-review fixes ready
 - **Active batch:** B0
-- **What was just finished:** v2.9.0 metadata, changelog promotion, public guide, and release checklist
-- **Single next action:** commit and push the release-readiness slice
+- **What was just finished:** strict CI pass plus packet-boundary and duplicate-diagnostic review fixes
+- **Single next action:** commit and push the review fixes
 
 ## Active Compute
 
@@ -82,7 +82,7 @@ running.
 
 - **Batch:** B0 — reconcile and harden explicit handoff v1
 - **Scope:** backward-compatible explicit handoff state validation, packet-format parity, docs, and proof
-- **Acceptance criteria:** B0-A1 through B0-A5 in the plan and session
+- **Acceptance criteria:** B0-A1 through B0-A6 in the plan and session
 - **Risk:** standard; staging safety behavior must not regress v2.8 compatibility
 
 ## Post-Checkpoint Control Loop
@@ -119,17 +119,21 @@ single `Next Exact Action` without restaging completed work.
 - Contract commit `629a1d8` is pushed on the branch.
 - Implementation commit `2a38193` is pushed on the branch.
 - Documentation/parity commit `2706625` is pushed on the branch.
+- Release-readiness commit `10f4075` is pushed on the branch.
 - The validator now preserves undeclared-session advisory behavior and strictly validates declared
   handoff v1 state for Markdown and JSON packets.
 - Canonical docs, changelog, durable guidance, and consistency pins are aligned; 129 focused tests
   and the consistency checker pass.
 - Source/README/guide/changelog now agree on v2.9.0; the release checklist passes with only the
-  reviewed new-plan-surface warning. Broad proof and cumulative review remain.
+  reviewed new-plan-surface warning.
+- Strict CI passed 1,131 tests plus consistency, release, public API, links, secret scan, and
+  installed-bundle smokes. Cumulative review found and fixed a 1,000,000-vs-1-MiB boundary mismatch
+  and duplicate malformed-JSON diagnostics; exact-tip strict rerun remains.
 
 ## Next Exact Action
 
-Commit and push the v2.9.0 release-readiness slice, re-read this guide, then rerun broad terminal
-verification and review the cumulative `origin/main...HEAD` diff.
+Commit and push the cumulative-review fixes, re-read this guide, then rerun strict CI on the exact
+tip and complete acceptance evidence.
 
 ## Recovery Order
 

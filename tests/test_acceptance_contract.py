@@ -1527,7 +1527,7 @@ class DelegatedHandoffContractTests(unittest.TestCase):
         session = self._session_with_driver("grok-build", include_handoff=True)
         relative = self._write_packet(session)
         packet_path = self.repo / relative
-        packet_path.write_text("x" * 1_000_001, encoding="utf-8")
+        packet_path.write_text("x" * ((1024 * 1024) + 1), encoding="utf-8")
         session["worker_packet_path"] = relative
         self.write_session(session)
 
@@ -1535,6 +1535,23 @@ class DelegatedHandoffContractTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("worker_packet_invalid", self._issue_codes(result))
+
+    def test_validate_reports_malformed_json_packet_once(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        relative = self._write_packet(session, json_packet=True)
+        (self.repo / relative).write_text("{", encoding="utf-8")
+        session["worker_packet_path"] = relative
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        issues = json.loads(result.stdout)["issues"]
+        self.assertEqual(
+            ["worker_packet_invalid_json"],
+            [item["code"] for item in issues],
+        )
 
     def test_validate_blocks_packet_criterion_text_drift(self) -> None:
         self.write_plan()
