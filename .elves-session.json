@@ -1,0 +1,75 @@
+{
+  "run_id": "explicit-handoff-cleanup-2026-07-17",
+  "branch": "codex/explicit-prewalk-handoff",
+  "start_head": "6dff5957d2781a2274a7f8300879785636fdf3b6",
+  "worktree_path": "/Users/john/aigora/dev/elves-explicit-prewalk-handoff",
+  "plan_path": "docs/plans/explicit-handoff-contract-cleanup.md",
+  "work_driver": "host-native",
+  "delegation_scope": "none",
+  "landing_outcome": "landable_pr",
+  "driver_authorized": false,
+  "cobbler": {
+    "default_for_session": true,
+    "actual_route": "host-native-direct",
+    "fallback_reason": "Subagent delegation is unavailable for this run."
+  },
+  "batches": [
+    {
+      "id": "B0",
+      "status": "in_progress",
+      "acceptance": [
+        {
+          "id": "B0-A1",
+          "criterion": "Delegated sessions that do not declare explicit handoff v1 retain the v2.8 advisory-only missing-packet behavior and exit successfully when all established acceptance checks pass.",
+          "met": false,
+          "evidence": ""
+        },
+        {
+          "id": "B0-A2",
+          "criterion": "A declared handoff v1 accepts exact fresh-start and resume state while blocking malformed state, ownership gaps/overlap, repository identity drift, and non-ancestor completed-slice commits.",
+          "met": false,
+          "evidence": ""
+        },
+        {
+          "id": "B0-A3",
+          "criterion": "Markdown and JSON worker packets carry equivalent handoff state and acceptance mappings; capsule placement and packet size are bounded and fail closed with stable diagnostics.",
+          "met": false,
+          "evidence": ""
+        },
+        {
+          "id": "B0-A4",
+          "criterion": "SKILL, schema/template guidance, changelog, and durable architecture/gotcha docs describe the opt-in boundary and explicitly preserve exact-session prewalk semantics.",
+          "met": false,
+          "evidence": ""
+        },
+        {
+          "id": "B0-A5",
+          "criterion": "Focused acceptance tests and the repository's broad terminal verification pass on the current branch tip.",
+          "met": false,
+          "evidence": ""
+        }
+      ]
+    }
+  ],
+  "master_acceptance": [
+    {
+      "id": "M-A1",
+      "criterion": "The cumulative diff preserves every established v2.8 staging/prewalk invariant while making explicitly declared handoff state deterministic and fail-closed.",
+      "met": false,
+      "evidence": ""
+    },
+    {
+      "id": "M-A2",
+      "criterion": "The final branch is current, documented, broadly verified, clean, and presented as a reviewable PR with no temporary run artifacts.",
+      "met": false,
+      "evidence": ""
+    }
+  ],
+  "continuation_guard": {
+    "stop_allowed": false,
+    "remaining_batches": [
+      "B0"
+    ],
+    "next_required_action": "Commit and push the cleanup contract, re-read the survival guide, then reconcile the validator and tests."
+  }
+}
