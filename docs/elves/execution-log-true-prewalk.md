@@ -26,6 +26,11 @@
 - `release_checklist.py --version 2.8.0 --json`: `ok: true`, no failures.
 - `check_repo_consistency.py`: pass at version 2.8.0.
 - 186 focused release-checklist, consistency, prewalk, routing, and installed-bundle tests: pass.
+- Full repository and strict CI-mode verification pass locally with `--version 2.8.0`.
+- Public guide parser reports 20 unique IDs and nine valid internal links.
+- PR #80 implementation-tip checks pass on Ubuntu 3.10/3.12/3.14, macOS 3.12, CodeQL, and Socket;
+  no actionable comment or requested change exists.
+- Cumulative release diff review found no unresolved version, host-parity, fidelity, or authority gap.
 
 ## Decisions made
 
@@ -36,4 +41,4 @@
 
 ## Next action
 
-Commit the release promotion, then run full strict verification and cumulative release review.
+Commit the B3 Close evidence, then run exact-tip final-readiness and authoritative landing checks.

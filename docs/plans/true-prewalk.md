@@ -155,22 +155,22 @@ authority boundaries, and remain backward compatible with single-phase native wo
 
 **Tasks:**
 
-- [ ] Promote the accumulated Unreleased notes to `2.8.0`, align every current-version marker, and
+- [x] Promote the accumulated Unreleased notes to `2.8.0`, align every current-version marker, and
   update the published guide plus canonical and durable documentation.
-- [ ] Reconcile every summary surface with the implemented qualification boundary: the current
+- [x] Reconcile every summary surface with the implemented qualification boundary: the current
   persisted-instruction transport activates only for proven `retained_safe` evidence, while
   `pruned` and `turn_scoped` remain future transport states.
-- [ ] Prove Codex/Claude semantic parity, release consistency, fresh installed bundles, full
+- [x] Prove Codex/Claude semantic parity, release consistency, fresh installed bundles, full
   repository verification, exact-tip landing readiness, and a green PR feedback/check queue.
 
 **Acceptance criteria:**
 
-- [ ] B3-A1: `SKILL.md`, `AGENTS.md`, README, guide, changelog, and durable current-version examples
+- [x] B3-A1: `SKILL.md`, `AGENTS.md`, README, guide, changelog, and durable current-version examples
   consistently identify `2.8.0`; `Unreleased` is empty and the release checklist passes cleanly.
-- [ ] B3-A2: Codex and Claude documentation and deterministic fixtures preserve equivalent exact-ID,
+- [x] B3-A2: Codex and Claude documentation and deterministic fixtures preserve equivalent exact-ID,
   same-worktree, packet-once, checkpoint, recovery, visibility, authority, and retained-safe-only
   activation semantics without claiming a live qualification occurred.
-- [ ] B3-A3: Focused parity/release tests, both installed-bundle smokes, strict CI verification,
+- [x] B3-A3: Focused parity/release tests, both installed-bundle smokes, strict CI verification,
   final-readiness verification, the Elves landing check, PR comments/reviews, and required checks are
   green on the exact pre-merge tip.
 

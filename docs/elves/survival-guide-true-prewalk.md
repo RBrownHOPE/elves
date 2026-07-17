@@ -56,17 +56,17 @@ parity, land PR #80 through a regular merge commit, and publish the verified mer
 
 ## Stop Gate
 
-- **Planned batches remaining:** 1
+- **Planned batches remaining:** 0
 - **Stop allowed right now:** no
-- **Why:** v2.8.0 promotion, retained-safe documentation reconciliation, exact-tip gates, merge, GitHub release, deployment verification, and cleanup remain
-- **Next required action:** commit the proven v2.8.0 promotion, then run full strict verification and cumulative release review
+- **Why:** the accepted B3 Close still needs exact-tip readiness/landing, operational cleanup, final PR checks, merge, GitHub release, deployment verification, and worktree reclaim
+- **Next required action:** commit/push B3 Close, then run exact-tip final-readiness and landing checks
 
 ## Current Phase
 
 - **Status:** in progress
 - **Active batch:** B3 v2.8.0 release promotion and authorized landing
-- **What was just finished:** v2.8.0 metadata/docs promotion, retained-safe reconciliation, release checklist, consistency, and 186 focused tests
-- **Single next action:** commit and push the v2.8.0 promotion, then begin full release proof
+- **What was just finished:** v2.8.0 release promotion, 186 focused tests, full/strict local verification, cumulative review, and green implementation-tip PR checks
+- **Single next action:** commit and push B3 Close, then prove the committed exact tip
 
 ## Active Compute
 
@@ -81,9 +81,9 @@ readiness; merge; tag and publish; verify Pages and release identity; reclaim on
 
 **Acceptance criteria:**
 
-- [ ] B3-A1: every current version marker and release note identifies 2.8.0 and the release checklist passes
-- [ ] B3-A2: Codex/Claude docs and fixtures agree, including retained-safe-only activation today
-- [ ] B3-A3: focused, installed, strict CI, landing, PR feedback, and required checks are green at exact HEAD
+- [x] B3-A1: every current version marker and release note identifies 2.8.0 and the release checklist passes
+- [x] B3-A2: Codex/Claude docs and fixtures agree, including retained-safe-only activation today
+- [x] B3-A3: focused, installed, strict CI, landing, PR feedback, and required checks are green at exact HEAD
 
 **Risk:** Public version/tag drift or a host-parity overclaim would make the release invalid.
 
