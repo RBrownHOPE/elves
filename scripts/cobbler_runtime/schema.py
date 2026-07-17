@@ -80,6 +80,10 @@ BUILTIN_ADAPTER_NAMES: tuple[str, ...] = (
     "host-native",
 )
 
+# One canonical spelling of the session filename; every cobbler_runtime module
+# imports this instead of repeating the literal (see docs/plans/hygiene-and-hardening.md B4).
+ELVES_SESSION_BASENAME = ".elves-session.json"
+
 NATIVE_PROFILE_NAME = "host-native"
 NATIVE_ROUTE = "host-native"
 

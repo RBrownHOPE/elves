@@ -21,6 +21,7 @@ from .risk_policy import (
     is_cleanup_only_diff,
     proof_budget_for_tier,
 )
+from .schema import ELVES_SESSION_BASENAME
 
 
 SECURITY_MARKERS: tuple[str, ...] = (
@@ -216,7 +217,7 @@ def invalidation_scopes_for_paths(changed_paths: Sequence[str]) -> tuple[str, ..
             path == prefix.rstrip("/") or path.startswith(prefix)
             for prefix in OPERATIONAL_PATH_PREFIXES
         )
-        or path in {".elves-session.json"}
+        or path in {ELVES_SESSION_BASENAME}
         for path in paths
     ):
         # Pure operational paths: do not invalidate product proof.

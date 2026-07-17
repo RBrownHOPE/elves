@@ -17,6 +17,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .full_run import (
+    _git_branch,
+    _git_head,
+    _is_ancestor,
+    _origin_config_digest,
+    _read_host_git_identity_value,
+    snapshot_protected_refs,
+    verify_protected_refs_unchanged,
+)
 from .context import is_secret_env_name
 from .schema import ValidationIssue
 
@@ -358,13 +367,6 @@ def _process_identity_matches(pid_value: object, expected_start: object) -> bool
 
 def _native_git_contract(worktree: Path) -> dict[str, Any]:
     """Capture the feature-only Git authority contract without a network probe."""
-    from .full_run import (  # imported lazily to keep module initialization acyclic
-        _git_branch,
-        _git_head,
-        _origin_config_digest,
-        snapshot_protected_refs,
-    )
-
     branch = _git_branch(worktree)
     head = _git_head(worktree)
     if not branch or not head:
@@ -386,8 +388,6 @@ def _native_worker_child_env(
     *, host: str, worktree: Path, runtime_dir: Path
 ) -> dict[str, str]:
     """Project provider auth while removing ambient Git/network credentials."""
-    from .full_run import _read_host_git_identity_value
-
     parent = dict(os.environ)
     provider_secret_names = {
         "codex": {"OPENAI_API_KEY", "CODEX_API_KEY"},
@@ -454,14 +454,6 @@ def _native_worker_child_env(
 
 def _verify_native_git_contract(worktree: Path, state: dict[str, Any]) -> list[str]:
     """Verify feature ancestry, origin config, and every protected local ref."""
-    from .full_run import (
-        _git_branch,
-        _git_head,
-        _is_ancestor,
-        _origin_config_digest,
-        verify_protected_refs_unchanged,
-    )
-
     errors: list[str] = []
     branch = _git_branch(worktree)
     head = _git_head(worktree)

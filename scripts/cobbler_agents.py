@@ -73,7 +73,7 @@ from cobbler_runtime.dispatch import (  # noqa: E402
     run_lightweight_review_sync,
 )
 from cobbler_runtime.context import (  # noqa: E402
-    is_secret_env_name,
+    collect_secret_env_values,
     redact_structure,
     redact_text,
 )
@@ -151,18 +151,10 @@ def _nonnegative_batch_arg(value: str) -> int:
 WORKER_SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024
 
 
-def _secret_env_values() -> frozenset[str]:
-    return frozenset(
-        value
-        for name, value in os.environ.items()
-        if is_secret_env_name(name) and isinstance(value, str) and len(value) >= 8
-    )
-
-
 def _redacted_storage_issue(error: StorageError) -> dict[str, Any]:
     message = redact_text(
         error.message,
-        exact_values=_secret_env_values(),
+        exact_values=collect_secret_env_values(),
     ).text
     return {
         "code": f"storage_{error.code}",
@@ -245,7 +237,7 @@ def _emit_json(
         exact_values=(
             exact_secret_values
             if exact_secret_values is not None
-            else _secret_env_values()
+            else collect_secret_env_values()
         ),
     )
     json.dump(safe, sys.stdout, indent=2, sort_keys=True)
@@ -256,7 +248,7 @@ def _emit_json(
 def _redacted_validation_issue(issue: ValidationIssue) -> dict[str, Any]:
     payload = redact_structure(
         issue.to_dict(),
-        exact_values=_secret_env_values(),
+        exact_values=collect_secret_env_values(),
     )
     return dict(payload) if isinstance(payload, dict) else issue.to_dict()
 
@@ -269,7 +261,7 @@ def _reject_live_worker_lease(
     """Best-effort terminalization after a partially published worker transition."""
     safe_reason = redact_text(
         str(reason),
-        exact_values=_secret_env_values(),
+        exact_values=collect_secret_env_values(),
     ).text
     try:
         lease = store.get(lease_id)
@@ -1224,7 +1216,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
                 _reject_live_worker_lease(store, lease.lease_id, exc)
                 raise
             exact_secret_values = frozenset(
-                set(_secret_env_values()) | set(verified_grant_values)
+                set(collect_secret_env_values()) | set(verified_grant_values)
             )
             pre_path = store.snapshot_dir(args.lease_id) / "pre.json"
             try:
@@ -1494,7 +1486,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
                 return _emit_json({"ok": True, "packet": packet}, exit_code=0)
             safe_packet = redact_structure(
                 packet,
-                exact_values=_secret_env_values(),
+                exact_values=collect_secret_env_values(),
             )
             print(json.dumps(safe_packet, indent=2, sort_keys=True))
             return 0

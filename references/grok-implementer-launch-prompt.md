@@ -1,4 +1,4 @@
-> **Primary path (v2.1+):** trusted Grok full-run uses
+> **Primary path:** trusted Grok full-run uses
 > `full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs` with parked-monitor.
 > `full-run-stop` is cancellation/recovery only. **Batch resume**
 > (`prepare|launch|gate|resume-batch`) is the legacy/alternative path.
@@ -390,7 +390,9 @@ described above. Host still owns protected refs, merge, and final readiness.
 
 - Edit owned product surfaces only
 - Run focused and full tests
-- Commit and push progress slices on the feature branch
+- Commit and push progress slices on the feature branch — at least one non-`Close` slice before
+  `Close`, the first as soon as a failing test or first surface change exists; exactly one
+  acceptance-backed `Close` per batch (see SKILL.md's commit cadence and phase roles)
 - Append trusted full-run v1 events and atomically replace the final full-run report; write the
   legacy done report only on the explicitly selected bounded-batch path
 

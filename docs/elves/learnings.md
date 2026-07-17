@@ -253,3 +253,21 @@ silently deleting it.
   bounded lifecycle remains legacy/alternative.
 - [Retired 2026-07-13] “The user always merges.” Superseded by explicit user-owned merge policy:
   default user-merges, with merge-on-green and reviewed-PR landing as narrow opt-ins.
+
+## Worker commit cadence is a contract, not a preference (2026-07-16, hygiene-and-hardening B1)
+
+A native worker session given only "push meaningful slices" and a Definition of Done will batch
+everything and commit once at the end — the branch stays at the staging tip while work accumulates
+uncommitted, which blinds the parked driver and forfeits crash recovery (pushed progress is the
+recovery mechanism). Make cadence explicit in every packet: at least one pushed non-Close progress
+slice before Close, first slice as soon as a failing test or first surface change exists; treat a
+monolithic Close commit as a reconcile-visible defect. A mid-run driver nudge works (B1 pushed its
+Implement slice immediately after instruction), but the packet should carry the rule from launch.
+
+## Bounded-by-construction beats per-site discipline (2026-07-16, hygiene-and-hardening B9)
+
+233 test call sites spawned subprocesses without pinning stdin; auditing them one by one is the
+wrong altitude. Two chokepoints gave a total guarantee instead: an fd-level devnull redirect in
+`tests/__init__.py` (children inherit closed stdin no matter the runner) and stdin+timeout
+hardening in the single gate runner and the canonical git helper. When a failure class comes from
+a default (inherited stdin), fix the default, not the instances.

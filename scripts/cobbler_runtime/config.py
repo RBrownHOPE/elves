@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .adapters import default_profiles, get_adapter
+from .dispatch import LaneSpec
 from .context import validate_credential_grant_names
 from .schema import (
     DEFAULT_ROLES,
@@ -842,9 +843,6 @@ def lanes_from_resolved(
     When ``use_resolved_routes`` is False, every lens stays host-native (CLI smoke).
     Host-native still requires injected evidence at execution time for a vote.
     """
-    # Local import avoids circular dependency at module load.
-    from .dispatch import LaneSpec
-
     if role_names is None:
         role_names = [r.value for r in DEFAULT_ROLES if r.value in resolved.roles]
 

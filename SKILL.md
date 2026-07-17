@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "2.6.0"
+  version: "2.7.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -20,12 +20,11 @@ return. Exceptions: explicit merge-on-green in Run Control, chat-to-land, or the
 Command (`/land-pr` / `\land-pr`). Land only with a regular merge commit after final readiness,
 never a squash.
 
-**Default user path (v2.0+): one kickoff.** Ask naturally; the capable live driver plans and reviews,
+**Default user path: one kickoff.** Ask naturally; the capable live driver plans and reviews,
 a separate subscription-native worker inherits the current model by default at plan-matched effort.
 Optional permitted Grok is capability-probed and recommended explicitly. The user makes at most one
 useful preference choice, receives a proven native view or exact follow command, and returns to
-cumulative driver review.
-v2.1 adds trusted Grok full-run. **v2.3** makes that path
+cumulative driver review. Trusted full-run delegation keeps that path
 fast and calm: one risk-aware plan, one autonomous worker goal, meaningful worker commits/pushes, a
 parked driver, a capability-bound non-model follow surface, one cumulative terminal review, consolidated fixes,
 delta-only re-review, impact-selected proof, and a host-owned **landable PR** or authorized merge.
@@ -58,6 +57,10 @@ opt-in for the current PR.
 5. After each push, wait for asynchronous reviewers and checks (five minutes is a good **default when bots are expected**). Re-read comments before deciding green.
 6. Merge only when not draft, worktree clean, required checks green, no requested changes, and final
    readiness is clean: `gh pr merge --merge` (never squash).
+7. Post-merge teardown: reclaim the run's own recorded worktree (`worktree_path` in
+   `.elves-session.json`) with `./scripts/preflight.sh --gc-worktrees --path <worktree_path>` —
+   report first, add `--apply` to remove. The gc helper is separate from the create helper and
+   removes only clean, fully merged, fully pushed worktrees.
 
 Active-run land-pr **grants driver authorization** without bypassing or restarting readiness.
 See `references/landing-authority.md`.
@@ -204,6 +207,26 @@ Before every worker turn (one packet for a trusted full-run), write a stand-alon
 
 Incomplete handoffs are blocking coordinator defects. Canonical run docs stay host-owned.
 
+**Commit cadence and phase roles.** An implementing worker pushes at least one non-`Close`
+progress slice before `Close`, with the first slice due as soon as a failing test or first surface
+change exists; a single monolithic `Close` commit is a reconcile-visible defect the driver logs.
+Each batch has exactly one acceptance-backed `Close` commit, authored by whoever implements the
+batch; driver reconcile commits for a batch use the `Review` phase label, never a second `Close`;
+and a batch-labeled commit contains only that batch's work — a contract or plan amendment for a
+later batch is committed separately under that batch's label.
+
+**Worker failure recovery.** Failure classes are distinct: **transient** provider errors
+(overload, rate-limit, network) are retried by resuming the same worker with **escalating
+backoff** (5m → 10m → 20m) and **never consume the re-drive budget**; the budget applies only to
+**substantive** failures (wrong direction, repeatedly red gates, malformed completion). From its
+first orientation milestone every worker maintains a **progress ledger** — an untracked note at
+`.elves/runtime/worker-progress-<batch>.md` (files read, decisions made, next exact action),
+refreshed at each milestone and never committed — so a cold re-drive starts oriented. Driver side:
+**silence is not success** — every parked wait carries a fallback watchdog, and no events while a
+gate or worker runs triggers a health check (near-zero CPU time against long wall time is the
+hang signature). After repeated transient deaths in one batch, the driver may split the batch or
+take it host-native without that counting against the budget; document the decision.
+
 ## Git History as Operator UI
 
 Preferred subject schema:
@@ -256,6 +279,13 @@ choreography**. See `references/plan-template.md`.
 Launch only when: plan cleaned, run docs current, branch/PR recorded, preflight green, acceptance
 contract reconciled, run mode/non-negotiables recorded, no unresolved planning blockers. In single-
 kickoff E2E, continue immediately once launch-ready.
+
+If Run Control `Work driver` ≠ host-native (or the run may be delegated), the standalone
+coordinator→implementer packet is written and its path recorded in Run Control and as
+`worker_packet_path` in `.elves-session.json` — staging is not launch-ready without it. The
+per-batch handoff block in the plan and the consolidated staging packet are not substitutes; see
+`references/schema-and-acceptance.md`. `acceptance_contract.py validate` warns (advisory, never
+blocking) when a delegable session lacks the recorded path.
 
 ### Preflight
 
@@ -425,10 +455,15 @@ ignores `.elves-session.json`; see `references/schema-and-acceptance.md` for the
 cleanup sequence. Independent review subagent when available. Then remove survival guide / execution
 log / `.elves-session.json` from the PR (keep plan by default; keep learnings). Post-cleanup tip
 attestation. Notify with report path. Merge only if authorized — regular merge commit only.
+After an authorized merge, tear down the run's own recorded worktree (`worktree_path`):
+`./scripts/preflight.sh --gc-worktrees --path <worktree_path>`, report first, then `--apply`;
+the `cleanup.worktrees` preference in `config.json.example` records whether teardown runs
+on merge, stays report-only, or never runs.
 
 ## Staying Unattended
 
-Never block on prompts. Non-interactive flags. Document decisions. See
+Never block on prompts. Non-interactive flags. Document decisions. Gates and helper subprocesses
+run with closed stdin and explicit timeouts — a silent hang is a failure, not progress. See
 `references/autonomy-guide.md`.
 
 ## Ride-Along Protocol
@@ -445,7 +480,9 @@ collision on branch tip. Everything else: judgment + Decisions made.
 
 `.elves-session.json` holds `batches` with per-id acceptance evidence, `master_acceptance`,
 `continuation_guard`, optional `cobbler` session state, `model_routes`, `review_comments`. After
-compaction, trust this file for status.
+compaction, trust this file for status. When staging creates a dedicated worktree, record its
+path as `worktree_path` alongside `run_id` so post-merge teardown can tell the run's own
+worktree from operator-created ones (the schema tolerates extra keys).
 
 ## Persistent Preferences
 

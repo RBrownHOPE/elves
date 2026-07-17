@@ -365,6 +365,44 @@ exec {shlex.quote(str(real_git))} "$@"
         ).stdout.strip()
         self.assertEqual(branch, "codex/wrapper-create")
 
+    def test_preflight_gc_worktrees_flag_dispatches_report_before_full_checklist(self) -> None:
+        repo = self.create_repo(with_remote=True)
+
+        result = self.run_preflight_args(repo, "--gc-worktrees")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Worktree gc report", result.stdout)
+        self.assertIn("mode: report (read-only; pass --apply to remove candidates)", result.stdout)
+        self.assertNotIn("GitHub CLI (gh)", result.stdout)
+
+    def test_preflight_gc_worktrees_apply_removes_merged_worktree_via_wrapper(self) -> None:
+        repo = self.create_repo(with_remote=True)
+        worktree = self.root / "repo-wrapper-merged"
+        self.run_git(repo, "worktree", "add", "-b", "codex/wrapper-merged", str(worktree), "main")
+        (worktree / "wrapper.txt").write_text("wrapper gc work\n")
+        self.run_git(worktree, "add", "wrapper.txt")
+        self.run_git(
+            worktree,
+            "-c",
+            "user.name=Elves Test",
+            "-c",
+            "user.email=elves@example.com",
+            "commit",
+            "-m",
+            "wrapper gc work",
+        )
+        self.run_git(worktree, "push", "-u", "origin", "codex/wrapper-merged")
+        self.run_git(repo, "push", "origin", "codex/wrapper-merged:main")
+        self.run_git(repo, "fetch", "origin")
+        self.run_git(repo, "merge", "--ff-only", "origin/main")
+
+        result = self.run_preflight_args(repo, "--gc-worktrees", "--apply")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("removed worktree", result.stdout)
+        self.assertNotIn("GitHub CLI (gh)", result.stdout)
+        self.assertFalse(worktree.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

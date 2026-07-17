@@ -4,6 +4,94 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-07-17
+
+### full_run.py split, phase 1
+
+- `full_run.py` shrinks from 10,090 to 7,019 lines: the embedded provider-supervisor program is now
+  a real lintable file (`scripts/provider_supervisor.py`) whose exact source the child still
+  receives byte-identically; git-contract checks live in `cobbler_runtime/git_contract.py` on the
+  canonical hardened `run_git`; provider credential/launch-auth hardening lives in
+  `cobbler_runtime/provider_auth.py`. `full_run` re-exports every moved name, so import surfaces
+  are unchanged.
+
+### Thin Codex adapter and consistency-engine slimming
+
+- AGENTS.md is now a true thin adapter (89 lines): every contract is a named pointer into SKILL.md
+  or one authoritative reference, including the new commit-cadence/phase-role, worker failure
+  recovery, packet-at-staging, worktree-lifecycle, and bounded-gates rules. The consistency engine
+  covers it with one whole-file pointer corpus instead of 24 per-contract shims, drops ~70
+  restatement pin entries, scopes the Cobbler section check to actual Cobbler content, and
+  documents the pin-addition policy (a pin requires a normative sentence in more than one file).
+
+### README restructure and glossary
+
+- README.md is now a 372-line repository reference: install, safety model, failure-mode table,
+  configuration, and a reference index that links each contract's single authoritative file
+  instead of restating it. The task-first tutorial remains the published guide. New
+  `references/glossary.md` defines every coined term once; new `references/operations-guide.md`
+  holds the operational how-tos (sleep prevention, tmux, monitoring, notifications, SessionStart
+  hook, daily briefing) moved verbatim from the README. Version narration now lives only in this
+  changelog. Consistency pins updated to the linked-not-restated doctrine (22 README restatement
+  pin-sets removed; forbidden-phrase guards retained).
+
+### Hermetic, bounded gates and worker failure recovery
+
+- `verify_repo.py` gate subprocesses run with closed stdin and hard per-step timeouts (suite step
+  1800s); a timed-out step fails cleanly instead of hanging. The test suite redirects file
+  descriptor 0 to devnull at discovery so every child a test spawns inherits closed stdin
+  regardless of runner; `openrouter_lens.py` no longer reads a stdin envelope when the task is
+  provided via flags. Worker failure recovery is codified in SKILL.md: transient provider errors
+  resume with escalating backoff and never consume the substantive re-drive budget; workers keep
+  an untracked progress ledger under `.elves/runtime/`.
+
+### Consolidated git/secret/path helpers
+
+- One canonical hardened `run_git` (leases) now serves audit, delegated-git, and all of
+  `full_run.py` (16 raw subprocess call sites migrated with per-call env/cwd preserved); it closes
+  stdin unconditionally and accepts an optional timeout. The weak duplicate `ensure_private_dir`
+  was removed in favor of the fd-anchored storage variant; `.elves-session.json` is spelled once
+  as `schema.ELVES_SESSION_BASENAME`; cycle-free function-local imports were hoisted and the two
+  genuinely cyclic ones (risk_policy, behavior_policy) documented as such.
+
+### Worker packet as a staging deliverable
+
+- Staging now requires the standalone coordinator→implementer packet for delegable runs: SKILL.md's
+  launch-ready checklist gains the conditional line, the survival-guide template Run Control gains a
+  `Worker packet:` field, and `references/schema-and-acceptance.md` documents the optional
+  `worker_packet_path` session key plus the canonical work-driver spelling map (hyphen/underscore
+  equivalent; `devin-cli` covered).
+- `acceptance_contract.py validate` emits an advisory `worker_packet_missing` warning — never a
+  blocking issue or exit-code change — when a session records a non-host-native work driver without
+  a recorded packet path.
+- SKILL.md's handoff standard now states commit cadence and phase roles: at least one pushed
+  non-Close progress slice before Close (first at first failing test or surface change), exactly one
+  acceptance-backed Close per batch, driver reconciles under Review, batch labels contain only that
+  batch's work. Echoed in the kickoff template and the Grok implementer launch prompt.
+
+### Worktree reclaim lifecycle
+
+- New `scripts/worktree_gc.py` (surfaced as `./scripts/preflight.sh --gc-worktrees`) reports and,
+  with an explicit `--apply`, removes worktrees that are registered, linked, not the main worktree,
+  not the invoking directory, clean including untracked files, fully merged into `origin/main`,
+  and zero commits ahead of upstream. Removal is guarded: `git worktree remove` without `--force`,
+  `git branch -d` never `-D`, and `git worktree prune` only after successful removals; report mode
+  performs zero mutations. Unregistered `<repo>-*` sibling directories are listed as operator-owned
+  and never deleted.
+- Post-merge teardown is now part of the lifecycle docs: SKILL.md Final Completion and the Reviewed
+  PR Landing Command tear down the run's own recorded worktree, staging records the created
+  worktree path as `worktree_path` in `.elves-session.json`, and `config.json.example` gains
+  `cleanup.worktrees: "on-merge" | "report" | "never"` (default `report`).
+
+### Redaction hardening
+
+- Exact-value redaction now draws environment secrets from one shared collector
+  (`cobbler_runtime.context.collect_secret_env_values`) with a minimum exact-value length of 8.
+  Short secret-named flag values (Claude Code sessions export `CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1`)
+  no longer register `"1"` as an exact secret, which corrupted gate JSON paths, timestamps, and
+  version strings; secret-named values of 8+ characters still redact exactly, and pattern-based
+  redaction is unchanged.
+
 ## [2.6.0] - 2026-07-16
 
 ### Open-source Grok Build worker

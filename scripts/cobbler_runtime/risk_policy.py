@@ -27,6 +27,7 @@ from .canonical_contract import (
     normalize_risk,
     normalize_trust_mode,
 )
+from .schema import ELVES_SESSION_BASENAME
 
 
 POLICY_VERSION = "2.4.0"
@@ -91,7 +92,7 @@ RECONSTRUCTABLE_FIELDS: frozenset[str] = frozenset(
 
 # Paths treated as operational/run-metadata only for cleanup reuse.
 OPERATIONAL_PATH_PREFIXES: tuple[str, ...] = (
-    ".elves-session.json",
+    ELVES_SESSION_BASENAME,
     "docs/elves/",
     ".elves/runtime/",
 )

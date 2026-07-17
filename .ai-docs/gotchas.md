@@ -43,7 +43,7 @@
 - PR review automation only becomes useful once the branch is pushed and the PR exists. Opening the
   PR late starves the review loop.
 - This repo has no package-managed lint/typecheck/build pipeline. Use
-  `python3 scripts/verify_repo.py --version 2.6.0` as the canonical aggregate proof command, plus
+  `python3 scripts/verify_repo.py --version 2.7.0` as the canonical aggregate proof command, plus
   `--final-readiness --session <session-path>` for live landing readiness.
 - Provider wording drifts easily. Normal Cobbler and ordinary Elves must not require OpenRouter.
   Math may show `openrouter:<model-id>` as an optional role route, but default config should keep
@@ -125,3 +125,14 @@
 ## v2.1.0 full-run note
 
 Trusted Grok full-run uses one session, feature-branch progress, parked-monitor driver, and bounded events. Untrusted detached leases remain a distinct authority model.
+
+## Subprocess stdin inheritance can freeze gates for hours (2026-07-16)
+
+A helper that reads stdin to EOF when stdin is not a TTY (`openrouter_lens.py` pre-fix) combined
+with a test that spawns it without pinning `stdin=` will block forever under any runner that
+leaves an inheriting pipe open — while passing under runners whose stdin happens to be closed.
+The fix class, in order of strength: (1) helpers do fail-closed checks (missing key) BEFORE any
+stdin read and skip stdin when the task arrives via flags; (2) `tests/__init__.py` dup2s fd 0 to
+devnull so every suite child inherits closed stdin; (3) the gate runner (`verify_repo._run`) and
+the canonical `leases.run_git` close stdin and carry timeouts unconditionally. Diagnosis tell:
+near-zero CPU time vs hours of wall time.

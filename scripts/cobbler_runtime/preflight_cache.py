@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .risk_policy import cleanup_only_reuse_allowed
 from .storage import (
     StorageError,
     atomic_write_json,
@@ -470,8 +471,6 @@ def cleanup_only_tip_attestation(
     product_test_input_digest_unchanged: bool,
 ) -> dict[str, Any]:
     """Reuse live broad proof after operational-artifact cleanup only."""
-    from .risk_policy import cleanup_only_reuse_allowed  # noqa: PLC0415
-
     changed: list[str] = []
     for row in name_status_rows:
         parts = row.split("\t")

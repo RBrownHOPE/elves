@@ -66,6 +66,10 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
   rationale, Build On targets, owned surfaces, forbidden surfaces, acceptance evidence, failure
   modes/pitfalls, and HEAD/run-doc paths/route-session identity/output format. Incomplete handoffs are
   blocking coordinator defects.
+- **Worker packet:** [path recorded at staging (also `worker_packet_path` in
+  `.elves-session.json`) | n/a — host-native]. For any run that may be delegated, the consolidated
+  standalone packet is a staging deliverable; the plan's per-batch handoff blocks are not a
+  substitute for it.
 - **Re-read rule:** Immediately after every host-owned commit and push, re-read this survival guide
   before doing anything else. During a trusted `parked_monitor` full-run, worker pushes do not wake
   the host; re-read once on a safety/blocked/terminal wake before cumulative review.
@@ -100,7 +104,9 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
   validate --repo-root . --session <session-path>`; optional explicit `sync-session --write`]
 - **High-risk checkpoints:** [list or none]
 - **GitHub push auth route:** [host `gh` projection | named GH_TOKEN | named GITHUB_TOKEN | local/file remote | n/a]
-- **Re-drive budget:** [N external worker re-drives | n/a]
+- **Re-drive budget:** [N substantive external worker re-drives | n/a] — transient provider
+  errors (overload/rate-limit/network) retry the same worker with escalating backoff and never
+  consume this budget (see SKILL.md Worker failure recovery)
 - **Continuation harness:** [none | /goal | host-native]
 - **Continuation rule:** If work remains and `Actual stop conditions` are not met, continue without waiting for user acknowledgment.
 

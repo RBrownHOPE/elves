@@ -20,7 +20,6 @@ CHANGELOG_PATH = REPO_ROOT / "CHANGELOG.md"
 RECOVERY_ORDER_FILES = {
     "SKILL.md": REPO_ROOT / "SKILL.md",
     "AGENTS.md": REPO_ROOT / "AGENTS.md",
-    "README.md": REPO_ROOT / "README.md",
     "references/kickoff-prompt-template.md": REPO_ROOT / "references" / "kickoff-prompt-template.md",
     "references/survival-guide-template.md": REPO_ROOT / "references" / "survival-guide-template.md",
 }
@@ -57,12 +56,6 @@ NONSTOP_GUARDRAIL_PHRASES = {
         "After every host-owned commit and push, re-read the survival guide before doing anything else.",
         "Do not wait for user acknowledgment",
     ],
-    "AGENTS.md": [
-        "Stop Gate",
-        "continuation_guard",
-        "After every host-owned commit and push, re-read the survival guide before doing anything else.",
-        "Do not wait for user acknowledgment",
-    ],
     "references/survival-guide-template.md": [
         "## Stop Gate",
         "## Forbidden Stop Reasons",
@@ -84,11 +77,6 @@ NONSTOP_GUARDRAIL_PHRASES = {
 
 EFFORT_GUARDRAIL_PHRASES = {
     "SKILL.md": [
-        "## Effort Standard",
-        "Do not be lazy.",
-        "Work as hard as you can for",
-    ],
-    "AGENTS.md": [
         "## Effort Standard",
         "Do not be lazy.",
         "Work as hard as you can for",
@@ -115,15 +103,6 @@ FINAL_READINESS_REVIEW_PHRASES = {
         "git diff <default-branch>...HEAD",
         "review subagent",
     ],
-    "AGENTS.md": [
-        "Final Readiness Review",
-        "git diff <default-branch>...HEAD",
-        "review subagent",
-    ],
-    "README.md": [
-        "Final readiness review",
-        "git diff <default-branch>...HEAD",
-    ],
     "references/review-subagent.md": [
         "## Final Readiness Review",
         "git diff [DEFAULT_BRANCH]...HEAD",
@@ -136,53 +115,37 @@ FINAL_READINESS_REVIEW_PHRASES = {
 
 SINGLE_KICKOFF_PHRASES = {
     "SKILL.md": [
-        "Default user path (v2.0+): one kickoff",
-        "v2.1 adds trusted Grok full-run",
+        "Default user path: one kickoff",
+        "Trusted full-run delegation keeps that path",
         "chat-to-work",
         "chat-to-land",
         "Legacy two-call handoff",
         "full-run",
         "parked",
     ],
-    "AGENTS.md": [
-        "Default user path (v2.0+): one kickoff",
-        "v2.1 adds trusted Grok full-run",
-        "single-kickoff E2E",
-        "legacy two-call",
-        "full-run",
-        "parked-monitor",
-    ],
-    "README.md": [
-        "Default (v2.0+): one kickoff",
-        "v2.1\nadds trusted Grok full-run delegation",
-        "Chat-to-work",
-        "Chat-to-land",
-        "legacy stage-then-launch",
-        "full-run",
-    ],
     "references/kickoff-prompt-template.md": [
-        "Recommended (v2.0+): one kickoff",
-        "v2.1 adds the trusted Grok",
+        "Recommended: one kickoff",
+        "trusted full-run / parked-monitor",
         "Chat-to-work (E2E, no merge)",
         "Chat-to-land (E2E through merge)",
         "Use separate calls only for the legacy path",
     ],
     "references/e2e-chat-to-land.md": [
-        "recommended default user path (v2.0+)",
-        "v2.1 adds trusted",
+        "recommended default user path",
+        "Trusted Grok full-run delegation is the optional parked shape",
         "without waiting for a second human call",
         "Legacy / advanced",
     ],
 }
 
 SINGLE_KICKOFF_FORBIDDEN_PHRASES = {
-    "AGENTS.md": [
-        "do not launch in that same call",
-        "Execution starts only from a fresh short launch prompt in the next call",
-    ],
     "README.md": [
         "Use the launch template from the same reference file in a fresh call",
         "**Two-step operator flow**",
+    ],
+    "AGENTS.md": [
+        "do not launch in that same call",
+        "Execution starts only from a fresh short launch prompt in the next call",
     ],
     "references/kickoff-prompt-template.md": [
         "**Stage and launch in separate calls**",
@@ -227,21 +190,6 @@ INSTALLED_HELPER_PATH_PHRASES = {
         "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py",
         "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py",
         "installed Elves bundle never requires a repo-only helper",
-    ],
-    "AGENTS.md": [
-        "source-checkout shorthand",
-        "active Elves skill root",
-        "~/.claude/skills/elves",
-        "~/.codex/skills/elves",
-        "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py",
-        "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py",
-        "installed Elves bundle never requires a repo-only helper",
-    ],
-    "README.md": [
-        "source-checkout shorthand",
-        "active Elves skill root",
-        "references/runtime-helper-paths.md",
-        "repo-only helper is not shipped in a global skill install",
     ],
     "references/runtime-helper-paths.md": [
         "## Source checkout shorthand",
@@ -312,13 +260,6 @@ ACCEPTANCE_EVIDENCE_PHRASES = {
         "God-file",
         "one batch per close commit",
     ],
-    "AGENTS.md": [
-        "plan Acceptance with proof",
-        "acceptance",
-        "elves_landing_check.py",
-        "God-file",
-        "one batch per close commit",
-    ],
     "references/survival-guide-template.md": [
         "plan Acceptance with proof",
         "Evidence / SCRATCH Layout",
@@ -353,23 +294,15 @@ LANDING_CHECK_BARE_FORBIDDEN_PATTERNS = {
     for label in LANDING_CHECK_CONTRACT_PHRASES
 }
 
-CODEX_GOALS_SECTION_HEADINGS = {"README.md": "### Codex Goals"}
+CODEX_GOALS_SECTION_HEADINGS = {}
 CODEX_GOALS_SECTION_PHRASES = {
-    "README.md": [
-        "Read `.elves-session.json` first",
-        "`survival_guide_path`",
-        "`learnings_path`",
-        "`plan_path`",
-        "`execution_log_path`",
-        "do not substitute generic filenames",
-    ]
 }
 CODEX_GOALS_SECTION_FORBIDDEN_PHRASES = {
     "README.md": [
         "docs/elves/survival-guide.md",
         "docs/plans/my-plan.md",
         "docs/elves/execution-log.md",
-    ]
+    ],
 }
 
 REPO_CONSISTENCY_WORKFLOW_FORBIDDEN_PHRASES = {
@@ -380,26 +313,16 @@ REPO_CONSISTENCY_WORKFLOW_FORBIDDEN_PHRASES = {
 }
 
 REVIEWED_PR_LANDING_PHRASES = {
+    "README.md": [
+        "\\land-pr",
+        "/land-pr",
+    ],
     "SKILL.md": [
         "## Reviewed PR Landing Command",
         "\\land-pr",
         "/land-pr",
         "gh pr merge --merge",
         "default when bots are expected",
-    ],
-    "AGENTS.md": [
-        "## Reviewed PR Landing Command",
-        "\\land-pr",
-        "/land-pr",
-        "gh pr merge --merge",
-        "default when bots are expected",
-    ],
-    "README.md": [
-        "### Reviewed PR landing command",
-        "\\land-pr",
-        "/land-pr",
-        "gh pr merge --merge",
-        "review the diff from main",
     ],
     "references/review-subagent.md": [
         "### Reviewed PR Landing Command",
@@ -449,15 +372,6 @@ MEMORY_HYGIENE_PHRASES = {
         "chats are for execution",
         "memory and resource hygiene",
     ],
-    "AGENTS.md": [
-        "## Strategic Forgetting",
-        "Chats are for execution",
-        "memory and resource hygiene",
-    ],
-    "README.md": [
-        "strategic forgetting",
-        "handoff docs are for memory",
-    ],
     "references/survival-guide-template.md": [
         "## Strategic Forgetting",
         "## Memory and Resource Hygiene",
@@ -478,25 +392,6 @@ ELVES_REPORT_PHRASES = {
         "collapsible `<details>` sections",
         "committed examples and reusable templates non-identifying",
         "Elves Report path",
-    ],
-    "AGENTS.md": [
-        "## Elves Report",
-        "problems found",
-        "lessons learned",
-        "/tmp/elves-report-<repo-slug>-<yyyy-mm-dd>.html",
-        "references/elves-report-template.html",
-        "collapsible batch `<details>` sections",
-        "committed examples and reusable templates non-identifying",
-        "Elves Report path",
-    ],
-    "README.md": [
-        "### Elves Reports",
-        "problems found",
-        "lessons learned",
-        "collapsible sections",
-        "docs/elves-report-proof-of-concept.html",
-        "references/elves-report-template.html",
-        "Committed examples should use non-identifying sample content",
     ],
     "references/survival-guide-template.md": [
         "## Elves Report",
@@ -529,14 +424,6 @@ ELVES_REPORT_PHRASES = {
 
 WORKSPACE_ISOLATION_PHRASES = {
     "SKILL.md": [
-        "One run owns one branch and one checkout",
-        "./scripts/preflight.sh --create-worktree <branch> --base origin/main",
-        "--dry-run",
-        "branch, worktree path, base ref, and collision tripwire",
-        "does not reuse, delete, or repair existing worktrees",
-        "collision tripwire",
-    ],
-    "AGENTS.md": [
         "One run owns one branch and one checkout",
         "./scripts/preflight.sh --create-worktree <branch> --base origin/main",
         "--dry-run",
@@ -652,25 +539,6 @@ MATH_MODULE_PHRASES = {
         "math-alphaevolve.md",
         "Never treat model output",
     ],
-    "AGENTS.md": [
-        "## Math Research Workflows",
-        "Cobbler-managed Elves domain workflow",
-        "Discovery Sprint",
-        "Native host subagents or direct analysis are the default",
-        "useful optional math role preset",
-        "Google Cloud AlphaEvolve",
-        "math-alphaevolve.md",
-        "Never treat model output",
-    ],
-    "README.md": [
-        "### Math research workflows",
-        "Cobbler-managed Elves domain workflow",
-        "Discovery Sprint",
-        "references/math-workflow.md",
-        "references/math-provider-config.md",
-        "references/math-alphaevolve.md",
-        "references/math-artifact-ledgers.md",
-    ],
     "references/survival-guide-template.md": [
         "### Math Configuration (optional)",
         "math-coordination: cobbler-managed-domain-workflow",
@@ -756,23 +624,6 @@ DOMAIN_WORKFLOW_PHRASES = {
         "**Elves** is the execution system",
         "**Cobbler** is the default coordinator",
         "**Domain workflows** are specialized Cobbler-managed packs",
-        "**Math** is the first domain workflow",
-        "**Providers** are optional role routes",
-        "cobbler.default_for_session",
-    ],
-    "AGENTS.md": [
-        "## Coordination Architecture",
-        "**Elves** is the execution system",
-        "**Cobbler** is the default coordinator",
-        "**Domain workflows** are specialized Cobbler-managed packs",
-        "**Math** is the first domain workflow",
-        "**Providers** are optional role routes",
-        "cobbler.default_for_session",
-    ],
-    "README.md": [
-        "**Elves** is the execution system",
-        "**Cobbler** is the default coordinator",
-        "**Domain workflows** are Cobbler-managed packs",
         "**Math** is the first domain workflow",
         "**Providers** are optional role routes",
         "cobbler.default_for_session",
@@ -931,25 +782,6 @@ PUBLIC_API_SURFACE_SNAPSHOT_PHRASES = {
         "A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.",
         "public API surface delta when configured",
     ],
-    "AGENTS.md": [
-        "Public API surface snapshots are optional regression evidence.",
-        "Use existing structured sources before inventing scanners",
-        "If no credible source exists, record `unavailable` with the reason instead of fabricating",
-        "A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide.",
-        "`required: true` is valid only when explicitly set by the user or project survival guide.",
-        "Do not infer required mode from project type, provider config, framework choice, or the presence of API files.",
-        "Snapshot artifacts are run artifacts, not product docs",
-        "Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly",
-        "Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data.",
-        "A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.",
-        "Public API surface delta",
-    ],
-    "README.md": [
-        "Public API surface snapshots",
-        "optional regression evidence",
-        "`enabled: auto` stays advisory",
-        "`required: true` is only an explicit survival-guide opt-in",
-    ],
     "references/survival-guide-template.md": [
         "api-surface-snapshot:",
         "enabled: auto",
@@ -1023,6 +855,14 @@ PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS = {
 }
 
 COUNCIL_MODULE_PHRASES = {
+    "README.md": [
+        "/cobbler",
+        "/setup-cobbler",
+        "$elves cobbler: <task>",
+        "Ask the Cobbler",
+        "Codex users should not need or expect a top-level `/cobbler` command",
+        "Council is a deprecated alias of Cobbler",
+    ],
     "SKILL.md": [
         "## Cobbler",
         "Cobbler",
@@ -1058,78 +898,6 @@ COUNCIL_MODULE_PHRASES = {
         "Provider-backed council is optional",
         "must not require",
         "vendor identity",
-    ],
-    "AGENTS.md": [
-        "## Cobbler",
-        "Cobbler",
-        "/cobbler",
-        "$elves cobbler: <task>",
-        "/council",
-        "/ec",
-        "/elves-council",
-        "$elves council: <task>",
-        "Host honesty matters",
-        "do not assume Codex has a top-level `/cobbler` command",
-        "Codex Goals are optional continuation plumbing",
-        "not required for a Quick Cobbler answer",
-        "default orchestration model",
-        "Cobbler-first coordination is the default for Elves runs",
-        "worker agents may edit the repo",
-        "Quick Cobbler is the default one-off answer mode",
-        "read-only",
-        "stateless",
-        "Codex subagents",
-        "Claude Code subagents",
-        "read-only lens analysis directly",
-        "Optional model routing is role-scoped",
-        "provider model such as `openrouter:<model-id>`",
-        "resolve dissent by",
-        "Recommendation",
-        "Why this fits",
-        "Strongest dissent",
-        "Risks",
-        "Next move",
-        "Confidence",
-        "run state",
-        "Provider-backed council is optional",
-        "must not require",
-        "vendor identity",
-    ],
-    "README.md": [
-        "### Cobbler",
-        "Cobbler",
-        "/cobbler",
-        "$elves cobbler: <task>",
-        "/council",
-        "/ec",
-        "/elves-council",
-        "$elves council: <task>",
-        "Host honesty matters",
-        "Codex users should not need or expect a top-level `/cobbler` command",
-        "Goals are for full Elves runs, not Quick Cobbler",
-        "default orchestration model",
-        "Cobbler-first coordination is the default for Elves runs",
-        "worker agents may edit the repo",
-        "Quick Cobbler is the default one-off answer mode",
-        "read-only",
-        "stateless",
-        "Codex subagents",
-        "Claude Code subagents",
-        "read-only analysis directly",
-        "Optional model routing stays behind",
-        "configured role routes like `openrouter:<model-id>`",
-        "model prestige",
-        "Recommendation",
-        "Why this fits",
-        "Strongest dissent",
-        "Risks",
-        "Next move",
-        "Confidence",
-        "require no OpenRouter",
-        "vendor identity",
-        "references/council-workflow.md",
-        "references/council-prompts.md",
-        "references/council-provider-config.md",
     ],
     "references/council-workflow.md": [
         "# Cobbler Workflow",
@@ -1258,7 +1026,6 @@ COUNCIL_MODULE_PHRASES = {
 COUNCIL_SECTION_HEADINGS = {
     "SKILL.md": "## Cobbler",
     "AGENTS.md": "## Cobbler",
-    "README.md": "### Cobbler",
 }
 
 CLAUDE_ALIAS_MARKER = "<!-- elves-managed-alias: claude-skill-alias v1 -->"
@@ -1368,10 +1135,10 @@ CLAUDE_ALIAS_SKILL_PHRASES = {
 
 CODEX_INSTALL_COBBLER_PHRASES = {
     "README.md": [
+        "--target codex",
+        "Do not invent top-level /cobbler",
         "Codex installs the main skill bundle only",
-        "It does not install the Claude Code slash aliases",
-        "For Codex, the sync helper updates the main skill bundle only",
-        "rather than a top-level slash alias",
+        "$elves cobbler: <task>",
     ],
 }
 
@@ -1387,11 +1154,6 @@ COBBLER_CONFIG_PREFERENCE_PHRASES = {
         "if both blocks are present",
         "`cobbler` wins",
     ],
-    "AGENTS.md": [
-        "Cobbler preferences belong under top-level `cobbler`",
-        "legacy `council` config remains for compatibility",
-        "`cobbler` wins if both are present",
-    ],
     "config.json.example": [
         '"precedence": "cobbler"',
         "If both blocks are present, cobbler wins",
@@ -1399,6 +1161,22 @@ COBBLER_CONFIG_PREFERENCE_PHRASES = {
 }
 
 COUNCIL_FORBIDDEN_PHRASES = {
+    "README.md": [
+        "ordinary `/council` requires OpenRouter",
+        "normal `/council` requires OpenRouter",
+        "ordinary Cobbler requires OpenRouter",
+        "normal Cobbler requires OpenRouter",
+        "Cobbler requires `OPENROUTER_API_KEY`",
+        "Council requires `OPENROUTER_API_KEY`",
+        "Cobbler is optional for Elves runs",
+        "Cobbler only runs when invoked",
+        "Run Cobbler is just Quick Cobbler inside a run",
+        "Run Cobbler is Quick Cobbler inside an existing Elves run",
+        "Use `/cobbler` in Codex",
+        "Use `/council` in Codex",
+        "Quick Cobbler requires Codex Goals",
+        "Cobbler requires `/goal`",
+    ],
     "SKILL.md": [
         "ordinary `/council` requires OpenRouter",
         "normal `/council` requires OpenRouter",
@@ -1424,22 +1202,6 @@ COUNCIL_FORBIDDEN_PHRASES = {
         "Cobbler requires `OPENROUTER_API_KEY`",
         "Council requires `OPENROUTER_API_KEY`",
         "Elves can also run Cobbler",
-        "Cobbler is optional for Elves runs",
-        "Cobbler only runs when invoked",
-        "Run Cobbler is just Quick Cobbler inside a run",
-        "Run Cobbler is Quick Cobbler inside an existing Elves run",
-        "Use `/cobbler` in Codex",
-        "Use `/council` in Codex",
-        "Quick Cobbler requires Codex Goals",
-        "Cobbler requires `/goal`",
-    ],
-    "README.md": [
-        "ordinary `/council` requires OpenRouter",
-        "normal `/council` requires OpenRouter",
-        "ordinary Cobbler requires OpenRouter",
-        "normal Cobbler requires OpenRouter",
-        "Cobbler requires `OPENROUTER_API_KEY`",
-        "Council requires `OPENROUTER_API_KEY`",
         "Cobbler is optional for Elves runs",
         "Cobbler only runs when invoked",
         "Run Cobbler is just Quick Cobbler inside a run",
@@ -1549,28 +1311,6 @@ COBBLER_MODE_PHRASES = {
         "daemon",
         "Codex slash command",
     ],
-    "AGENTS.md": [
-        "Cobbler Mode is the lowest-friction way",
-        "/cobbler-mode",
-        "$elves cobbler-mode",
-        "Cobbler Mode: on",
-        "Cobbler Mode: off",
-        "current-thread conversation state",
-        "not durable run state",
-        "daemon",
-        "Codex slash command",
-    ],
-    "README.md": [
-        "Cobbler Mode is the lowest-friction way",
-        "/cobbler-mode",
-        "$elves cobbler-mode",
-        "Cobbler Mode: on",
-        "Cobbler Mode: off",
-        "current-thread conversation state",
-        "not durable run state",
-        "daemon",
-        "slash command",
-    ],
     "references/council-workflow.md": [
         "### Cobbler Mode",
         "not a third Cobbler behavior mode",
@@ -1597,26 +1337,6 @@ COBBLER_MODE_PHRASES = {
 
 COBBLER_HARNESS_LOOP_PHRASES = {
     "SKILL.md": [
-        "capability scan",
-        "route and medium selection",
-        "context packet",
-        "execute agents/tools/skills",
-        "collect evidence",
-        "fit answer",
-        "present/record",
-        "reclassify",
-    ],
-    "AGENTS.md": [
-        "capability scan",
-        "route and medium selection",
-        "context packet",
-        "execute agents/tools/skills",
-        "collect evidence",
-        "fit answer",
-        "present/record",
-        "reclassify",
-    ],
-    "README.md": [
         "capability scan",
         "route and medium selection",
         "context packet",
@@ -1760,24 +1480,6 @@ FULL_RUN_MODEL_ROUTING_PHRASES = {
         "Missing optional provider access",
         "`required: true`",
     ],
-    "AGENTS.md": [
-        "Full-run model routing is a separate optional staging preference",
-        "`model-routing` phase preferences",
-        "native-first by default",
-        "requested route, actual route, and material fallback reason",
-        "`model_routes` array",
-        "`phase`, `requested_route`, `actual_route`, `fallback_reason`",
-        "Missing optional provider access",
-        "`required: true`",
-    ],
-    "README.md": [
-        "the Cobbler can prefer different elves for different phases",
-        "`model-routing` preferences",
-        "advisory unless the host",
-        "missing optional provider access falls back to",
-        "`required: true`",
-        "explicit survival-guide opt-in",
-    ],
     "references/survival-guide-template.md": [
         "### Full-Run Model Routing (optional)",
         "policy: native-first",
@@ -1879,25 +1581,6 @@ IMPLEMENTATION_LANES_PHRASES = {
         "cobbler_agents.py worker",
         "Do not invent top-level Codex slash commands",
     ],
-    "AGENTS.md": [
-        "### Who implements (native default, optional extras)",
-        "Default: host-native only",
-        "Vanilla Cobbler uses whatever host is running the skill",
-        "same pattern as the math module",
-        "implementation_lane: fast | untrusted",
-        "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
-        "references/grok-implementer-launch-prompt.md",
-        "the default overnight path",
-        "cobbler_agents.py worker",
-        "Do not invent top-level Codex slash commands",
-    ],
-    "README.md": [
-        "by default the **host agent**",
-        "implementation_lane: fast",
-        "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
-        "grok-implementer-launch-prompt.md",
-        "not the default overnight path",
-    ],
     "CHANGELOG.md": [
         "### Optional external batch implementer",
         "implementation_lane: fast | untrusted",
@@ -1939,30 +1622,6 @@ SETUP_COBBLER_PHRASES = {
         ".elves/models.toml",
         "references/model-onboarding.md",
         "references/cobbler-setup-recipes.md",
-    ],
-    "AGENTS.md": [
-        "### External-agent setup and model onboarding",
-        "Supported main drivers are Claude Code and Codex only",
-        "/setup-cobbler",
-        "/setup-council",
-        "$elves setup-cobbler",
-        "$elves setup-council",
-        "not a top-level",
-        "cobbler_agents.py onboard",
-        "cobbler_agents.py setup",
-        ".elves/models.toml",
-        "references/model-onboarding.md",
-        "references/cobbler-setup-recipes.md",
-    ],
-    "README.md": [
-        "/setup-cobbler",
-        "/setup-council",
-        "$elves setup-cobbler",
-        "$elves setup-council",
-        "model-onboarding.md",
-        "cobbler-setup-recipes.md",
-        ".elves/models.toml",
-        "onboard plan|show|apply|probe",
     ],
     "docs/cobbler.md": [
         "/setup-cobbler",
@@ -2023,17 +1682,6 @@ IMPLEMENTER_HANDOFF_PHRASES = {
         "HEAD / run-doc paths / route-session identity / output format",
         "blocking coordinator defect",
     ],
-    "AGENTS.md": [
-        "## Coordinator-to-Implementer Handoff Standard",
-        "intent / why",
-        "Build On targets",
-        "owned surfaces",
-        "forbidden surfaces",
-        "acceptance evidence",
-        "failure modes / pitfalls",
-        "HEAD / run-doc paths / route-session identity / output format",
-        "blocking coordinator defect",
-    ],
     "references/plan-template.md": [
         "Coordinator-to-implementer handoff",
         "Build On targets",
@@ -2080,15 +1728,6 @@ RISK_TIER_PHRASES = {
         "exact HEAD",
         "impact-selected",
     ],
-    "AGENTS.md": [
-        "Thin safety kernel",
-        "risk `low|standard|high`",
-        "independent trust mode",
-        "validate once, verify",
-        "touched surfaces",
-        "risk checkpoints",
-        "terminal readiness",
-    ],
     "references/joyful-runs-contract.md": [
         "low",
         "standard",
@@ -2112,15 +1751,6 @@ PROGRESS_COMMIT_PHRASES = {
         "audited detached handoff commits",
         "never own refs, remotes, push, PRs, or canonical run memory",
         "Reserve the `Close` phase for acceptance-backed batch completion",
-        "Protected refs, PR operations, and merge never dispatch model inference",
-    ],
-    "AGENTS.md": [
-        "## Git History as Operator UI",
-        "[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>",
-        "Forbid vague subjects",
-        "audited detached handoff commits",
-        "never own refs, remotes, push, PRs, or canonical run memory",
-        "Close` phase for acceptance-backed batch completion",
         "Protected refs, PR operations, and merge never dispatch model inference",
     ],
     "references/plan-template.md": [
@@ -2160,10 +1790,6 @@ PROGRESS_COMMIT_ANTIPATTERN_EXAMPLES = {
         "[feat/payments · Batch 3/12 · Implement] WIP",
         "[feat/payments · Batch 3/12 · Implement] fixes",
     ],
-    "AGENTS.md": [
-        "[feat/auth · Batch 3/12] Updates",
-        "[feat/auth · Batch 3/12 · Implement] progress",
-    ],
 }
 
 PUBLIC_WORDING_FILES = [
@@ -2195,9 +1821,6 @@ _AGENTS_THIN_POINTER = [
     'plan Acceptance with proof',
     'Stop Gate',
     'continuation_guard',
-    'v2.0+',
-    'v2.1',
-    'v2.3',
     '\\land-pr',
     '/land-pr',
     'source-checkout shorthand',
@@ -2211,7 +1834,29 @@ _AGENTS_THIN_POINTER = [
     'blocking coordinator defect',
     'Contract|Implement|Validate|Review|Close',
     'Forbid vague subjects',
+    '[feat/auth · Batch 3/12] Updates',
+    '[feat/auth · Batch 3/12 · Implement] progress',
+    'One run owns one branch and one checkout',
+    'optional regression evidence',
 ]
+
+# One whole-file thin-adapter check replaces the per-corpus AGENTS.md shims:
+# AGENTS.md is a pointer file, so it carries each contract's NAME exactly once
+# and the corpora that own the contracts no longer pin AGENTS.md separately.
+AGENTS_POINTER_PHRASES = {"AGENTS.md": list(_AGENTS_THIN_POINTER)}
+
+if isinstance(COUNCIL_MODULE_PHRASES, dict):
+    COUNCIL_MODULE_PHRASES = dict(COUNCIL_MODULE_PHRASES)
+    COUNCIL_MODULE_PHRASES["AGENTS.md"] = [
+        "$elves cobbler: <task>",
+        "$elves council: <task>",
+        "Ask the Cobbler",
+        "Codex Goals",
+        "Grok Build goal mode",
+        "capability-proven enhancement",
+        "one-packet fallback",
+        "authenticated live catalog",
+    ]
 
 if isinstance(COBBLER_FORBIDDEN_PATTERNS, dict) and 'AGENTS.md' in COBBLER_FORBIDDEN_PATTERNS:
     COBBLER_FORBIDDEN_PATTERNS = {k: v for k, v in COBBLER_FORBIDDEN_PATTERNS.items() if k != 'AGENTS.md'}
@@ -2241,78 +1886,6 @@ if isinstance(REVIEWED_PR_LANDING_FORBIDDEN_PHRASES, dict) and 'AGENTS.md' in RE
     REVIEWED_PR_LANDING_FORBIDDEN_PHRASES = {k: v for k, v in REVIEWED_PR_LANDING_FORBIDDEN_PHRASES.items() if k != 'AGENTS.md'}
 if isinstance(SINGLE_KICKOFF_FORBIDDEN_PHRASES, dict) and 'AGENTS.md' in SINGLE_KICKOFF_FORBIDDEN_PHRASES:
     SINGLE_KICKOFF_FORBIDDEN_PHRASES = {k: v for k, v in SINGLE_KICKOFF_FORBIDDEN_PHRASES.items() if k != 'AGENTS.md'}
-if isinstance(ACCEPTANCE_EVIDENCE_PHRASES, dict) and 'AGENTS.md' in ACCEPTANCE_EVIDENCE_PHRASES:
-    ACCEPTANCE_EVIDENCE_PHRASES = dict(ACCEPTANCE_EVIDENCE_PHRASES)
-    ACCEPTANCE_EVIDENCE_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(COBBLER_CONFIG_PREFERENCE_PHRASES, dict) and 'AGENTS.md' in COBBLER_CONFIG_PREFERENCE_PHRASES:
-    COBBLER_CONFIG_PREFERENCE_PHRASES = dict(COBBLER_CONFIG_PREFERENCE_PHRASES)
-    COBBLER_CONFIG_PREFERENCE_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(COBBLER_HARNESS_LOOP_PHRASES, dict) and 'AGENTS.md' in COBBLER_HARNESS_LOOP_PHRASES:
-    COBBLER_HARNESS_LOOP_PHRASES = dict(COBBLER_HARNESS_LOOP_PHRASES)
-    COBBLER_HARNESS_LOOP_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(COBBLER_MODE_PHRASES, dict) and 'AGENTS.md' in COBBLER_MODE_PHRASES:
-    COBBLER_MODE_PHRASES = dict(COBBLER_MODE_PHRASES)
-    COBBLER_MODE_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(COUNCIL_MODULE_PHRASES, dict) and 'AGENTS.md' in COUNCIL_MODULE_PHRASES:
-    COUNCIL_MODULE_PHRASES = dict(COUNCIL_MODULE_PHRASES)
-    COUNCIL_MODULE_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(DOMAIN_WORKFLOW_PHRASES, dict) and 'AGENTS.md' in DOMAIN_WORKFLOW_PHRASES:
-    DOMAIN_WORKFLOW_PHRASES = dict(DOMAIN_WORKFLOW_PHRASES)
-    DOMAIN_WORKFLOW_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(EFFORT_GUARDRAIL_PHRASES, dict) and 'AGENTS.md' in EFFORT_GUARDRAIL_PHRASES:
-    EFFORT_GUARDRAIL_PHRASES = dict(EFFORT_GUARDRAIL_PHRASES)
-    EFFORT_GUARDRAIL_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(ELVES_REPORT_PHRASES, dict) and 'AGENTS.md' in ELVES_REPORT_PHRASES:
-    ELVES_REPORT_PHRASES = dict(ELVES_REPORT_PHRASES)
-    ELVES_REPORT_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(FINAL_READINESS_REVIEW_PHRASES, dict) and 'AGENTS.md' in FINAL_READINESS_REVIEW_PHRASES:
-    FINAL_READINESS_REVIEW_PHRASES = dict(FINAL_READINESS_REVIEW_PHRASES)
-    FINAL_READINESS_REVIEW_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(FULL_RUN_MODEL_ROUTING_PHRASES, dict) and 'AGENTS.md' in FULL_RUN_MODEL_ROUTING_PHRASES:
-    FULL_RUN_MODEL_ROUTING_PHRASES = dict(FULL_RUN_MODEL_ROUTING_PHRASES)
-    FULL_RUN_MODEL_ROUTING_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(IMPLEMENTATION_LANES_PHRASES, dict) and 'AGENTS.md' in IMPLEMENTATION_LANES_PHRASES:
-    IMPLEMENTATION_LANES_PHRASES = dict(IMPLEMENTATION_LANES_PHRASES)
-    IMPLEMENTATION_LANES_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(IMPLEMENTER_HANDOFF_PHRASES, dict) and 'AGENTS.md' in IMPLEMENTER_HANDOFF_PHRASES:
-    IMPLEMENTER_HANDOFF_PHRASES = dict(IMPLEMENTER_HANDOFF_PHRASES)
-    IMPLEMENTER_HANDOFF_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(INSTALLED_HELPER_PATH_PHRASES, dict) and 'AGENTS.md' in INSTALLED_HELPER_PATH_PHRASES:
-    INSTALLED_HELPER_PATH_PHRASES = dict(INSTALLED_HELPER_PATH_PHRASES)
-    INSTALLED_HELPER_PATH_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(LANDING_CHECK_CONTRACT_PHRASES, dict) and 'AGENTS.md' in LANDING_CHECK_CONTRACT_PHRASES:
-    LANDING_CHECK_CONTRACT_PHRASES = dict(LANDING_CHECK_CONTRACT_PHRASES)
-    LANDING_CHECK_CONTRACT_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(MATH_MODULE_PHRASES, dict) and 'AGENTS.md' in MATH_MODULE_PHRASES:
-    MATH_MODULE_PHRASES = dict(MATH_MODULE_PHRASES)
-    MATH_MODULE_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(MEMORY_HYGIENE_PHRASES, dict) and 'AGENTS.md' in MEMORY_HYGIENE_PHRASES:
-    MEMORY_HYGIENE_PHRASES = dict(MEMORY_HYGIENE_PHRASES)
-    MEMORY_HYGIENE_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(NONSTOP_GUARDRAIL_PHRASES, dict) and 'AGENTS.md' in NONSTOP_GUARDRAIL_PHRASES:
-    NONSTOP_GUARDRAIL_PHRASES = dict(NONSTOP_GUARDRAIL_PHRASES)
-    NONSTOP_GUARDRAIL_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(PROGRESS_COMMIT_PHRASES, dict) and 'AGENTS.md' in PROGRESS_COMMIT_PHRASES:
-    PROGRESS_COMMIT_PHRASES = dict(PROGRESS_COMMIT_PHRASES)
-    PROGRESS_COMMIT_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(PUBLIC_API_SURFACE_SNAPSHOT_PHRASES, dict) and 'AGENTS.md' in PUBLIC_API_SURFACE_SNAPSHOT_PHRASES:
-    PUBLIC_API_SURFACE_SNAPSHOT_PHRASES = dict(PUBLIC_API_SURFACE_SNAPSHOT_PHRASES)
-    PUBLIC_API_SURFACE_SNAPSHOT_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(REVIEWED_PR_LANDING_PHRASES, dict) and 'AGENTS.md' in REVIEWED_PR_LANDING_PHRASES:
-    REVIEWED_PR_LANDING_PHRASES = dict(REVIEWED_PR_LANDING_PHRASES)
-    REVIEWED_PR_LANDING_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(RISK_TIER_PHRASES, dict) and 'AGENTS.md' in RISK_TIER_PHRASES:
-    RISK_TIER_PHRASES = dict(RISK_TIER_PHRASES)
-    RISK_TIER_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(SETUP_COBBLER_PHRASES, dict) and 'AGENTS.md' in SETUP_COBBLER_PHRASES:
-    SETUP_COBBLER_PHRASES = dict(SETUP_COBBLER_PHRASES)
-    SETUP_COBBLER_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(SINGLE_KICKOFF_PHRASES, dict) and 'AGENTS.md' in SINGLE_KICKOFF_PHRASES:
-    SINGLE_KICKOFF_PHRASES = dict(SINGLE_KICKOFF_PHRASES)
-    SINGLE_KICKOFF_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
-if isinstance(WORKSPACE_ISOLATION_PHRASES, dict) and 'AGENTS.md' in WORKSPACE_ISOLATION_PHRASES:
-    WORKSPACE_ISOLATION_PHRASES = dict(WORKSPACE_ISOLATION_PHRASES)
-    WORKSPACE_ISOLATION_PHRASES['AGENTS.md'] = list(_AGENTS_THIN_POINTER)
 if isinstance(ACCEPTANCE_EVIDENCE_PHRASES, dict) and 'SKILL.md' in ACCEPTANCE_EVIDENCE_PHRASES:
     ACCEPTANCE_EVIDENCE_PHRASES = dict(ACCEPTANCE_EVIDENCE_PHRASES)
     ACCEPTANCE_EVIDENCE_PHRASES['SKILL.md'] = ['plan Acceptance with proof', 'acceptance', 'elves_landing_check.py', 'God-file', 'one batch per close commit']
@@ -2381,7 +1954,7 @@ if isinstance(SETUP_COBBLER_PHRASES, dict) and 'SKILL.md' in SETUP_COBBLER_PHRAS
     SETUP_COBBLER_PHRASES['SKILL.md'] = ['setup-cobbler', 'setup-council', 'model-onboarding.md', 'not a top-level', 'cobbler_agents.py setup', 'references/cobbler-setup-recipes.md', 'Supported main drivers are Claude Code and Codex only', '$elves setup-council']
 if isinstance(SINGLE_KICKOFF_PHRASES, dict) and 'SKILL.md' in SINGLE_KICKOFF_PHRASES:
     SINGLE_KICKOFF_PHRASES = dict(SINGLE_KICKOFF_PHRASES)
-    SINGLE_KICKOFF_PHRASES['SKILL.md'] = ['Default user path (v2.0+): one kickoff', 'v2.1 adds trusted Grok full-run', 'chat-to-work', 'chat-to-land', 'Legacy two-call', 'full-run', 'parked']
+    SINGLE_KICKOFF_PHRASES['SKILL.md'] = ['Default user path: one kickoff', 'Trusted full-run delegation keeps that path', 'chat-to-work', 'chat-to-land', 'Legacy two-call', 'full-run', 'parked']
 if isinstance(WORKSPACE_ISOLATION_PHRASES, dict) and 'SKILL.md' in WORKSPACE_ISOLATION_PHRASES:
     WORKSPACE_ISOLATION_PHRASES = dict(WORKSPACE_ISOLATION_PHRASES)
     WORKSPACE_ISOLATION_PHRASES['SKILL.md'] = ['One run owns one branch and one checkout', './scripts/preflight.sh --create-worktree <branch> --base origin/main', '--dry-run', 'branch, worktree path, base ref, and collision tripwire', 'does not reuse, delete, or repair existing worktrees']
@@ -2392,18 +1965,6 @@ ADAPTIVE_WORKER_ROUTING_PHRASES = {
         "authenticated live",
         "${XDG_CONFIG_HOME:-~/.config}/elves/config.json",
         "approval-bypass authority",
-    ],
-    "AGENTS.md": [
-        "subscription-native Codex/Claude worker",
-        "authenticated live catalog",
-        "${XDG_CONFIG_HOME:-~/.config}/elves/config.json",
-        "prompt-cache promise",
-    ],
-    "README.md": [
-        "subscription-native worker",
-        "preferences show|set|reset",
-        "Repository safety vetoes always win",
-        "never merge permission",
     ],
     "references/adaptive-worker-routing.md": [
         "repository safety veto > explicit run intent > repository defaults > global convenience",
@@ -2424,18 +1985,6 @@ GROK_OPEN_SOURCE_WORKER_PHRASES = {
         "behaviorally proven headless goal mode",
         "one-packet fallback",
         "Native Claude Code and Codex",
-    ],
-    "AGENTS.md": [
-        "authenticated live catalog",
-        "capability-proven enhancement",
-        "one-packet fallback",
-        "subscription-native Codex/Claude worker",
-    ],
-    "README.md": [
-        "authenticated live catalog",
-        "Behaviorally proven headless `/goal`",
-        "one-packet prompt fallback",
-        "Claude Code or Codex",
     ],
     "CHANGELOG.md": [
         "authenticated live-catalog models",

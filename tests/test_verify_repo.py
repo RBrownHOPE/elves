@@ -1307,5 +1307,28 @@ class VerifyRepoUnitTests(unittest.TestCase):
         landing.assert_not_called()
 
 
+class BoundedGateRunnerTests(unittest.TestCase):
+    """Gate subprocesses are bounded by construction (plan B9)."""
+
+    def test_run_pins_stdin_closed(self) -> None:
+        verify = load_verify()
+        proc = verify._run(
+            [sys.executable, "-c", "import sys; print(len(sys.stdin.read()))"],
+            cwd=Path.cwd(),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "0")
+
+    def test_run_timeout_surfaces_as_failing_step(self) -> None:
+        verify = load_verify()
+        proc = verify._run(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            cwd=Path.cwd(),
+            timeout=1.0,
+        )
+        self.assertEqual(proc.returncode, 124)
+        self.assertIn("timed out after", proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

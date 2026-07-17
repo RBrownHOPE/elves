@@ -1116,5 +1116,120 @@ class AcceptanceContractCliTests(unittest.TestCase):
                 self.assertEqual(self.session_path.read_bytes(), before)
 
 
+class WorkerPacketStagingWarningTests(unittest.TestCase):
+    """validate warns — never blocks — when a delegable run has no recorded packet.
+
+    Standalone TestCase (not an AcceptanceContractCliTests subclass) so the
+    parent suite is not re-collected a second time.
+    """
+
+    setUp = AcceptanceContractCliTests.setUp
+    write_plan = AcceptanceContractCliTests.write_plan
+    write_session = AcceptanceContractCliTests.write_session
+    run_cli = AcceptanceContractCliTests.run_cli
+
+    def _session_with_driver(
+        self,
+        work_driver: str | None,
+        *,
+        worker_packet_path: str | None = None,
+    ) -> dict[str, object]:
+        session = session_for_plan()
+        if work_driver is not None:
+            session["work_driver"] = work_driver
+        if worker_packet_path is not None:
+            session["worker_packet_path"] = worker_packet_path
+        return session
+
+    def _validate(self, *extra: str) -> subprocess.CompletedProcess[str]:
+        return self.run_cli(
+            "validate",
+            "--plan",
+            self.plan_path.name,
+            "--session",
+            self.session_path.name,
+            *extra,
+        )
+
+    def test_validate_warns_for_grok_build_without_packet_path(self) -> None:
+        self.write_plan()
+        self.write_session(self._session_with_driver("grok-build"))
+
+        result = self._validate()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Elves acceptance staging check OK", result.stdout)
+        self.assertIn("WARN", result.stdout)
+        self.assertIn("worker_packet_missing", result.stdout)
+
+    def test_validate_warns_for_underscore_and_devin_spellings(self) -> None:
+        for driver in ("grok_build", "devin-cli", "devin_cli", "untrusted_writer"):
+            with self.subTest(driver=driver):
+                self.write_plan()
+                self.write_session(self._session_with_driver(driver))
+
+                result = self._validate()
+
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("worker_packet_missing", result.stdout)
+
+    def test_validate_silent_with_packet_path_recorded(self) -> None:
+        self.write_plan()
+        self.write_session(
+            self._session_with_driver(
+                "grok-build",
+                worker_packet_path=".elves/runtime/worker-packet.md",
+            )
+        )
+
+        result = self._validate()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("WARN", result.stdout)
+        self.assertNotIn("worker_packet_missing", result.stdout)
+
+    def test_validate_silent_for_host_native_and_absent_driver(self) -> None:
+        for driver in ("host-native", "host_native", "n_a", None):
+            with self.subTest(driver=driver):
+                self.write_plan()
+                self.write_session(self._session_with_driver(driver))
+
+                result = self._validate()
+
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn("worker_packet_missing", result.stdout)
+
+    def test_validate_warning_reported_in_json_without_flipping_ok(self) -> None:
+        self.write_plan()
+        self.write_session(self._session_with_driver("grok-build"))
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(
+            ["worker_packet_missing"],
+            [warning["code"] for warning in payload.get("warnings", [])],
+        )
+
+    def test_validate_blocking_issue_still_fails_with_warning_present(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build")
+        session["batches"][0]["acceptance"][0]["criterion"] = "Drifted criterion text."
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["issues"])
+        self.assertEqual(
+            ["worker_packet_missing"],
+            [warning["code"] for warning in payload.get("warnings", [])],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

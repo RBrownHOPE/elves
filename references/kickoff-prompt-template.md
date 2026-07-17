@@ -1,7 +1,7 @@
 # Kickoff Prompt Template
 
-> **Recommended (v2.0+): one kickoff after conceptual agreement.** v2.1 adds the trusted Grok
-> full-run / parked-monitor route. **v2.3 joyful runs** add a default sanitized non-model follow
+> **Recommended: one kickoff after conceptual agreement.** The trusted full-run / parked-monitor
+> route is optional; the default includes a sanitized non-model follow
 > stream (`full-run-await`; `--quiet` opt-out), exact-HEAD readiness independent of merge
 > authorization, and impact-selected convergent review. See
 > [`joyful-runs-contract.md`](joyful-runs-contract.md) and [`follow-mode.md`](follow-mode.md).
@@ -60,7 +60,14 @@ Stage this Elves run. Do not start implementing the batches in this call.
   explicit math role/provider preferences into the survival guide without making provider keys
   required by default
 - Create or switch to the branch, open or update the PR, and record the PR number
-- Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated git worktree instead of in the main checkout (`./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect first), and record the branch tip as a collision tripwire. The helper prints the branch, worktree path, base ref, and collision tripwire and does not reuse, delete, or repair existing worktrees.
+- Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated git worktree instead of in the main checkout (`./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect first), and record the branch tip as a collision tripwire. The helper prints the branch, worktree path, base ref, and collision tripwire and does not reuse, delete, or repair existing worktrees. Record the created worktree path as `worktree_path` in `.elves-session.json`, and expect post-merge teardown of that worktree via the separate gc helper (`./scripts/preflight.sh --gc-worktrees`; report by default, `--apply` removes only clean, fully merged, fully pushed worktrees).
+- If the run may be delegated to a separate worker (Run Control `Work driver` ≠ host-native),
+  write the standalone coordinator→implementer packet now and record its path in Run Control
+  (`Worker packet:`) and as `worker_packet_path` in `.elves-session.json` — staging is not
+  launch-ready without it. Worker commits follow SKILL.md's commit cadence and phase roles (at
+  least one pushed non-Close progress slice before Close), and worker failures follow SKILL.md's
+  Worker failure recovery (transient errors back off and resume without consuming the re-drive
+  budget; workers keep an untracked progress ledger under `.elves/runtime/`).
 - Configure optional public API surface snapshot behavior if this project has public contract
   surfaces. Default to `api-surface-snapshot.enabled: auto`, keep `required: false` unless I
   explicitly opt in, and keep snapshot artifacts under ignored `.elves/api-surface/`.
@@ -100,7 +107,14 @@ Stage this Elves run. Do not start implementing the batches in this call.
   explicit math role/provider preferences into the survival guide without making provider keys
   required by default
 - Create or switch to the branch, open or update the PR, and record the PR number
-- Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated git worktree instead of in the main checkout (`./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect first), and record the branch tip as a collision tripwire. The helper prints the branch, worktree path, base ref, and collision tripwire and does not reuse, delete, or repair existing worktrees.
+- Claim a dedicated checkout: confirm no other agent is working this branch or working tree. When other agents may touch the repo, create the branch directly in a dedicated git worktree instead of in the main checkout (`./scripts/preflight.sh --create-worktree <branch> --base origin/main`; add `--dry-run` to inspect first), and record the branch tip as a collision tripwire. The helper prints the branch, worktree path, base ref, and collision tripwire and does not reuse, delete, or repair existing worktrees. Record the created worktree path as `worktree_path` in `.elves-session.json`, and expect post-merge teardown of that worktree via the separate gc helper (`./scripts/preflight.sh --gc-worktrees`; report by default, `--apply` removes only clean, fully merged, fully pushed worktrees).
+- If the run may be delegated to a separate worker (Run Control `Work driver` ≠ host-native),
+  write the standalone coordinator→implementer packet now and record its path in Run Control
+  (`Worker packet:`) and as `worker_packet_path` in `.elves-session.json` — staging is not
+  launch-ready without it. Worker commits follow SKILL.md's commit cadence and phase roles (at
+  least one pushed non-Close progress slice before Close), and worker failures follow SKILL.md's
+  Worker failure recovery (transient errors back off and resume without consuming the re-drive
+  budget; workers keep an untracked progress ledger under `.elves/runtime/`).
 - Configure optional public API surface snapshot behavior if this project has public contract
   surfaces. Default to `api-surface-snapshot.enabled: auto`, keep `required: false` unless I
   explicitly opt in, and keep snapshot artifacts under ignored `.elves/api-surface/`.
