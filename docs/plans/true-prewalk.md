@@ -93,21 +93,21 @@ authority boundaries, and remain backward compatible with single-phase native wo
 
 **Tasks:**
 
-- [ ] Refactor native-worker execution into a reusable phase runner and add version-3 prewalk state,
+- [x] Refactor native-worker execution into a reusable phase runner and add version-3 prewalk state,
   automatic transition, one logical follow stream, and exact-session recovery without cold fallback.
-- [ ] Build explicit guide-create and execution-resume specs for Codex and Claude with pinned routes,
+- [x] Build explicit guide-create and execution-resume specs for Codex and Claude with pinned routes,
   one packet send, `Continue.` resume input, same worktree, and preserved environment/Git protections.
-- [ ] Extend the CLI for prewalk launch/status/follow/capabilities while retaining existing off-mode
+- [x] Extend the CLI for prewalk launch/status/follow/capabilities while retaining existing off-mode
   arguments and version-2 single-phase behavior.
-- [ ] Add deterministic fixture lifecycle tests and table-driven Codex/Claude semantic parity tests.
+- [x] Add deterministic fixture lifecycle tests and table-driven Codex/Claude semantic parity tests.
 
 **Acceptance criteria:**
 
-- [ ] B1-A1: A fixture run traverses staged, guide, transition, execution, and complete states; sends the packet once; resumes with only `Continue.`; retains one exact session/worktree; and exposes both phases in one private follow log.
-- [ ] B1-A2: Missing or malformed TODO/checkpoint, session/worktree mismatch, forbidden edits, guide failure, resume failure, and post-edit cold fallback fail closed with stable actionable state while preserving the worktree and logs.
-- [ ] B1-A3: Codex uses exact `codex exec resume <session-id>` and Claude uses exact `--resume <uuid>` with explicit guide/execution model and effort, registered CWD/write roots, no ambiguous selector, and no packet replay.
-- [ ] B1-A4: Tiny all-complete tasks may terminalize after the guide only when the task-complete checkpoint and normal completion/Git contracts hold; otherwise a zero guide exit means transition-ready, not complete.
-- [ ] B1-A5: Existing version-2 and single-phase native-worker launch, status, follow, redaction, environment scrubbing, sandboxing, PID identity, Git authority, and no-push tests remain green.
+- [x] B1-A1: A fixture run traverses staged, guide, transition, execution, and complete states; sends the packet once; resumes with only `Continue.`; retains one exact session/worktree; and exposes both phases in one private follow log.
+- [x] B1-A2: Missing or malformed TODO/checkpoint, session/worktree mismatch, forbidden edits, guide failure, resume failure, and post-edit cold fallback fail closed with stable actionable state while preserving the worktree and logs.
+- [x] B1-A3: Codex uses exact `codex exec resume <session-id>` and Claude uses exact `--resume <uuid>` with explicit guide/execution model and effort, registered CWD/write roots, no ambiguous selector, and no packet replay.
+- [x] B1-A4: Tiny all-complete tasks may terminalize after the guide only when the task-complete checkpoint and normal completion/Git contracts hold; otherwise a zero guide exit means transition-ready, not complete.
+- [x] B1-A5: Existing version-2 and single-phase native-worker launch, status, follow, redaction, environment scrubbing, sandboxing, PID identity, Git authority, and no-push tests remain green.
 
 **Docs likely touched:** none beyond execution evidence until the mechanism is proven.
 

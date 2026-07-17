@@ -34,37 +34,37 @@
       "acceptance": [
         {
           "criterion": "A fixture run traverses staged, guide, transition, execution, and complete states; sends the packet once; resumes with only `Continue.`; retains one exact session/worktree; and exposes both phases in one private follow log.",
-          "evidence": "",
+          "evidence": "Two-phase fixture state and follow-log assertions prove staged through complete, one packet delivery, Continue-only resume, and one session/worktree.",
           "id": "B1-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Missing or malformed TODO/checkpoint, session/worktree mismatch, forbidden edits, guide failure, resume failure, and post-edit cold fallback fail closed with stable actionable state while preserving the worktree and logs.",
-          "evidence": "",
+          "evidence": "Lifecycle fixtures cover missing/malformed artifacts, forbidden edits, branch/session drift, guide recovery, dirty fallback rejection, and execution failure.",
           "id": "B1-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Codex uses exact `codex exec resume <session-id>` and Claude uses exact `--resume <uuid>` with explicit guide/execution model and effort, registered CWD/write roots, no ambiguous selector, and no packet replay.",
-          "evidence": "",
+          "evidence": "NativeTransportParityTests prove exact Codex and Claude create/resume grammar, route pins, CWD, Git roots, and selector exclusions.",
           "id": "B1-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Tiny all-complete tasks may terminalize after the guide only when the task-complete checkpoint and normal completion/Git contracts hold; otherwise a zero guide exit means transition-ready, not complete.",
-          "evidence": "",
+          "evidence": "Atomic fixture terminalizes only with all-complete TODO and task_complete checkpoint; missing artifacts fail before execution.",
           "id": "B1-A4",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Existing version-2 and single-phase native-worker launch, status, follow, redaction, environment scrubbing, sandboxing, PID identity, Git authority, and no-push tests remain green.",
-          "evidence": "",
+          "evidence": "127 focused prewalk, routing, session grammar, and existing native-worker lifecycle tests pass.",
           "id": "B1-A5",
-          "met": false
+          "met": true
         }
       ],
       "id": "B1",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [
@@ -109,7 +109,7 @@
     "route": "host-native"
   },
   "continuation_guard": {
-    "next_action": "Complete B1 exact-session supervisor, CLI, recovery, and parity tests.",
+    "next_action": "Complete B2 documentation, installed-bundle proof, terminal review, and PR readiness.",
     "stop_allowed": false
   },
   "delegation_scope": "none",

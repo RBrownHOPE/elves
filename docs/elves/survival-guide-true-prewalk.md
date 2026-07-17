@@ -62,17 +62,17 @@ it with deterministic fixtures and full repository verification, then open an un
 
 ## Stop Gate
 
-- **Planned batches remaining:** 2
+- **Planned batches remaining:** 1
 - **Stop allowed right now:** no
-- **Why:** implementation, proof, terminal review, push, and PR creation remain
-- **Next required action:** complete B1 supervisor lifecycle, recovery, CLI, and host parity
+- **Why:** documentation, installed-bundle proof, terminal review, push, and PR creation remain
+- **Next required action:** complete B2 documentation, installation parity, and terminal readiness
 
 ## Current Phase
 
 - **Status:** in progress
-- **Active batch:** B1: Exact-session multi-phase supervisor and host parity
-- **What was just finished:** B0 contracts, routing, preferences, capability truth, and focused proof
-- **Single next action:** finish B1 lifecycle edge cases and commit the supervisor slice
+- **Active batch:** B2: Documentation, installation parity, and terminal readiness
+- **What was just finished:** B1 exact-session supervisor, recovery, CLI, host parity, and 127 focused tests
+- **Single next action:** update every canonical and user-facing prewalk surface, then prove installed bundles
 
 ## Active Compute
 
@@ -80,25 +80,25 @@ it with deterministic fixtures and full repository verification, then open an un
 
 ## Next Exact Batch
 
-**Batch:** B1: Exact-session multi-phase supervisor and host parity
+**Batch:** B2: Documentation, installation parity, and terminal readiness
 
 **Scope:**
 
-- Complete reusable phase supervision, version-3 state, status history, and exact recovery.
-- Prove Codex and Claude create/resume grammar, one packet, minimal continuation, and one follow stream.
-- Preserve version-2 single-phase behavior and every existing environment/Git safety check.
+- Update normative, user, release, schema, host-parity, routing, and durable AI documentation.
+- Add versioned host-help fixtures and installed Codex/Claude bundle smoke coverage.
+- Run canonical verification, independent cumulative review, exact-tip landing checks, and open the PR.
 
 **Acceptance criteria:**
 
-- [ ] B1-A1: Fixture lifecycle traverses guide, transition, and execution with one packet/follow stream.
-- [ ] B1-A2: Recovery and failure paths preserve state and forbid post-edit cold fallback.
-- [ ] B1-A3: Codex and Claude exact resume pin distinct routes in the same CWD/session.
-- [ ] B1-A4: Atomic completion is explicit and zero guide exit never implies normal completion.
-- [ ] B1-A5: Existing version-2, redaction, environment, PID, Git, and no-push behavior remains green.
+- [ ] B2-A1: Canonical and user docs define exact-session trajectory continuity and reject cold handoffs.
+- [ ] B2-A2: Instruction fidelity and behavioral qualification limits are reported honestly.
+- [ ] B2-A3: Fresh Codex and Claude bundles contain and exercise the runtime/reference without source helpers.
+- [ ] B2-A4: Focused, consistency, canonical, cumulative review, and exact-tip checks pass.
+- [ ] B2-A5: An unmerged PR explains the mechanism, parity evidence, rollout limits, and verification.
 
-**Risk:** A phase transition bug could replay the packet, lose the session, or misreport completion.
+**Risk:** Documentation or installed bundles could drift from the implemented CLI and qualification gate.
 
-**Rollback authority:** host-created B1 rollback ref at the acceptance-backed B0 Close tip.
+**Rollback authority:** host-created B2 rollback ref at the acceptance-backed B1 Close tip.
 
 ## Effort Standard
 

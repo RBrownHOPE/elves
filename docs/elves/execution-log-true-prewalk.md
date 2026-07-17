@@ -49,7 +49,9 @@
 - B0 host-neutral contracts/routing: complete. The focused module validates bounded TODO and
   checkpoint identity, meaningful edits, safe runtime paths, capability evidence, and canonical
   prompts; routing/preferences expose distinct guide/execution decisions with conservative fallback.
-- B1 multi-phase supervisor/parity: in progress.
+- B1 multi-phase supervisor/parity: complete. One version-3 supervisor owns guide, transition,
+  execution, recovery, terminal authority, and one private follow stream. Clean `auto` fallback is
+  explicitly a fresh single-phase run; dirty fallback is prohibited.
 - B2 docs/install/readiness/PR: pending.
 
 ## Verification evidence
@@ -61,6 +63,12 @@
 - B0 close evidence: the same 38 focused cases pass after the path-prefix correction; installed
   Codex 0.144.1 and Claude 2.1.207 help advertise exact resume and route overrides but correctly
   remain behaviorally unqualified with instruction fidelity `unsupported` and zero model calls.
-- Focused tests: B0 contract/routing slice green; supervisor lifecycle remains pending.
+- B1 focused proof: 127 prewalk, routing, session grammar, and existing native-worker lifecycle tests
+  pass. Nine supervisor scenarios prove the normal two-phase lifecycle, tiny task completion, exact
+  guide recovery without packet replay, explicit clean auto fallback, dirty fallback prohibition,
+  malformed artifacts, forbidden paths, branch drift, session mismatch, execution failure, and
+  exact-session transient recovery with the canonical 5/10/20-minute backoff policy.
+- Codex and Claude table tests pin distinct guide/execution models and efforts, exact session resume,
+  registered CWD, narrow Git roots, and reject ambiguous latest/continue selectors.
 - Canonical verification: pending.
 - Terminal cumulative review: pending.
