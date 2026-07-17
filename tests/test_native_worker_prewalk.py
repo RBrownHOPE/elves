@@ -4,10 +4,12 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 
@@ -19,6 +21,7 @@ if str(SCRIPTS) not in sys.path:
 from cobbler_runtime.prewalk import (  # noqa: E402
     PREWALK_CONTINUATION_INPUT,
     advertised_prewalk_capabilities,
+    fixture_prewalk_capabilities,
     guide_prompt,
     load_and_validate_transition_artifacts,
     load_prewalk_capability_evidence,
@@ -26,6 +29,9 @@ from cobbler_runtime.prewalk import (  # noqa: E402
     validate_checkpoint_artifact,
     validate_meaningful_edit,
     validate_todo_artifact,
+)
+from cobbler_runtime.native_worker import (  # noqa: E402
+    build_native_worker_prewalk_spec,
 )
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 
@@ -349,6 +355,323 @@ class CapabilityEvidenceTests(unittest.TestCase):
         self.assertTrue(qualified.qualified())
         self.assertFalse(qualified.behaviorally_verified_instruction_pruning)
         self.assertEqual(qualified.instruction_fidelity, "retained_safe")
+
+
+class NativeTransportParityTests(unittest.TestCase):
+    def _spec(self, host: str):
+        return build_native_worker_prewalk_spec(
+            host=host,
+            worktree=REPO_ROOT,
+            guide_effort="high",
+            execution_effort="low",
+            guide_model="guide-model",
+            execution_model="execution-model",
+            capabilities=fixture_prewalk_capabilities(host),
+            requested_mode="required",
+        )
+
+    def test_codex_create_and_exact_resume_pin_distinct_routes(self) -> None:
+        prewalk = self._spec("codex")
+        self.assertIn("-C", prewalk.guide.argv)
+        self.assertIn("guide-model", prewalk.guide.argv)
+        self.assertIn('model_reasoning_effort="high"', prewalk.guide.argv)
+        resumed = prewalk.execution_spec("thread-exact-123")
+        self.assertIn("execution-model", resumed.argv)
+        self.assertIn('model_reasoning_effort="low"', resumed.argv)
+        self.assertIn("resume", resumed.argv)
+        self.assertEqual(resumed.argv[resumed.argv.index("resume") + 1], "thread-exact-123")
+        self.assertNotIn("--last", resumed.argv)
+        self.assertLess(resumed.argv.index("--sandbox"), resumed.argv.index("resume"))
+        for root in resumed.git_write_roots:
+            self.assertLess(resumed.argv.index(root), resumed.argv.index("resume"))
+        self.assertEqual(resumed.cwd, str(REPO_ROOT.resolve()))
+
+    def test_claude_create_and_exact_resume_pin_distinct_routes(self) -> None:
+        prewalk = self._spec("claude")
+        self.assertIn("--session-id", prewalk.guide.argv)
+        self.assertIn("guide-model", prewalk.guide.argv)
+        self.assertEqual(prewalk.guide.argv[prewalk.guide.argv.index("--effort") + 1], "high")
+        exact = prewalk.guide.session_id
+        self.assertIsNotNone(exact)
+        resumed = prewalk.execution_spec(exact or "")
+        self.assertIn("--resume", resumed.argv)
+        self.assertEqual(resumed.argv[resumed.argv.index("--resume") + 1], exact)
+        self.assertIn("execution-model", resumed.argv)
+        self.assertEqual(resumed.argv[resumed.argv.index("--effort") + 1], "low")
+        self.assertNotIn("--continue", resumed.argv)
+        self.assertIn("--safe-mode", resumed.argv)
+        self.assertIn("--verbose", resumed.argv)
+        self.assertEqual(resumed.argv[resumed.argv.index("--permission-mode") + 1], "auto")
+
+    def test_shared_semantic_contract_is_table_driven_for_both_hosts(self) -> None:
+        for host in ("codex", "claude"):
+            with self.subTest(host=host):
+                prewalk = self._spec(host)
+                session_id = prewalk.guide.session_id or "captured-thread-id"
+                resumed = prewalk.execution_spec(session_id)
+                self.assertTrue(prewalk.guide.separate_session)
+                self.assertEqual(prewalk.guide.cwd, resumed.cwd)
+                self.assertEqual(resumed.session_id, session_id)
+                self.assertEqual(prewalk.guide.requested_model, "guide-model")
+                self.assertEqual(resumed.requested_model, "execution-model")
+                self.assertFalse(prewalk.guide.cache_handoff)
+                self.assertFalse(resumed.cache_handoff)
+                self.assertEqual(prewalk.capabilities.instruction_fidelity, "retained_safe")
+                self.assertTrue(prewalk.capabilities.stream_identity_verified)
+
+
+class PrewalkSupervisorLifecycleTests(unittest.TestCase):
+    def _repo(self, root: Path) -> tuple[Path, Path]:
+        repo = root / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "feat/prewalk", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.name", "Elves Test"], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.email", "elves@example.invalid"], check=True)
+        (repo / ".gitignore").write_text(".elves/\n", encoding="utf-8")
+        (repo / "product.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", ".gitignore", "product.txt"], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
+        packet = repo / ".elves" / "runtime" / "packet.md"
+        packet.parent.mkdir(parents=True)
+        packet.write_text("packet body\n", encoding="utf-8")
+        return repo, packet
+
+    def _fixtures(self, root: Path) -> tuple[Path, Path]:
+        fixture_root = root / "fixtures"
+        fixture_root.mkdir()
+        guide = fixture_root / "guide.py"
+        execution = fixture_root / "execution.py"
+        guide.write_text(
+            "from datetime import datetime, timezone\n"
+            "import json, os, pathlib, sys\n"
+            "scenario = os.environ.get('PW_FIXTURE_SCENARIO', 'success')\n"
+            "record = pathlib.Path(os.environ['PW_FIXTURE_RECORD_DIR'])\n"
+            "record.mkdir(parents=True, exist_ok=True)\n"
+            "received = sys.stdin.read()\n"
+            "identity = json.loads(pathlib.Path(os.environ['ELVES_PREWALK_SESSION_PATH']).read_text())\n"
+            "sid = identity['session_id']\n"
+            "phase = os.environ['ELVES_NATIVE_WORKER_PHASE']\n"
+            "guide_record = {'packet_count': received.count('packet body\\n'), 'phase': phase}\n"
+            "(record / 'guide.json').write_text(json.dumps(guide_record))\n"
+            "(record / ('guide-' + phase + '.json')).write_text(json.dumps(guide_record))\n"
+            "print(json.dumps({'type':'thread.started','thread_id':sid}), flush=True)\n"
+            "if scenario == 'recovery_success' and phase == 'prewalk': raise SystemExit(7)\n"
+            "if scenario == 'clean_fallback': raise SystemExit(7)\n"
+            "if scenario == 'post_edit_failure':\n"
+            "    pathlib.Path('product.txt').write_text('uncheckpointed guide edit\\n')\n"
+            "    raise SystemExit(7)\n"
+            "if scenario == 'missing': raise SystemExit(0)\n"
+            "pathlib.Path('product.txt').write_text('guide edit\\n')\n"
+            "now = datetime.now(timezone.utc).isoformat()\n"
+            "all_complete = scenario == 'tiny'\n"
+            "todo = {'schema_version':1,'run_id':os.environ['ELVES_PREWALK_RUN_ID'],'session_id':sid,'created_at':now,'updated_at':now,'items':[{'id':'PW-01','description':'make first edit','acceptance':'product changed','validation':'inspect product.txt','status':'complete'}]}\n"
+            "if not all_complete: todo['items'].append({'id':'PW-02','description':'finish task','acceptance':'execution completed','validation':'inspect final product.txt','status':'in_progress'})\n"
+            "pathlib.Path(os.environ['ELVES_PREWALK_TODO_PATH']).write_text(json.dumps(todo))\n"
+            "checkpoint = {'schema_version':1,'run_id':os.environ['ELVES_PREWALK_RUN_ID'],'session_id':sid,'kind':'task_complete' if all_complete else 'first_meaningful_edit','todo_id':'PW-01','changed_paths':['product.txt'],'summary':'first task edit','validation_attempted':[{'command':'inspect product.txt','exit_code':0}],'ready_for_execution_model':True,'created_at':now}\n"
+            "pathlib.Path(os.environ['ELVES_PREWALK_CHECKPOINT_PATH']).write_text(json.dumps(checkpoint))\n"
+            "if scenario == 'malformed': pathlib.Path(os.environ['ELVES_PREWALK_TODO_PATH']).write_text('{')\n"
+            "if scenario == 'branch_drift':\n"
+            "    import subprocess\n"
+            "    subprocess.run(['git', 'switch', '-q', '-c', 'drift/prewalk'], check=True)\n",
+            encoding="utf-8",
+        )
+        execution.write_text(
+            "from datetime import datetime, timezone\n"
+            "import json, os, pathlib, sys\n"
+            "scenario = os.environ.get('PW_FIXTURE_SCENARIO', 'success')\n"
+            "record = pathlib.Path(os.environ['PW_FIXTURE_RECORD_DIR'])\n"
+            "received = sys.stdin.read()\n"
+            "(record / 'execution.json').write_text(json.dumps({'input': received, 'phase': os.environ['ELVES_NATIVE_WORKER_PHASE']}))\n"
+            "if scenario == 'clean_fallback':\n"
+            "    pathlib.Path('product.txt').write_text('single phase fallback edit\\n')\n"
+            "    raise SystemExit(0)\n"
+            "identity = json.loads(pathlib.Path(os.environ['ELVES_PREWALK_SESSION_PATH']).read_text())\n"
+            "sid = 'different-session' if scenario == 'mismatch' else identity['session_id']\n"
+            "print(json.dumps({'type':'thread.started','thread_id':sid}), flush=True)\n"
+            "if scenario == 'execution_fail': raise SystemExit(7)\n"
+            "todo_path = pathlib.Path(os.environ['ELVES_PREWALK_TODO_PATH'])\n"
+            "todo = json.loads(todo_path.read_text())\n"
+            "for item in todo['items']: item['status'] = 'complete'\n"
+            "todo['updated_at'] = datetime.now(timezone.utc).isoformat()\n"
+            "todo_path.write_text(json.dumps(todo))\n"
+            "pathlib.Path('product.txt').write_text('guide edit\\nexecution edit\\n')\n"
+            "checkpoint = {'schema_version':1,'run_id':os.environ['ELVES_PREWALK_RUN_ID'],'session_id':identity['session_id'],'kind':'task_complete','todo_id':'PW-01','changed_paths':['product.txt'],'summary':'task complete','validation_attempted':[{'command':'inspect final product.txt','exit_code':0}],'ready_for_execution_model':True,'created_at':datetime.now(timezone.utc).isoformat()}\n"
+            "pathlib.Path(os.environ['ELVES_PREWALK_CHECKPOINT_PATH']).write_text(json.dumps(checkpoint))\n",
+            encoding="utf-8",
+        )
+        return guide, execution
+
+    def _launch(
+        self,
+        *,
+        scenario: str = "success",
+        mode: str = "required",
+        forbidden_paths: tuple[str, ...] = (),
+    ) -> tuple[dict[str, object], Path, Path]:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        repo, packet = self._repo(root)
+        guide, execution = self._fixtures(root)
+        record = root / "record"
+        env = os.environ.copy()
+        env["PW_FIXTURE_SCENARIO"] = scenario
+        env["PW_FIXTURE_RECORD_DIR"] = str(record)
+        cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
+        run_id = f"lifecycle-{scenario}"
+        command = [
+            sys.executable,
+            str(cli),
+            "native-worker",
+            "launch",
+            "--host",
+            "fixture",
+            "--worktree",
+            str(repo),
+            "--prewalk",
+            mode,
+            "--guide-model",
+            "guide-model",
+            "--guide-effort",
+            "high",
+            "--execution-model",
+            "execution-model",
+            "--execution-effort",
+            "low",
+            "--fixture-script",
+            str(guide),
+            "--execution-fixture-script",
+            str(execution),
+            "--repo-root",
+            str(repo),
+            "--run-id",
+            run_id,
+            "--packet",
+            str(packet),
+            "--json",
+        ]
+        for path in forbidden_paths:
+            command.extend(("--forbidden-path", path))
+        launched = subprocess.run(command, env=env, text=True, capture_output=True, check=False)
+        self.assertEqual(launched.returncode, 0, launched.stderr or launched.stdout)
+        state: dict[str, object] = json.loads(launched.stdout)["worker"]
+        for _ in range(100):
+            status = subprocess.run(
+                [
+                    sys.executable,
+                    str(cli),
+                    "native-worker",
+                    "status",
+                    "--repo-root",
+                    str(repo),
+                    "--run-id",
+                    run_id,
+                    "--json",
+                ],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(status.returncode, 0, status.stderr)
+            state = json.loads(status.stdout)["worker"]
+            if state["status"] in {"complete", "failed"}:
+                break
+            time.sleep(0.05)
+        return state, repo, record
+
+    def test_two_phase_fixture_preserves_trajectory_and_one_follow_stream(self) -> None:
+        state, _repo, record = self._launch()
+        supervisor_log = Path(state["supervisor_log"]).read_text(encoding="utf-8")
+        self.assertEqual(state["status"], "complete", supervisor_log)
+        self.assertEqual(state["version"], 3)
+        self.assertEqual(state["mode"], "prewalk")
+        self.assertEqual(state["packet"]["sent_count"], 1)
+        self.assertEqual(state["execution"]["resume_input"], "Continue.")
+        self.assertTrue(state["transition"]["session_continuity"])
+        self.assertTrue(state["transition"]["worktree_continuity"])
+        self.assertEqual(state["transition"]["packet_sent_count"], 1)
+        guide_record = json.loads((record / "guide.json").read_text())
+        execution_record = json.loads((record / "execution.json").read_text())
+        self.assertEqual(guide_record["packet_count"], 1)
+        self.assertEqual(execution_record["input"], "Continue.")
+        self.assertEqual(guide_record["phase"], "prewalk")
+        self.assertEqual(execution_record["phase"], "execution")
+        statuses = [entry["status"] for entry in state["status_history"]]
+        for expected in (
+            "staged",
+            "launching_prewalk",
+            "prewalking",
+            "transition_ready",
+            "launching_execution",
+            "executing",
+            "complete",
+        ):
+            self.assertIn(expected, statuses)
+        follow = Path(state["follow_log"]).read_text(encoding="utf-8")
+        self.assertIn('"phase": "prewalk"', follow)
+        self.assertIn('"phase": "execution"', follow)
+
+    def test_atomic_task_completes_without_execution_turn(self) -> None:
+        state, _repo, record = self._launch(scenario="tiny")
+        self.assertEqual(state["status"], "complete")
+        self.assertTrue(state["transition"]["task_complete"])
+        self.assertFalse((record / "execution.json").exists())
+        statuses = [entry["status"] for entry in state["status_history"]]
+        self.assertNotIn("executing", statuses)
+
+    def test_missing_transition_artifacts_fail_before_execution(self) -> None:
+        state, _repo, record = self._launch(scenario="missing")
+        self.assertEqual(state["status"], "failed")
+        self.assertEqual(state["failure_reason"], "prewalk_checkpoint_missing")
+        self.assertFalse((record / "execution.json").exists())
+
+    def test_guide_recovery_resumes_exact_session_without_replaying_packet(self) -> None:
+        state, _repo, record = self._launch(scenario="recovery_success")
+        self.assertEqual(state["status"], "complete")
+        self.assertEqual(state["prewalk"]["recovery_attempts"], 1)
+        self.assertEqual(state["packet"]["sent_count"], 1)
+        initial = json.loads((record / "guide-prewalk.json").read_text())
+        recovery = json.loads((record / "guide-prewalk_recovery.json").read_text())
+        self.assertEqual(initial["packet_count"], 1)
+        self.assertEqual(recovery["packet_count"], 0)
+
+    def test_auto_fallback_is_explicitly_fresh_and_only_allowed_while_clean(self) -> None:
+        state, repo, record = self._launch(scenario="clean_fallback", mode="auto")
+        self.assertEqual(state["status"], "complete")
+        self.assertEqual(state["mode"], "single_phase_fallback")
+        self.assertFalse(state["transition"]["prewalk_claimed"])
+        self.assertEqual(state["packet"]["sent_count"], 2)
+        self.assertNotEqual(state["abandoned_prewalk_session_id"], state["session_id"])
+        execution = json.loads((record / "execution.json").read_text())
+        self.assertEqual(execution["input"], "packet body\n")
+        self.assertEqual((repo / "product.txt").read_text(), "single phase fallback edit\n")
+
+    def test_post_edit_cold_fallback_is_forbidden_and_preserves_edit(self) -> None:
+        state, repo, record = self._launch(scenario="post_edit_failure", mode="auto")
+        self.assertEqual(state["status"], "failed")
+        self.assertEqual(state["failure_reason"], "prewalk_post_edit_cold_fallback_forbidden")
+        self.assertEqual(state["packet"]["sent_count"], 1)
+        self.assertFalse((record / "execution.json").exists())
+        self.assertEqual((repo / "product.txt").read_text(), "uncheckpointed guide edit\n")
+
+    def test_malformed_forbidden_and_branch_drift_transitions_fail_closed(self) -> None:
+        malformed, _repo, _record = self._launch(scenario="malformed")
+        self.assertEqual(malformed["failure_reason"], "prewalk_todo_invalid")
+        forbidden, _repo, _record = self._launch(forbidden_paths=("product.txt",))
+        self.assertEqual(forbidden["failure_reason"], "prewalk_changed_path_forbidden")
+        drifted, _repo, _record = self._launch(scenario="branch_drift")
+        self.assertEqual(drifted["failure_reason"], "prewalk_worktree_continuity_violation")
+
+    def test_session_mismatch_and_execution_failure_fail_closed(self) -> None:
+        mismatch, _repo, _record = self._launch(scenario="mismatch")
+        self.assertEqual(mismatch["status"], "failed")
+        self.assertEqual(mismatch["failure_reason"], "prewalk_session_continuity_violation")
+        failed, _repo, record = self._launch(scenario="execution_fail")
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["failure_reason"], "prewalk_execution_resume_failed")
+        self.assertTrue((record / "execution.json").is_file())
+        self.assertEqual(failed["packet"]["sent_count"], 1)
 
 
 if __name__ == "__main__":
