@@ -175,9 +175,26 @@ class PrewalkArtifactTests(unittest.TestCase):
             object.__setattr__(escaped, "todo", str(root / "outside.json"))
             with self.assertRaises(ValidationIssue) as caught:
                 load_and_validate_transition_artifacts(
-                    paths=escaped, run_id="run-1", session_id="session-1", todo_limit=10
+                    paths=escaped,
+                    run_id="run-1",
+                    session_id="session-1",
+                    todo_limit=10,
+                    worktree=root,
                 )
             self.assertEqual(caught.exception.code, "prewalk_checkpoint_missing")
+
+    def test_runtime_paths_reject_symlinked_worktree_components(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            outside = Path(tmp) / "outside"
+            root.mkdir()
+            outside.mkdir()
+            (root / ".elves").symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(ValidationIssue) as caught:
+                prewalk_paths(root, "run-1")
+            self.assertEqual(
+                caught.exception.code, "prewalk_worktree_continuity_violation"
+            )
 
     def test_prompt_names_artifacts_and_minimal_later_input(self) -> None:
         paths = prewalk_paths(REPO_ROOT, "prompt-run")
@@ -355,6 +372,7 @@ class CapabilityEvidenceTests(unittest.TestCase):
                 "artifact_type": "native_prewalk_behavioral_qualification",
                 "schema_version": 1,
                 "host": "codex",
+                "transport": "codex_exec",
                 "installed_version": "0.144.1",
                 "session_id": "exact-session-1",
                 "create_exit_code": 0,
@@ -365,6 +383,9 @@ class CapabilityEvidenceTests(unittest.TestCase):
                 "packet_replayed": False,
                 "stream_identity_verified": True,
                 "instruction_fidelity": "retained_safe",
+                "guide_route": {"model": "guide-model", "effort": "high"},
+                "execution_route": {"model": "execution-model", "effort": "low"},
+                "model_calls_made": True,
                 "guide_prompt_sha256": hashlib.sha256(b"guide").hexdigest(),
                 "continuation_sha256": hashlib.sha256(b"Continue.").hexdigest(),
             }
@@ -379,6 +400,35 @@ class CapabilityEvidenceTests(unittest.TestCase):
         self.assertTrue(qualified.qualified())
         self.assertFalse(qualified.behaviorally_verified_instruction_pruning)
         self.assertEqual(qualified.instruction_fidelity, "retained_safe")
+        self.assertTrue(qualified.model_calls_made)
+        self.assertTrue(
+            qualified.route_matches(
+                guide_model="guide-model",
+                guide_effort="high",
+                execution_model="execution-model",
+                execution_effort="low",
+            )
+        )
+        self.assertFalse(
+            qualified.route_matches(
+                guide_model="other-guide",
+                guide_effort="high",
+                execution_model="execution-model",
+                execution_effort="low",
+            )
+        )
+        with self.assertRaises(ValidationIssue) as caught:
+            build_native_worker_prewalk_spec(
+                host="codex",
+                worktree=REPO_ROOT,
+                guide_effort="high",
+                execution_effort="low",
+                guide_model="other-guide",
+                execution_model="execution-model",
+                capabilities=qualified,
+                requested_mode="required",
+            )
+        self.assertEqual(caught.exception.code, "prewalk_route_change_unqualified")
 
 
 class NativeTransportParityTests(unittest.TestCase):
@@ -479,6 +529,7 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
             "(record / 'guide.json').write_text(json.dumps(guide_record))\n"
             "(record / ('guide-' + phase + '.json')).write_text(json.dumps(guide_record))\n"
             "print(json.dumps({'type':'thread.started','thread_id':sid}), flush=True)\n"
+            "if scenario == 'guide_mismatch': print(json.dumps({'type':'turn.started','session_id':'different-session'}), flush=True)\n"
             "if scenario == 'recovery_success' and phase == 'prewalk': raise SystemExit(7)\n"
             "if scenario == 'clean_fallback': raise SystemExit(7)\n"
             "if scenario == 'post_edit_failure':\n"
@@ -695,6 +746,13 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
         self.assertEqual(drifted["failure_reason"], "prewalk_worktree_continuity_violation")
 
     def test_session_mismatch_and_execution_failure_fail_closed(self) -> None:
+        guide_mismatch, _repo, guide_record = self._launch(scenario="guide_mismatch")
+        self.assertEqual(guide_mismatch["status"], "failed")
+        self.assertEqual(
+            guide_mismatch["failure_reason"],
+            "prewalk_session_continuity_violation",
+        )
+        self.assertFalse((guide_record / "execution.json").exists())
         mismatch, _repo, _record = self._launch(scenario="mismatch")
         self.assertEqual(mismatch["status"], "failed")
         self.assertEqual(mismatch["failure_reason"], "prewalk_session_continuity_violation")

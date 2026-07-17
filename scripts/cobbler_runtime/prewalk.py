@@ -13,7 +13,6 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 import hashlib
 import json
-import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
@@ -22,6 +21,7 @@ import subprocess
 from typing import Any, Mapping, Sequence
 
 from .schema import ValidationIssue
+from .storage import StorageError, atomic_write_json, guard_repo_path
 
 
 PREWALK_SCHEMA_VERSION = 1
@@ -101,6 +101,10 @@ class PrewalkCapabilities:
     instruction_fidelity: str = "unsupported"
     evidence_source: str = "not_probed"
     model_calls_made: bool = False
+    qualified_guide_model: str | None = None
+    qualified_guide_effort: str | None = None
+    qualified_execution_model: str | None = None
+    qualified_execution_effort: str | None = None
 
     def qualified(self) -> bool:
         return bool(
@@ -110,6 +114,25 @@ class PrewalkCapabilities:
             and self.worktree_binding_verified
             and self.stream_identity_verified
             and self.instruction_fidelity != "unsupported"
+            and self.qualified_guide_effort is not None
+            and self.qualified_execution_effort is not None
+        )
+
+    def route_matches(
+        self,
+        *,
+        guide_model: str | None,
+        guide_effort: str,
+        execution_model: str | None,
+        execution_effort: str,
+    ) -> bool:
+        if self.evidence_source == "deterministic_fixture":
+            return True
+        return bool(
+            self.qualified_guide_model == guide_model
+            and self.qualified_guide_effort == guide_effort
+            and self.qualified_execution_model == execution_model
+            and self.qualified_execution_effort == execution_effort
         )
 
     def unavailable_reason(self) -> str | None:
@@ -162,7 +185,18 @@ def _run_key(run_id: str) -> str:
 
 
 def prewalk_paths(worktree: Path, run_id: str) -> PrewalkPaths:
-    root = worktree.resolve() / ".elves" / "runtime" / "prewalk" / _run_key(run_id)
+    worktree_root = worktree.resolve(strict=True)
+    try:
+        root = guard_repo_path(
+            worktree_root,
+            worktree_root / ".elves" / "runtime" / "prewalk" / _run_key(run_id),
+        )
+    except StorageError as exc:
+        raise ValidationIssue(
+            "prewalk_worktree_continuity_violation",
+            "Prewalk runtime path is not safely contained in the registered worktree",
+            path=str(worktree),
+        ) from exc
     return PrewalkPaths(
         root=str(root),
         todo=str(root / "todo.json"),
@@ -171,9 +205,18 @@ def prewalk_paths(worktree: Path, run_id: str) -> PrewalkPaths:
     )
 
 
-def _safe_runtime_path(path: Path, *, runtime_root: Path, code: str) -> Path:
-    root = runtime_root.resolve()
-    resolved = path.resolve()
+def _safe_runtime_path(
+    path: Path, *, runtime_root: Path, worktree: Path, code: str
+) -> Path:
+    try:
+        root = guard_repo_path(worktree, runtime_root)
+        resolved = guard_repo_path(worktree, path)
+    except StorageError as exc:
+        raise ValidationIssue(
+            code,
+            "Prewalk artifact path has an unsafe worktree component",
+            path=str(path),
+        ) from exc
     try:
         resolved.relative_to(root)
     except ValueError as exc:
@@ -185,11 +228,21 @@ def _read_bounded_regular_json(
     path: Path,
     *,
     runtime_root: Path | None,
+    worktree: Path | None = None,
     missing_code: str,
     invalid_code: str,
     limit: int,
 ) -> dict[str, Any]:
-    target = _safe_runtime_path(path, runtime_root=runtime_root, code=invalid_code) if runtime_root else path.resolve()
+    target = (
+        _safe_runtime_path(
+            path,
+            runtime_root=runtime_root,
+            worktree=worktree or runtime_root,
+            code=invalid_code,
+        )
+        if runtime_root
+        else path.resolve()
+    )
     try:
         before = target.lstat()
     except FileNotFoundError as exc:
@@ -370,11 +423,13 @@ def load_and_validate_transition_artifacts(
     run_id: str,
     session_id: str,
     todo_limit: int,
+    worktree: Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     root = Path(paths.root)
     raw_checkpoint = _read_bounded_regular_json(
         Path(paths.checkpoint),
         runtime_root=root,
+        worktree=worktree,
         missing_code="prewalk_checkpoint_missing",
         invalid_code="prewalk_checkpoint_invalid",
         limit=PREWALK_RUNTIME_ARTIFACT_MAX_BYTES,
@@ -383,6 +438,7 @@ def load_and_validate_transition_artifacts(
     raw_todo = _read_bounded_regular_json(
         Path(paths.todo),
         runtime_root=root,
+        worktree=worktree,
         missing_code="prewalk_todo_missing",
         invalid_code="prewalk_todo_invalid",
         limit=PREWALK_RUNTIME_ARTIFACT_MAX_BYTES,
@@ -571,27 +627,18 @@ def recovery_prompt() -> str:
     )
 
 
-def write_session_identity(path: Path, *, run_id: str, session_id: str) -> None:
-    target = path.resolve()
-    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    os.chmod(target.parent, 0o700)
-    temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+def write_session_identity(
+    path: Path, *, worktree: Path, run_id: str, session_id: str
+) -> None:
     payload = {"schema_version": PREWALK_SCHEMA_VERSION, "run_id": run_id, "session_id": session_id}
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, target)
-        os.chmod(target, 0o600)
-    except Exception:
-        try:
-            temporary.unlink()
-        except FileNotFoundError:
-            pass
-        raise
+        atomic_write_json(path, payload, mode=0o600, repo_root=worktree)
+    except StorageError as exc:
+        raise ValidationIssue(
+            "prewalk_worktree_continuity_violation",
+            "Prewalk session identity path is unsafe",
+            path=str(path),
+        ) from exc
 
 
 def fixture_prewalk_capabilities(host: str = "fixture") -> PrewalkCapabilities:
@@ -608,6 +655,10 @@ def fixture_prewalk_capabilities(host: str = "fixture") -> PrewalkCapabilities:
         instruction_fidelity="retained_safe",
         evidence_source="deterministic_fixture",
         model_calls_made=False,
+        qualified_guide_model="guide-model",
+        qualified_guide_effort="high",
+        qualified_execution_model="execution-model",
+        qualified_execution_effort="low",
     )
 
 
@@ -717,6 +768,7 @@ def load_prewalk_capability_evidence(
         "artifact_type": "native_prewalk_behavioral_qualification",
         "schema_version": 1,
         "host": expected_host,
+        "transport": advertised.transport,
         "installed_version": installed_version,
         "create_exit_code": 0,
         "resume_exit_code": 0,
@@ -742,6 +794,38 @@ def load_prewalk_capability_evidence(
     for digest_key in ("guide_prompt_sha256", "continuation_sha256"):
         if not isinstance(data.get(digest_key), str) or not _SHA256_RE.fullmatch(str(data[digest_key])):
             raise ValidationIssue("prewalk_capability_unavailable", "Qualification digest is malformed", path=digest_key)
+    routes: dict[str, tuple[str | None, str]] = {}
+    for role in ("guide", "execution"):
+        route = data.get(f"{role}_route")
+        if not isinstance(route, Mapping):
+            raise ValidationIssue(
+                "prewalk_route_change_unqualified",
+                "Qualification must bind both requested phase routes",
+                path=f"{role}_route",
+            )
+        model = route.get("model")
+        if model is not None:
+            model = _required_text(
+                model,
+                path=f"{role}_route.model",
+                code="prewalk_route_change_unqualified",
+                max_chars=200,
+            )
+        effort = route.get("effort")
+        if effort not in {"low", "medium", "high"}:
+            raise ValidationIssue(
+                "prewalk_route_change_unqualified",
+                "Qualification phase effort must be low, medium, or high",
+                path=f"{role}_route.effort",
+            )
+        routes[role] = (model, str(effort))
+    model_calls_made = data.get("model_calls_made")
+    if not isinstance(model_calls_made, bool):
+        raise ValidationIssue(
+            "prewalk_capability_unavailable",
+            "Qualification must report whether model calls were made",
+            path="model_calls_made",
+        )
     return PrewalkCapabilities(
         host=advertised.host,
         transport=advertised.transport,
@@ -754,5 +838,9 @@ def load_prewalk_capability_evidence(
         stream_identity_verified=True,
         instruction_fidelity=str(fidelity),
         evidence_source=str(path.resolve()),
-        model_calls_made=False,
+        model_calls_made=model_calls_made,
+        qualified_guide_model=routes["guide"][0],
+        qualified_guide_effort=routes["guide"][1],
+        qualified_execution_model=routes["execution"][0],
+        qualified_execution_effort=routes["execution"][1],
     )

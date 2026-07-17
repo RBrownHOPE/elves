@@ -999,9 +999,16 @@ def decide_worker_route(
             prewalk_fallback = "prewalk_capability_unavailable:external_provider_not_qualified"
         elif requested_prewalk is PrewalkMode.AUTO and execution == "low":
             prewalk_fallback = "prewalk_atomic_task_skipped"
-        elif caps.qualified():
+        elif caps.qualified() and caps.route_matches(
+            guide_model=guide_model,
+            guide_effort=guide_effort,
+            execution_model=selected_model,
+            execution_effort=effort,
+        ):
             actual_prewalk = "exact_session"
             reasons.append("trajectory_preserving_prewalk_qualified")
+        elif caps.qualified():
+            prewalk_fallback = "prewalk_route_change_unqualified"
         else:
             prewalk_fallback = caps.unavailable_reason() or "prewalk_capability_unavailable"
         if requested_prewalk is PrewalkMode.REQUIRED and actual_prewalk != "exact_session":

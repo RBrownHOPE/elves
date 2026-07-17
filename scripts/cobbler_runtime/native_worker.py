@@ -387,6 +387,17 @@ def build_native_worker_prewalk_spec(
     capability_host = "claude" if capabilities.host == "claude-code" else capabilities.host
     if host_token != "fixture" and capability_host != expected_host:
         raise ValidationIssue("prewalk_capability_unavailable", "Prewalk capability host does not match launch host")
+    if not capabilities.route_matches(
+        guide_model=guide_model.strip(),
+        guide_effort=guide_effort.strip().lower(),
+        execution_model=execution_model.strip(),
+        execution_effort=execution_effort.strip().lower(),
+    ):
+        raise ValidationIssue(
+            "prewalk_route_change_unqualified",
+            "Behavioral qualification does not match the requested guide/execution routes",
+            hint=capabilities.evidence_source,
+        )
     guide = build_native_worker_spec(
         host=host,
         worktree=worktree,
@@ -816,13 +827,15 @@ def _run_worker_phase(
                     if observed:
                         if observed not in observed_session_ids:
                             observed_session_ids.append(observed)
-                        if expected_session_id and observed != expected_session_id:
+                        bound_session_id = expected_session_id or state.get("session_id")
+                        if bound_session_id and observed != bound_session_id:
                             session_mismatch = True
                         if not state.get("session_id"):
                             state["session_id"] = observed
                             if is_prewalk_run:
                                 write_session_identity(
                                     Path(state["prewalk"]["paths"]["session_identity"]),
+                                    worktree=worktree,
                                     run_id=str(state["run_id"]),
                                     session_id=observed,
                                 )
@@ -1277,6 +1290,7 @@ def _supervise_prewalk(
     if state.get("session_id"):
         write_session_identity(
             Path(paths.session_identity),
+            worktree=worktree,
             run_id=str(state["run_id"]),
             session_id=str(state["session_id"]),
         )
@@ -1367,6 +1381,7 @@ def _supervise_prewalk(
             run_id=str(state["run_id"]),
             session_id=session_id,
             todo_limit=int(state["prewalk"]["todo_limit"]),
+            worktree=worktree,
         )
         transition = validate_meaningful_edit(
             worktree=worktree,
@@ -1438,6 +1453,7 @@ def _supervise_prewalk(
             run_id=str(state["run_id"]),
             session_id=session_id,
             todo_limit=int(state["prewalk"]["todo_limit"]),
+            worktree=worktree,
         )
         if final_checkpoint.get("kind") != "task_complete" or any(
             item.get("status") != "complete" for item in final_todo.get("items", [])

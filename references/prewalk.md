@@ -90,8 +90,10 @@ python3 scripts/cobbler_agents.py native-worker prewalk-capabilities \
 
 A behavioral qualification artifact is bounded, mode-safe JSON bound to the exact host/version,
 session, guide and continuation digests, successful create/resume exits, same worktree/session, a
-guide-only fact observed after resume, one logical stream, no packet replay, and an explicit
-instruction-fidelity result. Accepted fidelity is:
+guide-only fact observed after resume, one logical stream, no packet replay, the exact requested
+guide/execution model and effort, whether qualification made model calls, and an explicit
+instruction-fidelity result. Help-only probes report no model calls; a live behavioral artifact
+records its actual call provenance. Accepted fidelity is:
 
 - `pruned`: the temporary guide instruction is behaviorally proven absent after transition;
 - `turn_scoped`: the instruction is proven to apply only to the guide process and is not rebuilt
