@@ -67,6 +67,7 @@ host-native implementation; finish at a landable PR without merge.
 - [ ] Reconcile the validator with v2.8 compatibility and both canonical packet formats.
 - [ ] Expand category tests for compatibility, exact identity, ownership, bounds, and format parity.
 - [ ] Update canonical and durable documentation without redefining prewalk.
+- [ ] Promote the additive public contract as release-ready v2.9.0 source and guide metadata.
 - [ ] Complete broad verification, cumulative review, PR checks, and operational cleanup.
 
 ### Acceptance criteria
@@ -76,8 +77,9 @@ host-native implementation; finish at a landable PR without merge.
 - [ ] B0-A3: Markdown and JSON worker packets carry equivalent handoff state and acceptance mappings; capsule placement and packet size are bounded and fail closed with stable diagnostics.
 - [ ] B0-A4: SKILL, schema/template guidance, changelog, and durable architecture/gotcha docs describe the opt-in boundary and explicitly preserve exact-session prewalk semantics.
 - [ ] B0-A5: Focused acceptance tests and the repository's broad terminal verification pass on the current branch tip.
+- [ ] B0-A6: Source metadata, changelog, README examples, public guide, and the release checklist agree on v2.9.0 with an empty Unreleased section.
 
-**Docs likely touched:** `SKILL.md`, `CHANGELOG.md`, `references/schema-and-acceptance.md`,
+**Docs likely touched:** `SKILL.md`, `CHANGELOG.md`, `README.md`, `guide/index.html`, `references/schema-and-acceptance.md`,
 `references/plan-template.md`, `.ai-docs/architecture.md`, `.ai-docs/context-index.md`,
 `.ai-docs/gotchas.md`, and `docs/elves/learnings.md`.
 

@@ -2,8 +2,8 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-07-17 18:02 EDT
-- **Current phase:** Documentation and consistency slice ready
+- **Last updated:** 2026-07-17 18:12 EDT
+- **Current phase:** v2.9.0 release-readiness slice ready
 - **Active batch:** B0 — reconcile and harden explicit handoff v1
 - **Last completed batch:** none
 - **Next exact batch:** B0
@@ -34,6 +34,18 @@
 - `python3 scripts/check_repo_consistency.py` passed for version 2.8.0.
 - `python3 -m unittest tests.test_acceptance_contract tests.test_check_repo_consistency` passed 129 tests.
 - Next: commit/push, re-read the guide, run broad verification, and review the cumulative diff.
+
+## B0 release-readiness slice: 2026-07-17 18:12 EDT
+
+- The first strict CI attempt reached the release gate and correctly rejected populated
+  `Unreleased` content under source version 2.8.0; no code or test gate failed before that point.
+- Promoted the additive public contract to v2.9.0 across SKILL/AGENTS metadata, README examples,
+  changelog, public guide, context index, and maintainer gotchas.
+- Added B0-A6 rather than renumbering any staged acceptance identity.
+- `release_checklist.py --version 2.9.0 --json` passes with no failures; its one warning identifies
+  the newly added cleanup plan, which has been reviewed for README/changelog/consistency coverage.
+- Consistency, acceptance staging, guide HTML parsing, and `git diff --check` pass.
+- Next: commit/push this slice, re-read the guide, then rerun strict CI and cumulative review.
 
 ## Session Setup: 2026-07-17 17:38 EDT
 

@@ -47,6 +47,12 @@
           "criterion": "Focused acceptance tests and the repository's broad terminal verification pass on the current branch tip.",
           "met": false,
           "evidence": ""
+        },
+        {
+          "id": "B0-A6",
+          "criterion": "Source metadata, changelog, README examples, public guide, and the release checklist agree on v2.9.0 with an empty Unreleased section.",
+          "met": false,
+          "evidence": ""
         }
       ]
     }
@@ -70,6 +76,6 @@
     "remaining_batches": [
       "B0"
     ],
-    "next_required_action": "Commit and push the canonical docs/consistency slice, re-read the survival guide, then run broad verification and cumulative review."
+    "next_required_action": "Commit and push the v2.9.0 release-readiness slice, re-read the survival guide, then rerun broad verification and cumulative review."
   }
 }

@@ -4,6 +4,8 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-07-17
+
 ### Explicit handoff v1 staging contract
 
 - Add opt-in machine-readable coordinator-to-worker handoff validation. A session that declares a

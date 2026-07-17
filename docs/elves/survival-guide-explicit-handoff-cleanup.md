@@ -2,7 +2,7 @@
 
 ## Mission
 
-Turn the unpublished explicit-handoff validator work into a backward-compatible v2.8 extension.
+Turn the unpublished explicit-handoff validator work into a backward-compatible v2.9 extension.
 Preserve advisory behavior unless a session opts into handoff v1, then validate its state strictly
 for both Markdown and JSON packets. Finish at a landable PR; do not merge.
 
@@ -50,7 +50,7 @@ for both Markdown and JSON packets. Finish at a landable PR; do not merge.
 - **Planned batches remaining:** 1
 - **Stop allowed right now:** no
 - **Why:** validator reconciliation, docs, broad proof, PR creation, and cleanup remain
-- **Next required action:** commit and push the canonical docs/consistency slice, re-read this guide, then run broad verification and cumulative review
+- **Next required action:** commit and push the v2.9.0 release-readiness slice, re-read this guide, then rerun broad verification and cumulative review
 
 ## Effort Standard
 
@@ -68,10 +68,10 @@ Prefer exact compatibility and category proof over a smaller speculative patch.
 
 ## Current Phase
 
-- **Status:** documentation and consistency slice ready
+- **Status:** v2.9.0 release-readiness slice ready
 - **Active batch:** B0
-- **What was just finished:** canonical schema/workflow/changelog/durable docs plus 129 focused tests
-- **Single next action:** commit and push the docs/consistency slice
+- **What was just finished:** v2.9.0 metadata, changelog promotion, public guide, and release checklist
+- **Single next action:** commit and push the release-readiness slice
 
 ## Active Compute
 
@@ -118,14 +118,17 @@ single `Next Exact Action` without restaging completed work.
 
 - Contract commit `629a1d8` is pushed on the branch.
 - Implementation commit `2a38193` is pushed on the branch.
+- Documentation/parity commit `2706625` is pushed on the branch.
 - The validator now preserves undeclared-session advisory behavior and strictly validates declared
   handoff v1 state for Markdown and JSON packets.
 - Canonical docs, changelog, durable guidance, and consistency pins are aligned; 129 focused tests
-  and the consistency checker pass. Broad proof and cumulative review remain.
+  and the consistency checker pass.
+- Source/README/guide/changelog now agree on v2.9.0; the release checklist passes with only the
+  reviewed new-plan-surface warning. Broad proof and cumulative review remain.
 
 ## Next Exact Action
 
-Commit and push the canonical docs/consistency slice, re-read this guide, then run broad terminal
+Commit and push the v2.9.0 release-readiness slice, re-read this guide, then rerun broad terminal
 verification and review the cumulative `origin/main...HEAD` diff.
 
 ## Recovery Order
