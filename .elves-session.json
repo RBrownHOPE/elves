@@ -4,31 +4,31 @@
       "acceptance": [
         {
           "criterion": "Valid bounded TODO and checkpoint artifacts pass, while malformed IDs, missing validation, limits, multiple active items, identity mismatches, and runtime-root escapes fail with stable codes.",
-          "evidence": "",
+          "evidence": "tests.test_native_worker_prewalk artifact schema/path cases pass in the 38-test B0 focused gate.",
           "id": "B0-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Model-free transition validation accepts task-relevant source, test-first, or product-documentation edits and rejects empty, staging-only, forbidden, outside-worktree, branch, origin, tag, or protected-ref changes.",
-          "evidence": "",
+          "evidence": "MeaningfulEditTests prove source, red-test, and product-doc acceptance plus empty/staging/forbidden/worktree/authority rejection.",
           "id": "B0-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Routing reports requested and actual prewalk mode, distinct guide/execution routes, advertised versus behavioral capability facts, instruction fidelity, provenance, fallback, and zero qualification model calls.",
-          "evidence": "",
+          "evidence": "RouteDecisionMatrixTests and read-only installed help probes separate advertised grammar from behavioral qualification and report distinct routes/fallback.",
           "id": "B0-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "`worker.prewalk` accepts only `off`, `auto`, or `required`, preserves existing safe preference precedence, grants no authority, and leaves unqualified auto runs on the backward-compatible single-phase route.",
-          "evidence": "",
+          "evidence": "GlobalPreferencesTests and route matrix cover off|auto|required, precedence, authority rejection, atomic-task skip, and unqualified auto fallback.",
           "id": "B0-A4",
-          "met": false
+          "met": true
         }
       ],
       "id": "B0",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [
@@ -109,7 +109,7 @@
     "route": "host-native"
   },
   "continuation_guard": {
-    "next_action": "Implement B0 host-neutral contracts and focused tests.",
+    "next_action": "Complete B1 exact-session supervisor, CLI, recovery, and parity tests.",
     "stop_allowed": false
   },
   "delegation_scope": "none",

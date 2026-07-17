@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import stat
 import subprocess
 from typing import Any, Mapping, Sequence
@@ -431,7 +432,12 @@ def _path_matches(path: str, prefixes: Sequence[str]) -> bool:
         prefix = raw.replace("\\", "/")
         while prefix.startswith("./"):
             prefix = prefix[2:]
-        if path == prefix.rstrip("/") or path.startswith(prefix.rstrip("/") + "/") or path.startswith(prefix):
+        normalized = prefix.rstrip("/")
+        if prefix.endswith("/") and (path == normalized or path.startswith(normalized + "/")):
+            return True
+        if prefix.endswith("-") and path.startswith(prefix):
+            return True
+        if not prefix.endswith(("/", "-")) and path == normalized:
             return True
     return False
 
@@ -524,7 +530,7 @@ def validate_meaningful_edit(
 def packet_digest(path: Path) -> str:
     target = path.resolve(strict=True)
     metadata = target.stat()
-    if not target.is_file() or metadata.st_size > PREWALK_PACKET_MAX_BYTES:
+    if path.is_symlink() or not target.is_file() or metadata.st_size > PREWALK_PACKET_MAX_BYTES:
         raise ValidationIssue("prewalk_packet_replayed", "Worker packet must be one bounded regular file", path=str(target))
     return hashlib.sha256(target.read_bytes()).hexdigest()
 
@@ -611,7 +617,10 @@ def advertised_prewalk_capabilities(
     token = host.strip().lower().replace("_", "-")
     if token == "codex":
         exact = "resume" in create_help and "SESSION_ID" in resume_help.upper()
-        route = "--model" in create_help and "--model" in resume_help and "model_reasoning_effort" in (create_help + resume_help)
+        config_override = ("--config" in create_help or "-c" in create_help) and (
+            "--config" in resume_help or "-c" in resume_help
+        )
+        route = "--model" in create_help and "--model" in resume_help and config_override
         transport = "codex_exec"
     elif token in {"claude", "claude-code"}:
         exact = "--session-id" in create_help and "--resume" in resume_help
@@ -629,6 +638,63 @@ def advertised_prewalk_capabilities(
         instruction_fidelity="unsupported",
         evidence_source="installed_help_only",
         model_calls_made=False,
+    )
+
+
+def probe_installed_prewalk_capabilities(
+    host: str,
+    *,
+    behavioral_evidence: Path | None = None,
+    runner: Any = subprocess.run,
+) -> PrewalkCapabilities:
+    """Read installed help/version only; never launch an inference turn."""
+    token = host.strip().lower().replace("_", "-")
+    executable = "codex" if token == "codex" else "claude" if token in {"claude", "claude-code"} else None
+    if executable is None:
+        raise ValidationIssue("prewalk_capability_unavailable", f"Unsupported prewalk host `{host}`")
+    located = shutil.which(executable)
+    if not located:
+        return PrewalkCapabilities(
+            host="claude" if token.startswith("claude") else token,
+            transport="claude_code" if token.startswith("claude") else "codex_exec",
+            evidence_source="installed_binary_missing",
+        )
+
+    def invoke(argv: list[str]) -> subprocess.CompletedProcess[str]:
+        try:
+            return runner(
+                argv,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=20,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return subprocess.CompletedProcess(argv, 1, "", type(exc).__name__)
+
+    version_result = invoke([located, "--version"])
+    version_match = re.search(r"\d+\.\d+(?:\.\d+)?", version_result.stdout + version_result.stderr)
+    version = version_match.group(0) if version_match else None
+    if token == "codex":
+        create_result = invoke([located, "exec", "--help"])
+        resume_result = invoke([located, "exec", "resume", "--help"])
+    else:
+        create_result = invoke([located, "--help"])
+        resume_result = create_result
+    advertised = advertised_prewalk_capabilities(
+        host=token,
+        version=version,
+        create_help=(create_result.stdout + create_result.stderr)[:PREWALK_RUNTIME_ARTIFACT_MAX_BYTES],
+        resume_help=(resume_result.stdout + resume_result.stderr)[:PREWALK_RUNTIME_ARTIFACT_MAX_BYTES],
+    )
+    if behavioral_evidence is None:
+        return advertised
+    return load_prewalk_capability_evidence(
+        behavioral_evidence,
+        host=token,
+        installed_version=version,
+        advertised=advertised,
     )
 
 

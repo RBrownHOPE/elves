@@ -46,8 +46,10 @@
 
 ## Batch status
 
-- B0 host-neutral contracts/routing: in progress.
-- B1 multi-phase supervisor/parity: pending.
+- B0 host-neutral contracts/routing: complete. The focused module validates bounded TODO and
+  checkpoint identity, meaningful edits, safe runtime paths, capability evidence, and canonical
+  prompts; routing/preferences expose distinct guide/execution decisions with conservative fallback.
+- B1 multi-phase supervisor/parity: in progress.
 - B2 docs/install/readiness/PR: pending.
 
 ## Verification evidence
@@ -56,6 +58,9 @@
 - B0 first slice: 38 prewalk artifact, meaningful-edit, capability, preference, and routing tests
   pass. The new host-neutral module keeps provider process control out of the schema/validator layer,
   static help remains advertised-only, and unqualified auto routing stays single-phase.
+- B0 close evidence: the same 38 focused cases pass after the path-prefix correction; installed
+  Codex 0.144.1 and Claude 2.1.207 help advertise exact resume and route overrides but correctly
+  remain behaviorally unqualified with instruction fidelity `unsupported` and zero model calls.
 - Focused tests: B0 contract/routing slice green; supervisor lifecycle remains pending.
 - Canonical verification: pending.
 - Terminal cumulative review: pending.

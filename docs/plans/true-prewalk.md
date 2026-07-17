@@ -66,18 +66,18 @@ authority boundaries, and remain backward compatible with single-phase native wo
 
 **Tasks:**
 
-- [ ] Add provider-neutral prewalk types, constants, schemas, safe artifact paths, prompts, digests,
+- [x] Add provider-neutral prewalk types, constants, schemas, safe artifact paths, prompts, digests,
   and meaningful-edit/transition validation in a focused runtime module.
-- [ ] Add prewalk preference resolution and separate guide/execution route decisions with provenance,
+- [x] Add prewalk preference resolution and separate guide/execution route decisions with provenance,
   capability evidence, fidelity, conservative auto behavior, and honest fallback.
-- [ ] Add stable canonical language and focused deterministic contract/routing tests.
+- [x] Add stable canonical language and focused deterministic contract/routing tests.
 
 **Acceptance criteria:**
 
-- [ ] B0-A1: Valid bounded TODO and checkpoint artifacts pass, while malformed IDs, missing validation, limits, multiple active items, identity mismatches, and runtime-root escapes fail with stable codes.
-- [ ] B0-A2: Model-free transition validation accepts task-relevant source, test-first, or product-documentation edits and rejects empty, staging-only, forbidden, outside-worktree, branch, origin, tag, or protected-ref changes.
-- [ ] B0-A3: Routing reports requested and actual prewalk mode, distinct guide/execution routes, advertised versus behavioral capability facts, instruction fidelity, provenance, fallback, and zero qualification model calls.
-- [ ] B0-A4: `worker.prewalk` accepts only `off`, `auto`, or `required`, preserves existing safe preference precedence, grants no authority, and leaves unqualified auto runs on the backward-compatible single-phase route.
+- [x] B0-A1: Valid bounded TODO and checkpoint artifacts pass, while malformed IDs, missing validation, limits, multiple active items, identity mismatches, and runtime-root escapes fail with stable codes.
+- [x] B0-A2: Model-free transition validation accepts task-relevant source, test-first, or product-documentation edits and rejects empty, staging-only, forbidden, outside-worktree, branch, origin, tag, or protected-ref changes.
+- [x] B0-A3: Routing reports requested and actual prewalk mode, distinct guide/execution routes, advertised versus behavioral capability facts, instruction fidelity, provenance, fallback, and zero qualification model calls.
+- [x] B0-A4: `worker.prewalk` accepts only `off`, `auto`, or `required`, preserves existing safe preference precedence, grants no authority, and leaves unqualified auto runs on the backward-compatible single-phase route.
 
 **Docs likely touched:** config example, canonical contract, plan/run memory.
 

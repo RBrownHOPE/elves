@@ -62,17 +62,17 @@ it with deterministic fixtures and full repository verification, then open an un
 
 ## Stop Gate
 
-- **Planned batches remaining:** 3
+- **Planned batches remaining:** 2
 - **Stop allowed right now:** no
 - **Why:** implementation, proof, terminal review, push, and PR creation remain
-- **Next required action:** implement B0 host-neutral contracts and focused tests
+- **Next required action:** complete B1 supervisor lifecycle, recovery, CLI, and host parity
 
 ## Current Phase
 
 - **Status:** in progress
-- **Active batch:** B0: Host-neutral contracts and deterministic routing
-- **What was just finished:** contract commit `064004f` pushed, guide re-read, and B0 rollback ref created
-- **Single next action:** add provider-neutral prewalk types and the focused runtime module
+- **Active batch:** B1: Exact-session multi-phase supervisor and host parity
+- **What was just finished:** B0 contracts, routing, preferences, capability truth, and focused proof
+- **Single next action:** finish B1 lifecycle edge cases and commit the supervisor slice
 
 ## Active Compute
 
@@ -80,24 +80,25 @@ it with deterministic fixtures and full repository verification, then open an un
 
 ## Next Exact Batch
 
-**Batch:** B0: Host-neutral contracts and deterministic routing
+**Batch:** B1: Exact-session multi-phase supervisor and host parity
 
 **Scope:**
 
-- Add the focused provider-neutral prewalk module and shared typed contracts.
-- Add meaningful-edit, TODO/checkpoint, capability, fidelity, and transition validation.
-- Add safe preference and distinct guide/execution route resolution with focused tests.
+- Complete reusable phase supervision, version-3 state, status history, and exact recovery.
+- Prove Codex and Claude create/resume grammar, one packet, minimal continuation, and one follow stream.
+- Preserve version-2 single-phase behavior and every existing environment/Git safety check.
 
 **Acceptance criteria:**
 
-- [ ] B0-A1: TODO/checkpoint schemas enforce bounded identity and validation rules.
-- [ ] B0-A2: Meaningful-edit validation accepts task edits and rejects fake or forbidden boundaries.
-- [ ] B0-A3: Routing reports distinct guide/execution routes and honest capability/fidelity facts.
-- [ ] B0-A4: The safe `worker.prewalk` preference preserves authority and conservative fallback.
+- [ ] B1-A1: Fixture lifecycle traverses guide, transition, and execution with one packet/follow stream.
+- [ ] B1-A2: Recovery and failure paths preserve state and forbid post-edit cold fallback.
+- [ ] B1-A3: Codex and Claude exact resume pin distinct routes in the same CWD/session.
+- [ ] B1-A4: Atomic completion is explicit and zero guide exit never implies normal completion.
+- [ ] B1-A5: Existing version-2, redaction, environment, PID, Git, and no-push behavior remains green.
 
-**Risk:** A permissive validator or capability claim could describe a cold handoff as prewalk.
+**Risk:** A phase transition bug could replay the packet, lose the session, or misreport completion.
 
-**Rollback authority:** host-created rollback ref before B0; later batch refs before each batch.
+**Rollback authority:** host-created B1 rollback ref at the acceptance-backed B0 Close tip.
 
 ## Effort Standard
 
