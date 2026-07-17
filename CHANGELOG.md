@@ -4,6 +4,12 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Release checklist automation
+
+- `release_checklist.py --json` emits one deterministic machine-readable object (`version`, `ok`,
+  `failures`, `warnings`, `notes`; sorted keys) for automation consumers. Selected from the
+  release-json worker benchmark (grok implementation) and landed via cherry-pick.
+
 ## [2.7.0] - 2026-07-17
 
 ### full_run.py split, phase 1
