@@ -330,5 +330,3 @@ def _assert_origin_binding(
             "Origin feature tip does not equal the required safe checkpoint",
         )
     return remote_tip
-
-
