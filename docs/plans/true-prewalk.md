@@ -39,7 +39,9 @@ authority boundaries, and remain backward compatible with single-phase native wo
   general coordinator/worker ownership partition system.
 - Changing PR, merge, tag, protected-ref, landing, canonical-run-memory, or worker push authority.
 - Copying or modifying `/Users/john/aigora/dev/elves-explicit-prewalk-handoff`.
-- Publishing a release, installing the changed skill globally, merging the PR, or deleting worktrees.
+- The original B0-B2 implementation run did not publish a release, install globally, merge the PR,
+  or delete worktrees. The user's later explicit landing request authorizes the B3 release promotion,
+  regular merge commit, GitHub tag/release, and safe post-merge worktree reclaim below.
 
 ## Batches
 
@@ -149,6 +151,41 @@ authority boundaries, and remain backward compatible with single-phase native wo
 **Focused tests:** installed bundle smoke, consistency, canonical repository verifier.
 **Depends on:** B0, B1.
 
+### Batch 3 [B3]: v2.8.0 release promotion and authorized landing
+
+**Tasks:**
+
+- [ ] Promote the accumulated Unreleased notes to `2.8.0`, align every current-version marker, and
+  update the published guide plus canonical and durable documentation.
+- [ ] Reconcile every summary surface with the implemented qualification boundary: the current
+  persisted-instruction transport activates only for proven `retained_safe` evidence, while
+  `pruned` and `turn_scoped` remain future transport states.
+- [ ] Prove Codex/Claude semantic parity, release consistency, fresh installed bundles, full
+  repository verification, exact-tip landing readiness, and a green PR feedback/check queue.
+
+**Acceptance criteria:**
+
+- [ ] B3-A1: `SKILL.md`, `AGENTS.md`, README, guide, changelog, and durable current-version examples
+  consistently identify `2.8.0`; `Unreleased` is empty and the release checklist passes cleanly.
+- [ ] B3-A2: Codex and Claude documentation and deterministic fixtures preserve equivalent exact-ID,
+  same-worktree, packet-once, checkpoint, recovery, visibility, authority, and retained-safe-only
+  activation semantics without claiming a live qualification occurred.
+- [ ] B3-A3: Focused parity/release tests, both installed-bundle smokes, strict CI verification,
+  final-readiness verification, the Elves landing check, PR comments/reviews, and required checks are
+  green on the exact pre-merge tip.
+
+**Post-landing host actions:** merge PR #80 with a regular merge commit, tag that merge as `v2.8.0`,
+publish the GitHub release from the promoted changelog notes, verify the tag/release target and guide
+deployment, then safely reclaim only this run's clean fully merged worktree.
+
+**Risk:** `high` — release metadata or parity claims can drift, and tags/releases are public state.
+**Caution:** never move an existing tag; publish only from the verified merge commit.
+**Affected surfaces:** version metadata, changelog, public guide, canonical/durable docs, PR and release.
+**Constitution impacts:** host parity, capability honesty, user-owned landing authority.
+**Review focus:** version alignment, retained-safe boundary, exact host grammar, release target identity.
+**Focused tests:** release checklist, prewalk/parity tests, installed-bundle smokes, canonical verifier.
+**Depends on:** B0, B1, B2.
+
 ## Master Acceptance
 
 - [x] M-A1: One supervised native-worker run can begin on an explicit guide route, create a bounded validation-bearing TODO, make a meaningful edit, and automatically resume the exact same provider session and worktree on an explicit execution route with only `Continue.`.
@@ -164,7 +201,8 @@ authority boundaries, and remain backward compatible with single-phase native wo
 - No paid/live behavioral canary or external model call is made in this run.
 - Codex/Claude parity is a release gate, and unqualified behavior fails or falls back before launch.
 - Existing worker/driver Git, PR, merge, protected-ref, credential, and terminal-review authority remains unchanged.
-- The user owns merge; this run opens an unmerged PR and stops there.
+- The user originally owned merge; their later explicit instruction authorizes the driver to land
+  PR #80 with a regular merge commit and publish `v2.8.0` only after exact-tip readiness.
 
 ## Test Strategy
 
