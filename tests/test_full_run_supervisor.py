@@ -26,6 +26,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from cobbler_runtime import full_run as full_run_module  # noqa: E402
+from cobbler_runtime import provider_auth as provider_auth_module
 from cobbler_runtime.behavior_policy import (  # noqa: E402
     FORBIDDEN_FULL_RUN_WAKE_TRIGGERS,
     PARKED_MONITOR_UPDATE_POLICY,
@@ -2694,9 +2695,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
             auth.chmod(0o600)
             original = auth.read_bytes()
             with mock.patch.dict(os.environ, {"HOME": str(host_home)}, clear=False):
-                with mock.patch.object(
-                    full_run_module,
-                    "_assert_grok_auth_path_capability",
+                with mock.patch.object(provider_auth_module, "_assert_grok_auth_path_capability",
                     return_value=(0, 2, 93),
                 ), mock.patch(
                     "cobbler_runtime.worker_routing.probe_grok_capabilities",
@@ -2785,9 +2784,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                     )
 
                 original = auth.read_bytes()
-                with mock.patch.dict(os.environ, {"HOME": str(host_home)}, clear=False), mock.patch.object(
-                    full_run_module,
-                    "_assert_grok_auth_path_capability",
+                with mock.patch.dict(os.environ, {"HOME": str(host_home)}, clear=False), mock.patch.object(provider_auth_module, "_assert_grok_auth_path_capability",
                     return_value=(0, 2, 93),
                 ):
                     for patcher in patches:
@@ -2977,9 +2974,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
 
                 def fail_before_transfer(proc: object, state: object) -> None:
                     if failure_point == "before_payload":
-                        with mock.patch.object(
-                            full_run_module,
-                            "_supervision_secret",
+                        with mock.patch.object(full_run_module, "_supervision_secret",
                             side_effect=KeyboardInterrupt(
                                 "synthetic pre-payload interrupt"
                             ),
@@ -3542,9 +3537,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 full_run_module._oauth_secret_values(raw),
                 {"access-token-value", "refresh-token-value"},
             )
-            with mock.patch.dict(os.environ, parent, clear=False), mock.patch.object(
-                full_run_module,
-                "_assert_grok_auth_path_capability",
+            with mock.patch.dict(os.environ, parent, clear=False), mock.patch.object(provider_auth_module, "_assert_grok_auth_path_capability",
                 return_value=(0, 2, 93),
             ):
                 launch_env = {"GROK_HOME": str(run_root / "worker-grok-home")}
@@ -3594,9 +3587,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
         raw = json.dumps(
             {"account": {"refresh_token": "single-generation-value"}}
         ).encode("utf-8")
-        with mock.patch.object(
-            full_run_module,
-            "_revalidate_shared_grok_auth",
+        with mock.patch.object(provider_auth_module, "_revalidate_shared_grok_auth",
             return_value=raw,
         ) as revalidate:
             verified, exact_values = full_run_module._launch_evidence_context(state)
@@ -3620,9 +3611,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
             )
             with mock.patch.object(
                 full_run_module.subprocess, "run", return_value=supported
-            ) as run_mock, mock.patch.object(
-                full_run_module,
-                "_executable_advertises_grok_auth_path",
+            ) as run_mock, mock.patch.object(provider_auth_module, "_executable_advertises_grok_auth_path",
                 return_value=True,
             ):
                 self.assertEqual(
@@ -3635,9 +3624,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
 
             with mock.patch.object(
                 full_run_module.subprocess, "run", return_value=supported
-            ), mock.patch.object(
-                full_run_module,
-                "_executable_advertises_grok_auth_path",
+            ), mock.patch.object(provider_auth_module, "_executable_advertises_grok_auth_path",
                 return_value=False,
             ):
                 with self.assertRaises(ValidationIssue) as ctx:

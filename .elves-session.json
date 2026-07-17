@@ -178,25 +178,25 @@
       "acceptance": [
         {
           "criterion": "`full_run.py` \u2264 7,500 lines (measurable god-file bar, not a structure lock alone)",
-          "evidence": "",
+          "evidence": "full_run.py 10,090 -> 7,019 lines (bar: <=7,500) via three extractions: scripts/provider_supervisor.py (937-line program, outside the package on purpose \u2014 importing would execute it), cobbler_runtime/git_contract.py (15 origin/protected-ref/ancestry/clean-worktree functions on canonical run_git), cobbler_runtime/provider_auth.py (44 functions + 23 constants incl. lazily-cached ACL API seed; TYPE_CHECKING-only FullRunState; 6 real-cycle helper calls use documented local imports). full_run re-exports every moved name; native_worker imports unchanged.",
           "id": "B7-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Supervisor script passes lint as a real file; at least one direct unit test exercises its argument/protocol surface",
-          "evidence": "",
+          "evidence": "Supervisor program is a real lintable/compilable file; the child receives byte-identical source (loader output proven equal to the pre-extraction literal; compiles standalone). Its argument/protocol surface is exercised directly by tests/test_full_run_supervisor.py (145 tests) through _provider_supervisor_script(); installed-bundle smoke proves the package imports cleanly with the program excluded.",
           "id": "B7-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "`tests/test_full_run_supervisor.py` and the full suite green (regression preservation)",
-          "evidence": "",
+          "evidence": "Characterization held through every step: test_full_run_supervisor 145/OK before and after each extraction (mock namespaces repointed where call chains moved; one site correctly kept on full_run \u2014 the re-imported binding is the SUT path). Full suite 1,067/0 under hostile socket-stdin runner; consistency 0.",
           "id": "B7-A3",
-          "met": false
+          "met": true
         }
       ],
       "id": "B7",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [

@@ -285,3 +285,12 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
   mechanical collapse (17.5%) + documented pin policy, because the remaining mass is per-reference
   prose pins whose removal requires single-sourcing ~40 reference files — a follow-up plan, not a
   wrap-up item. Recorded in the plan text itself.
+
+## B7 (driver host-native)
+
+- 2026-07-17 · Implement · Three extractions with AST-driven external scans and fixpoint constant
+  moves; byte-identity proof for the supervisor program; smoke failure (importing the program
+  executes it) fixed by relocating it outside the package; 29 mock-namespace errors root-caused to
+  one lazily-cached module global and one patch-location inversion.
+- 2026-07-17 · Validate · Characterization 145/OK at every step; full suite 1,067/0 hostile;
+  consistency 0; full_run.py 7,019 lines.

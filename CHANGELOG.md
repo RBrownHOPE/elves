@@ -4,6 +4,15 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### full_run.py split, phase 1
+
+- `full_run.py` shrinks from 10,090 to 7,019 lines: the embedded provider-supervisor program is now
+  a real lintable file (`scripts/provider_supervisor.py`) whose exact source the child still
+  receives byte-identically; git-contract checks live in `cobbler_runtime/git_contract.py` on the
+  canonical hardened `run_git`; provider credential/launch-auth hardening lives in
+  `cobbler_runtime/provider_auth.py`. `full_run` re-exports every moved name, so import surfaces
+  are unchanged.
+
 ### Thin Codex adapter and consistency-engine slimming
 
 - AGENTS.md is now a true thin adapter (89 lines): every contract is a named pointer into SKILL.md

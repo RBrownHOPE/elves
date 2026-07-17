@@ -1,6 +1,7 @@
 """Standalone provider supervisor program (extracted from full_run.py, plan B7).
 
-This file is BOTH a real module (lintable, compilable, testable) and the exact
+This file lives OUTSIDE the cobbler_runtime package on purpose: importing it
+would execute the program. It is still a real, lintable, compilable file and the exact
 program text that full_run embeds via `sys.executable -c <text>`: full_run
 loads this file's source at launch, so the child process runs byte-identical
 code to what is committed here. It must stay stdlib-only and self-contained —
