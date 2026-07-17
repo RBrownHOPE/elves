@@ -1982,5 +1982,3 @@ def _configure_devin_auth(
         "projected_credentials_path": str(projected["credentials"]),
     }
     state.notes.append("Devin auth projected into isolated worker HOME")
-
-
