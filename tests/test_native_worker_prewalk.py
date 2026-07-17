@@ -620,7 +620,9 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
             "guide_record = {'packet_count': received.count('packet body\\n'), 'phase': phase}\n"
             "(record / 'guide.json').write_text(json.dumps(guide_record))\n"
             "(record / ('guide-' + phase + '.json')).write_text(json.dumps(guide_record))\n"
-            "if scenario != 'guide_no_id' and not (scenario == 'recovery_no_initial_id' and phase == 'prewalk'): print(json.dumps({'type':'thread.started','thread_id':sid}), flush=True)\n"
+            "if scenario != 'guide_no_id' and not (scenario == 'recovery_no_initial_id' and phase == 'prewalk'):\n"
+            "    event = {'type':'system','subtype':'init','session_id':sid} if scenario == 'claude_session_id' else {'type':'thread.started','thread_id':sid}\n"
+            "    print(json.dumps(event), flush=True)\n"
             "if scenario == 'guide_mismatch': print(json.dumps({'type':'turn.started','session_id':'different-session'}), flush=True)\n"
             "if scenario == 'clean_branch_drift':\n"
             "    if phase == 'prewalk':\n"
@@ -674,7 +676,9 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
             "    raise SystemExit(0)\n"
             "identity = json.loads(pathlib.Path(os.environ['ELVES_PREWALK_SESSION_PATH']).read_text())\n"
             "sid = 'different-session' if scenario == 'mismatch' else identity['session_id']\n"
-            "if scenario != 'execution_no_id': print(json.dumps({'type':'thread.started','thread_id':sid}), flush=True)\n"
+            "if scenario != 'execution_no_id':\n"
+            "    event = {'type':'system','subtype':'init','session_id':sid} if scenario == 'claude_session_id' else {'type':'thread.started','thread_id':sid}\n"
+            "    print(json.dumps(event), flush=True)\n"
             "if scenario == 'transient_recovery' and attempt == 1:\n"
             "    print('provider overloaded: 503 temporarily unavailable', file=sys.stderr, flush=True)\n"
             "    raise SystemExit(7)\n"
@@ -801,6 +805,14 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
         follow = Path(state["follow_log"]).read_text(encoding="utf-8")
         self.assertIn('"phase": "prewalk"', follow)
         self.assertIn('"phase": "execution"', follow)
+
+    def test_claude_stream_session_id_preserves_the_same_trajectory(self) -> None:
+        state, _repo, record = self._launch(scenario="claude_session_id")
+        self.assertEqual(state["status"], "complete")
+        self.assertTrue(state["transition"]["session_continuity"])
+        self.assertEqual(state["packet"]["sent_count"], 1)
+        execution_record = json.loads((record / "execution.json").read_text())
+        self.assertEqual(execution_record["input"], "Continue.")
 
     def test_atomic_task_completes_without_execution_turn(self) -> None:
         state, _repo, record = self._launch(scenario="tiny")

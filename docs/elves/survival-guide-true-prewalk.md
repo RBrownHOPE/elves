@@ -64,15 +64,15 @@ it with deterministic fixtures and full repository verification, then open an un
 
 - **Planned batches remaining:** 0
 - **Stop allowed right now:** no
-- **Why:** the strict CI correction is locally proven but still needs commit/push, renewed exact-tip landing/readiness proof, green PR checks, and operational-doc cleanup
-- **Next required action:** commit/push the host-normalization rename, then rerun exact-tip gates and PR #80 checks
+- **Why:** the CI correction is pushed, but reviewed concurrent parity/test edits need commit/push before renewed exact-tip landing/readiness proof, green PR checks, and operational-doc cleanup
+- **Next required action:** commit/push the reviewed shared-worktree reconciliation, then rerun exact-tip gates and PR #80 checks
 
 ## Current Phase
 
 - **Status:** in progress
 - **Active batch:** none; terminal readiness after B2 Close
-- **What was just finished:** acceptance-tip readiness and landing passed; the first PR CI run isolated one secret-scan naming false positive
-- **Single next action:** commit and push the locally proven CI correction
+- **What was just finished:** strict local CI proof passes with the secret-scan correction and reviewed shared parity/test edits
+- **Single next action:** commit and push the shared-worktree reconciliation
 
 ## Active Compute
 

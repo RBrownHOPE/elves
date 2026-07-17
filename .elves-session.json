@@ -88,7 +88,7 @@
         },
         {
           "criterion": "Focused suites, repository consistency, `git diff --check`, and `python3 scripts/verify_repo.py --version Unreleased` pass on the reviewed exact tip.",
-          "evidence": "Focused 226-test review slice, consistency, git diff --check, full and final-readiness verification pass; the exact local --ci gate passes after renaming one host-normalization variable that triggered the strict named-token secret scan.",
+          "evidence": "Focused 227-test review slice, consistency, git diff --check, full and final-readiness verification pass; the exact local --ci gate passes after the strict named-token correction and shared parity-fixture reconciliation.",
           "id": "B2-A4",
           "met": true
         },
@@ -133,7 +133,7 @@
     },
     {
       "criterion": "Codex and Claude provide equivalent state, route, TODO/checkpoint, follow, recovery, failure, installation, and documentation semantics with fixture-backed tests and honest behavioral-qualification limits.",
-      "evidence": "Codex/Claude parity tables, versioned help fixtures, shared lifecycle tests, consistency pins, and both installed-bundle smokes pass.",
+      "evidence": "Codex/Claude parity tables, versioned help fixtures, shared lifecycle tests including Claude system/init session IDs, consistency pins, and both installed-bundle smokes pass.",
       "id": "M-A3",
       "met": true
     },

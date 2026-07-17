@@ -93,7 +93,7 @@ session, guide and continuation digests, successful create/resume exits, same wo
 guide-only fact observed after resume, one logical stream, no packet replay, the exact requested
 guide/execution model and effort, whether qualification made model calls, and an explicit
 instruction-fidelity result. Help-only probes report no model calls; a live behavioral artifact
-  records its actual call provenance. Reported fidelity states are:
+records its actual call provenance. Reported fidelity states are:
 
 - `pruned`: the temporary guide instruction is behaviorally proven absent after transition;
 - `turn_scoped`: the instruction is proven to apply only to the guide process and is not rebuilt

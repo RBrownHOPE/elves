@@ -72,7 +72,7 @@
   exact-session transient recovery with the canonical 5/10/20-minute backoff policy.
 - Codex and Claude table tests pin distinct guide/execution models and efforts, exact session resume,
   registered CWD, narrow Git roots, and reject ambiguous latest/continue selectors.
-- B2 focused proof: 226 prewalk, routing, consistency, installed-bundle, session, and worker
+- B2 focused proof: 227 prewalk, routing, consistency, installed-bundle, session, and worker
   lifecycle review cases pass; `git diff --check` and repository consistency are clean.
 - Canonical verification: `python3 scripts/verify_repo.py --version Unreleased` passes before and
   after the cumulative review fixes.
@@ -91,3 +91,6 @@
   the strict `--ci` gate locally, and require a green rerun before handoff.
 - Correction proof: focused capability/parity tests and
   `python3 scripts/verify_repo.py --ci --version Unreleased --base-ref origin/main` pass locally.
+- Shared-worktree reconciliation: preserve and review the concurrent Claude `system/init` session-ID
+  fixture, loaded-suite timeout headroom, and doc indentation correction. The 53 directly affected
+  cases and the exact local `--ci` verifier pass with those edits.

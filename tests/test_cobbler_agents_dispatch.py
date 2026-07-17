@@ -1481,7 +1481,11 @@ class ParallelDispatchTests(unittest.TestCase):
                             profile=attempts[0].profile,
                             requested_model="final-model",
                             attempts=attempts,
-                            timeout_seconds=0.25 if key == "timeout" else 5.0,
+                            # The timeout applies to every attempt in the lane,
+                            # including the successful fallback. Keep enough
+                            # headroom for Python process startup when the full
+                            # verification suite is running under load.
+                            timeout_seconds=1.0 if key == "timeout" else 5.0,
                             env_grants=("PRIMARY_SECRET",),
                         )
                     ],
