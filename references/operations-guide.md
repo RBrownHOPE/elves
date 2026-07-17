@@ -58,7 +58,7 @@ Some coding tools show survey popups, feedback requests, or update prompts durin
 
 ### Pre-run checklist
 
-- [ ] Agent has the permissions it needs (file access, git push, `gh` auth, any tool approvals). If your platform requires you to approve actions (file writes, terminal commands, etc.), grant those permissions before you walk away. A permission prompt at 3am with nobody to click "allow" will stall the entire run. You're granting these permissions at your own risk. See [Disclaimer](#disclaimer).
+- [ ] Agent has the permissions it needs (file access, git push, `gh` auth, any tool approvals). If your platform requires you to approve actions (file writes, terminal commands, etc.), grant those permissions before you walk away. A permission prompt at 3am with nobody to click "allow" will stall the entire run. You're granting these permissions at your own risk (see the Disclaimer section of the repository README).
 - [ ] Machine is plugged in (not on battery)
 - [ ] Sleep / display sleep is disabled or caffeinate running
 - [ ] Terminal is in tmux/screen (if SSH) or won't be closed
@@ -229,9 +229,9 @@ So v1.19+ hardens both skill surfaces (Claude `SKILL.md` and Codex `AGENTS.md`) 
    `B0` and `B1` are equally valid starts, with no preferred convention. Plan rows may be written
    as either `- [ ] B0-A1: criterion text` or `- [ ] [B0-A1] criterion text`; they mean the same
    thing
-2. **God-file rule** — locks lock; they do not complete a split unless the plan allows characterization-only  
-3. **One batch per close commit** (or labeled **Validate:** sections per batch id)  
-4. **`scripts/elves_landing_check.py`** — machine check before Final Readiness / merge-on-green  
+2. **God-file rule** — locks lock; they do not complete a split unless the plan allows characterization-only
+3. **One batch per close commit** (or labeled **Validate:** sections per batch id)
+4. **`scripts/elves_landing_check.py`** — machine check before Final Readiness / merge-on-green
 
 Policy in one line: **green CI + `status: complete` is not landable; landable is plan Acceptance with proof.**
 

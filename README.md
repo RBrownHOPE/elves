@@ -8,7 +8,7 @@ plans and reviews; a subscription-native (or optional external) worker implement
 files let the work survive context compaction. You write the plan and own the merge decision. The
 agent does the middle.
 
-**Current release: v2.6.0** — see [`CHANGELOG.md`](CHANGELOG.md) for version history. Coined terms
+**Current release: v2.7.0** — see [`CHANGELOG.md`](CHANGELOG.md) for version history. Coined terms
 are defined once in [`references/glossary.md`](references/glossary.md).
 
 **New to Elves? Start with the [practical user guide](https://aigorahub.github.io/elves/).** It
@@ -274,12 +274,12 @@ exactly one file below; other docs link instead of restating.
 
 ```bash
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.6.0
+python3 scripts/verify_repo.py --version 2.7.0
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.6.0 --final-readiness \
+python3 scripts/verify_repo.py --version 2.7.0 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.6.0 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.7.0 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 

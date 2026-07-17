@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "2.6.0"
+  version: "2.7.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 

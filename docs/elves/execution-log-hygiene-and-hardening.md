@@ -79,7 +79,7 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
   preference.
 - D2 (staging): Version stays 2.6.0 during batches; expect promotion to v2.7.0 at terminal via
   `release_checklist.py` (new user-facing behavior lands in B2/B3/B5).
-- D3 (staging): Merge authorization = explicit chat-to-land from the user in-session
+- D3 (staging): Merge authorization is explicit chat-to-land from the user in-session
   (2026-07-16). Readiness remains independent and is attested at the exact final HEAD.
 - D4 (staging): Known-red baseline recorded — `test_cli_gate_failure_exit_code` fails under
   Claude Code env flags; B1 is the fix and must flip the suite to 0 failures.

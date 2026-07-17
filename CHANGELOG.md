@@ -4,6 +4,8 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-07-17
+
 ### full_run.py split, phase 1
 
 - `full_run.py` shrinks from 10,090 to 7,019 lines: the embedded provider-supervisor program is now
