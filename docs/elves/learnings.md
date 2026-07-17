@@ -20,6 +20,12 @@ silently deleting it.
 
 ## Repo Conventions
 
+- [2026-07-17] Tighten staging contracts through explicit versioned opt-in, not surprise migration.
+  Existing delegable sessions keep advisory missing-packet compatibility; declaring top-level
+  `handoff` activates strict handoff v1 across session state, pending-acceptance ownership, exact
+  branch/HEAD, ancestor slice commits, and bounded Markdown/JSON packet capsules. This is cold-
+  handoff evidence only; exact-session prewalk has a separate continuity proof.
+
 - [2026-07-13] Execution authority is route-specific. The host always owns canonical run memory,
   protected refs, PR actions, final gates, cumulative independent review, and merge. Host-native and
   legacy bounded routes keep commits/pushes and the per-batch loop in the host. The primary trusted

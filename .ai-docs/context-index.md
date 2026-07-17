@@ -69,8 +69,9 @@ the runtime surfaces, and the checks that usually matter before editing.
 - `scripts/preflight_worktree.py`: explicit dedicated-worktree helper used by
   `./scripts/preflight.sh --create-worktree`.
 - `scripts/validate_survival_guide.py`: advisory validator for required survival-guide sections.
-- `scripts/acceptance_contract.py`: pre-launch stable-ID syntax, plan/session synchronization, and
-  exact criterion-parity validation.
+- `scripts/acceptance_contract.py`: pre-launch stable-ID syntax, plan/session synchronization,
+  exact criterion parity, advisory packet-path compatibility, and opt-in strict Markdown/JSON
+  handoff-v1 state validation.
 - `scripts/elves_landing_check.py`: acceptance/readiness proof gate for a live session.
 - `scripts/cobbler_agents.py`: thin CLI for onboarding, routing, sessions, trusted full-run
   supervision, legacy bounded implementation, and untrusted writer leases.

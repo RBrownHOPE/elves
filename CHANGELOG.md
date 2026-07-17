@@ -4,6 +4,19 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Explicit handoff v1 staging contract
+
+- Add opt-in machine-readable coordinator-to-worker handoff validation. A session that declares a
+  top-level `handoff` object now binds fresh-start/resume state, the active batch, completed-slice
+  commit evidence, exact pending-acceptance ownership, and the next worker action to the current
+  repository branch and HEAD.
+- Support the same state capsule and exact plan/packet acceptance mapping in leading Markdown
+  `elves-handoff-v1` comments and JSON `elves_handoff` objects. Packet reads are UTF-8 and bounded;
+  malformed, misplaced, oversized, or identity-drifting declared capsules block staging.
+- Preserve v2.8 compatibility: delegable sessions that do not declare handoff v1 retain the
+  advisory-only missing-`worker_packet_path` diagnostic. A capsule describes a cold handoff and
+  never proves exact-session prewalk continuity.
+
 ## [2.8.0] - 2026-07-17
 
 ### True exact-session native-worker prewalk

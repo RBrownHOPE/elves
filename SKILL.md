@@ -299,7 +299,10 @@ coordinator→implementer packet is written and its path recorded in Run Control
 `worker_packet_path` in `.elves-session.json` — staging is not launch-ready without it. The
 per-batch handoff block in the plan and the consolidated staging packet are not substitutes; see
 `references/schema-and-acceptance.md`. `acceptance_contract.py validate` warns (advisory, never
-blocking) when a delegable session lacks the recorded path.
+blocking) when a delegable session lacks the recorded path. A session may opt into strict explicit
+handoff v1 by declaring top-level `handoff` state and the matching leading Markdown or JSON packet
+capsule; once declared, state/ownership/repository drift is blocking.
+The capsule does not turn a cold handoff into exact-session prewalk.
 
 ### Preflight
 

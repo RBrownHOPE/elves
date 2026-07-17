@@ -70,6 +70,8 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
   `.elves-session.json`) | n/a — host-native]. For any run that may be delegated, the consolidated
   standalone packet is a staging deliverable; the plan's per-batch handoff blocks are not a
   substitute for it.
+- **Handoff validation:** [v2.8 advisory path | explicit-v1 declared in session + packet capsule |
+  n/a — host-native]. Explicit-v1 state is a strict cold-handoff contract, never proof of exact-session prewalk continuity; see `references/schema-and-acceptance.md`.
 - **Re-read rule:** Immediately after every host-owned commit and push, re-read this survival guide
   before doing anything else. During a trusted `parked_monitor` full-run, worker pushes do not wake
   the host; re-read once on a safety/blocked/terminal wake before cumulative review.

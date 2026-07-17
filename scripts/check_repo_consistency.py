@@ -150,6 +150,16 @@ def main() -> int:
         )
     )
     errors.extend(
+        find_missing_phrases(
+            {
+                label: read_text(REPO_ROOT / label)
+                for label in EXPLICIT_HANDOFF_V1_PHRASES
+            },
+            EXPLICIT_HANDOFF_V1_PHRASES,
+            "explicit handoff v1",
+        )
+    )
+    errors.extend(
         find_unscoped_patterns(
             single_kickoff_texts
             | {

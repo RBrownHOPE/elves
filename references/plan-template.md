@@ -92,7 +92,10 @@ Example:
 > The per-batch handoff block below always lives in the plan. A **consolidated standalone packet**
 > is additionally a **staging deliverable** for any run that might be delegated — written at
 > staging with its path recorded in Run Control and `worker_packet_path` (see
-> [`schema-and-acceptance.md`](schema-and-acceptance.md)). The two are not substitutes.
+> [`schema-and-acceptance.md`](schema-and-acceptance.md)). The two are not substitutes. For a
+> machine-checked cold handoff, explicitly opt into handoff v1 by recording the session `handoff`
+> object and the matching leading Markdown or JSON packet capsule. Omit both to retain the v2.8
+> advisory path; a capsule is not exact-session prewalk evidence.
 
 - **Intent / why:** [why this batch exists]
 - **Non-obvious rationale:** [architecture choices the worker must not rediscover from chat]

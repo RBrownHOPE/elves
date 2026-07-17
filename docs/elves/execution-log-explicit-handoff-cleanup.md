@@ -2,8 +2,8 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-07-17 17:52 EDT
-- **Current phase:** Implementation slice ready
+- **Last updated:** 2026-07-17 18:02 EDT
+- **Current phase:** Documentation and consistency slice ready
 - **Active batch:** B0 — reconcile and harden explicit handoff v1
 - **Last completed batch:** none
 - **Next exact batch:** B0
@@ -23,6 +23,17 @@
 - `python3 -m py_compile scripts/acceptance_contract.py tests/test_acceptance_contract.py` passed.
 - `python3 -m unittest tests.test_acceptance_contract` passed 49 tests.
 - Next: commit/push this slice, re-read the guide, then reconcile canonical docs and changelog.
+
+## B0 documentation and consistency slice: 2026-07-17 18:02 EDT
+
+- Documented optional explicit handoff v1 in SKILL, AGENTS, README, changelog, authoritative schema,
+  plan/survival templates, architecture, conventions, context index, gotchas, and learnings.
+- Kept the compatibility and prewalk boundaries explicit: absence remains advisory; declaration is
+  strict; a capsule remains cold-handoff state rather than trajectory evidence.
+- Added cross-file consistency policy and mutation-oriented tests for those boundaries.
+- `python3 scripts/check_repo_consistency.py` passed for version 2.8.0.
+- `python3 -m unittest tests.test_acceptance_contract tests.test_check_repo_consistency` passed 129 tests.
+- Next: commit/push, re-read the guide, run broad verification, and review the cumulative diff.
 
 ## Session Setup: 2026-07-17 17:38 EDT
 

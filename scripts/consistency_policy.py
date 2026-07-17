@@ -2031,6 +2031,41 @@ PREWALK_PHRASES = {
     ],
 }
 
+EXPLICIT_HANDOFF_V1_PHRASES = {
+    "SKILL.md": [
+        "strict explicit",
+        "handoff v1",
+        "advisory, never",
+        "does not turn a cold handoff into exact-session prewalk",
+    ],
+    "AGENTS.md": [
+        "explicitly declared handoff-v1",
+        "strict",
+        "host-neutral",
+    ],
+    "README.md": [
+        "machine-checked cold handoff",
+        "ordinary v2.8 path remains advisory",
+        "not prewalk continuity proof",
+    ],
+    "references/schema-and-acceptance.md": [
+        "Optional explicit handoff v1",
+        "Presence is the opt-in",
+        "Both formats are bounded",
+        "It is not trajectory continuity",
+    ],
+    "references/survival-guide-template.md": [
+        "Handoff validation:",
+        "explicit-v1",
+        "never proof of exact-session prewalk continuity",
+    ],
+    "CHANGELOG.md": [
+        "Explicit handoff v1 staging contract",
+        "advisory-only",
+        "never proves exact-session prewalk continuity",
+    ],
+}
+
 GROK_OPEN_SOURCE_WORKER_PHRASES = {
     "SKILL.md": [
         "authenticated live",

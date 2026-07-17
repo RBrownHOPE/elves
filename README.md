@@ -76,6 +76,11 @@ in-session authorization (chat-to-land) or the reviewed-landing command `\land-p
 See [`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md) and
 [`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md).
 
+For a machine-checked cold handoff, the session may opt into explicit handoff v1: exact state,
+acceptance ownership, branch/HEAD, and a matching bounded Markdown or JSON packet capsule. The
+ordinary v2.8 path remains advisory when this schema is absent. The capsule is not prewalk continuity proof.
+See [`references/schema-and-acceptance.md`](references/schema-and-acceptance.md).
+
 ---
 
 ## Who implements

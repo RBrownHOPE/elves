@@ -50,7 +50,7 @@ for both Markdown and JSON packets. Finish at a landable PR; do not merge.
 - **Planned batches remaining:** 1
 - **Stop allowed right now:** no
 - **Why:** validator reconciliation, docs, broad proof, PR creation, and cleanup remain
-- **Next required action:** commit and push the validator/test implementation slice, re-read this guide, then update canonical docs
+- **Next required action:** commit and push the canonical docs/consistency slice, re-read this guide, then run broad verification and cumulative review
 
 ## Effort Standard
 
@@ -68,10 +68,10 @@ Prefer exact compatibility and category proof over a smaller speculative patch.
 
 ## Current Phase
 
-- **Status:** implementation slice ready
+- **Status:** documentation and consistency slice ready
 - **Active batch:** B0
-- **What was just finished:** backward-compatible validator reconciliation and 49 focused tests
-- **Single next action:** commit and push the implementation slice
+- **What was just finished:** canonical schema/workflow/changelog/durable docs plus 129 focused tests
+- **Single next action:** commit and push the docs/consistency slice
 
 ## Active Compute
 
@@ -117,14 +117,16 @@ single `Next Exact Action` without restaging completed work.
 ## Current State
 
 - Contract commit `629a1d8` is pushed on the branch.
+- Implementation commit `2a38193` is pushed on the branch.
 - The validator now preserves undeclared-session advisory behavior and strictly validates declared
   handoff v1 state for Markdown and JSON packets.
-- Focused acceptance tests pass (49 tests); canonical docs and broad proof remain.
+- Canonical docs, changelog, durable guidance, and consistency pins are aligned; 129 focused tests
+  and the consistency checker pass. Broad proof and cumulative review remain.
 
 ## Next Exact Action
 
-Commit and push the validator/test implementation slice, re-read this guide, then update canonical
-schema, workflow, changelog, and durable architecture documentation.
+Commit and push the canonical docs/consistency slice, re-read this guide, then run broad terminal
+verification and review the cumulative `origin/main...HEAD` diff.
 
 ## Recovery Order
 
