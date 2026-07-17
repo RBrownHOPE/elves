@@ -68,7 +68,7 @@ host-native implementation; finish at a landable PR without merge.
 - [x] Expand category tests for compatibility, exact identity, ownership, bounds, and format parity.
 - [x] Update canonical and durable documentation without redefining prewalk.
 - [x] Promote the additive public contract as release-ready v2.9.0 source and guide metadata.
-- [ ] Complete broad verification, cumulative review, PR checks, and operational cleanup.
+- [x] Complete broad verification, cumulative review, PR checks, and operational cleanup.
 
 ### Acceptance criteria
 
