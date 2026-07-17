@@ -42,9 +42,11 @@ syntax alone is not parity.
 
 The packet appears only on the guide turn and execution receives only `Continue.`. Static help
 fixtures prove advertised create/resume/route flags but not conversation continuity or instruction
-pruning. Consequently the shipped code is feature-gated and `auto` remains actually off for an
-unqualified installed version on either host. A release must not claim general prewalk availability
-when one primary host would silently start a new session. See [`prewalk.md`](prewalk.md).
+pruning. The current persisted-instruction transport activates only for behaviorally proven
+`retained_safe`; `pruned` and `turn_scoped` remain schema states for future delivery mechanisms.
+Consequently the shipped code is feature-gated and `auto` remains actually off for an unqualified
+installed version on either host. A release must not claim general prewalk availability when one
+primary host would silently start a new session. See [`prewalk.md`](prewalk.md).
 
 ## Do not confuse
 

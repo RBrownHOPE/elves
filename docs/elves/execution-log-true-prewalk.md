@@ -17,6 +17,16 @@
   `retained_safe`; `pruned` and `turn_scoped` are future transport states.
 - Release proof and live PR/release results: pending.
 
+## B3 implementation evidence
+
+- Promoted SKILL and thin AGENTS metadata, README/current commands, public guide, changelog, and
+  durable verification examples to 2.8.0; `Unreleased` is empty.
+- Reconciled retained-safe-only activation across SKILL, README, guide, adaptive routing, host
+  parity, architecture, learnings, config guidance, and release notes.
+- `release_checklist.py --version 2.8.0 --json`: `ok: true`, no failures.
+- `check_repo_consistency.py`: pass at version 2.8.0.
+- 186 focused release-checklist, consistency, prewalk, routing, and installed-bundle tests: pass.
+
 ## Decisions made
 
 - Preserve no-live-call scope. Qualification remains unavailable after release.
@@ -26,4 +36,4 @@
 
 ## Next action
 
-Promote release metadata and reconcile documentation, then run B3 proof.
+Commit the release promotion, then run full strict verification and cumulative release review.

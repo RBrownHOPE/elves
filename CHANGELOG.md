@@ -4,6 +4,8 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-07-17
+
 ### True exact-session native-worker prewalk
 
 - Add a feature-gated Codex/Claude prewalk lifecycle: one worker packet and exact session/worktree,
@@ -15,13 +17,21 @@ All notable changes to the Elves skill are documented here.
 - Add provider-neutral route/capability/fidelity contracts, the safe `worker.prewalk` preference,
   read-only installed-host probes, exact-version behavioral qualification artifacts, deterministic
   parity/lifecycle fixtures, installed-bundle proof, and the normative `references/prewalk.md`.
-  Static help is advertised grammar only; no paid canary ran and unqualified `auto` resolves off.
+  Static help is advertised grammar only; the current transport activates only with proven
+  `retained_safe` evidence; no paid canary ran and unqualified `auto` resolves off.
 
 ### Release checklist automation
 
 - `release_checklist.py --json` emits one deterministic machine-readable object (`version`, `ok`,
   `failures`, `warnings`, `notes`; sorted keys) for automation consumers. Selected from the
   release-json worker benchmark (grok implementation) and landed via cherry-pick.
+
+### Documentation and host parity
+
+- Align SKILL, the thin Codex adapter, README, public guide, routing/parity references, durable AI
+  docs, changelog, and current-version examples on v2.8.0. Codex and Claude retain equivalent
+  trajectory, checkpoint, recovery, visibility, and authority semantics through host-specific CLI
+  grammar; neither host is claimed behaviorally qualified by this release.
 
 ## [2.7.0] - 2026-07-17
 

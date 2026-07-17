@@ -512,7 +512,7 @@
     <div class="masthead-inner">
       <div class="brand-row">
         <a class="wordmark" href="https://github.com/aigorahub/elves">Elves</a>
-        <a class="repo-link" href="https://github.com/aigorahub/elves">Source and releases on GitHub</a>
+        <a class="repo-link" href="https://github.com/aigorahub/elves">v2.8.0 source and releases on GitHub</a>
       </div>
       <h1>Using Elves</h1>
       <p class="intro">Plan with the main agent, hand implementation to a separate worker, then
@@ -705,8 +705,10 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
           <code>off</code> for compatibility. Help output proves only that exact-resume and route
           flags are advertised. Actual prewalk stays off until the exact installed host version has
           behavioral evidence for session, worktree, and stream continuity, route change, no packet
-          replay, and honest instruction fidelity. <code>required</code> fails before launch if that
-          proof is absent; no paid canary runs implicitly.</p>
+          replay, and honest instruction fidelity. The current persisted-instruction transport
+          activates only for proven <code>retained_safe</code>; <code>pruned</code> and
+          <code>turn_scoped</code> remain future delivery states. <code>required</code> fails before
+          launch if proof is absent; no paid canary runs implicitly.</p>
 
         <h3>Use the optional open-source Grok worker</h3>
         <p>Install from the <a href="https://github.com/xai-org/grok-build">official Grok Build

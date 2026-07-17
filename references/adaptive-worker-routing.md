@@ -97,9 +97,10 @@ python3 scripts/cobbler_agents.py native-worker prewalk-capabilities --host clau
 
 Static help establishes advertised flags only. Actual prewalk additionally requires exact-version
 behavioral evidence for one session/worktree/stream, route change, guide-only fact retention, no
-packet replay, and usable instruction fidelity. With no such evidence, the built-in `auto`
-preference honestly resolves to actual mode `off`; the probe makes zero model calls. See the
-normative [`prewalk.md`](prewalk.md) contract.
+packet replay, and honest instruction fidelity. The current persisted-instruction delivery path
+activates only for proven `retained_safe`; `pruned` and `turn_scoped` remain future transport states.
+With no qualifying evidence, the built-in `auto` preference honestly resolves to actual mode `off`;
+the probe makes zero model calls. See the normative [`prewalk.md`](prewalk.md) contract.
 
 When Grok Build is explicitly permitted and silently qualifies:
 

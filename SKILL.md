@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "2.7.0"
+  version: "2.8.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -35,7 +35,7 @@ handoff remains valid for huge/unstable plans.
 `references/joyful-runs-contract.md`, `landing-authority.md`, `follow-mode.md`,
 `proof-and-review.md`, `host-parity.md`, `schema-and-acceptance.md`, `prewalk.md`.
 
-**User guide (v2.6):** `https://aigorahub.github.io/elves/` is the short task-first path for
+**User guide (v2.8):** `https://aigorahub.github.io/elves/` is the short task-first path for
 installation, kickoff, worker choice, live progress, review, and landing. The references above
 remain the detailed workflow contracts.
 
@@ -233,10 +233,12 @@ same-worktree execution-route resume with only `Continue.`. The packet is sent o
 with a copied packet or summary is not prewalk; post-edit cold fallback is forbidden. `off`, `auto`,
 and `required` are deterministic/model-free routing requests, but actual prewalk requires
 version-bound behavioral proof of exact session/worktree/stream continuity, route change, no packet
-replay, and usable instruction fidelity (`pruned`, `turn_scoped`, or honestly `retained_safe`). Static help proves
-only advertised grammar. Until both Codex and Claude transports are behaviorally qualified, the
-safe `auto` preference records actual mode `off`; `required` fails before launch. The driver still
-owns canonical memory, terminal review, PR, landing, and merge. Full contract and host grammar:
+replay, and honest instruction fidelity. The evidence schema can report `pruned`, `turn_scoped`,
+`retained_safe`, or `unsupported`; because the current transport persists the cooperative guide
+instruction, this implementation activates only for proven `retained_safe`. Static help proves only
+advertised grammar. Until both Codex and Claude transports are behaviorally qualified, the safe
+`auto` preference records actual mode `off`; `required` fails before launch. The driver still owns
+canonical memory, terminal review, PR, landing, and merge. Full contract and host grammar:
 `references/prewalk.md`.
 
 ## Git History as Operator UI

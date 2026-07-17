@@ -59,14 +59,14 @@ parity, land PR #80 through a regular merge commit, and publish the verified mer
 - **Planned batches remaining:** 1
 - **Stop allowed right now:** no
 - **Why:** v2.8.0 promotion, retained-safe documentation reconciliation, exact-tip gates, merge, GitHub release, deployment verification, and cleanup remain
-- **Next required action:** commit the B3 release contract, then promote and audit every version/documentation surface
+- **Next required action:** commit the proven v2.8.0 promotion, then run full strict verification and cumulative release review
 
 ## Current Phase
 
 - **Status:** in progress
 - **Active batch:** B3 v2.8.0 release promotion and authorized landing
-- **What was just finished:** PR #80 reached green landable state for the original B0-B2 scope
-- **Single next action:** commit the release-extension contract and begin the v2.8.0 documentation promotion
+- **What was just finished:** v2.8.0 metadata/docs promotion, retained-safe reconciliation, release checklist, consistency, and 186 focused tests
+- **Single next action:** commit and push the v2.8.0 promotion, then begin full release proof
 
 ## Active Compute
 

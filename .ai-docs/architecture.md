@@ -90,9 +90,10 @@ context transfer. The packet appears once on the guide turn; private model-free 
 bounded TODO, first meaningful edit, session/worktree/Git continuity, and checkpoint before the
 supervisor resumes that same ID on a separately pinned execution route with `Continue.`. Static
 host help is advertised capability only; version-bound behavioral evidence gates actual prewalk and
-records instruction fidelity as `pruned`, `turn_scoped`, `retained_safe`, or `unsupported`. The driver retains all
-canonical memory, terminal review, PR, and landing authority. Normative detail lives in
-`references/prewalk.md`.
+records instruction fidelity as `pruned`, `turn_scoped`, `retained_safe`, or `unsupported`. The
+current persisted-instruction path activates only `retained_safe`; the other usable-sounding states
+require a future, separately proven delivery mechanism. The driver retains all canonical memory,
+terminal review, PR, and landing authority. Normative detail lives in `references/prewalk.md`.
 Hard external subprocess lanes require a recursive boundary acquired atomically with the child.
 The current Python runtime cannot prove that boundary on Linux or Darwin—even when Linux has a
 bubblewrap PID namespace—so optional routes fall back host-native and required routes block before
