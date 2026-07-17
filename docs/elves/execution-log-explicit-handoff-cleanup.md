@@ -2,13 +2,13 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-07-17 18:22 EDT
-- **Current phase:** Cumulative-review fixes ready
+- **Last updated:** 2026-07-17 18:31 EDT
+- **Current phase:** Acceptance-order contract correction
 - **Active batch:** B0 — reconcile and harden explicit handoff v1
 - **Last completed batch:** none
 - **Next exact batch:** B0
-- **Active PR:** not created yet
-- **Docs promoted this run:** none yet
+- **Active PR:** #81 — draft, exact-tip checks running
+- **Docs promoted this run:** explicit handoff v1 schema, workflow, release, guide, and durable guidance
 - **Latest Elves Report:** not generated yet
 
 ## B0 implementation slice: 2026-07-17 17:52 EDT
@@ -59,6 +59,18 @@
 - Added malformed-JSON cardinality coverage; 130 focused acceptance/consistency tests pass.
 - Next: commit/push review fixes, re-read the guide, rerun strict CI on the exact tip, then attach
   acceptance evidence.
+
+## B0 acceptance-order correction: 2026-07-17 18:31 EDT
+
+- Opened draft PR #81 and confirmed it is mergeable with no comments or reviews; CodeQL and Socket
+  checks passed while the four-platform repository matrix continued.
+- Corrected M-A2 to assess the acceptance-bearing tip rather than post-readiness artifact removal.
+  The old wording was circular: canonical Elves sequencing requires acceptance and landing proof
+  before the separate operational-cleanup commit.
+- Kept operational cleanup as an explicit unfinished task and did not change any stable acceptance
+  ID or product criterion.
+- Next: commit/push this contract correction, re-read the guide, prove the new exact tip, record the
+  acceptance-backed Close, then remove operational artifacts in a separate Review commit.
 
 ## Session Setup: 2026-07-17 17:38 EDT
 

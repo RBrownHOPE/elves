@@ -64,10 +64,10 @@ host-native implementation; finish at a landable PR without merge.
 
 ### Tasks
 
-- [ ] Reconcile the validator with v2.8 compatibility and both canonical packet formats.
-- [ ] Expand category tests for compatibility, exact identity, ownership, bounds, and format parity.
-- [ ] Update canonical and durable documentation without redefining prewalk.
-- [ ] Promote the additive public contract as release-ready v2.9.0 source and guide metadata.
+- [x] Reconcile the validator with v2.8 compatibility and both canonical packet formats.
+- [x] Expand category tests for compatibility, exact identity, ownership, bounds, and format parity.
+- [x] Update canonical and durable documentation without redefining prewalk.
+- [x] Promote the additive public contract as release-ready v2.9.0 source and guide metadata.
 - [ ] Complete broad verification, cumulative review, PR checks, and operational cleanup.
 
 ### Acceptance criteria
@@ -104,4 +104,8 @@ installed-bundle smoke, and terminal `scripts/verify_repo.py --ci`.
 ## Master Acceptance
 
 - [ ] M-A1: The cumulative diff preserves every established v2.8 staging/prewalk invariant while making explicitly declared handoff state deterministic and fail-closed.
-- [ ] M-A2: The final branch is current, documented, broadly verified, clean, and presented as a reviewable PR with no temporary run artifacts.
+- [ ] M-A2: The acceptance-bearing branch tip is current, documented, broadly verified, clean, and presented as a reviewable PR.
+
+Operational run artifacts remain a required final task, but are deliberately outside acceptance:
+Elves proves and records the acceptance-bearing tip before removing those artifacts in a separate
+post-readiness commit.

@@ -49,8 +49,8 @@ for both Markdown and JSON packets. Finish at a landable PR; do not merge.
 
 - **Planned batches remaining:** 1
 - **Stop allowed right now:** no
-- **Why:** validator reconciliation, docs, broad proof, PR creation, and cleanup remain
-- **Next required action:** commit and push the cumulative-review fixes, re-read this guide, then rerun strict CI on the exact tip
+- **Why:** acceptance evidence, exact-tip PR proof, and cleanup remain
+- **Next required action:** commit and push the acceptance-order contract correction, re-read this guide, then prove and record acceptance on the exact tip
 
 ## Effort Standard
 
@@ -68,10 +68,10 @@ Prefer exact compatibility and category proof over a smaller speculative patch.
 
 ## Current Phase
 
-- **Status:** cumulative-review fixes ready
+- **Status:** acceptance-order contract correction ready
 - **Active batch:** B0
-- **What was just finished:** strict CI pass plus packet-boundary and duplicate-diagnostic review fixes
-- **Single next action:** commit and push the review fixes
+- **What was just finished:** draft PR creation and removal of cleanup circularity from M-A2
+- **Single next action:** commit and push the acceptance-order contract correction
 
 ## Active Compute
 
@@ -120,6 +120,7 @@ single `Next Exact Action` without restaging completed work.
 - Implementation commit `2a38193` is pushed on the branch.
 - Documentation/parity commit `2706625` is pushed on the branch.
 - Release-readiness commit `10f4075` is pushed on the branch.
+- Cumulative-review fix commit `d23c7b9` is pushed on the branch.
 - The validator now preserves undeclared-session advisory behavior and strictly validates declared
   handoff v1 state for Markdown and JSON packets.
 - Canonical docs, changelog, durable guidance, and consistency pins are aligned; 129 focused tests
@@ -128,11 +129,14 @@ single `Next Exact Action` without restaging completed work.
   reviewed new-plan-surface warning.
 - Strict CI passed 1,131 tests plus consistency, release, public API, links, secret scan, and
   installed-bundle smokes. Cumulative review found and fixed a 1,000,000-vs-1-MiB boundary mismatch
-  and duplicate malformed-JSON diagnostics; exact-tip strict rerun remains.
+  and duplicate malformed-JSON diagnostics; the resulting exact-tip local gate passed 1,132 tests.
+- Draft PR #81 is mergeable with CodeQL and Socket green; repository matrix checks are running.
+- M-A2 now assesses the acceptance-bearing tip, while the required post-readiness artifact cleanup
+  remains an explicit final task outside acceptance.
 
 ## Next Exact Action
 
-Commit and push the cumulative-review fixes, re-read this guide, then rerun strict CI on the exact
+Commit and push the acceptance-order contract correction, re-read this guide, then prove the exact
 tip and complete acceptance evidence.
 
 ## Recovery Order
