@@ -5,15 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from cobbler_runtime.acceptance import (
     AcceptanceIssue,
     AcceptanceRow,
+    STABLE_ACCEPTANCE_ID_RE,
     normalize_batch_id,
     parse_markdown_acceptance_rows,
     parse_plan_acceptance_contract,
@@ -175,9 +175,26 @@ def _emit(
 _HOST_NATIVE_WORK_DRIVERS: frozenset[str] = frozenset({"", "host-native", "n-a"})
 _DELEGATED_SCOPES: frozenset[str] = frozenset({"batch", "full-run"})
 _HANDOFF_MODES: frozenset[str] = frozenset({"fresh_start", "resume_active_batch"})
-_WORKER_PACKET_STATE_RE = re.compile(
-    r"<!--\s*elves-handoff-v1\s*\n(?P<body>\{.*\})\s*\n-->",
-    re.DOTALL,
+_MAX_WORKER_PACKET_BYTES = 1_000_000
+_MARKDOWN_HANDOFF_PREFIX = "<!-- elves-handoff-v1\n"
+_MARKDOWN_HANDOFF_SUFFIX = "\n-->"
+_HANDOFF_FIELDS: frozenset[str] = frozenset(
+    {
+        "schema_version",
+        "mode",
+        "active_batch",
+        "product_implementation_started",
+        "coordinator_completed_slices",
+        "worker_owned_acceptance_ids",
+        "coordinator_owned_acceptance_ids",
+        "next_exact_action",
+    }
+)
+_HANDOFF_SLICE_FIELDS: frozenset[str] = frozenset(
+    {"description", "evidence", "commit"}
+)
+_PACKET_CAPSULE_FIELDS: frozenset[str] = frozenset(
+    {"schema_version", "run_id", "branch", "launch_head", "handoff"}
 )
 
 
@@ -190,7 +207,44 @@ def _normalize_work_driver(value: Any) -> str:
 def _is_delegated_run(session: dict[str, Any]) -> bool:
     driver = _normalize_work_driver(session.get("work_driver"))
     scope = _normalize_work_driver(session.get("delegation_scope"))
-    return driver not in _HOST_NATIVE_WORK_DRIVERS or scope in _DELEGATED_SCOPES
+    if driver in {"host-native", "n-a"}:
+        return False
+    return bool(driver) or scope in _DELEGATED_SCOPES
+
+
+def _worker_packet_warnings(session: dict[str, Any]) -> list[AcceptanceIssue]:
+    """Preserve the v2.8 advisory for delegable sessions without explicit v1 state."""
+
+    if not _is_delegated_run(session) or "handoff" in session:
+        return []
+    packet = session.get("worker_packet_path")
+    if isinstance(packet, str) and packet.strip():
+        return []
+    driver = _normalize_work_driver(session.get("work_driver")) or "unspecified"
+    return [
+        AcceptanceIssue(
+            "worker_packet_missing",
+            f"Session records delegated work_driver `{driver}` but no `worker_packet_path`. "
+            "Record the consolidated packet before launch (advisory only); declare a "
+            "session `handoff` object to opt into strict handoff-v1 validation.",
+        )
+    ]
+
+
+def _read_worker_packet(path: Path) -> str:
+    try:
+        with path.open("rb") as handle:
+            raw = handle.read(_MAX_WORKER_PACKET_BYTES + 1)
+    except OSError as exc:
+        raise ValueError(f"worker packet is not readable: {path}: {exc}") from exc
+    if len(raw) > _MAX_WORKER_PACKET_BYTES:
+        raise ValueError(
+            f"worker packet exceeds {_MAX_WORKER_PACKET_BYTES} bytes: {path}"
+        )
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"worker packet must be valid UTF-8: {path}") from exc
 
 
 def _session_acceptance_state(session: dict[str, Any]) -> dict[str, bool]:
@@ -222,12 +276,14 @@ def _handoff_id_list(
 ) -> list[str] | None:
     value = handoff.get(field)
     if not isinstance(value, list) or any(
-        not isinstance(item, str) or not item.strip() for item in value
+        not isinstance(item, str)
+        or STABLE_ACCEPTANCE_ID_RE.fullmatch(item.strip()) is None
+        for item in value
     ):
         issues.append(
             AcceptanceIssue(
                 "delegated_handoff_ownership_invalid",
-                f"Session handoff `{field}` must be an array of non-empty stable acceptance ids.",
+                f"Session handoff `{field}` must be an array of canonical B#-A#/M-A# ids.",
             )
         )
         return None
@@ -242,22 +298,96 @@ def _handoff_id_list(
     return normalized
 
 
+def _json_packet_acceptance_rows(
+    packet: Mapping[str, Any],
+) -> tuple[list[AcceptanceRow], list[AcceptanceIssue]]:
+    raw_rows = packet.get("acceptance")
+    if raw_rows is None:
+        return [], []
+    if not isinstance(raw_rows, list):
+        return [], [
+            AcceptanceIssue(
+                "worker_packet_acceptance_invalid",
+                "JSON worker packet `acceptance` must be an array of definition objects.",
+            )
+        ]
+    rows: list[AcceptanceRow] = []
+    issues: list[AcceptanceIssue] = []
+    for index, raw in enumerate(raw_rows):
+        if not isinstance(raw, dict):
+            issues.append(
+                AcceptanceIssue(
+                    "worker_packet_acceptance_invalid",
+                    f"JSON worker packet acceptance[{index}] must be an object.",
+                )
+            )
+            continue
+        acceptance_id = raw.get("id")
+        criterion = raw.get("criterion")
+        if (
+            not isinstance(acceptance_id, str)
+            or STABLE_ACCEPTANCE_ID_RE.fullmatch(acceptance_id.strip()) is None
+            or not isinstance(criterion, str)
+            or not criterion.strip()
+        ):
+            issues.append(
+                AcceptanceIssue(
+                    "worker_packet_acceptance_invalid",
+                    f"JSON worker packet acceptance[{index}] requires a canonical id and non-empty criterion.",
+                )
+            )
+            continue
+        rows.append(
+            AcceptanceRow(
+                id=acceptance_id.strip(),
+                criterion=criterion.strip(),
+                checked=None,
+                line=index + 1,
+            )
+        )
+    return rows, issues
+
+
+def _packet_json(
+    packet_text: str,
+    *,
+    label: str,
+) -> tuple[dict[str, Any] | None, list[AcceptanceIssue]]:
+    try:
+        return _decode_json_object(packet_text, label=label), []
+    except (json.JSONDecodeError, ValueError) as exc:
+        return None, [
+            AcceptanceIssue(
+                "worker_packet_invalid_json",
+                f"JSON worker packet is invalid: {exc}",
+            )
+        ]
+
+
 def _packet_acceptance_issues(
     packet_text: str,
+    packet_path: Path,
     plan_rows: Sequence[AcceptanceRow],
 ) -> list[AcceptanceIssue]:
-    packet_rows, parse_issues = parse_markdown_acceptance_rows(
-        packet_text,
-        require_checkbox=False,
-    )
-    issues = [
-        AcceptanceIssue(
-            "worker_packet_acceptance_invalid",
-            f"Worker packet acceptance row is invalid: {issue.message}",
-            issue.line,
+    if packet_path.suffix.lower() == ".json":
+        packet, issues = _packet_json(packet_text, label="JSON worker packet")
+        if packet is None:
+            return issues
+        packet_rows, parse_issues = _json_packet_acceptance_rows(packet)
+        issues.extend(parse_issues)
+    else:
+        packet_rows, parse_issues = parse_markdown_acceptance_rows(
+            packet_text,
+            require_checkbox=False,
         )
-        for issue in parse_issues
-    ]
+        issues = [
+            AcceptanceIssue(
+                "worker_packet_acceptance_invalid",
+                f"Worker packet acceptance row is invalid: {issue.message}",
+                issue.line,
+            )
+            for issue in parse_issues
+        ]
     expected = {row.id: row.criterion for row in plan_rows}
     observed: dict[str, str] = {}
     duplicates: set[str] = set()
@@ -303,6 +433,59 @@ def _packet_acceptance_issues(
     return issues
 
 
+def _packet_state_capsule(
+    packet_text: str,
+    packet_path: Path,
+) -> tuple[dict[str, Any] | None, list[AcceptanceIssue]]:
+    if packet_path.suffix.lower() == ".json":
+        packet, issues = _packet_json(packet_text, label="JSON worker packet")
+        if packet is None:
+            return None, issues
+        capsule = packet.get("elves_handoff")
+        if not isinstance(capsule, dict):
+            return None, [
+                AcceptanceIssue(
+                    "worker_packet_state_capsule_missing",
+                    "JSON worker packet must contain a top-level `elves_handoff` object.",
+                )
+            ]
+        return capsule, []
+
+    if not packet_text.startswith(_MARKDOWN_HANDOFF_PREFIX):
+        code = (
+            "worker_packet_state_capsule_position_invalid"
+            if "elves-handoff-v1" in packet_text
+            else "worker_packet_state_capsule_missing"
+        )
+        return None, [
+            AcceptanceIssue(
+                code,
+                "Markdown worker packet must begin exactly with an `elves-handoff-v1` JSON comment capsule.",
+            )
+        ]
+    end = packet_text.find(
+        _MARKDOWN_HANDOFF_SUFFIX,
+        len(_MARKDOWN_HANDOFF_PREFIX),
+    )
+    if end < 0:
+        return None, [
+            AcceptanceIssue(
+                "worker_packet_state_capsule_invalid",
+                "Markdown worker packet handoff capsule is missing its closing `-->` marker.",
+            )
+        ]
+    body = packet_text[len(_MARKDOWN_HANDOFF_PREFIX) : end]
+    try:
+        return _decode_json_object(body, label="worker packet state capsule"), []
+    except (json.JSONDecodeError, ValueError) as exc:
+        return None, [
+            AcceptanceIssue(
+                "worker_packet_state_capsule_invalid",
+                f"Worker packet state capsule is invalid JSON: {exc}",
+            )
+        ]
+
+
 def _git_head(repo_root: Path) -> str | None:
     try:
         result = subprocess.run(
@@ -321,23 +504,57 @@ def _git_head(repo_root: Path) -> str | None:
     return head if result.returncode == 0 and EXACT_COMMIT_RE.fullmatch(head) else None
 
 
-def _delegated_handoff_issues(
+def _git_branch(repo_root: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+            cwd=repo_root,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    branch = result.stdout.strip()
+    return branch if result.returncode == 0 and branch else None
+
+
+def _git_commit_is_ancestor(repo_root: Path, commit: str, head: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", commit, head],
+            cwd=repo_root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _explicit_handoff_issues(
     session: dict[str, Any],
     *,
     repo_root: Path,
     plan_rows: Sequence[AcceptanceRow],
     plan_batch_ids: tuple[int, ...],
 ) -> list[AcceptanceIssue]:
-    """Fail launch closed when coordinator and worker ownership is ambiguous."""
+    """Strictly validate handoff v1 only after a session explicitly declares it."""
 
-    if not _is_delegated_run(session):
+    if "handoff" not in session:
         return []
     issues: list[AcceptanceIssue] = []
     if not plan_rows:
         return [
             AcceptanceIssue(
                 "delegated_handoff_requires_stable_ids",
-                "Delegated runs require stable B#-A#/M-A# plan rows so every pending item has one owner.",
+                "Explicit handoff v1 requires stable B#-A#/M-A# plan rows so every pending item has one owner.",
             )
         ]
 
@@ -348,30 +565,54 @@ def _delegated_handoff_issues(
         issues.append(
             AcceptanceIssue(
                 "worker_packet_missing",
-                "Delegated runs require a non-empty `worker_packet_path`; launch is blocked until the packet exists.",
+                "Explicit handoff v1 requires a non-empty `worker_packet_path`; staging is blocked until the packet exists.",
             )
         )
     else:
         try:
             packet_path = _inside_repo(Path(packet_raw), repo_root, label="worker packet")
-            packet_text = packet_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError, ValueError) as exc:
+            packet_text = _read_worker_packet(packet_path)
+        except ValueError as exc:
             issues.append(AcceptanceIssue("worker_packet_invalid", str(exc)))
 
     handoff = session.get("handoff")
     if not isinstance(handoff, dict):
         issues.append(
             AcceptanceIssue(
-                "delegated_handoff_missing",
-                "Delegated runs require a machine-readable session `handoff` object before launch.",
+                "delegated_handoff_invalid",
+                "Declared session `handoff` must be one machine-readable object.",
             )
         )
         return issues
+    unexpected_handoff_fields = sorted(set(handoff) - _HANDOFF_FIELDS)
+    if unexpected_handoff_fields:
+        issues.append(
+            AcceptanceIssue(
+                "delegated_handoff_fields_invalid",
+                "Session handoff contains unsupported fields: "
+                + ", ".join(unexpected_handoff_fields),
+            )
+        )
     if handoff.get("schema_version") != 1:
         issues.append(
             AcceptanceIssue(
                 "delegated_handoff_version_invalid",
                 "Session handoff `schema_version` must be 1.",
+            )
+        )
+
+    recorded_branch = session.get("branch")
+    current_branch = _git_branch(repo_root)
+    if (
+        not isinstance(recorded_branch, str)
+        or not recorded_branch.strip()
+        or current_branch is None
+        or recorded_branch.strip() != current_branch
+    ):
+        issues.append(
+            AcceptanceIssue(
+                "delegated_handoff_branch_mismatch",
+                "Session `branch` must equal the repository's current symbolic branch for explicit handoff v1.",
             )
         )
 
@@ -431,6 +672,7 @@ def _delegated_handoff_issues(
         )
         completed_slices = []
     slice_fields_valid = True
+    current_head = _git_head(repo_root)
     for index, item in enumerate(completed_slices):
         if not isinstance(item, dict):
             slice_fields_valid = False
@@ -441,6 +683,16 @@ def _delegated_handoff_issues(
                 )
             )
             continue
+        unexpected_slice_fields = sorted(set(item) - _HANDOFF_SLICE_FIELDS)
+        if unexpected_slice_fields:
+            slice_fields_valid = False
+            issues.append(
+                AcceptanceIssue(
+                    "delegated_handoff_slice_invalid",
+                    f"Session handoff coordinator_completed_slices[{index}] contains unsupported fields: "
+                    + ", ".join(unexpected_slice_fields),
+                )
+            )
         for field in ("description", "evidence", "commit"):
             value = item.get(field)
             valid = isinstance(value, str) and bool(value.strip())
@@ -454,6 +706,26 @@ def _delegated_handoff_issues(
                         f"Session handoff coordinator_completed_slices[{index}].{field} is invalid.",
                     )
                 )
+        commit = item.get("commit")
+        if (
+            isinstance(commit, str)
+            and EXACT_COMMIT_RE.fullmatch(commit.strip()) is not None
+            and (
+                current_head is None
+                or not _git_commit_is_ancestor(
+                    repo_root,
+                    commit.strip().lower(),
+                    current_head,
+                )
+            )
+        ):
+            slice_fields_valid = False
+            issues.append(
+                AcceptanceIssue(
+                    "delegated_handoff_slice_commit_unproven",
+                    f"Session handoff coordinator_completed_slices[{index}].commit must be an ancestor of current HEAD.",
+                )
+            )
     if mode == "fresh_start" and completed_slices:
         issues.append(
             AcceptanceIssue(
@@ -542,73 +814,62 @@ def _delegated_handoff_issues(
                 )
             )
 
-    if packet_text is None:
+    if packet_text is None or packet_path is None:
         return issues
-    marker = _WORKER_PACKET_STATE_RE.search(packet_text)
-    if marker is None:
-        issues.append(
-            AcceptanceIssue(
-                "worker_packet_state_capsule_missing",
-                "Worker packet must begin with an `elves-handoff-v1` JSON state capsule.",
-            )
-        )
-    else:
-        try:
-            packet_state = _decode_json_object(
-                marker.group("body"),
-                label="worker packet state capsule",
-            )
-        except (json.JSONDecodeError, ValueError) as exc:
+    packet_state, capsule_issues = _packet_state_capsule(packet_text, packet_path)
+    issues.extend(capsule_issues)
+    if packet_state is not None:
+        unexpected_capsule_fields = sorted(set(packet_state) - _PACKET_CAPSULE_FIELDS)
+        if unexpected_capsule_fields:
             issues.append(
                 AcceptanceIssue(
                     "worker_packet_state_capsule_invalid",
-                    f"Worker packet state capsule is invalid JSON: {exc}",
+                    "Worker packet state capsule contains unsupported fields: "
+                    + ", ".join(unexpected_capsule_fields),
                 )
             )
-        else:
-            if packet_state.get("schema_version") != 1:
-                issues.append(
-                    AcceptanceIssue(
-                        "worker_packet_state_capsule_invalid",
-                        "Worker packet state capsule `schema_version` must be 1.",
-                    )
+        if packet_state.get("schema_version") != 1:
+            issues.append(
+                AcceptanceIssue(
+                    "worker_packet_state_capsule_invalid",
+                    "Worker packet state capsule `schema_version` must be 1.",
                 )
-            if packet_state.get("run_id") != session.get("run_id"):
-                issues.append(
-                    AcceptanceIssue(
-                        "worker_packet_run_mismatch",
-                        "Worker packet state capsule `run_id` must match the session.",
-                    )
+            )
+        if packet_state.get("run_id") != session.get("run_id"):
+            issues.append(
+                AcceptanceIssue(
+                    "worker_packet_run_mismatch",
+                    "Worker packet state capsule `run_id` must match the session.",
                 )
-            if packet_state.get("branch") != session.get("branch"):
-                issues.append(
-                    AcceptanceIssue(
-                        "worker_packet_branch_mismatch",
-                        "Worker packet state capsule `branch` must match the session.",
-                    )
+            )
+        if packet_state.get("branch") != session.get("branch"):
+            issues.append(
+                AcceptanceIssue(
+                    "worker_packet_branch_mismatch",
+                    "Worker packet state capsule `branch` must match the session.",
                 )
-            if packet_state.get("handoff") != handoff:
-                issues.append(
-                    AcceptanceIssue(
-                        "worker_packet_handoff_mismatch",
-                        "Worker packet state capsule `handoff` must exactly match the session handoff object.",
-                    )
+            )
+        if packet_state.get("handoff") != handoff:
+            issues.append(
+                AcceptanceIssue(
+                    "worker_packet_handoff_mismatch",
+                    "Worker packet state capsule `handoff` must exactly match the session handoff object.",
                 )
-            launch_head = packet_state.get("launch_head")
-            current_head = _git_head(repo_root)
-            if (
-                not isinstance(launch_head, str)
-                or EXACT_COMMIT_RE.fullmatch(launch_head) is None
-                or current_head is None
-                or launch_head.lower() != current_head
-            ):
-                issues.append(
-                    AcceptanceIssue(
-                        "worker_packet_launch_head_mismatch",
-                        "Worker packet `launch_head` must equal the repository's exact current HEAD at validation time.",
-                    )
+            )
+        launch_head = packet_state.get("launch_head")
+        if (
+            not isinstance(launch_head, str)
+            or EXACT_COMMIT_RE.fullmatch(launch_head) is None
+            or current_head is None
+            or launch_head.lower() != current_head
+        ):
+            issues.append(
+                AcceptanceIssue(
+                    "worker_packet_launch_head_mismatch",
+                    "Worker packet `launch_head` must equal the repository's exact current HEAD at validation time.",
                 )
-    issues.extend(_packet_acceptance_issues(packet_text, plan_rows))
+            )
+    issues.extend(_packet_acceptance_issues(packet_text, packet_path, plan_rows))
     return issues
 
 
@@ -842,7 +1103,7 @@ def main(argv: list[str] | None = None) -> int:
         issues.extend(identity_issues)
         if args.action == "validate":
             issues.extend(
-                _delegated_handoff_issues(
+                _explicit_handoff_issues(
                     session,
                     repo_root=repo_root,
                     plan_rows=contract.rows,
@@ -851,6 +1112,11 @@ def main(argv: list[str] | None = None) -> int:
             )
 
     if args.action == "validate" or issues:
+        warnings = (
+            _worker_packet_warnings(session)
+            if args.action == "validate" and session is not None
+            else []
+        )
         return _emit(
             ok=not issues,
             action=args.action,
@@ -858,6 +1124,7 @@ def main(argv: list[str] | None = None) -> int:
             session_path=session_path,
             issues=issues,
             as_json=bool(args.json),
+            warnings=warnings,
         )
 
     if session is None or session_path is None:

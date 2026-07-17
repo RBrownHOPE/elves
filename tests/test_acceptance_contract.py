@@ -1117,7 +1117,7 @@ class AcceptanceContractCliTests(unittest.TestCase):
 
 
 class DelegatedHandoffContractTests(unittest.TestCase):
-    """Delegated launch fails closed when coordinator/worker ownership is ambiguous."""
+    """Explicit handoff v1 fails closed without breaking undeclared v2.8 sessions."""
 
     write_plan = AcceptanceContractCliTests.write_plan
     write_session = AcceptanceContractCliTests.write_session
@@ -1142,6 +1142,11 @@ class DelegatedHandoffContractTests(unittest.TestCase):
         )
         subprocess.run(
             ["git", "commit", "--allow-empty", "-qm", "initial"],
+            cwd=self.repo,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "branch", "-m", "codex/delegated-test"],
             cwd=self.repo,
             check=True,
         )
@@ -1187,8 +1192,11 @@ class DelegatedHandoffContractTests(unittest.TestCase):
         launch_head: str | None = None,
         handoff: dict[str, object] | None = None,
         criterion: str = "Bracketed B0 criterion.",
+        json_packet: bool = False,
+        markdown_prefix: str = "",
     ) -> str:
-        packet_path = self.repo / ".elves" / "runtime" / "worker-packet.md"
+        suffix = ".json" if json_packet else ".md"
+        packet_path = self.repo / ".elves" / "runtime" / f"worker-packet{suffix}"
         packet_path.parent.mkdir(parents=True, exist_ok=True)
         capsule = {
             "schema_version": 1,
@@ -1197,16 +1205,35 @@ class DelegatedHandoffContractTests(unittest.TestCase):
             "launch_head": launch_head or self.head,
             "handoff": handoff or session["handoff"],
         }
-        packet_path.write_text(
-            "<!-- elves-handoff-v1\n"
-            + json.dumps(capsule, indent=2, sort_keys=True)
-            + "\n-->\n\n"
-            + "# Worker packet\n\n"
-            + f"- [ ] B0-A1: {criterion}\n"
-            + "- [ ] B0-A2: Bare B0 criterion.\n"
-            + "- [ ] M-A1: Master criterion.\n",
-            encoding="utf-8",
-        )
+        if json_packet:
+            packet_path.write_text(
+                json.dumps(
+                    {
+                        "elves_handoff": capsule,
+                        "acceptance": [
+                            {"id": "B0-A1", "criterion": criterion},
+                            {"id": "B0-A2", "criterion": "Bare B0 criterion."},
+                            {"id": "M-A1", "criterion": "Master criterion."},
+                        ],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        else:
+            packet_path.write_text(
+                markdown_prefix
+                + "<!-- elves-handoff-v1\n"
+                + json.dumps(capsule, indent=2, sort_keys=True)
+                + "\n-->\n\n"
+                + "# Worker packet\n\n"
+                + f"- [ ] B0-A1: {criterion}\n"
+                + "- [ ] B0-A2: Bare B0 criterion.\n"
+                + "- [ ] M-A1: Master criterion.\n",
+                encoding="utf-8",
+            )
         return str(packet_path.relative_to(self.repo))
 
     def _validate(self, *extra: str) -> subprocess.CompletedProcess[str]:
@@ -1222,19 +1249,19 @@ class DelegatedHandoffContractTests(unittest.TestCase):
     def _issue_codes(self, result: subprocess.CompletedProcess[str]) -> set[str]:
         return {issue["code"] for issue in json.loads(result.stdout)["issues"]}
 
-    def test_validate_blocks_delegated_run_without_packet_or_handoff(self) -> None:
+    def test_validate_warns_for_delegated_run_without_explicit_handoff(self) -> None:
         self.write_plan()
         self.write_session(self._session_with_driver("grok-build"))
 
         result = self._validate("--json")
 
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertTrue(
-            {"worker_packet_missing", "delegated_handoff_missing"}
-            <= self._issue_codes(result)
-        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual([], payload["issues"])
+        self.assertEqual(["worker_packet_missing"], [item["code"] for item in payload["warnings"]])
 
-    def test_validate_blocks_all_delegated_driver_spellings_without_handoff(self) -> None:
+    def test_validate_warns_for_all_delegated_driver_spellings_without_handoff(self) -> None:
         for driver in ("grok_build", "devin-cli", "devin_cli", "untrusted_writer"):
             with self.subTest(driver=driver):
                 self.write_plan()
@@ -1242,8 +1269,12 @@ class DelegatedHandoffContractTests(unittest.TestCase):
 
                 result = self._validate("--json")
 
-                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertIn("delegated_handoff_missing", self._issue_codes(result))
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertEqual(
+                    ["worker_packet_missing"],
+                    [item["code"] for item in payload["warnings"]],
+                )
 
     def test_validate_accepts_complete_fresh_start_handoff(self) -> None:
         self.write_plan()
@@ -1256,7 +1287,43 @@ class DelegatedHandoffContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(json.loads(result.stdout)["ok"])
 
-    def test_host_native_full_run_scope_still_requires_handoff(self) -> None:
+    def test_validate_accepts_equivalent_json_packet_handoff(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["worker_packet_path"] = self._write_packet(
+            session,
+            json_packet=True,
+        )
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(json.loads(result.stdout)["ok"])
+
+    def test_declared_handoff_requires_packet(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("worker_packet_missing", self._issue_codes(result))
+        self.assertEqual([], json.loads(result.stdout)["warnings"])
+
+    def test_declared_non_object_handoff_blocks(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build")
+        session["handoff"] = None
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("delegated_handoff_invalid", self._issue_codes(result))
+
+    def test_host_native_full_run_scope_remains_silent_without_handoff(self) -> None:
         self.write_plan()
         session = self._session_with_driver("host-native")
         session["delegation_scope"] = "full_run"
@@ -1264,8 +1331,8 @@ class DelegatedHandoffContractTests(unittest.TestCase):
 
         result = self._validate("--json")
 
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("delegated_handoff_missing", self._issue_codes(result))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([], json.loads(result.stdout)["warnings"])
 
     def test_validate_silent_for_host_native_and_absent_driver(self) -> None:
         for driver in ("host-native", "host_native", "n_a", None):
@@ -1356,6 +1423,46 @@ class DelegatedHandoffContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("delegated_handoff_slices_mismatch", self._issue_codes(result))
 
+    def test_validate_blocks_nonancestor_completed_slice(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["handoff"].update(
+            {
+                "mode": "resume_active_batch",
+                "product_implementation_started": True,
+                "coordinator_completed_slices": [
+                    {
+                        "description": "Claims an unrelated slice.",
+                        "evidence": "Untrusted evidence.",
+                        "commit": "b" * 40,
+                    }
+                ],
+                "next_exact_action": "Continue B0-A1.",
+            }
+        )
+        session["worker_packet_path"] = self._write_packet(session)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "delegated_handoff_slice_commit_unproven",
+            self._issue_codes(result),
+        )
+
+    def test_validate_blocks_noncanonical_owned_acceptance_id(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["handoff"]["worker_owned_acceptance_ids"] = ["B00-A1"]
+        session["worker_packet_path"] = self._write_packet(session)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("delegated_handoff_ownership_invalid", self._issue_codes(result))
+
     def test_validate_blocks_packet_state_that_differs_from_session(self) -> None:
         self.write_plan()
         session = self._session_with_driver("grok-build", include_handoff=True)
@@ -1385,6 +1492,49 @@ class DelegatedHandoffContractTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("worker_packet_launch_head_mismatch", self._issue_codes(result))
+
+    def test_validate_blocks_session_for_a_different_current_branch(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["branch"] = "codex/other-branch"
+        session["worker_packet_path"] = self._write_packet(session)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("delegated_handoff_branch_mismatch", self._issue_codes(result))
+
+    def test_validate_blocks_markdown_capsule_after_packet_content(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["worker_packet_path"] = self._write_packet(
+            session,
+            markdown_prefix="# Content before state\n\n",
+        )
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "worker_packet_state_capsule_position_invalid",
+            self._issue_codes(result),
+        )
+
+    def test_validate_blocks_oversized_explicit_packet(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        relative = self._write_packet(session)
+        packet_path = self.repo / relative
+        packet_path.write_text("x" * 1_000_001, encoding="utf-8")
+        session["worker_packet_path"] = relative
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("worker_packet_invalid", self._issue_codes(result))
 
     def test_validate_blocks_packet_criterion_text_drift(self) -> None:
         self.write_plan()

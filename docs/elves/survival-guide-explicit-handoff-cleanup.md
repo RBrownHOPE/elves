@@ -38,7 +38,7 @@ for both Markdown and JSON packets. Finish at a landable PR; do not merge.
 - **Landing outcome:** landable_pr
 - **Driver merge authorized:** no
 - **Worker merge authority:** false
-- **Staging acceptance validation:** pending Contract commit
+- **Staging acceptance validation:** PASS — Contract commit `629a1d8` pushed
 - **High-risk checkpoints:** none
 - **Re-drive budget:** n/a — host-native
 - **Continuation harness:** host-native
@@ -50,7 +50,7 @@ for both Markdown and JSON packets. Finish at a landable PR; do not merge.
 - **Planned batches remaining:** 1
 - **Stop allowed right now:** no
 - **Why:** validator reconciliation, docs, broad proof, PR creation, and cleanup remain
-- **Next required action:** commit and push the validated Contract records, re-read this guide, then implement B0
+- **Next required action:** commit and push the validator/test implementation slice, re-read this guide, then update canonical docs
 
 ## Effort Standard
 
@@ -68,10 +68,10 @@ Prefer exact compatibility and category proof over a smaller speculative patch.
 
 ## Current Phase
 
-- **Status:** staging
+- **Status:** implementation slice ready
 - **Active batch:** B0
-- **What was just finished:** inventory, focused baseline, and the cleanup contract draft
-- **Single next action:** commit and push the validated Contract records
+- **What was just finished:** backward-compatible validator reconciliation and 49 focused tests
+- **Single next action:** commit and push the implementation slice
 
 ## Active Compute
 
@@ -103,7 +103,7 @@ single `Next Exact Action` without restaging completed work.
 - [x] Plan/session stable acceptance identity validates.
 - [x] Worktree ownership, branch, start tip, and merge policy are recorded.
 - [x] Baseline focused tests and evidence-selected verification are green.
-- [ ] Contract commit pushed and guide re-read.
+- [x] Contract commit pushed and guide re-read.
 
 ## Cobbler Session State
 
@@ -116,15 +116,15 @@ single `Next Exact Action` without restaging completed work.
 
 ## Current State
 
-- Branch is clean and includes unpublished commit `2cd7349` plus merge commit `6dff595` from v2.8 main.
-- Focused acceptance tests pass (41 tests) and evidence-selected repository verification passes.
-- The unpublished code is incomplete as a product change: it breaks the documented advisory
-  boundary, lacks producer/schema docs, supports only Markdown, and duplicates some launch checks.
+- Contract commit `629a1d8` is pushed on the branch.
+- The validator now preserves undeclared-session advisory behavior and strictly validates declared
+  handoff v1 state for Markdown and JSON packets.
+- Focused acceptance tests pass (49 tests); canonical docs and broad proof remain.
 
 ## Next Exact Action
 
-Commit this cleanup contract and run memory, push the branch, re-read this guide, then reconcile the
-validator and tests under Batch B0.
+Commit and push the validator/test implementation slice, re-read this guide, then update canonical
+schema, workflow, changelog, and durable architecture documentation.
 
 ## Recovery Order
 

@@ -2,14 +2,27 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-07-17 17:38 EDT
-- **Current phase:** Staging
+- **Last updated:** 2026-07-17 17:52 EDT
+- **Current phase:** Implementation slice ready
 - **Active batch:** B0 — reconcile and harden explicit handoff v1
 - **Last completed batch:** none
 - **Next exact batch:** B0
 - **Active PR:** not created yet
 - **Docs promoted this run:** none yet
 - **Latest Elves Report:** not generated yet
+
+## B0 implementation slice: 2026-07-17 17:52 EDT
+
+- Restored v2.8 advisory-only behavior when a delegated session does not declare `handoff`.
+- Made a declared top-level `handoff` field the opt-in boundary for strict v1 validation.
+- Added bounded UTF-8 packet reads, exact current-branch checks, and proof that completed-slice
+  commits are ancestors of current HEAD.
+- Added exact leading Markdown capsule parsing and equivalent JSON `elves_handoff` support.
+- Strengthened ownership IDs, unknown-field handling, packet/session/launch identity, and
+  plan/packet acceptance parity.
+- `python3 -m py_compile scripts/acceptance_contract.py tests/test_acceptance_contract.py` passed.
+- `python3 -m unittest tests.test_acceptance_contract` passed 49 tests.
+- Next: commit/push this slice, re-read the guide, then reconcile canonical docs and changelog.
 
 ## Session Setup: 2026-07-17 17:38 EDT
 
@@ -44,4 +57,3 @@ re-read.
 
 **Decision:** Preserve strict validation as an opt-in handoff v1 contract; restore v2.8 behavior for
 sessions that do not declare it; add format parity, exact Git evidence, docs, and broad proof.
-
