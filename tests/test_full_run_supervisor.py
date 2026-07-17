@@ -6568,7 +6568,7 @@ class FullRunLifecycleTests(unittest.TestCase):
         self.assertNotIn("HOME", env)
 
     def test_embedded_supervisor_tracks_start_identity_and_uses_pidfd_on_linux(self) -> None:
-        source = full_run_module._PROVIDER_SUPERVISOR_SCRIPT
+        source = full_run_module._provider_supervisor_script()
         self.assertIn("known_identities", source)
         self.assertNotIn("known_pids", source)
         self.assertIn("os.pidfd_open", source)
