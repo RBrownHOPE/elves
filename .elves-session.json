@@ -1,0 +1,165 @@
+{
+  "batches": [
+    {
+      "acceptance": [
+        {
+          "criterion": "Valid bounded TODO and checkpoint artifacts pass, while malformed IDs, missing validation, limits, multiple active items, identity mismatches, and runtime-root escapes fail with stable codes.",
+          "evidence": "",
+          "id": "B0-A1",
+          "met": false
+        },
+        {
+          "criterion": "Model-free transition validation accepts task-relevant source, test-first, or product-documentation edits and rejects empty, staging-only, forbidden, outside-worktree, branch, origin, tag, or protected-ref changes.",
+          "evidence": "",
+          "id": "B0-A2",
+          "met": false
+        },
+        {
+          "criterion": "Routing reports requested and actual prewalk mode, distinct guide/execution routes, advertised versus behavioral capability facts, instruction fidelity, provenance, fallback, and zero qualification model calls.",
+          "evidence": "",
+          "id": "B0-A3",
+          "met": false
+        },
+        {
+          "criterion": "`worker.prewalk` accepts only `off`, `auto`, or `required`, preserves existing safe preference precedence, grants no authority, and leaves unqualified auto runs on the backward-compatible single-phase route.",
+          "evidence": "",
+          "id": "B0-A4",
+          "met": false
+        }
+      ],
+      "id": "B0",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "A fixture run traverses staged, guide, transition, execution, and complete states; sends the packet once; resumes with only `Continue.`; retains one exact session/worktree; and exposes both phases in one private follow log.",
+          "evidence": "",
+          "id": "B1-A1",
+          "met": false
+        },
+        {
+          "criterion": "Missing or malformed TODO/checkpoint, session/worktree mismatch, forbidden edits, guide failure, resume failure, and post-edit cold fallback fail closed with stable actionable state while preserving the worktree and logs.",
+          "evidence": "",
+          "id": "B1-A2",
+          "met": false
+        },
+        {
+          "criterion": "Codex uses exact `codex exec resume <session-id>` and Claude uses exact `--resume <uuid>` with explicit guide/execution model and effort, registered CWD/write roots, no ambiguous selector, and no packet replay.",
+          "evidence": "",
+          "id": "B1-A3",
+          "met": false
+        },
+        {
+          "criterion": "Tiny all-complete tasks may terminalize after the guide only when the task-complete checkpoint and normal completion/Git contracts hold; otherwise a zero guide exit means transition-ready, not complete.",
+          "evidence": "",
+          "id": "B1-A4",
+          "met": false
+        },
+        {
+          "criterion": "Existing version-2 and single-phase native-worker launch, status, follow, redaction, environment scrubbing, sandboxing, PID identity, Git authority, and no-push tests remain green.",
+          "evidence": "",
+          "id": "B1-A5",
+          "met": false
+        }
+      ],
+      "id": "B1",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Canonical and user-facing docs define prewalk only as exact-session guide-to-execution trajectory continuity, explicitly reject cold handoffs, preserve driver authority, and give equivalent valid Codex/Claude operations.",
+          "evidence": "",
+          "id": "B2-A1",
+          "met": false
+        },
+        {
+          "criterion": "Documentation reports retained-safe versus pruned instruction fidelity honestly, states that static help is not behavioral proof, and keeps automatic rollout disabled or conservative until both hosts are live-qualified.",
+          "evidence": "",
+          "id": "B2-A2",
+          "met": false
+        },
+        {
+          "criterion": "Fresh installed Codex and Claude bundles contain the prewalk runtime/reference and pass smoke checks without source-checkout-only helper dependencies.",
+          "evidence": "",
+          "id": "B2-A3",
+          "met": false
+        },
+        {
+          "criterion": "Focused suites, repository consistency, `git diff --check`, and `python3 scripts/verify_repo.py --version Unreleased` pass on the reviewed exact tip.",
+          "evidence": "",
+          "id": "B2-A4",
+          "met": false
+        },
+        {
+          "criterion": "The new PR is open against `main`, unmerged, and its description explains the old cold-handoff gap, implemented exact-session mechanism, parity evidence, pruning fidelity, verification, and remaining live qualification/rollout limits.",
+          "evidence": "",
+          "id": "B2-A5",
+          "met": false
+        }
+      ],
+      "id": "B2",
+      "status": "pending"
+    }
+  ],
+  "branch": "codex/true-prewalk",
+  "cobbler": {
+    "default_for_session": true,
+    "route": "host-native"
+  },
+  "continuation_guard": {
+    "next_action": "Commit and push the staged run contract, re-read the guide, then implement B0.",
+    "stop_allowed": false
+  },
+  "delegation_scope": "none",
+  "driver_authorized": false,
+  "e2e_mode": "chat-to-work",
+  "execution_log_path": "docs/elves/execution-log-true-prewalk.md",
+  "landing_outcome": "landable_pr",
+  "learnings_path": "docs/elves/learnings.md",
+  "master_acceptance": [
+    {
+      "criterion": "One supervised native-worker run can begin on an explicit guide route, create a bounded validation-bearing TODO, make a meaningful edit, and automatically resume the exact same provider session and worktree on an explicit execution route with only `Continue.`.",
+      "evidence": "",
+      "id": "M-A1",
+      "met": false
+    },
+    {
+      "criterion": "The packet is sent exactly once; fresh sessions, copied transcripts, progress-note handoffs, ambiguous resume selectors, and post-edit cold fallback are never accepted or described as prewalk.",
+      "evidence": "",
+      "id": "M-A2",
+      "met": false
+    },
+    {
+      "criterion": "Codex and Claude provide equivalent state, route, TODO/checkpoint, follow, recovery, failure, installation, and documentation semantics with fixture-backed tests and honest behavioral-qualification limits.",
+      "evidence": "",
+      "id": "M-A3",
+      "met": false
+    },
+    {
+      "criterion": "Existing single-phase workers and all environment, redaction, sandbox, Git-authority, protected-ref, PR, merge, and terminal-review contracts remain intact.",
+      "evidence": "",
+      "id": "M-A4",
+      "met": false
+    },
+    {
+      "criterion": "The exact final tip passes focused and canonical verification, cumulative review finds no unresolved serious issue, and an unmerged PR is ready for human review.",
+      "evidence": "",
+      "id": "M-A5",
+      "met": false
+    }
+  ],
+  "merge_policy": "never-merge",
+  "model_calls_permitted": false,
+  "plan_path": "docs/plans/true-prewalk.md",
+  "risk": "high",
+  "run_id": "true-prewalk-2026-07-17",
+  "run_mode": "finite",
+  "start_head": "206a625b68bbb42e7fd6e8283ac65945c0f73648",
+  "survival_guide_path": "docs/elves/survival-guide-true-prewalk.md",
+  "trust_mode": "trusted",
+  "work_driver": "host-native",
+  "worker_merge_authority": false,
+  "worktree_path": "/Users/john/aigora/dev/elves-true-prewalk"
+}
