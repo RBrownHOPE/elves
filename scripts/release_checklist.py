@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -355,6 +356,22 @@ def render_result(result: ChecklistResult) -> str:
     return "\n".join(lines)
 
 
+def result_to_json_dict(result: ChecklistResult) -> dict[str, object]:
+    """Serialize checklist outcome to a stable machine-readable payload."""
+    return {
+        "version": result.version,
+        "ok": result.ok,
+        "failures": list(result.failures),
+        "warnings": list(result.warnings),
+        "notes": list(result.notes),
+    }
+
+
+def render_result_json(result: ChecklistResult) -> str:
+    """Render exactly one deterministic JSON object for automation consumers."""
+    return json.dumps(result_to_json_dict(result), indent=2, sort_keys=True)
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -374,6 +391,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Warn instead of failing when CHANGELOG.md has Unreleased content.",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a single machine-readable JSON object on stdout instead of the text report.",
+    )
     return parser.parse_args(argv)
 
 
@@ -385,7 +407,10 @@ def main(argv: list[str] | None = None) -> int:
         base_ref=args.base or None,
         allow_unreleased=args.allow_unreleased,
     )
-    print(render_result(result))
+    if args.json:
+        print(render_result_json(result))
+    else:
+        print(render_result(result))
     return 0 if result.ok else 1
 
 
