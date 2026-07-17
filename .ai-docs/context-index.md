@@ -44,6 +44,8 @@ the runtime surfaces, and the checks that usually matter before editing.
 - `references/adaptive-worker-routing.md` and `references/grok-open-source-worker.md`: deterministic
   native-first worker choice and the optional open-source Grok capability, launch, follow, fallback,
   and recovery contract.
+- `references/prewalk.md`: normative exact-session native-worker guide/execution lifecycle,
+  capability truth, TODO/checkpoint schema, parity, recovery, and rollout contract.
 - `references/math-*.md`: Cobbler-managed math domain workflow templates, ledgers, and provider
   role guidance.
 
@@ -74,6 +76,8 @@ the runtime surfaces, and the checks that usually matter before editing.
   supervision, legacy bounded implementation, and untrusted writer leases.
 - `scripts/cobbler_runtime/preferences.py`, `worker_routing.py`, `native_worker.py`: safe global
   worker preferences, deterministic adaptive route decisions, and host-native worker specs.
+- `scripts/cobbler_runtime/prewalk.py`: provider-neutral prewalk artifacts, capability evidence,
+  meaningful-edit transition validation, and canonical guide/continuation prompts.
 - `scripts/cobbler_runtime/`: typed provider-neutral runtime for routing, isolation, delegated Git,
   full-run supervision, evidence review, sessions, storage, and public API snapshots.
 - `scripts/openrouter_lens.py`: optional read-only OpenRouter role wrapper.
@@ -91,7 +95,8 @@ the runtime surfaces, and the checks that usually matter before editing.
   `test_cobbler_agents_sessions.py`, and `test_cobbler_executables.py`.
 - Worker/supervisor/Git: `test_cobbler_agents_implement.py`, `test_full_run_supervisor.py`,
   `test_cobbler_agents_leases.py`, `test_worker_cli_lifecycle.py`,
-  `test_storage_isolation_git.py`, and `test_public_api_snapshot.py`.
+  `test_storage_isolation_git.py`, `test_public_api_snapshot.py`, and
+  `test_native_worker_prewalk.py`.
 - Operator surfaces: `test_elves_landing_check.py`, `test_preflight_sh.py`,
   `test_preflight_worktree.py`, `test_acceptance_contract.py`,
   `test_validate_survival_guide.py`, `test_workspace_guard.py`, `test_notify_sh.py`,
@@ -118,6 +123,10 @@ the runtime surfaces, and the checks that usually matter before editing.
 - Acceptance contract change: read `scripts/cobbler_runtime/acceptance.py`,
   `scripts/acceptance_contract.py`, `scripts/elves_landing_check.py`, full-run prepare/launch,
   preflight, plan/session/packet templates, and their focused tests.
+- Prewalk or native phase-route change: read `references/prewalk.md`,
+  `references/host-parity.md`, `references/adaptive-worker-routing.md`, `prewalk.py`,
+  `native_worker.py`, `worker_routing.py`, versioned host-help fixtures, installed-bundle smoke,
+  and `test_native_worker_prewalk.py`.
 
 ## Validation Baseline
 

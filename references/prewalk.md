@@ -1,0 +1,147 @@
+# Exact-session native-worker prewalk
+
+## Promise
+
+Elves **prewalk** is a trajectory property, not a richer handoff. One separate native worker
+session receives the task packet once, explores the repository on a guide route, creates a bounded
+TODO, makes the first meaningful task edit, and writes a transition checkpoint. The outer
+supervisor then resumes that exact session in that exact worktree on the execution route with only
+`Continue.`. A new session that receives a summary or copied packet is a cold handoff and must not
+be reported as prewalk.
+
+The driver still owns staging, canonical run memory, protected refs, terminal review, PR state,
+landing policy, and merge. Prewalk grants no new Git, credential, approval-bypass, PR, or merge
+authority.
+
+## Lifecycle and durable artifacts
+
+```text
+staged -> launching_prewalk -> prewalking -> transition_ready
+       -> launching_execution -> executing -> complete
+```
+
+Transport-only execution failures add `execution_backoff` and resume the execution route after the
+canonical 5m, 10m, and 20m delays. They never rerun the guide or consume substantive re-drive
+budget. Terminal failures preserve the private state, one redacted follow log, and the assigned
+worktree.
+
+The guide mirrors its native TODO mechanism into private JSON under
+`.elves/runtime/prewalk/<run>/`:
+
+- `todo.json`: one or more ordered `PW-01` items, up to a configurable ceiling of 5–12 items
+  (default 10), each with description, observable acceptance, validation, and status; at most one
+  item is `in_progress`.
+- `checkpoint.json`: the exact run/session identity, `first_meaningful_edit` or `task_complete`,
+  TODO item, changed repository-relative paths, summary, and validation attempted.
+- `session.json`: the exact safe worker-session identity captured or assigned by the supervisor.
+
+The model-free transition validator requires a clean registered start, unchanged branch/origin/
+protected refs, a real source/test/product-documentation edit tied to the checkpoint, no forbidden
+surface, and no `Close` commit. Runtime-only, plan-only, execution-log-only, empty, mismatched, or
+out-of-worktree changes fail closed. A tiny atomic task may finish after the guide only when every
+TODO item is complete and the checkpoint explicitly says `task_complete`; a zero guide exit alone
+never means completion.
+
+The version-3 private native-worker state records requested and actual mode, both phase routes,
+capability and instruction-fidelity evidence, packet digest/count, status history, attempts,
+session/worktree continuity, transition proof, bounded diagnostics, and fallback. Version-2
+single-phase launch/status/follow remains supported.
+
+## Modes and actual default
+
+`prewalk` accepts `off`, `auto`, or `required`.
+
+- CLI launch defaults to `off`, preserving existing single-phase behavior.
+- The safe global convenience preference defaults to `auto` in
+  `${XDG_CONFIG_HOME:-~/.config}/elves/config.json`.
+- `auto` activates only for a behaviorally qualified subscription-native exact-session transport
+  on medium/high or multi-step work; it skips clearly atomic low-reasoning work and records an
+  honest fallback.
+- `required` fails before launch if exact resume, route change, worktree/stream binding, or usable
+  instruction fidelity is unqualified.
+- External providers are not enabled by analogy.
+
+The initial release therefore normally reports actual mode `off`: read-only installed-help probes
+show advertised grammar, but neither Codex nor Claude is behaviorally qualified by this repository.
+No paid qualification is implicit.
+
+Configure or inspect the preference from the active Elves skill root:
+
+```bash
+python3 scripts/cobbler_agents.py preferences set worker.prewalk auto
+python3 scripts/cobbler_agents.py preferences show
+```
+
+Repository vetoes and explicit run intent outrank the global preference. The preference cannot
+grant credentials or authority.
+
+## Capability truth and instruction fidelity
+
+Static `--help` output may establish only `advertised_exact_resume` and
+`advertised_route_override_on_resume`. It cannot establish conversation continuity, worktree
+binding, stream identity, or instruction pruning. The read-only probe makes no model calls:
+
+```bash
+python3 scripts/cobbler_agents.py native-worker prewalk-capabilities \
+  --host codex --json
+python3 scripts/cobbler_agents.py native-worker prewalk-capabilities \
+  --host claude --json
+```
+
+A behavioral qualification artifact is bounded, mode-safe JSON bound to the exact host/version,
+session, guide and continuation digests, successful create/resume exits, same worktree/session, a
+guide-only fact observed after resume, one logical stream, no packet replay, and an explicit
+instruction-fidelity result. Accepted fidelity is:
+
+- `pruned`: the temporary guide instruction is behaviorally proven absent after transition;
+- `turn_scoped`: the instruction is proven to apply only to the guide process and is not rebuilt
+  for the resumed process;
+- `retained_safe`: exact trajectory is proven and the cooperative guide instruction is safe to
+  retain; this is usable but is not a prefix-pruning claim;
+- `unsupported`: no usable behavioral qualification; prewalk stays unavailable.
+
+Provider cache tokens are telemetry only. Cache hits neither prove nor gate trajectory continuity.
+
+## Host parity
+
+| Concern | Codex | Claude Code | Shared requirement |
+|---|---|---|---|
+| Fresh identity | capture `thread.started.thread_id` | caller-generated UUID | exact ID before transition |
+| Guide route | `--model`, `model_reasoning_effort` | `--model`, `--effort` | explicitly pinned |
+| Exact resume | `codex exec resume <id>` | `--resume <uuid>` | never `--last`/`--continue` |
+| Resume route | flags before `resume`; OS CWD | model/effort with resume; supervisor CWD | explicit execution route, same worktree |
+| Stream | JSONL | stream JSON | one redacted logical follow log |
+| Authority | workspace sandbox + narrow Git roots | `auto` classifier + narrow Git roots | existing no-push/protected-ref checks |
+| Failure | exact-session recovery | exact-session recovery | no post-edit cold fallback |
+
+Codex keeps sandbox and additional Git roots before the `resume` subcommand. Claude keeps
+`--safe-mode --print --verbose --output-format stream-json --permission-mode auto`; prewalk never
+uses `bypassPermissions`. Custom-agent surfaces that cannot change route while preserving the exact
+session do not qualify; the supervised CLI transport is the parity surface.
+
+## Launch and recovery
+
+After qualification, the phase-explicit CLI shape is:
+
+```bash
+python3 scripts/cobbler_agents.py native-worker launch --json \
+  --host codex --worktree <registered-worktree> --run-id <run-id> --packet <packet> \
+  --prewalk required --guide-model <guide-model> --guide-effort high \
+  --execution-model <execution-model> --execution-effort medium \
+  --prewalk-capability-evidence <qualification.json>
+```
+
+Use the same shape with `--host claude`. Existing `--model`/`--effort` keep their single-phase
+meaning when prewalk is off; ambiguous mixed phase flags are rejected.
+
+The packet is sent only on the guide turn. Normal transition is automatic and never wakes the
+driver for approval. A failed guide gets one bounded exact-session guide recovery without packet
+replay. Before any task edit, `auto` may record abandonment and start an explicitly fresh normal
+worker; that result is not claimed as prewalk. After an edit, cold fallback is forbidden. Session
+ID, worktree, branch, origin, protected-ref, artifact, or meaningful-edit mismatch fails closed
+with a stable `prewalk_*` code and a bounded recovery hint.
+
+Live canaries for Codex and Claude are a separate operator-authorized rollout phase. They must prove
+the same session/worktree, route change, guide-only fact retention, no packet replay, stream
+identity, and honest instruction fidelity before `auto` can activate for that exact installed
+version.

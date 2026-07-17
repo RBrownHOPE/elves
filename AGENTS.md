@@ -64,6 +64,8 @@ authenticated live catalog (`references/adaptive-worker-routing.md`).
 - **Worker failure recovery:** transient provider errors back off and resume without consuming
   the re-drive budget; workers keep an untracked progress ledger under `.elves/runtime/`
   (SKILL.md Worker failure recovery)
+- **Prewalk:** exact-session guide→execution continuity only; a cold packet handoff is not prewalk,
+  and post-edit cold fallback is forbidden (`references/prewalk.md`; SKILL.md Exact-session prewalk)
 - **Worktree lifecycle:** One run owns one branch and one checkout; staging records
   `worktree_path`; post-merge teardown uses the separate gc helper
   (`./scripts/preflight.sh --gc-worktrees`)

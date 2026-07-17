@@ -56,9 +56,10 @@ managed inside the Elves run, not a separate Council or Cobbler memory system.
 - `onboard.py` / `setup.py` / `executables.py`: model onboarding, effective setup, and executable
   capability probing
 - `preflight_cache.py` / `storage.py`: live-proof cache policy and private atomic runtime storage
-- `preferences.py` / `worker_routing.py` / `native_worker.py`: shared safe XDG preferences,
-  deterministic plan-to-worker decisions, exact separate-session Codex/Claude launch specs, and
-  the private supervised native follow/status lifecycle
+- `preferences.py` / `worker_routing.py` / `prewalk.py` / `native_worker.py`: shared safe XDG
+  preferences, deterministic plan-to-worker and phase-route decisions, provider-neutral prewalk
+  artifacts/transition policy, exact separate-session Codex/Claude launch specs, and the private
+  version-2/single-phase plus version-3/prewalk supervised follow/status lifecycle
 
 The thin CLI is `scripts/cobbler_agents.py` (`validate-config`, `doctor`, `council`,
 `lightweight-review`, `session …`, trusted
@@ -83,6 +84,15 @@ the same qualified worker receives one compatible packet. The default follow pat
 sanitized progress and terminal facts without passing raw provider output through the driver.
 Detached worker commits belong to the separate untrusted lease path: the host creates branch
 commits and pushes only after binary patch audit/import.
+
+Exact-session prewalk is a lifecycle inside one subscription-native worker, not a cross-worker
+context transfer. The packet appears once on the guide turn; private model-free policy verifies a
+bounded TODO, first meaningful edit, session/worktree/Git continuity, and checkpoint before the
+supervisor resumes that same ID on a separately pinned execution route with `Continue.`. Static
+host help is advertised capability only; version-bound behavioral evidence gates actual prewalk and
+records instruction fidelity as `pruned`, `turn_scoped`, `retained_safe`, or `unsupported`. The driver retains all
+canonical memory, terminal review, PR, and landing authority. Normative detail lives in
+`references/prewalk.md`.
 Hard external subprocess lanes require a recursive boundary acquired atomically with the child.
 The current Python runtime cannot prove that boundary on Linux or Darwin—even when Linux has a
 bubblewrap PID namespace—so optional routes fall back host-native and required routes block before

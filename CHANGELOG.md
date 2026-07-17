@@ -4,6 +4,19 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### True exact-session native-worker prewalk
+
+- Add a feature-gated Codex/Claude prewalk lifecycle: one worker packet and exact session/worktree,
+  guide-route orientation, bounded TODO plus model-free meaningful-edit checkpoint, automatic
+  execution-route resume with only `Continue.`, and one redacted phase-labeled follow stream.
+- Add version-3 private state, stable failure diagnostics, exact-session guide recovery, canonical
+  5/10/20-minute execution transport backoff, explicit clean pre-edit `auto` fallback, and strict
+  prohibition of cold fallback after any task edit. Version-2 single-phase workers remain valid.
+- Add provider-neutral route/capability/fidelity contracts, the safe `worker.prewalk` preference,
+  read-only installed-host probes, exact-version behavioral qualification artifacts, deterministic
+  parity/lifecycle fixtures, installed-bundle proof, and the normative `references/prewalk.md`.
+  Static help is advertised grammar only; no paid canary ran and unqualified `auto` resolves off.
+
 ### Release checklist automation
 
 - `release_checklist.py --json` emits one deterministic machine-readable object (`version`, `ok`,

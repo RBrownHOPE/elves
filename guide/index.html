@@ -686,6 +686,28 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup</code></pre>
           <code>/goal</code> is an enhancement, and a compatible one-packet prompt is the recorded
           fallback.</p>
 
+        <h3>Use exact-session prewalk when qualified</h3>
+        <p>Prewalk lets one native worker orient on a guide model or effort, create a bounded TODO,
+          make the first real task edit, and then resume the <strong>same session in the same
+          worktree</strong> on the execution route. The packet is sent once; the later input is only
+          <code>Continue.</code>. Starting a new worker with a summary is a normal cold handoff, not
+          prewalk, and Elves never cold-falls back after an edit.</p>
+
+        <div class="code-block">
+          <button class="copy" type="button" data-copy="prewalk-probe">Copy</button>
+          <pre><code id="prewalk-probe"># Read-only: inspects installed help/version and makes no model call.
+python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
+  native-worker prewalk-capabilities --host codex --json
+# Use --host claude when Claude Code is the worker transport.</code></pre>
+        </div>
+
+        <p>The preference defaults to safe <code>auto</code>, while direct launch defaults to
+          <code>off</code> for compatibility. Help output proves only that exact-resume and route
+          flags are advertised. Actual prewalk stays off until the exact installed host version has
+          behavioral evidence for session, worktree, and stream continuity, route change, no packet
+          replay, and honest instruction fidelity. <code>required</code> fails before launch if that
+          proof is absent; no paid canary runs implicitly.</p>
+
         <h3>Use the optional open-source Grok worker</h3>
         <p>Install from the <a href="https://github.com/xai-org/grok-build">official Grok Build
           source</a>, then authenticate once. The first <code>grok</code> launch opens the browser
@@ -829,6 +851,7 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
           <pre><code id="preferences-code">python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences show
 python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences set worker.provider native
 python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences set worker.provider grok
+python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences set worker.prewalk auto
 python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences reset</code></pre>
         </div>
 
@@ -872,6 +895,7 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences reset</code></
         <h3>Deeper references</h3>
         <ul>
           <li><a href="https://github.com/aigorahub/elves/blob/main/references/adaptive-worker-routing.md">Adaptive worker routing</a></li>
+          <li><a href="https://github.com/aigorahub/elves/blob/main/references/prewalk.md">Exact-session native-worker prewalk</a></li>
           <li><a href="https://github.com/aigorahub/elves/blob/main/references/grok-open-source-worker.md">Open-source Grok Build worker</a></li>
           <li><a href="https://github.com/aigorahub/elves/blob/main/references/joyful-runs-contract.md">Joyful runs contract</a></li>
           <li><a href="https://github.com/aigorahub/elves/blob/main/references/landing-authority.md">Landing authority</a></li>

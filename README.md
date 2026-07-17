@@ -86,8 +86,24 @@ Build full-run, Devin CLI, or other adapters. Missing optional provider access n
 native run. Repository `allow_grok=false` is an absolute veto. The host owns packets, protected
 refs, final gates, PR, and merge — always. Details:
 [`references/adaptive-worker-routing.md`](references/adaptive-worker-routing.md),
+[`references/prewalk.md`](references/prewalk.md),
 [`references/grok-open-source-worker.md`](references/grok-open-source-worker.md),
 [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
+
+### Optional exact-session prewalk
+
+Prewalk lets one qualified native worker orient on a guide model/effort, create a bounded TODO, make
+the first real edit, and then resume the **same session in the same worktree** on the execution
+route. The packet is sent once; the resume input is only `Continue.`. A new worker that receives a
+summary is a normal cold handoff, not prewalk, and cold fallback is forbidden after an edit.
+
+The safe preference is `worker.prewalk: "auto"`, while the launch CLI defaults to `off` for backward
+compatibility. `auto` currently remains actually off unless the exact installed Codex or Claude
+version has behaviorally qualified session/worktree/stream continuity, route change, no packet
+replay, and usable instruction fidelity. Static help probes make no model calls and prove only that
+flags are advertised; `required` fails before launch when proof is absent. See the
+[normative prewalk contract](references/prewalk.md) and
+[host parity matrix](references/host-parity.md).
 
 ## Safety model
 
@@ -237,6 +253,8 @@ exactly one file below; other docs link instead of restating.
   contract (canonical code: `scripts/cobbler_runtime/canonical_contract.py`)
 - [`references/adaptive-worker-routing.md`](references/adaptive-worker-routing.md) — who
   implements and why
+- [`references/prewalk.md`](references/prewalk.md) — exact-session guide→execution trajectory,
+  qualification, checkpoints, and recovery
 - [`references/follow-mode.md`](references/follow-mode.md) — the parked driver's sanitized stream
 - [`references/grok-open-source-worker.md`](references/grok-open-source-worker.md) and
   [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md)

@@ -298,6 +298,30 @@ class MeaningfulEditTests(unittest.TestCase):
 
 
 class CapabilityEvidenceTests(unittest.TestCase):
+    def test_versioned_installed_help_fixtures_prove_advertised_grammar_only(self) -> None:
+        fixtures = REPO_ROOT / "tests" / "fixtures"
+        codex = advertised_prewalk_capabilities(
+            host="codex",
+            version="0.144.1",
+            create_help=(fixtures / "codex-0.144.1-exec-help.txt").read_text(),
+            resume_help=(
+                fixtures / "codex-0.144.1-exec-resume-help.txt"
+            ).read_text(),
+        )
+        claude_help = (fixtures / "claude-2.1.207-help.txt").read_text()
+        claude = advertised_prewalk_capabilities(
+            host="claude",
+            version="2.1.207",
+            create_help=claude_help,
+            resume_help=claude_help,
+        )
+        for capabilities in (codex, claude):
+            self.assertTrue(capabilities.advertised_exact_resume)
+            self.assertTrue(capabilities.advertised_route_override_on_resume)
+            self.assertFalse(capabilities.behaviorally_verified_session_continuity)
+            self.assertFalse(capabilities.model_calls_made)
+            self.assertFalse(capabilities.qualified())
+
     def test_help_is_advertised_only_not_behavioral_proof(self) -> None:
         codex = advertised_prewalk_capabilities(
             host="codex",

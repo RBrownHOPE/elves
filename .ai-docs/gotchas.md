@@ -93,6 +93,12 @@
 - A driver session ID is not a transferable cache handle. Preserve the exact worker session when
   resuming, but never promise that a separate native/Grok worker inherits the driver's prompt/KV
   cache or hidden state.
+- Prewalk is stricter than exact resume in isolation: it requires one worker session and worktree
+  across guide and execution routes, one packet send, a bounded TODO, a validated real task edit,
+  and minimal continuation. A new worker with a summary or copied packet is a cold handoff, never
+  prewalk. Help text proves only advertised grammar; do not enable `auto`, claim instruction
+  pruning, or accept post-edit cold fallback without exact-version behavioral evidence. Preserve
+  the dirty worktree and stable `prewalk_*` diagnostic on failure.
 - Grok parent→worktree child lineage uses a **new** child UUID. Headless `--worktree --resume` on
   Grok Build 0.2.93 is broken (retains source CWD); fail closed without verified CWD/worktree
   registration, then resume the discovered child exactly from that worktree.

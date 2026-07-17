@@ -23,7 +23,8 @@ ${XDG_CONFIG_HOME:-~/.config}/elves/config.json
   "version": 1,
   "worker": {
     "provider": "auto",
-    "native_effort": "auto"
+    "native_effort": "auto",
+    "prewalk": "auto"
   }
 }
 ```
@@ -35,6 +36,7 @@ shorthand):
 python3 scripts/cobbler_agents.py preferences show
 python3 scripts/cobbler_agents.py preferences set worker.provider native
 python3 scripts/cobbler_agents.py preferences set worker.provider grok
+python3 scripts/cobbler_agents.py preferences set worker.prewalk required
 python3 scripts/cobbler_agents.py preferences reset
 ```
 
@@ -72,6 +74,32 @@ invalid or incomplete artifact keeps the one-packet fallback.
 Native workers inherit the current driver model unless an explicit model is routed. Effort follows
 the plan's low/medium/high execution classification; the driver itself is never downgraded. High
 review risk may advise a stronger terminal-review driver without changing it in place.
+
+## Optional exact-session prewalk route
+
+The route decision represents guide and execution independently instead of overloading one worker
+model/effort. It reports requested/actual prewalk mode, provenance, guide/execution transport,
+model policy/model/effort, exact-resume and route-override capability, instruction fidelity,
+fallback reason, and whether qualification made model calls (help probes always report false).
+
+`worker.prewalk` accepts `off`, `auto`, and `required`. `auto` is conservative: only a behaviorally
+qualified subscription-native exact-session transport may activate it, only for medium/high or
+multi-step work; atomic low-reasoning work records a skip. External providers remain off unless
+their trajectory semantics are separately qualified. `required` fails before launch rather than
+silently becoming a packet handoff.
+
+Inspect the installed grammar without inference:
+
+```bash
+python3 scripts/cobbler_agents.py native-worker prewalk-capabilities --host codex --json
+python3 scripts/cobbler_agents.py native-worker prewalk-capabilities --host claude --json
+```
+
+Static help establishes advertised flags only. Actual prewalk additionally requires exact-version
+behavioral evidence for one session/worktree/stream, route change, guide-only fact retention, no
+packet replay, and usable instruction fidelity. With no such evidence, the built-in `auto`
+preference honestly resolves to actual mode `off`; the probe makes zero model calls. See the
+normative [`prewalk.md`](prewalk.md) contract.
 
 When Grok Build is explicitly permitted and silently qualifies:
 

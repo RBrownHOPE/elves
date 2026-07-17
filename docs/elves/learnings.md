@@ -100,6 +100,15 @@ silently deleting it.
 
 ## Product and Domain Invariants
 
+- [2026-07-17] Native-worker prewalk is a trajectory property, never a packet-format improvement.
+  One worker receives the packet once, creates a bounded TODO, makes a model-free-validated task
+  edit, and resumes the exact session/worktree on the execution route with only `Continue.`. Static
+  help proves advertised grammar only; exact-version behavioral evidence must prove continuity,
+  route change, no packet replay, stream binding, and honest `pruned`, `turn_scoped`, or
+  `retained_safe` instruction
+  fidelity before `auto` activates. Post-edit cold fallback is forbidden, and driver authority is
+  unchanged. Normative contract: `references/prewalk.md`.
+
 - [2026-07-15] Adaptive implementation routing is deterministic and host-parity preserving: prefer
   a separate subscription-native Codex/Claude worker with inherited model policy and plan-matched
   effort. When Grok is permitted, use the authenticated live catalog's parsed default unless the

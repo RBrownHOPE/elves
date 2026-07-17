@@ -143,6 +143,13 @@ def main() -> int:
         )
     )
     errors.extend(
+        find_missing_phrases(
+            {label: read_text(REPO_ROOT / label) for label in PREWALK_PHRASES},
+            PREWALK_PHRASES,
+            "exact-session prewalk",
+        )
+    )
+    errors.extend(
         find_unscoped_patterns(
             single_kickoff_texts
             | {
