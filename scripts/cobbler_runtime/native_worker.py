@@ -430,6 +430,25 @@ def parse_codex_thread_id(jsonl: str) -> str:
 
 
 _NATIVE_WORKER_STDERR_TAIL_CHARS = 2_000
+_PREWALK_TRANSIENT_BACKOFF_SECONDS = (300, 600, 1_200)
+_TRANSIENT_PROVIDER_MARKERS = (
+    "429",
+    "503",
+    "connection reset",
+    "network error",
+    "over capacity",
+    "overloaded",
+    "rate limit",
+    "temporarily unavailable",
+    "timed out",
+    "timeout",
+    "too many requests",
+)
+
+
+def _transient_provider_failure(text: str) -> bool:
+    normalized = text.casefold()
+    return any(marker in normalized for marker in _TRANSIENT_PROVIDER_MARKERS)
 
 
 def _is_provider_event(line: str) -> bool:
@@ -624,6 +643,7 @@ class _PhaseResult:
     runtime_seconds: float
     observed_session_ids: tuple[str, ...]
     session_mismatch: bool
+    transient_transport_failure: bool
 
 
 def _worktree_clean(worktree: Path) -> bool:
@@ -727,6 +747,7 @@ def _run_worker_phase(
     stderr_tail = ""
     observed_session_ids: list[str] = []
     session_mismatch = False
+    transient_transport_failure = False
     child_started = time.monotonic()
     log_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as child_input, log_path.open(
@@ -782,6 +803,8 @@ def _run_worker_phase(
                     selector.unregister(key.fileobj)
                     continue
                 redacted = redact_text(line.rstrip("\n"))
+                if _transient_provider_failure(redacted.text):
+                    transient_transport_failure = True
                 wrapper = {"stream": key.data, "line": redacted.text}
                 if is_prewalk_run:
                     wrapper["phase"] = phase
@@ -838,6 +861,7 @@ def _run_worker_phase(
         runtime_seconds=runtime_seconds,
         observed_session_ids=tuple(observed_session_ids),
         session_mismatch=session_mismatch,
+        transient_transport_failure=transient_transport_failure,
     )
 
 
@@ -999,6 +1023,8 @@ def launch_native_worker(
                 "resume_input": PREWALK_CONTINUATION_INPUT,
                 "argv": None,
                 "fixture_script": prewalk_spec.execution_fixture_script,
+                "transient_retries": 0,
+                "retry_backoff_seconds": [],
             },
             "transition": {"status": "pending"},
             "requested_prewalk_mode": prewalk_spec.requested_mode,
@@ -1159,6 +1185,65 @@ def _run_clean_single_phase_fallback(
         worktree=worktree,
         exit_code=result.exit_code,
     )
+
+
+def _run_execution_with_transient_retries(
+    *,
+    state_path: Path,
+    log_path: Path,
+    state: dict[str, Any],
+    child_env: dict[str, str],
+    session_id: str,
+) -> _PhaseResult:
+    """Resume execution with the canonical transport-only backoff policy.
+
+    Fixture transport records the production delays but does not sleep. This
+    keeps the deterministic lifecycle proof model-free and fast without adding
+    a production override that could silently weaken provider recovery.
+    """
+    resumed = _build_resumed_spec(state, phase="execution", session_id=session_id)
+    state["execution"]["argv"] = list(resumed.argv)
+    _write_private_json(state_path, state)
+    result = _run_worker_phase(
+        state_path=state_path,
+        log_path=log_path,
+        state=state,
+        phase="execution",
+        argv=resumed.argv,
+        input_text=PREWALK_CONTINUATION_INPUT,
+        child_env=child_env,
+        expected_session_id=session_id,
+    )
+    for retry_number, backoff_seconds in enumerate(
+        _PREWALK_TRANSIENT_BACKOFF_SECONDS, start=1
+    ):
+        if (
+            result.exit_code == 0
+            or result.session_mismatch
+            or not result.transient_transport_failure
+        ):
+            break
+        state["execution"]["transient_retries"] = retry_number
+        state["execution"]["retry_backoff_seconds"].append(backoff_seconds)
+        state["execution"]["last_transport_failure_at"] = datetime_now()
+        _set_status(state, "execution_backoff")
+        _write_private_json(state_path, state)
+        if state.get("host") != "fixture":
+            time.sleep(backoff_seconds)
+        _set_status(state, "launching_execution")
+        _write_private_json(state_path, state)
+        resumed = _build_resumed_spec(state, phase="execution", session_id=session_id)
+        result = _run_worker_phase(
+            state_path=state_path,
+            log_path=log_path,
+            state=state,
+            phase=f"execution_retry_{retry_number}",
+            argv=resumed.argv,
+            input_text=PREWALK_CONTINUATION_INPUT,
+            child_env=child_env,
+            expected_session_id=session_id,
+        )
+    return result
 
 
 def _supervise_prewalk(
@@ -1324,18 +1409,12 @@ def _supervise_prewalk(
             failure_reason="prewalk_packet_replayed",
         )
     _set_status(state, "launching_execution")
-    resumed = _build_resumed_spec(state, phase="execution", session_id=session_id)
-    state["execution"]["argv"] = list(resumed.argv)
-    _write_private_json(state_path, state)
-    execution = _run_worker_phase(
+    execution = _run_execution_with_transient_retries(
         state_path=state_path,
         log_path=log_path,
         state=state,
-        phase="execution",
-        argv=resumed.argv,
-        input_text=PREWALK_CONTINUATION_INPUT,
         child_env=child_env,
-        expected_session_id=session_id,
+        session_id=session_id,
     )
     if execution.session_mismatch:
         return _terminalize_native_worker(
@@ -1443,6 +1522,7 @@ def native_worker_status(repo_root: Path, run_id: str) -> dict[str, Any]:
         "transition_ready",
         "launching_execution",
         "executing",
+        "execution_backoff",
     }
     child_statuses = {"running", "prewalking", "executing"}
     if state.get("status") in child_statuses:

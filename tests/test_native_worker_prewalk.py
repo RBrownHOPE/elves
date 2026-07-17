@@ -481,13 +481,20 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
             "scenario = os.environ.get('PW_FIXTURE_SCENARIO', 'success')\n"
             "record = pathlib.Path(os.environ['PW_FIXTURE_RECORD_DIR'])\n"
             "received = sys.stdin.read()\n"
+            "count_path = record / 'execution-count.txt'\n"
+            "attempt = int(count_path.read_text()) + 1 if count_path.exists() else 1\n"
+            "count_path.write_text(str(attempt))\n"
             "(record / 'execution.json').write_text(json.dumps({'input': received, 'phase': os.environ['ELVES_NATIVE_WORKER_PHASE']}))\n"
+            "(record / ('execution-' + str(attempt) + '.json')).write_text(json.dumps({'input': received, 'phase': os.environ['ELVES_NATIVE_WORKER_PHASE']}))\n"
             "if scenario == 'clean_fallback':\n"
             "    pathlib.Path('product.txt').write_text('single phase fallback edit\\n')\n"
             "    raise SystemExit(0)\n"
             "identity = json.loads(pathlib.Path(os.environ['ELVES_PREWALK_SESSION_PATH']).read_text())\n"
             "sid = 'different-session' if scenario == 'mismatch' else identity['session_id']\n"
             "print(json.dumps({'type':'thread.started','thread_id':sid}), flush=True)\n"
+            "if scenario == 'transient_recovery' and attempt == 1:\n"
+            "    print('provider overloaded: 503 temporarily unavailable', file=sys.stderr, flush=True)\n"
+            "    raise SystemExit(7)\n"
             "if scenario == 'execution_fail': raise SystemExit(7)\n"
             "todo_path = pathlib.Path(os.environ['ELVES_PREWALK_TODO_PATH'])\n"
             "todo = json.loads(todo_path.read_text())\n"
@@ -672,6 +679,24 @@ class PrewalkSupervisorLifecycleTests(unittest.TestCase):
         self.assertEqual(failed["failure_reason"], "prewalk_execution_resume_failed")
         self.assertTrue((record / "execution.json").is_file())
         self.assertEqual(failed["packet"]["sent_count"], 1)
+
+    def test_transient_execution_failure_backs_off_and_resumes_same_route(self) -> None:
+        state, _repo, record = self._launch(scenario="transient_recovery")
+        self.assertEqual(state["status"], "complete")
+        self.assertEqual(state["execution"]["transient_retries"], 1)
+        self.assertEqual(state["execution"]["retry_backoff_seconds"], [300])
+        self.assertEqual(len(state["execution"]["attempts"]), 2)
+        self.assertEqual(state["execution"]["attempts"][0]["phase"], "execution")
+        self.assertEqual(
+            state["execution"]["attempts"][1]["phase"], "execution_retry_1"
+        )
+        first = json.loads((record / "execution-1.json").read_text())
+        second = json.loads((record / "execution-2.json").read_text())
+        self.assertEqual(first["input"], "Continue.")
+        self.assertEqual(second["input"], "Continue.")
+        self.assertEqual(state["packet"]["sent_count"], 1)
+        statuses = [entry["status"] for entry in state["status_history"]]
+        self.assertIn("execution_backoff", statuses)
 
 
 if __name__ == "__main__":
