@@ -109,7 +109,7 @@
     "route": "host-native"
   },
   "continuation_guard": {
-    "next_action": "Commit and push the staged run contract, re-read the guide, then implement B0.",
+    "next_action": "Implement B0 host-neutral contracts and focused tests.",
     "stop_allowed": false
   },
   "delegation_scope": "none",

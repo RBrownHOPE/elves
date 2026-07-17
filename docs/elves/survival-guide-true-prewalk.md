@@ -65,14 +65,14 @@ it with deterministic fixtures and full repository verification, then open an un
 - **Planned batches remaining:** 3
 - **Stop allowed right now:** no
 - **Why:** implementation, proof, terminal review, push, and PR creation remain
-- **Next required action:** commit and push the staged run contract, re-read this guide, then implement B0
+- **Next required action:** implement B0 host-neutral contracts and focused tests
 
 ## Current Phase
 
-- **Status:** staging
-- **Active batch:** none
-- **What was just finished:** acceptance synchronization, branch/worktree/GitHub/push preflight, and baseline verification
-- **Single next action:** commit and push the run contract
+- **Status:** in progress
+- **Active batch:** B0: Host-neutral contracts and deterministic routing
+- **What was just finished:** contract commit `064004f` pushed, guide re-read, and B0 rollback ref created
+- **Single next action:** add provider-neutral prewalk types and the focused runtime module
 
 ## Active Compute
 
@@ -139,4 +139,4 @@ and any newly added constitution. Resume the single next action immediately.
 - [x] Run plan, survival guide, execution log, and session scaffold materialized.
 - [x] Plan/session acceptance mappings synchronized and validated.
 - [x] Baseline proof and preflight green; the release-only baseline exception is recorded.
-- [ ] Contract committed and pushed; survival guide re-read.
+- [x] Contract committed and pushed; survival guide re-read.

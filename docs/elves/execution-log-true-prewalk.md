@@ -29,6 +29,9 @@
   `origin/main` already contains an Unreleased changelog entry after the 2.7.0 heading. Terminal
   verification will use `--version Unreleased` unless the branch is promoted to a numeric release.
 - `git push --dry-run origin HEAD:refs/heads/codex/true-prewalk` proved explicit push access.
+- Contract commit `064004f` was pushed to `origin/codex/true-prewalk`; the survival guide was
+  re-read and rollback ref `refs/elves/rollback/true-prewalk-2026-07-17/host/b0-contract` records
+  the exact pre-B0 tip.
 
 ## Decisions made
 
@@ -43,7 +46,7 @@
 
 ## Batch status
 
-- B0 host-neutral contracts/routing: pending.
+- B0 host-neutral contracts/routing: in progress.
 - B1 multi-phase supervisor/parity: pending.
 - B2 docs/install/readiness/PR: pending.
 
