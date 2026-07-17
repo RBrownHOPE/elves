@@ -20,12 +20,11 @@ return. Exceptions: explicit merge-on-green in Run Control, chat-to-land, or the
 Command (`/land-pr` / `\land-pr`). Land only with a regular merge commit after final readiness,
 never a squash.
 
-**Default user path (v2.0+): one kickoff.** Ask naturally; the capable live driver plans and reviews,
+**Default user path: one kickoff.** Ask naturally; the capable live driver plans and reviews,
 a separate subscription-native worker inherits the current model by default at plan-matched effort.
 Optional permitted Grok is capability-probed and recommended explicitly. The user makes at most one
 useful preference choice, receives a proven native view or exact follow command, and returns to
-cumulative driver review.
-v2.1 adds trusted Grok full-run. **v2.3** makes that path
+cumulative driver review. Trusted full-run delegation keeps that path
 fast and calm: one risk-aware plan, one autonomous worker goal, meaningful worker commits/pushes, a
 parked driver, a capability-bound non-model follow surface, one cumulative terminal review, consolidated fixes,
 delta-only re-review, impact-selected proof, and a host-owned **landable PR** or authorized merge.

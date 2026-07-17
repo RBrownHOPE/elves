@@ -1,7 +1,7 @@
 # Kickoff Prompt Template
 
-> **Recommended (v2.0+): one kickoff after conceptual agreement.** v2.1 adds the trusted Grok
-> full-run / parked-monitor route. **v2.3 joyful runs** add a default sanitized non-model follow
+> **Recommended: one kickoff after conceptual agreement.** The trusted full-run / parked-monitor
+> route is optional; the default includes a sanitized non-model follow
 > stream (`full-run-await`; `--quiet` opt-out), exact-HEAD readiness independent of merge
 > authorization, and impact-selected convergent review. See
 > [`joyful-runs-contract.md`](joyful-runs-contract.md) and [`follow-mode.md`](follow-mode.md).

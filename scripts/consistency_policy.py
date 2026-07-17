@@ -20,7 +20,6 @@ CHANGELOG_PATH = REPO_ROOT / "CHANGELOG.md"
 RECOVERY_ORDER_FILES = {
     "SKILL.md": REPO_ROOT / "SKILL.md",
     "AGENTS.md": REPO_ROOT / "AGENTS.md",
-    "README.md": REPO_ROOT / "README.md",
     "references/kickoff-prompt-template.md": REPO_ROOT / "references" / "kickoff-prompt-template.md",
     "references/survival-guide-template.md": REPO_ROOT / "references" / "survival-guide-template.md",
 }
@@ -120,10 +119,6 @@ FINAL_READINESS_REVIEW_PHRASES = {
         "git diff <default-branch>...HEAD",
         "review subagent",
     ],
-    "README.md": [
-        "Final readiness review",
-        "git diff <default-branch>...HEAD",
-    ],
     "references/review-subagent.md": [
         "## Final Readiness Review",
         "git diff [DEFAULT_BRANCH]...HEAD",
@@ -136,8 +131,8 @@ FINAL_READINESS_REVIEW_PHRASES = {
 
 SINGLE_KICKOFF_PHRASES = {
     "SKILL.md": [
-        "Default user path (v2.0+): one kickoff",
-        "v2.1 adds trusted Grok full-run",
+        "Default user path: one kickoff",
+        "Trusted full-run delegation keeps that path",
         "chat-to-work",
         "chat-to-land",
         "Legacy two-call handoff",
@@ -145,44 +140,36 @@ SINGLE_KICKOFF_PHRASES = {
         "parked",
     ],
     "AGENTS.md": [
-        "Default user path (v2.0+): one kickoff",
-        "v2.1 adds trusted Grok full-run",
+        "Default user path: one kickoff",
+        "Trusted full-run delegation keeps that path",
         "single-kickoff E2E",
         "legacy two-call",
         "full-run",
         "parked-monitor",
     ],
-    "README.md": [
-        "Default (v2.0+): one kickoff",
-        "v2.1\nadds trusted Grok full-run delegation",
-        "Chat-to-work",
-        "Chat-to-land",
-        "legacy stage-then-launch",
-        "full-run",
-    ],
     "references/kickoff-prompt-template.md": [
-        "Recommended (v2.0+): one kickoff",
-        "v2.1 adds the trusted Grok",
+        "Recommended: one kickoff",
+        "trusted full-run / parked-monitor",
         "Chat-to-work (E2E, no merge)",
         "Chat-to-land (E2E through merge)",
         "Use separate calls only for the legacy path",
     ],
     "references/e2e-chat-to-land.md": [
-        "recommended default user path (v2.0+)",
-        "v2.1 adds trusted",
+        "recommended default user path",
+        "Trusted Grok full-run delegation is the optional parked shape",
         "without waiting for a second human call",
         "Legacy / advanced",
     ],
 }
 
 SINGLE_KICKOFF_FORBIDDEN_PHRASES = {
-    "AGENTS.md": [
-        "do not launch in that same call",
-        "Execution starts only from a fresh short launch prompt in the next call",
-    ],
     "README.md": [
         "Use the launch template from the same reference file in a fresh call",
         "**Two-step operator flow**",
+    ],
+    "AGENTS.md": [
+        "do not launch in that same call",
+        "Execution starts only from a fresh short launch prompt in the next call",
     ],
     "references/kickoff-prompt-template.md": [
         "**Stage and launch in separate calls**",
@@ -236,12 +223,6 @@ INSTALLED_HELPER_PATH_PHRASES = {
         "$ELVES_SKILL_ROOT/scripts/acceptance_contract.py",
         "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py",
         "installed Elves bundle never requires a repo-only helper",
-    ],
-    "README.md": [
-        "source-checkout shorthand",
-        "active Elves skill root",
-        "references/runtime-helper-paths.md",
-        "repo-only helper is not shipped in a global skill install",
     ],
     "references/runtime-helper-paths.md": [
         "## Source checkout shorthand",
@@ -353,23 +334,15 @@ LANDING_CHECK_BARE_FORBIDDEN_PATTERNS = {
     for label in LANDING_CHECK_CONTRACT_PHRASES
 }
 
-CODEX_GOALS_SECTION_HEADINGS = {"README.md": "### Codex Goals"}
+CODEX_GOALS_SECTION_HEADINGS = {}
 CODEX_GOALS_SECTION_PHRASES = {
-    "README.md": [
-        "Read `.elves-session.json` first",
-        "`survival_guide_path`",
-        "`learnings_path`",
-        "`plan_path`",
-        "`execution_log_path`",
-        "do not substitute generic filenames",
-    ]
 }
 CODEX_GOALS_SECTION_FORBIDDEN_PHRASES = {
     "README.md": [
         "docs/elves/survival-guide.md",
         "docs/plans/my-plan.md",
         "docs/elves/execution-log.md",
-    ]
+    ],
 }
 
 REPO_CONSISTENCY_WORKFLOW_FORBIDDEN_PHRASES = {
@@ -380,6 +353,10 @@ REPO_CONSISTENCY_WORKFLOW_FORBIDDEN_PHRASES = {
 }
 
 REVIEWED_PR_LANDING_PHRASES = {
+    "README.md": [
+        "\\land-pr",
+        "/land-pr",
+    ],
     "SKILL.md": [
         "## Reviewed PR Landing Command",
         "\\land-pr",
@@ -393,13 +370,6 @@ REVIEWED_PR_LANDING_PHRASES = {
         "/land-pr",
         "gh pr merge --merge",
         "default when bots are expected",
-    ],
-    "README.md": [
-        "### Reviewed PR landing command",
-        "\\land-pr",
-        "/land-pr",
-        "gh pr merge --merge",
-        "review the diff from main",
     ],
     "references/review-subagent.md": [
         "### Reviewed PR Landing Command",
@@ -454,10 +424,6 @@ MEMORY_HYGIENE_PHRASES = {
         "Chats are for execution",
         "memory and resource hygiene",
     ],
-    "README.md": [
-        "strategic forgetting",
-        "handoff docs are for memory",
-    ],
     "references/survival-guide-template.md": [
         "## Strategic Forgetting",
         "## Memory and Resource Hygiene",
@@ -488,15 +454,6 @@ ELVES_REPORT_PHRASES = {
         "collapsible batch `<details>` sections",
         "committed examples and reusable templates non-identifying",
         "Elves Report path",
-    ],
-    "README.md": [
-        "### Elves Reports",
-        "problems found",
-        "lessons learned",
-        "collapsible sections",
-        "docs/elves-report-proof-of-concept.html",
-        "references/elves-report-template.html",
-        "Committed examples should use non-identifying sample content",
     ],
     "references/survival-guide-template.md": [
         "## Elves Report",
@@ -662,15 +619,6 @@ MATH_MODULE_PHRASES = {
         "math-alphaevolve.md",
         "Never treat model output",
     ],
-    "README.md": [
-        "### Math research workflows",
-        "Cobbler-managed Elves domain workflow",
-        "Discovery Sprint",
-        "references/math-workflow.md",
-        "references/math-provider-config.md",
-        "references/math-alphaevolve.md",
-        "references/math-artifact-ledgers.md",
-    ],
     "references/survival-guide-template.md": [
         "### Math Configuration (optional)",
         "math-coordination: cobbler-managed-domain-workflow",
@@ -765,14 +713,6 @@ DOMAIN_WORKFLOW_PHRASES = {
         "**Elves** is the execution system",
         "**Cobbler** is the default coordinator",
         "**Domain workflows** are specialized Cobbler-managed packs",
-        "**Math** is the first domain workflow",
-        "**Providers** are optional role routes",
-        "cobbler.default_for_session",
-    ],
-    "README.md": [
-        "**Elves** is the execution system",
-        "**Cobbler** is the default coordinator",
-        "**Domain workflows** are Cobbler-managed packs",
         "**Math** is the first domain workflow",
         "**Providers** are optional role routes",
         "cobbler.default_for_session",
@@ -944,12 +884,6 @@ PUBLIC_API_SURFACE_SNAPSHOT_PHRASES = {
         "A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution.",
         "Public API surface delta",
     ],
-    "README.md": [
-        "Public API surface snapshots",
-        "optional regression evidence",
-        "`enabled: auto` stays advisory",
-        "`required: true` is only an explicit survival-guide opt-in",
-    ],
     "references/survival-guide-template.md": [
         "api-surface-snapshot:",
         "enabled: auto",
@@ -1023,6 +957,14 @@ PUBLIC_API_SURFACE_SNAPSHOT_FORBIDDEN_PATTERNS = {
 }
 
 COUNCIL_MODULE_PHRASES = {
+    "README.md": [
+        "/cobbler",
+        "/setup-cobbler",
+        "$elves cobbler: <task>",
+        "Ask the Cobbler",
+        "Codex users should not need or expect a top-level `/cobbler` command",
+        "Council is a deprecated alias of Cobbler",
+    ],
     "SKILL.md": [
         "## Cobbler",
         "Cobbler",
@@ -1094,42 +1036,6 @@ COUNCIL_MODULE_PHRASES = {
         "Provider-backed council is optional",
         "must not require",
         "vendor identity",
-    ],
-    "README.md": [
-        "### Cobbler",
-        "Cobbler",
-        "/cobbler",
-        "$elves cobbler: <task>",
-        "/council",
-        "/ec",
-        "/elves-council",
-        "$elves council: <task>",
-        "Host honesty matters",
-        "Codex users should not need or expect a top-level `/cobbler` command",
-        "Goals are for full Elves runs, not Quick Cobbler",
-        "default orchestration model",
-        "Cobbler-first coordination is the default for Elves runs",
-        "worker agents may edit the repo",
-        "Quick Cobbler is the default one-off answer mode",
-        "read-only",
-        "stateless",
-        "Codex subagents",
-        "Claude Code subagents",
-        "read-only analysis directly",
-        "Optional model routing stays behind",
-        "configured role routes like `openrouter:<model-id>`",
-        "model prestige",
-        "Recommendation",
-        "Why this fits",
-        "Strongest dissent",
-        "Risks",
-        "Next move",
-        "Confidence",
-        "require no OpenRouter",
-        "vendor identity",
-        "references/council-workflow.md",
-        "references/council-prompts.md",
-        "references/council-provider-config.md",
     ],
     "references/council-workflow.md": [
         "# Cobbler Workflow",
@@ -1258,7 +1164,6 @@ COUNCIL_MODULE_PHRASES = {
 COUNCIL_SECTION_HEADINGS = {
     "SKILL.md": "## Cobbler",
     "AGENTS.md": "## Cobbler",
-    "README.md": "### Cobbler",
 }
 
 CLAUDE_ALIAS_MARKER = "<!-- elves-managed-alias: claude-skill-alias v1 -->"
@@ -1368,10 +1273,10 @@ CLAUDE_ALIAS_SKILL_PHRASES = {
 
 CODEX_INSTALL_COBBLER_PHRASES = {
     "README.md": [
+        "--target codex",
+        "Do not invent top-level /cobbler",
         "Codex installs the main skill bundle only",
-        "It does not install the Claude Code slash aliases",
-        "For Codex, the sync helper updates the main skill bundle only",
-        "rather than a top-level slash alias",
+        "$elves cobbler: <task>",
     ],
 }
 
@@ -1399,6 +1304,22 @@ COBBLER_CONFIG_PREFERENCE_PHRASES = {
 }
 
 COUNCIL_FORBIDDEN_PHRASES = {
+    "README.md": [
+        "ordinary `/council` requires OpenRouter",
+        "normal `/council` requires OpenRouter",
+        "ordinary Cobbler requires OpenRouter",
+        "normal Cobbler requires OpenRouter",
+        "Cobbler requires `OPENROUTER_API_KEY`",
+        "Council requires `OPENROUTER_API_KEY`",
+        "Cobbler is optional for Elves runs",
+        "Cobbler only runs when invoked",
+        "Run Cobbler is just Quick Cobbler inside a run",
+        "Run Cobbler is Quick Cobbler inside an existing Elves run",
+        "Use `/cobbler` in Codex",
+        "Use `/council` in Codex",
+        "Quick Cobbler requires Codex Goals",
+        "Cobbler requires `/goal`",
+    ],
     "SKILL.md": [
         "ordinary `/council` requires OpenRouter",
         "normal `/council` requires OpenRouter",
@@ -1424,22 +1345,6 @@ COUNCIL_FORBIDDEN_PHRASES = {
         "Cobbler requires `OPENROUTER_API_KEY`",
         "Council requires `OPENROUTER_API_KEY`",
         "Elves can also run Cobbler",
-        "Cobbler is optional for Elves runs",
-        "Cobbler only runs when invoked",
-        "Run Cobbler is just Quick Cobbler inside a run",
-        "Run Cobbler is Quick Cobbler inside an existing Elves run",
-        "Use `/cobbler` in Codex",
-        "Use `/council` in Codex",
-        "Quick Cobbler requires Codex Goals",
-        "Cobbler requires `/goal`",
-    ],
-    "README.md": [
-        "ordinary `/council` requires OpenRouter",
-        "normal `/council` requires OpenRouter",
-        "ordinary Cobbler requires OpenRouter",
-        "normal Cobbler requires OpenRouter",
-        "Cobbler requires `OPENROUTER_API_KEY`",
-        "Council requires `OPENROUTER_API_KEY`",
         "Cobbler is optional for Elves runs",
         "Cobbler only runs when invoked",
         "Run Cobbler is just Quick Cobbler inside a run",
@@ -1560,17 +1465,6 @@ COBBLER_MODE_PHRASES = {
         "daemon",
         "Codex slash command",
     ],
-    "README.md": [
-        "Cobbler Mode is the lowest-friction way",
-        "/cobbler-mode",
-        "$elves cobbler-mode",
-        "Cobbler Mode: on",
-        "Cobbler Mode: off",
-        "current-thread conversation state",
-        "not durable run state",
-        "daemon",
-        "slash command",
-    ],
     "references/council-workflow.md": [
         "### Cobbler Mode",
         "not a third Cobbler behavior mode",
@@ -1607,16 +1501,6 @@ COBBLER_HARNESS_LOOP_PHRASES = {
         "reclassify",
     ],
     "AGENTS.md": [
-        "capability scan",
-        "route and medium selection",
-        "context packet",
-        "execute agents/tools/skills",
-        "collect evidence",
-        "fit answer",
-        "present/record",
-        "reclassify",
-    ],
-    "README.md": [
         "capability scan",
         "route and medium selection",
         "context packet",
@@ -1770,14 +1654,6 @@ FULL_RUN_MODEL_ROUTING_PHRASES = {
         "Missing optional provider access",
         "`required: true`",
     ],
-    "README.md": [
-        "the Cobbler can prefer different elves for different phases",
-        "`model-routing` preferences",
-        "advisory unless the host",
-        "missing optional provider access falls back to",
-        "`required: true`",
-        "explicit survival-guide opt-in",
-    ],
     "references/survival-guide-template.md": [
         "### Full-Run Model Routing (optional)",
         "policy: native-first",
@@ -1891,13 +1767,6 @@ IMPLEMENTATION_LANES_PHRASES = {
         "cobbler_agents.py worker",
         "Do not invent top-level Codex slash commands",
     ],
-    "README.md": [
-        "by default the **host agent**",
-        "implementation_lane: fast",
-        "cobbler_agents.py implement prepare|launch|gate|resume-batch|status",
-        "grok-implementer-launch-prompt.md",
-        "not the default overnight path",
-    ],
     "CHANGELOG.md": [
         "### Optional external batch implementer",
         "implementation_lane: fast | untrusted",
@@ -1953,16 +1822,6 @@ SETUP_COBBLER_PHRASES = {
         ".elves/models.toml",
         "references/model-onboarding.md",
         "references/cobbler-setup-recipes.md",
-    ],
-    "README.md": [
-        "/setup-cobbler",
-        "/setup-council",
-        "$elves setup-cobbler",
-        "$elves setup-council",
-        "model-onboarding.md",
-        "cobbler-setup-recipes.md",
-        ".elves/models.toml",
-        "onboard plan|show|apply|probe",
     ],
     "docs/cobbler.md": [
         "/setup-cobbler",
@@ -2195,9 +2054,6 @@ _AGENTS_THIN_POINTER = [
     'plan Acceptance with proof',
     'Stop Gate',
     'continuation_guard',
-    'v2.0+',
-    'v2.1',
-    'v2.3',
     '\\land-pr',
     '/land-pr',
     'source-checkout shorthand',
@@ -2381,7 +2237,7 @@ if isinstance(SETUP_COBBLER_PHRASES, dict) and 'SKILL.md' in SETUP_COBBLER_PHRAS
     SETUP_COBBLER_PHRASES['SKILL.md'] = ['setup-cobbler', 'setup-council', 'model-onboarding.md', 'not a top-level', 'cobbler_agents.py setup', 'references/cobbler-setup-recipes.md', 'Supported main drivers are Claude Code and Codex only', '$elves setup-council']
 if isinstance(SINGLE_KICKOFF_PHRASES, dict) and 'SKILL.md' in SINGLE_KICKOFF_PHRASES:
     SINGLE_KICKOFF_PHRASES = dict(SINGLE_KICKOFF_PHRASES)
-    SINGLE_KICKOFF_PHRASES['SKILL.md'] = ['Default user path (v2.0+): one kickoff', 'v2.1 adds trusted Grok full-run', 'chat-to-work', 'chat-to-land', 'Legacy two-call', 'full-run', 'parked']
+    SINGLE_KICKOFF_PHRASES['SKILL.md'] = ['Default user path: one kickoff', 'Trusted full-run delegation keeps that path', 'chat-to-work', 'chat-to-land', 'Legacy two-call', 'full-run', 'parked']
 if isinstance(WORKSPACE_ISOLATION_PHRASES, dict) and 'SKILL.md' in WORKSPACE_ISOLATION_PHRASES:
     WORKSPACE_ISOLATION_PHRASES = dict(WORKSPACE_ISOLATION_PHRASES)
     WORKSPACE_ISOLATION_PHRASES['SKILL.md'] = ['One run owns one branch and one checkout', './scripts/preflight.sh --create-worktree <branch> --base origin/main', '--dry-run', 'branch, worktree path, base ref, and collision tripwire', 'does not reuse, delete, or repair existing worktrees']
@@ -2398,12 +2254,6 @@ ADAPTIVE_WORKER_ROUTING_PHRASES = {
         "authenticated live catalog",
         "${XDG_CONFIG_HOME:-~/.config}/elves/config.json",
         "prompt-cache promise",
-    ],
-    "README.md": [
-        "subscription-native worker",
-        "preferences show|set|reset",
-        "Repository safety vetoes always win",
-        "never merge permission",
     ],
     "references/adaptive-worker-routing.md": [
         "repository safety veto > explicit run intent > repository defaults > global convenience",
@@ -2430,12 +2280,6 @@ GROK_OPEN_SOURCE_WORKER_PHRASES = {
         "capability-proven enhancement",
         "one-packet fallback",
         "subscription-native Codex/Claude worker",
-    ],
-    "README.md": [
-        "authenticated live catalog",
-        "Behaviorally proven headless `/goal`",
-        "one-packet prompt fallback",
-        "Claude Code or Codex",
     ],
     "CHANGELOG.md": [
         "authenticated live-catalog models",

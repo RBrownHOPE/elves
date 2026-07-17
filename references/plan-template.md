@@ -63,7 +63,7 @@ Example:
 > If a batch feels too large, split it. The agent will also split batches that are too large.
 > If a batch is likely to update README, config docs, learnings, or durable agent docs, say so.
 >
-> **Stable identity (v2.1+):** give each batch a stable `B#` id, each batch criterion a stable
+> **Stable identity:** give each batch a stable `B#` id, each batch criterion a stable
 > `B#-A#` id, and each branch-level Master Acceptance criterion a stable `M-A#` id. Never renumber
 > an existing id after staging; add a new id instead. `B0` and `B1` are equally valid starts, and
 > canonical batch ids are `B0` or `B1` and above—Elves does not reserve or prefer either starting

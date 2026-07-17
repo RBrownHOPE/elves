@@ -9,7 +9,7 @@ proven native view or exact follow command before the driver parks, and returns 
 review. Permitted Grok remains optional. See
 [`adaptive-worker-routing.md`](adaptive-worker-routing.md).
 
-**Status:** **recommended default user path (v2.0+).** v2.1 adds trusted Grok full-run delegation.
+**Status:** **recommended default user path.** Trusted Grok full-run delegation is the optional parked shape.
 The current default uses a separate subscription-native worker, with optional permitted Grok or
 another configured adapter. Classic **two-call stage-then-start** remains optional for huge or
 unstable plans.

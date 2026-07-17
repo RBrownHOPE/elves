@@ -306,8 +306,8 @@ complete. Don't re-implement it.
 ## Tool Configuration
 
 ```yaml
-test: python3 -m unittest discover -s tests
-test-env-sensitivity: CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 python3 -m unittest discover -s tests
+test: python3 -m unittest discover -s tests -t .
+test-env-sensitivity: CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 python3 -m unittest discover -s tests -t .
 verify: python3 scripts/verify_repo.py --version 2.6.0
 verify-ci: python3 scripts/verify_repo.py --ci --version <ver> --base-ref origin/main
 consistency: python3 scripts/check_repo_consistency.py

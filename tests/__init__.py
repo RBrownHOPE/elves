@@ -12,7 +12,14 @@ try:
     _devnull = open(_os.devnull, "r")  # noqa: SIM115 — deliberately process-lifetime
     _os.dup2(_devnull.fileno(), 0)
     _sys.stdin = _devnull
-except OSError:
-    # Exotic environments without dup2/fd0 semantics: in-process reads are
-    # still redirected when possible; children fall back to runner behavior.
-    pass
+except OSError as _exc:  # pragma: no cover — exotic environments only
+    print(f"tests hermeticity guard FAILED to redirect fd 0: {_exc}", file=_sys.stderr)
+else:
+    _info = _os.fstat(0)
+    _dev = _os.stat(_os.devnull)
+    if (_info.st_dev, _info.st_ino) != (_dev.st_dev, _dev.st_ino):  # pragma: no cover
+        print("tests hermeticity guard did not take effect on fd 0", file=_sys.stderr)
+
+# NOTE: this module only runs when the suite is discovered WITH a top-level
+# directory that makes `tests` a package import — always invoke as
+# `python3 -m unittest discover -s tests -t .` (see test_suite_hermeticity).

@@ -232,7 +232,7 @@
         },
         {
           "criterion": "The suite redirects fd 0 to devnull at discovery; `tests/test_suite_hermeticity.py` proves in-process EOF and child-inherited EOF",
-          "evidence": "tests/__init__.py dup2s fd 0 to os.devnull at discovery (fd-level -> children inherit). tests/test_suite_hermeticity.py green: os.read(0,1)==b'' and sys.stdin.read()==''; child spawned WITHOUT stdin kwarg prints 0 instantly.",
+          "evidence": "AMENDED after in-run discovery: `discover -s tests` does not import the tests package, so the fd-0 guard never loaded under the gate invocation (a background runner with unix-socket stdin hung the suite at the raw os.read probe; CPU-vs-wall signature diagnosed it). Fixed at three layers: canonical invocation is now `discover -s tests -t .` (verify_repo + docs), the guard self-verifies loudly, and the probe is hang-proof (fstat assertion first; non-blocking read). Proof: test_suite_hermeticity 3/3 OK with stdin wired to a never-sending socketpair under the -t . form; full-suite re-proof under the same hostile runner recorded at B5 Close.",
           "id": "B9-A2",
           "met": true
         },

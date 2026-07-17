@@ -18,7 +18,7 @@ The task-first user guide is published at `https://aigorahub.github.io/elves/`. 
 ## Cobbler
 
 This file is a **thin Codex adapter**; the compact **canonical workflow is** in `SKILL.md`
-(SKILL.md wins on workflow). Default user path **v2.0+** / **v2.1** / **v2.3**. Use Cobbler via
+(SKILL.md wins on workflow). Use Cobbler via
 `$elves cobbler: <task>` or natural language. **Codex Goals** are continuation plumbing only;
 **Grok Build goal mode** is a separate worker capability. Default work routing is a separate
 subscription-native Codex/Claude worker at plan-matched effort; permitted Grok is optional and
@@ -70,9 +70,9 @@ plan → execution log → `.ai-docs/manifest.md` → constitution. Honor
   Do not wait for user acknowledgment
 - **Effort Standard**: Do not be lazy. Work as hard as you can for the full run
 - **Final Readiness Review** of `git diff <default-branch>...HEAD` (review subagent when available)
-- Default user path (v2.0+): one kickoff; v2.1 adds trusted Grok full-run; v2.3 joyful parked
-  follow path; **chat-to-work** / **chat-to-land**; full-run parked-monitor; legacy two-call handoff
-  only when explicit
+- Default user path: one kickoff; trusted Grok full-run and the parked follow path are optional
+  delegation shapes; **chat-to-work** / **chat-to-land**; full-run parked-monitor; legacy two-call
+  handoff only when explicit
 - Adaptive worker route: separate exact native session by default, optional permitted Grok,
   deterministic inspectable fallback, and no transferable parent/worker prompt-cache promise
 - Landable is **plan Acceptance with proof** (`elves_landing_check.py`); one batch per close commit;

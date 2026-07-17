@@ -244,3 +244,13 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
 - D13: leases.run_git hardened as the B9 chokepoint for git subprocesses (stdin always closed,
   optional timeout) — 72 existing call sites inherit it; no stdin-reading git subcommand exists in
   the codebase (verified).
+
+## Decisions made (continued 6)
+
+- D14 (B9 defect found in-run and fixed): B9 closed with evidence that held only under lucky
+  runners — `discover -s tests` never imports tests/__init__, so the fd-0 guard did not load under
+  the gate invocation, and the hermeticity probe itself hung on a socket stdin (55m wall / 36s CPU
+  signature). Fix: `-t .` on the canonical invocation everywhere, self-verifying guard, hang-proof
+  probe (fstat first, non-blocking read). Post-Close corrections labeled Batch 9/9 · Validate;
+  B9-A2 evidence amended in session. Lesson: a guard's own test must fail loudly when the guard
+  did not load, and proofs must run under the hostile runner they claim to defend against.

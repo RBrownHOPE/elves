@@ -327,7 +327,7 @@ def check_release(repo_root: Path, version: str | None) -> tuple[bool, str]:
 def check_unit_tests(repo_root: Path) -> tuple[bool, str]:
     # Single discovery surface under tests/ — avoid double discovery of the same suite.
     proc = _run(
-        [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
+        [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", ".", "-p", "test_*.py"],
         cwd=repo_root,
         timeout=_SUITE_STEP_TIMEOUT_SECONDS,
     )
