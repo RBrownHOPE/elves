@@ -8,7 +8,7 @@ plans and reviews; a subscription-native (or optional external) worker implement
 files let the work survive context compaction. You write the plan and own the merge decision. The
 agent does the middle.
 
-**Current release: v2.7.0** — see [`CHANGELOG.md`](CHANGELOG.md) for version history. Coined terms
+**Current release: v2.8.0** — see [`CHANGELOG.md`](CHANGELOG.md) for version history. Coined terms
 are defined once in [`references/glossary.md`](references/glossary.md).
 
 **New to Elves? Start with the [practical user guide](https://aigorahub.github.io/elves/).** It
@@ -86,8 +86,26 @@ Build full-run, Devin CLI, or other adapters. Missing optional provider access n
 native run. Repository `allow_grok=false` is an absolute veto. The host owns packets, protected
 refs, final gates, PR, and merge — always. Details:
 [`references/adaptive-worker-routing.md`](references/adaptive-worker-routing.md),
+[`references/prewalk.md`](references/prewalk.md),
 [`references/grok-open-source-worker.md`](references/grok-open-source-worker.md),
 [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
+
+### Optional exact-session prewalk
+
+Prewalk lets one qualified native worker orient on a guide model/effort, create a bounded TODO, make
+the first real edit, and then resume the **same session in the same worktree** on the execution
+route. The packet is sent once; the resume input is only `Continue.`. A new worker that receives a
+summary is a normal cold handoff, not prewalk, and cold fallback is forbidden after an edit.
+
+The safe preference is `worker.prewalk: "auto"`, while the launch CLI defaults to `off` for backward
+compatibility. `auto` currently remains actually off unless the exact installed Codex or Claude
+version has behaviorally qualified session/worktree/stream continuity, route change, no packet
+replay, and honest instruction fidelity. The current persisted-instruction transport activates only
+for proven `retained_safe`; `pruned` and `turn_scoped` remain future delivery states.
+Static help probes make no model calls and prove only that flags are advertised; `required` fails
+before launch when proof is absent. See the
+[normative prewalk contract](references/prewalk.md) and
+[host parity matrix](references/host-parity.md).
 
 ## Safety model
 
@@ -237,6 +255,8 @@ exactly one file below; other docs link instead of restating.
   contract (canonical code: `scripts/cobbler_runtime/canonical_contract.py`)
 - [`references/adaptive-worker-routing.md`](references/adaptive-worker-routing.md) — who
   implements and why
+- [`references/prewalk.md`](references/prewalk.md) — exact-session guide→execution trajectory,
+  qualification, checkpoints, and recovery
 - [`references/follow-mode.md`](references/follow-mode.md) — the parked driver's sanitized stream
 - [`references/grok-open-source-worker.md`](references/grok-open-source-worker.md) and
   [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md)
@@ -274,12 +294,12 @@ exactly one file below; other docs link instead of restating.
 
 ```bash
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.7.0
+python3 scripts/verify_repo.py --version 2.8.0
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.7.0 --final-readiness \
+python3 scripts/verify_repo.py --version 2.8.0 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.7.0 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.8.0 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 

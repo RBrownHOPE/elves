@@ -1979,6 +1979,58 @@ ADAPTIVE_WORKER_ROUTING_PHRASES = {
     ],
 }
 
+PREWALK_PHRASES = {
+    "SKILL.md": [
+        "Exact-session prewalk",
+        "A fresh session",
+        "with a copied packet or summary is not prewalk",
+        "post-edit cold fallback is forbidden",
+        "Static help proves",
+        "references/prewalk.md",
+    ],
+    "AGENTS.md": [
+        "Prewalk:",
+        "cold packet handoff is not prewalk",
+        "references/prewalk.md",
+    ],
+    "README.md": [
+        "Optional exact-session prewalk",
+        "same session in the same worktree",
+        "Static help probes make no model calls",
+        "references/prewalk.md",
+    ],
+    "references/prewalk.md": [
+        "Elves **prewalk** is a trajectory property",
+        "execution route with only",
+        "retained_safe",
+        "post-edit cold fallback",
+        "normally reports actual mode `off`",
+    ],
+    "references/host-parity.md": [
+        "Exact-session prewalk parity",
+        "one redacted logical follow stream",
+        "no post-edit cold fallback",
+        "prewalk.md",
+    ],
+    "references/adaptive-worker-routing.md": [
+        "Optional exact-session prewalk route",
+        "requested/actual prewalk mode",
+        "help probes always report false",
+        "actual mode `off`",
+    ],
+    "guide/index.html": [
+        "Use exact-session prewalk when qualified",
+        "same session in the same",
+        "no paid canary runs implicitly",
+        "references/prewalk.md",
+    ],
+    "CHANGELOG.md": [
+        "True exact-session native-worker prewalk",
+        "execution-route resume with only",
+        "no paid canary ran",
+    ],
+}
+
 GROK_OPEN_SOURCE_WORKER_PHRASES = {
     "SKILL.md": [
         "authenticated live",

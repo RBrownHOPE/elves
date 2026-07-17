@@ -129,7 +129,12 @@ from cobbler_runtime.worker_routing import (  # noqa: E402
     discover_repository_worker_policy,
     probe_grok_capabilities,
 )
+from cobbler_runtime.prewalk import (  # noqa: E402
+    fixture_prewalk_capabilities,
+    probe_installed_prewalk_capabilities,
+)
 from cobbler_runtime.native_worker import (  # noqa: E402
+    build_native_worker_prewalk_spec,
     build_native_worker_spec,
     follow_native_worker,
     launch_native_worker,
@@ -376,6 +381,12 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         explicit["worker"]["provider"] = args.provider
     if args.effort:
         explicit["worker"]["native_effort"] = args.effort
+    if args.prewalk:
+        explicit["worker"]["prewalk"] = args.prewalk
+    if args.guide_effort:
+        explicit["worker"]["prewalk_guide_effort"] = args.guide_effort
+    if args.guide_model:
+        explicit["worker"]["prewalk_guide_model"] = args.guide_model
     if args.allow_grok:
         explicit["worker"]["allow_grok"] = True
     if args.grok_worker_model:
@@ -411,6 +422,28 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
             version=args.grok_version,
         )
     )
+    if args.prewalk_capability_evidence and not args.probe_prewalk:
+        issue = ValidationIssue(
+            "prewalk_capability_unavailable",
+            "Behavioral prewalk evidence requires the installed help/version probe",
+            path="prewalk_capability_evidence",
+        )
+        return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+    try:
+        prewalk_caps = (
+            probe_installed_prewalk_capabilities(
+                args.host,
+                behavioral_evidence=(
+                    Path(args.prewalk_capability_evidence)
+                    if args.prewalk_capability_evidence
+                    else None
+                ),
+            )
+            if args.probe_prewalk
+            else None
+        )
+    except ValidationIssue as issue:
+        return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
     try:
         decision = decide_worker_route(
             host=args.host,
@@ -421,6 +454,7 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
             repo_policy=repo_policy,
             grok=grok,
             driver_effort=args.driver_effort,
+            prewalk_capabilities=prewalk_caps,
         )
     except ValidationIssue as issue:
         return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
@@ -430,6 +464,7 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         "preferences_path": preference_state.path,
         "repository_policy_source": repo_policy_source,
         "grok_capabilities": grok.safe_snapshot(),
+        "prewalk_capabilities": prewalk_caps.to_dict() if prewalk_caps else None,
     }
     if args.json:
         return _emit_json(payload, exit_code=0)
@@ -469,9 +504,65 @@ def cmd_native_worker(args: argparse.Namespace) -> int:
             return _emit_json({"ok": True, "worker": state}, exit_code=0)
         print(state["status"])
         return 0
+    if action == "prewalk-capabilities":
+        if not args.host or args.host == "fixture":
+            issue = ValidationIssue(
+                "native_worker_arguments_required",
+                "prewalk-capabilities requires --host codex or claude",
+            )
+            return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+        try:
+            capabilities = probe_installed_prewalk_capabilities(
+                args.host,
+                behavioral_evidence=(
+                    Path(args.prewalk_capability_evidence)
+                    if args.prewalk_capability_evidence
+                    else None
+                ),
+            )
+        except ValidationIssue as issue:
+            return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+        payload = {
+            "ok": True,
+            "prewalk_capabilities": capabilities.to_dict(),
+            "model_calls_made": False,
+        }
+        if args.json:
+            return _emit_json(payload, exit_code=0)
+        print(
+            f"{capabilities.host}: qualified={str(capabilities.qualified()).lower()} "
+            f"fidelity={capabilities.instruction_fidelity}"
+        )
+        return 0
     if action == "_supervise":
         return supervise_native_worker(repo_root=repo_root, run_id=args.run_id, packet=Path(args.packet))
-    missing = [name for name in ("host", "worktree", "effort", "model") if not getattr(args, name)]
+    prewalk_requested = (args.prewalk or "off") != "off"
+    execution_effort = args.execution_effort or args.effort
+    execution_model = args.execution_model or args.model
+    if args.execution_effort and args.effort and args.execution_effort != args.effort:
+        issue = ValidationIssue(
+            "ambiguous_prewalk_execution_route",
+            "--effort and --execution-effort disagree",
+        )
+        return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+    if args.execution_model and args.model and args.execution_model != args.model:
+        issue = ValidationIssue(
+            "ambiguous_prewalk_execution_route",
+            "--model and --execution-model disagree",
+        )
+        return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+    required_names = ["host", "worktree"]
+    if prewalk_requested:
+        required_names.extend(("guide_effort", "guide_model"))
+        if not execution_effort:
+            required_names.append("execution_effort")
+        if not execution_model:
+            required_names.append("execution_model")
+    else:
+        required_names.extend(("effort", "model"))
+    missing = [name for name in required_names if not getattr(args, name, None) and not (
+        name == "execution_effort" and execution_effort
+    ) and not (name == "execution_model" and execution_model)]
     if action == "launch" and (not args.run_id or not args.packet):
         missing.extend(name for name in ("run_id", "packet") if not getattr(args, name))
     if missing:
@@ -483,35 +574,118 @@ def cmd_native_worker(args: argparse.Namespace) -> int:
         import shlex
         watcher = shlex.join([sys.executable, str(Path(__file__).resolve()), "native-worker", "follow", "--repo-root", str(repo_root), "--run-id", args.run_id])
         visibility_mode = "follow_log"
+    prewalk_spec = None
+    prewalk_fallback = None
     try:
-        spec = build_native_worker_spec(
-            host=args.host,
-            worktree=Path(args.worktree),
-            effort=args.effort,
-            requested_model=args.model,
-            session_id=args.session_id,
-            visibility_mode=visibility_mode,
-            watcher_command=watcher,
-            fixture_script=Path(args.fixture_script) if args.fixture_script else None,
-        )
+        if prewalk_requested:
+            capabilities = (
+                fixture_prewalk_capabilities()
+                if args.host == "fixture"
+                else probe_installed_prewalk_capabilities(
+                    args.host,
+                    behavioral_evidence=(
+                        Path(args.prewalk_capability_evidence)
+                        if args.prewalk_capability_evidence
+                        else None
+                    ),
+                )
+            )
+            if capabilities.qualified():
+                prewalk_spec = build_native_worker_prewalk_spec(
+                    host=args.host,
+                    worktree=Path(args.worktree),
+                    guide_effort=args.guide_effort,
+                    execution_effort=execution_effort,
+                    guide_model=args.guide_model,
+                    execution_model=execution_model,
+                    capabilities=capabilities,
+                    requested_mode=args.prewalk,
+                    todo_limit=args.todo_limit,
+                    visibility_mode=visibility_mode,
+                    watcher_command=watcher,
+                    guide_fixture_script=(
+                        Path(args.fixture_script) if args.fixture_script else None
+                    ),
+                    execution_fixture_script=(
+                        Path(args.execution_fixture_script)
+                        if args.execution_fixture_script
+                        else None
+                    ),
+                    forbidden_paths=tuple(args.forbidden_path or ()),
+                )
+                spec = prewalk_spec.guide
+            elif args.prewalk == "auto":
+                prewalk_fallback = capabilities.unavailable_reason() or "prewalk_capability_unavailable"
+                spec = build_native_worker_spec(
+                    host=args.host,
+                    worktree=Path(args.worktree),
+                    effort=execution_effort,
+                    requested_model=execution_model,
+                    session_id=args.session_id,
+                    visibility_mode=visibility_mode,
+                    watcher_command=watcher,
+                    fixture_script=Path(args.fixture_script) if args.fixture_script else None,
+                )
+            else:
+                raise ValidationIssue(
+                    capabilities.unavailable_reason() or "prewalk_capability_unavailable",
+                    "Required prewalk is unavailable before launch",
+                )
+        else:
+            spec = build_native_worker_spec(
+                host=args.host,
+                worktree=Path(args.worktree),
+                effort=args.effort,
+                requested_model=args.model,
+                session_id=args.session_id,
+                visibility_mode=visibility_mode,
+                watcher_command=watcher,
+                fixture_script=Path(args.fixture_script) if args.fixture_script else None,
+            )
     except ValidationIssue as issue:
         return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
     if action == "launch":
         try:
-            state = launch_native_worker(repo_root=repo_root, run_id=args.run_id, spec=spec, packet=Path(args.packet), cli_path=Path(__file__))
+            state = launch_native_worker(
+                repo_root=repo_root,
+                run_id=args.run_id,
+                spec=spec,
+                packet=Path(args.packet),
+                cli_path=Path(__file__),
+                prewalk_spec=prewalk_spec,
+            )
         except (OSError, ValidationIssue) as issue:
             if isinstance(issue, ValidationIssue):
                 return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
             return _emit_json({"ok": False, "issues": [{"code": "native_worker_launch_failed", "message": str(issue)}]}, exit_code=1)
-        payload = {"ok": True, "worker": state, "model_calls_made": False}
+        payload = {
+            "ok": True,
+            "worker": state,
+            "prewalk": {
+                "requested": args.prewalk,
+                "actual": "exact_session" if prewalk_spec else "off",
+                "fallback_reason": prewalk_fallback,
+            },
+            "model_calls_made": args.host != "fixture",
+        }
     else:
-        payload = {"ok": True, "worker": spec.to_dict(), "profiles": native_worker_profiles(), "model_calls_made": False}
+        payload = {
+            "ok": True,
+            "worker": prewalk_spec.to_dict() if prewalk_spec else spec.to_dict(),
+            "profiles": native_worker_profiles(),
+            "prewalk": {
+                "requested": args.prewalk,
+                "actual": "exact_session" if prewalk_spec else "off",
+                "fallback_reason": prewalk_fallback,
+            },
+            "model_calls_made": False,
+        }
     if args.json:
         return _emit_json(payload, exit_code=0)
     if action == "launch":
         print(payload["worker"]["watcher_command"])
     else:
-        sys.stdout.write(" ".join(spec.argv) + "\n")
+        sys.stdout.write(" ".join(prewalk_spec.guide.argv if prewalk_spec else spec.argv) + "\n")
     return 0
 
 
@@ -1980,7 +2154,10 @@ def build_parser() -> argparse.ArgumentParser:
         item.add_argument("--json", action="store_true")
         item.set_defaults(func=cmd_preferences)
     pref_set = preferences_sub.add_parser("set")
-    pref_set.add_argument("preference", choices=("worker.provider", "worker.native_effort"))
+    pref_set.add_argument(
+        "preference",
+        choices=("worker.provider", "worker.native_effort", "worker.prewalk"),
+    )
     pref_set.add_argument("value")
     pref_set.add_argument("--json", action="store_true")
     pref_set.set_defaults(func=cmd_preferences)
@@ -1995,6 +2172,18 @@ def build_parser() -> argparse.ArgumentParser:
     route_worker.add_argument("--driver-effort", choices=("low", "medium", "high"))
     route_worker.add_argument("--provider", choices=("auto", "native", "grok"))
     route_worker.add_argument("--effort", choices=("low", "medium", "high"))
+    route_worker.add_argument("--prewalk", choices=("off", "auto", "required"))
+    route_worker.add_argument("--guide-model")
+    route_worker.add_argument("--guide-effort", choices=("low", "medium", "high"))
+    route_worker.add_argument(
+        "--probe-prewalk",
+        action="store_true",
+        help="Probe installed native help/version only; never launches inference",
+    )
+    route_worker.add_argument(
+        "--prewalk-capability-evidence",
+        help="Version-bound behavioral qualification artifact; requires --probe-prewalk",
+    )
     route_worker.add_argument("--allow-grok", action="store_true")
     route_worker.add_argument("--prohibit-grok", action="store_true")
     route_worker.add_argument("--repo-root", default=".", help="Target repository used for policy/default discovery")
@@ -2025,16 +2214,30 @@ def build_parser() -> argparse.ArgumentParser:
         "native-worker",
         help="Build a separate exact-session Codex or Claude worker launch specification",
     )
-    native_worker.add_argument("native_worker_action", nargs="?", choices=("spec", "launch", "follow", "status", "_supervise"), default="spec")
+    native_worker.add_argument(
+        "native_worker_action",
+        nargs="?",
+        choices=("spec", "launch", "follow", "status", "prewalk-capabilities", "_supervise"),
+        default="spec",
+    )
     native_worker.add_argument("--host", choices=("codex", "claude", "fixture"))
     native_worker.add_argument("--worktree")
     native_worker.add_argument("--effort", choices=("low", "medium", "high"))
     native_worker.add_argument("--model", help="Current driver model observed by the host, or an explicit routed model")
+    native_worker.add_argument("--prewalk", choices=("off", "auto", "required"), default="off")
+    native_worker.add_argument("--guide-model")
+    native_worker.add_argument("--guide-effort", choices=("low", "medium", "high"))
+    native_worker.add_argument("--execution-model")
+    native_worker.add_argument("--execution-effort", choices=("low", "medium", "high"))
+    native_worker.add_argument("--todo-limit", type=int, default=10)
+    native_worker.add_argument("--prewalk-capability-evidence")
+    native_worker.add_argument("--forbidden-path", action="append")
     native_worker.add_argument("--session-id")
     native_worker.add_argument("--repo-root", default=".")
     native_worker.add_argument("--run-id")
     native_worker.add_argument("--packet")
     native_worker.add_argument("--fixture-script", help="Explicit no-model subprocess fixture (tests only)")
+    native_worker.add_argument("--execution-fixture-script", help="Second no-model subprocess fixture for prewalk lifecycle tests")
     native_worker.add_argument("--host-view-visible", action="store_true", help="Record a capability-proven user-visible native host agent view")
     native_worker.add_argument("--no-wait", action="store_true", help="For follow: print currently available lines and return")
     native_worker.add_argument("--json", action="store_true")

@@ -29,6 +29,14 @@ the **path is recorded**, not that the file is tracked. `acceptance_contract.py 
 advisory `worker_packet_missing` warning — never a blocking issue and never an exit-code change —
 when a delegable session lacks the recorded path. Host-native runs legitimately skip the packet.
 
+For exact-session native-worker prewalk the same packet remains a staging deliverable and is sent
+exactly once, on the guide turn. The later execution turn receives only `Continue.`. The run-level
+session may record requested/actual prewalk mode and the safe exact worker-session identifier, but
+private version-3 native-worker state under `.elves/runtime/` is authoritative for phase routes,
+packet count/digest, TODO/checkpoint identity, continuity, fidelity, attempts, and failure. Do not
+copy phase prompts or source contents into canonical run state. A fresh packet handoff is not
+prewalk; see [`prewalk.md`](prewalk.md).
+
 ## Work-driver spellings
 
 Canonical work drivers are `host-native`, `grok-build`, `devin-cli`, and `untrusted-writer`

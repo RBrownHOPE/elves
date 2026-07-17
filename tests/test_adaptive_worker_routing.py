@@ -30,6 +30,7 @@ from cobbler_runtime.native_worker import (  # noqa: E402
     native_worker_status,
     parse_codex_thread_id,
 )
+from cobbler_runtime.prewalk import fixture_prewalk_capabilities  # noqa: E402
 from cobbler_runtime.full_run import FullRunState, build_full_run_argv  # noqa: E402
 from cobbler_runtime.preferences import (  # noqa: E402
     global_preferences_path,
@@ -121,6 +122,15 @@ class GlobalPreferencesTests(unittest.TestCase):
                 with self.subTest(body=body), self.assertRaises(ValidationIssue):
                     load_preferences(path)
 
+    def test_prewalk_preference_is_safe_bounded_convenience(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            set_preference("worker.prewalk", "required", path=path)
+            self.assertEqual(load_preferences(path)["worker"]["prewalk"], "required")
+            with self.assertRaises(ValidationIssue) as caught:
+                set_preference("worker.prewalk", "enabled", path=path)
+            self.assertEqual(caught.exception.code, "invalid_global_preference")
+
     def test_relative_xdg_config_home_is_rejected(self) -> None:
         with self.assertRaises(ValidationIssue) as caught:
             global_preferences_path(env={"HOME": "/tmp/home", "XDG_CONFIG_HOME": ".config"})
@@ -145,6 +155,49 @@ class RouteDecisionMatrixTests(unittest.TestCase):
                 self.assertEqual(decision.worker_effort, reasoning)
                 self.assertEqual(decision.worker_model_policy, "inherit_live_driver_model")
                 self.assertFalse(decision.model_calls_made)
+
+    def test_prewalk_routes_are_distinct_capability_gated_and_model_free(self) -> None:
+        unqualified = self.decide(
+            explicit_intent={"worker": {"prewalk": "auto"}}
+        )
+        self.assertEqual(unqualified.prewalk.requested_mode.value, "auto")
+        self.assertEqual(unqualified.prewalk.actual_mode, "off")
+        self.assertEqual(
+            unqualified.prewalk.fallback_reason, "prewalk_exact_resume_unqualified"
+        )
+        self.assertFalse(unqualified.prewalk.qualification_model_calls_made)
+
+        qualified = self.decide(
+            explicit_intent={
+                "worker": {
+                    "prewalk": "required",
+                    "prewalk_guide_effort": "high",
+                    "prewalk_guide_model": "guide-model",
+                    "native_effort": "medium",
+                }
+            },
+            prewalk_capabilities=fixture_prewalk_capabilities("codex"),
+        )
+        self.assertEqual(qualified.prewalk.actual_mode, "exact_session")
+        self.assertEqual(qualified.prewalk.guide.model, "guide-model")
+        self.assertEqual(qualified.prewalk.guide.effort, "high")
+        self.assertEqual(qualified.prewalk.execution.effort, "medium")
+        self.assertTrue(qualified.prewalk.behaviorally_verified_session_continuity)
+        self.assertEqual(qualified.prewalk.instruction_fidelity.value, "retained_safe")
+
+    def test_required_prewalk_fails_before_launch_when_unqualified(self) -> None:
+        with self.assertRaises(ValidationIssue) as caught:
+            self.decide(explicit_intent={"worker": {"prewalk": "required"}})
+        self.assertEqual(caught.exception.code, "prewalk_exact_resume_unqualified")
+
+    def test_auto_prewalk_skips_low_reasoning_atomic_work(self) -> None:
+        decision = self.decide(
+            execution_reasoning="low",
+            explicit_intent={"worker": {"prewalk": "auto"}},
+            prewalk_capabilities=fixture_prewalk_capabilities("codex"),
+        )
+        self.assertEqual(decision.prewalk.actual_mode, "off")
+        self.assertEqual(decision.prewalk.fallback_reason, "prewalk_atomic_task_skipped")
 
     def test_explicit_grok_regular_and_complex_model_policy(self) -> None:
         capabilities = GrokCapabilities(

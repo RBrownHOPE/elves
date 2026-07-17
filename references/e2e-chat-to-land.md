@@ -12,7 +12,10 @@ review. Permitted Grok remains optional. See
 **Status:** **recommended default user path.** Trusted Grok full-run delegation is the optional parked shape.
 The current default uses a separate subscription-native worker, with optional permitted Grok or
 another configured adapter. Classic **two-call stage-then-start** remains optional for huge or
-unstable plans.
+unstable plans. A behaviorally qualified subscription-native route may optionally use
+**exact-session prewalk**: the worker packet is still staged once, but the same worker session
+orients, creates its TODO, makes the first real edit, and resumes on the execution route. See
+[`prewalk.md`](prewalk.md).
 
 **Product intent:** efficient, intelligent workflows for agentic development and research —
 chat to conceptual agreement (optionally multi-planner), then **one prompt** runs plan + stage +
@@ -69,6 +72,8 @@ Execution route
     └─ separate trusted worker (native, Grok, or another configured adapter):
          one complete packet → one persistent launch → proven view or exact follow command
          worker implements, validates, and commits without host re-prompts
+         qualified native prewalk: guide route → meaningful-edit checkpoint → same-session
+         execution route with only `Continue.` (no driver transition approval)
          parked host wakes only on safety, blocked, or terminal events, then reviews cumulatively
     ▼
 Readiness Gate (landable PR)
