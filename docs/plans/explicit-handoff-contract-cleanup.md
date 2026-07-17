@@ -72,12 +72,12 @@ host-native implementation; finish at a landable PR without merge.
 
 ### Acceptance criteria
 
-- [ ] B0-A1: Delegated sessions that do not declare explicit handoff v1 retain the v2.8 advisory-only missing-packet behavior and exit successfully when all established acceptance checks pass.
-- [ ] B0-A2: A declared handoff v1 accepts exact fresh-start and resume state while blocking malformed state, ownership gaps/overlap, repository identity drift, and non-ancestor completed-slice commits.
-- [ ] B0-A3: Markdown and JSON worker packets carry equivalent handoff state and acceptance mappings; capsule placement and packet size are bounded and fail closed with stable diagnostics.
-- [ ] B0-A4: SKILL, schema/template guidance, changelog, and durable architecture/gotcha docs describe the opt-in boundary and explicitly preserve exact-session prewalk semantics.
-- [ ] B0-A5: Focused acceptance tests and the repository's broad terminal verification pass on the current branch tip.
-- [ ] B0-A6: Source metadata, changelog, README examples, public guide, and the release checklist agree on v2.9.0 with an empty Unreleased section.
+- [x] B0-A1: Delegated sessions that do not declare explicit handoff v1 retain the v2.8 advisory-only missing-packet behavior and exit successfully when all established acceptance checks pass.
+- [x] B0-A2: A declared handoff v1 accepts exact fresh-start and resume state while blocking malformed state, ownership gaps/overlap, repository identity drift, and non-ancestor completed-slice commits.
+- [x] B0-A3: Markdown and JSON worker packets carry equivalent handoff state and acceptance mappings; capsule placement and packet size are bounded and fail closed with stable diagnostics.
+- [x] B0-A4: SKILL, schema/template guidance, changelog, and durable architecture/gotcha docs describe the opt-in boundary and explicitly preserve exact-session prewalk semantics.
+- [x] B0-A5: Focused acceptance tests and the repository's broad terminal verification pass on the current branch tip.
+- [x] B0-A6: Source metadata, changelog, README examples, public guide, and the release checklist agree on v2.9.0 with an empty Unreleased section.
 
 **Docs likely touched:** `SKILL.md`, `CHANGELOG.md`, `README.md`, `guide/index.html`, `references/schema-and-acceptance.md`,
 `references/plan-template.md`, `.ai-docs/architecture.md`, `.ai-docs/context-index.md`,
@@ -103,8 +103,8 @@ installed-bundle smoke, and terminal `scripts/verify_repo.py --ci`.
 
 ## Master Acceptance
 
-- [ ] M-A1: The cumulative diff preserves every established v2.8 staging/prewalk invariant while making explicitly declared handoff state deterministic and fail-closed.
-- [ ] M-A2: The acceptance-bearing branch tip is current, documented, broadly verified, clean, and presented as a reviewable PR.
+- [x] M-A1: The cumulative diff preserves every established v2.8 staging/prewalk invariant while making explicitly declared handoff state deterministic and fail-closed.
+- [x] M-A2: The acceptance-bearing branch tip is current, documented, broadly verified, clean, and presented as a reviewable PR.
 
 Operational run artifacts remain a required final task, but are deliberately outside acceptance:
 Elves proves and records the acceptance-bearing tip before removing those artifacts in a separate

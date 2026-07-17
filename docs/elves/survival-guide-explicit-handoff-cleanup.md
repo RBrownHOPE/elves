@@ -49,8 +49,8 @@ for both Markdown and JSON packets. Finish at a landable PR; do not merge.
 
 - **Planned batches remaining:** 1
 - **Stop allowed right now:** no
-- **Why:** acceptance evidence, exact-tip PR proof, and cleanup remain
-- **Next required action:** commit and push the acceptance-order contract correction, re-read this guide, then prove and record acceptance on the exact tip
+- **Why:** the acceptance-backed Close, committed landing proof, and cleanup remain
+- **Next required action:** commit and push the acceptance-backed Close, re-read this guide, then run final-readiness and landing checks on the committed evidence tip
 
 ## Effort Standard
 
@@ -68,10 +68,10 @@ Prefer exact compatibility and category proof over a smaller speculative patch.
 
 ## Current Phase
 
-- **Status:** acceptance-order contract correction ready
+- **Status:** acceptance-backed Close ready
 - **Active batch:** B0
-- **What was just finished:** draft PR creation and removal of cleanup circularity from M-A2
-- **Single next action:** commit and push the acceptance-order contract correction
+- **What was just finished:** exact-tip local and hosted proof plus criterion-by-criterion acceptance evidence
+- **Single next action:** commit and push the single acceptance-backed Close
 
 ## Active Compute
 
@@ -133,11 +133,14 @@ single `Next Exact Action` without restaging completed work.
 - Draft PR #81 is mergeable with CodeQL and Socket green; repository matrix checks are running.
 - M-A2 now assesses the acceptance-bearing tip, while the required post-readiness artifact cleanup
   remains an explicit final task outside acceptance.
+- Reviewed tip `1195daa` passed local strict verification with 1,132 tests and the complete hosted
+  matrix, aggregate, CodeQL, and Socket checks. PR #81 is ready with no review feedback.
+- B0-A1 through B0-A6 and M-A1 through M-A2 are met with non-empty session evidence.
 
 ## Next Exact Action
 
-Commit and push the acceptance-order contract correction, re-read this guide, then prove the exact
-tip and complete acceptance evidence.
+Commit and push the single acceptance-backed Close, re-read this guide, then run final-readiness
+and the strict landing check on the committed evidence tip before operational cleanup.
 
 ## Recovery Order
 

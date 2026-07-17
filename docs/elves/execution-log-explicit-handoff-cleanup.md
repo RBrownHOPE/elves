@@ -2,8 +2,8 @@
 
 ## Run Digest
 
-- **Last updated:** 2026-07-17 18:31 EDT
-- **Current phase:** Acceptance-order contract correction
+- **Last updated:** 2026-07-17 18:13 EDT
+- **Current phase:** Acceptance-backed Close ready
 - **Active batch:** B0 — reconcile and harden explicit handoff v1
 - **Last completed batch:** none
 - **Next exact batch:** B0
@@ -60,7 +60,7 @@
 - Next: commit/push review fixes, re-read the guide, rerun strict CI on the exact tip, then attach
   acceptance evidence.
 
-## B0 acceptance-order correction: 2026-07-17 18:31 EDT
+## B0 acceptance-order correction: 2026-07-17 18:05 EDT
 
 - Opened draft PR #81 and confirmed it is mergeable with no comments or reviews; CodeQL and Socket
   checks passed while the four-platform repository matrix continued.
@@ -71,6 +71,19 @@
   ID or product criterion.
 - Next: commit/push this contract correction, re-read the guide, prove the new exact tip, record the
   acceptance-backed Close, then remove operational artifacts in a separate Review commit.
+
+## B0 Validate: 2026-07-17 18:13 EDT
+
+- Exact reviewed tip `1195daa` passed local strict verification: 1,132 tests, repository
+  consistency, release checklist, public API, Markdown links, secret scan, installed-bundle smoke,
+  and cumulative-diff checks.
+- The same tip passed the complete hosted matrix on Python 3.10, 3.12, 3.14, and macOS, plus the
+  aggregate check, CodeQL, and Socket checks.
+- PR #81 is ready for review and mergeable with no comments or reviews to triage.
+- B0-A1 through B0-A6 and M-A1 through M-A2 now have one-to-one evidence in the session; B0 is
+  complete. Operational artifact cleanup deliberately follows committed landing proof.
+- Next: commit/push the single Close, re-read the guide, run final-readiness and landing checks,
+  then remove the survival guide, execution log, and session in a cleanup-only Review commit.
 
 ## Session Setup: 2026-07-17 17:38 EDT
 
