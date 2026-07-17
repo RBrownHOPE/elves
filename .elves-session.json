@@ -130,31 +130,31 @@
       "acceptance": [
         {
           "criterion": "`wc -l README.md` \u2264 450; no `v2.x adds`-style narration outside CHANGELOG.md",
-          "evidence": "",
+          "evidence": "wc -l README.md = 372 (bar 450). Version narration removed from all feature docs: README rewrite; SKILL.md intro versionless; AGENTS.md pointer lines versionless; e2e-chat-to-land status line; kickoff-template blockquote; grok-implementer-launch-prompt header; plan-template stable-identity note. grep for 'v2.x adds/makes' outside CHANGELOG.md and docs/plans/ (historical) returns nothing.",
           "id": "B5-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "`references/glossary.md` exists and covers every term it promises; no dead links",
-          "evidence": "",
+          "evidence": "references/glossary.md created (53 lines, every coined term one line, README links on first mention); dead-relative-link scan of README returns none; references/operations-guide.md (243 lines) receives the moved operational content (sleep/tmux/monitoring/notifications/SessionStart hook/daily briefing) unchanged.",
           "id": "B5-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Repo-consistency CI green with pins updated alongside prose in the same commits",
-          "evidence": "",
+          "evidence": "check_repo_consistency exit 0 and tests.test_check_repo_consistency OK after: 22 README restatement pin-sets removed, 3 forbidden corpora restored (guard function preserved), minimal true user-facing pins re-added (landing aliases, cobbler invocations, codex install guidance), AGENTS thin-pointer corpus deversioned, single-kickoff corpus phrases updated to versionless sentences, recovery-order and codex-goals file lists updated, meta-tests updated to the linked-not-restated doctrine.",
           "id": "B5-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Install + first-run path still complete: following README alone reaches a working `install_doctor.py --startup` pass (regression preservation for onboarding)",
-          "evidence": "",
+          "evidence": "README alone carries: both install command blocks (verbatim from pre-rewrite), install_doctor validate commands, per-project install, first-run kickoff example, and links to guide/plan-template/kickoff \u2014 the pre-rewrite onboarding path is intact (commands byte-identical) plus the guide link is now the lead. Full suite green post-rewrite: 1,067/0 under hostile socket-stdin runner (219s).",
           "id": "B5-A4",
-          "met": false
+          "met": true
         }
       ],
       "id": "B5",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [

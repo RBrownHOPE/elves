@@ -254,3 +254,18 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
   probe (fstat first, non-blocking read). Post-Close corrections labeled Batch 9/9 · Validate;
   B9-A2 evidence amended in session. Lesson: a guard's own test must fail loudly when the guard
   did not load, and proofs must run under the hostile runner they claim to defend against.
+
+## B5 (driver host-native)
+
+- 2026-07-17 · Implement · README rewritten 1,688 -> 372 lines; glossary + operations-guide
+  created; narration swept from 7 feature docs; 22 pin-sets removed with 3 forbidden corpora
+  restored and minimal true pins re-added; meta-tests updated to linked-not-restated doctrine.
+- 2026-07-17 · Validate · Full suite 1,067/0 under a hostile socket-stdin runner via the fixed
+  `discover -s tests -t .` invocation (219s) — doubles as B9's re-proof.
+
+## Decisions made (continued 7)
+
+- D15 (defect log, self-reported): the Batch 9/9 Validate commit 660f0db used `git add -A` in a
+  working tree that also carried B5 content, so B5's files landed under a Batch 9 label —
+  violating the batch-content rule codified in B3. History stays (no force push); staging is
+  explicit-paths-only for the rest of the run.

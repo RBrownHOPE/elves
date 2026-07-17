@@ -4,6 +4,17 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### README restructure and glossary
+
+- README.md is now a 372-line repository reference: install, safety model, failure-mode table,
+  configuration, and a reference index that links each contract's single authoritative file
+  instead of restating it. The task-first tutorial remains the published guide. New
+  `references/glossary.md` defines every coined term once; new `references/operations-guide.md`
+  holds the operational how-tos (sleep prevention, tmux, monitoring, notifications, SessionStart
+  hook, daily briefing) moved verbatim from the README. Version narration now lives only in this
+  changelog. Consistency pins updated to the linked-not-restated doctrine (22 README restatement
+  pin-sets removed; forbidden-phrase guards retained).
+
 ### Hermetic, bounded gates and worker failure recovery
 
 - `verify_repo.py` gate subprocesses run with closed stdin and hard per-step timeouts (suite step
