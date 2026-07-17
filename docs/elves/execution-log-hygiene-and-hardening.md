@@ -269,3 +269,19 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
   working tree that also carried B5 content, so B5's files landed under a Batch 9 label —
   violating the batch-content rule codified in B3. History stays (no force push); staging is
   explicit-paths-only for the rest of the run.
+
+## B6 (driver host-native)
+
+- 2026-07-17 · Implement · AGENTS.md rewritten 108 -> 89 lines as a validated thin pointer file
+  (all 33 pointer phrases + Cobbler section + recovery order + installed helper-path contract);
+  policy collapse: 24 shims + 26 AGENTS entries + stray landing-check comprehension handled; one
+  AGENTS_POINTER_PHRASES whole-file check wired; meta-tests updated to the pointer doctrine.
+- 2026-07-17 · Validate · checker 0; meta-tests OK; installed-bundle smoke OK (helper-path contract
+  restored); full suite 1,067/0 under hostile socket-stdin runner.
+
+## Decisions made (continued 8)
+
+- D16 (user-authorized re-scope): B6-A1 amended from ">=50% line reduction" to the achieved
+  mechanical collapse (17.5%) + documented pin policy, because the remaining mass is per-reference
+  prose pins whose removal requires single-sourcing ~40 reference files — a follow-up plan, not a
+  wrap-up item. Recorded in the plan text itself.

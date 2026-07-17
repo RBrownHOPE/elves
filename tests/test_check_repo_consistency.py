@@ -99,7 +99,7 @@ class ConsistencyPhraseTests(unittest.TestCase):
                 self.assertIn("\\land-pr", self.consistency.REVIEWED_PR_LANDING_PHRASES[label])
                 self.assertIn("/land-pr", self.consistency.REVIEWED_PR_LANDING_PHRASES[label])
         # AGENTS is a thin Codex adapter; pins land-pr aliases via pointer corpus.
-        agents = self.consistency.REVIEWED_PR_LANDING_PHRASES["AGENTS.md"]
+        agents = self.consistency.AGENTS_POINTER_PHRASES["AGENTS.md"]
         self.assertTrue(any("land-pr" in p for p in agents))
 
     def test_single_kickoff_corpus_covers_primary_user_and_agent_surfaces(self) -> None:
@@ -107,7 +107,6 @@ class ConsistencyPhraseTests(unittest.TestCase):
         # version narration lives only in CHANGELOG.md.
         for label in (
             "SKILL.md",
-            "AGENTS.md",
             "references/kickoff-prompt-template.md",
             "references/e2e-chat-to-land.md",
         ):
@@ -118,7 +117,6 @@ class ConsistencyPhraseTests(unittest.TestCase):
     def test_grok_worker_corpus_covers_every_claimed_public_surface(self) -> None:
         required = {
             "SKILL.md",
-            "AGENTS.md",
             "CHANGELOG.md",
             "docs/elves/learnings.md",
             "references/adaptive-worker-routing.md",
@@ -233,7 +231,7 @@ class ConsistencyPhraseTests(unittest.TestCase):
                     phrases,
                 )
         # AGENTS thin adapter still pins installed helper path identity.
-        agents = self.consistency.INSTALLED_HELPER_PATH_PHRASES["AGENTS.md"]
+        agents = self.consistency.AGENTS_POINTER_PHRASES["AGENTS.md"]
         self.assertTrue(any("ELVES_SKILL_ROOT" in p or "skill root" in p for p in agents))
 
     def test_installed_surfaces_reject_executable_repo_only_helper(self) -> None:
@@ -340,8 +338,7 @@ Read `.elves-session.json` first and resolve `survival_guide_path`, `learnings_p
     def test_implementer_handoff_phrases_cover_skill_and_templates(self) -> None:
         for label in (
             "SKILL.md",
-            "AGENTS.md",
-            "references/plan-template.md",
+                        "references/plan-template.md",
             "references/survival-guide-template.md",
             "references/execution-log-template.md",
             "references/review-subagent.md",
@@ -352,6 +349,11 @@ Read `.elves-session.json` first and resolve `survival_guide_path`, `learnings_p
                     "acceptance evidence",
                     self.consistency.IMPLEMENTER_HANDOFF_PHRASES[label],
                 )
+        # AGENTS carries the handoff names via the whole-file pointer corpus.
+        pointer = self.consistency.AGENTS_POINTER_PHRASES["AGENTS.md"]
+        for needle in ("Build On", "owned surfaces", "forbidden surfaces", "acceptance evidence"):
+            self.assertIn(needle, pointer)
+
 
     def test_progress_commit_phrases_forbid_vague_examples_as_positive(self) -> None:
         for label in ("SKILL.md",):
@@ -362,8 +364,9 @@ Read `.elves-session.json` first and resolve `survival_guide_path`, `learnings_p
                     " ".join(self.consistency.PROGRESS_COMMIT_PHRASES[label]),
                 )
                 self.assertIn(label, self.consistency.PROGRESS_COMMIT_ANTIPATTERN_EXAMPLES)
-        # AGENTS thin adapter keeps a short anti-pattern example set.
-        self.assertIn("AGENTS.md", self.consistency.PROGRESS_COMMIT_ANTIPATTERN_EXAMPLES)
+        # AGENTS thin adapter carries the anti-pattern examples via the pointer corpus.
+        agents_pointer = " ".join(self.consistency.AGENTS_POINTER_PHRASES["AGENTS.md"])
+        self.assertIn("Batch 3/12] Updates", agents_pointer)
         # Anti-pattern corpus must include vague subjects so they stay labeled bad.
         self.assertIn(
             "[feat/payments · Batch 3/12] Updates",
@@ -441,7 +444,6 @@ Read `.elves-session.json` first and resolve `survival_guide_path`, `learnings_p
     def test_cobbler_first_run_coordination_is_required(self) -> None:
         expected = {
             "SKILL.md": "Cobbler-first coordination is the default for Elves runs",
-            "AGENTS.md": "Cobbler-first coordination is the default for Elves runs",
             "references/council-workflow.md": (
                 "Run Cobbler is the default coordination pattern inside an Elves run"
             ),
@@ -461,7 +463,6 @@ Read `.elves-session.json` first and resolve `survival_guide_path`, `learnings_p
     def test_cobbler_mode_guardrails_are_required(self) -> None:
         expected = {
             "SKILL.md": "cobbler-mode",
-            "AGENTS.md": "thin Codex adapter",
             "references/council-workflow.md": "not a third Cobbler behavior mode",
             "aliases/claude/cobbler-mode/SKILL.md": "/cobbler-mode",
         }
@@ -637,7 +638,6 @@ Read `.elves-session.json` first and resolve `survival_guide_path`, `learnings_p
     def test_cobbler_harness_loop_spine_is_required(self) -> None:
         required_labels = (
             "SKILL.md",
-            "AGENTS.md",
             "docs/cobbler.md",
             "references/council-workflow.md",
             "references/council-prompts.md",
@@ -849,7 +849,6 @@ Cobbler
         for label in ("SKILL.md", "config.json.example"):
             with self.subTest(label=label):
                 self.assertIn(label, self.consistency.FULL_RUN_MODEL_ROUTING_PHRASES)
-        self.assertIn("AGENTS.md", self.consistency.FULL_RUN_MODEL_ROUTING_PHRASES)
 
         phrases = self.consistency.FULL_RUN_MODEL_ROUTING_PHRASES
         # Compact 2.3 SKILL pins native-first model routing without the long 2.2 ceremony line.
@@ -1261,8 +1260,11 @@ Cobbler
                 self.assertIn("branch, worktree path, base ref, and collision tripwire", phrases)
                 self.assertIn("does not reuse, delete, or repair existing worktrees", phrases)
         # AGENTS is thin adapter — must still mention workspace isolation via pointer corpus.
-        self.assertIn("AGENTS.md", self.consistency.WORKSPACE_ISOLATION_PHRASES)
-        self.assertTrue(self.consistency.WORKSPACE_ISOLATION_PHRASES["AGENTS.md"])
+        self.assertIn(
+            "One run owns one branch and one checkout",
+            self.consistency.AGENTS_POINTER_PHRASES["AGENTS.md"],
+        )
+        self.assertTrue(self.consistency.AGENTS_POINTER_PHRASES["AGENTS.md"])
 
     def test_workspace_isolation_helper_runtime_is_phrase_pinned(self) -> None:
         phrases = self.consistency.WORKSPACE_ISOLATION_PHRASES["scripts/preflight_worktree.py"]
@@ -1333,7 +1335,10 @@ Cobbler
                     ),
                     phrases,
                 )
-        self.assertIn("AGENTS.md", self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_PHRASES)
+        self.assertIn(
+            "optional regression evidence",
+            self.consistency.AGENTS_POINTER_PHRASES["AGENTS.md"],
+        )
 
     def test_api_surface_snapshot_config_defaults_are_advisory(self) -> None:
         phrases = self.consistency.PUBLIC_API_SURFACE_SNAPSHOT_PHRASES["config.json.example"]

@@ -4,6 +4,15 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Thin Codex adapter and consistency-engine slimming
+
+- AGENTS.md is now a true thin adapter (89 lines): every contract is a named pointer into SKILL.md
+  or one authoritative reference, including the new commit-cadence/phase-role, worker failure
+  recovery, packet-at-staging, worktree-lifecycle, and bounded-gates rules. The consistency engine
+  covers it with one whole-file pointer corpus instead of 24 per-contract shims, drops ~70
+  restatement pin entries, scopes the Cobbler section check to actual Cobbler content, and
+  documents the pin-addition policy (a pin requires a normative sentence in more than one file).
+
 ### README restructure and glossary
 
 - README.md is now a 372-line repository reference: install, safety model, failure-mode table,

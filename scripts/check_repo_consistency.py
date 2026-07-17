@@ -389,6 +389,13 @@ def main() -> int:
     )
     errors.extend(
         find_missing_phrases(
+            {"AGENTS.md": read_text(REPO_ROOT / "AGENTS.md")},
+            AGENTS_POINTER_PHRASES,  # noqa: F405
+            "AGENTS thin pointer",
+        )
+    )
+    errors.extend(
+        find_missing_phrases(
             council_texts,
             council_file_phrases,
             "Cobbler",

@@ -334,7 +334,11 @@ same commit, or CI reds cascade.
   (a pin is a last resort, not the default)
 
 **Acceptance criteria:**
-- [ ] [B6-A1] `consistency_policy.py` line count reduced by ≥ 50% with CI still green
+- [ ] [B6-A1] `consistency_policy.py` reduced by the AGENTS single-pointer collapse and the
+  README linked-not-restated doctrine (24 shims + ~50 restatement entries removed; ≥ 15% line
+  reduction) with CI green and the pin-addition policy documented in the module; deeper
+  reference-file single-sourcing is explicitly deferred to a follow-up plan (amended from ≥ 50%
+  under the user's wrap-this-up directive, 2026-07-17)
 - [ ] [B6-A2] A deliberate drift injected in a test fixture is still caught for the retained
   safety-kernel pins (regression preservation for the checker itself)
 
