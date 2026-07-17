@@ -294,3 +294,15 @@ Chronological proof. Newest entries at the bottom. Format: timestamp · phase ·
   one lazily-cached module global and one patch-location inversion.
 - 2026-07-17 · Validate · Characterization 145/OK at every step; full suite 1,067/0 hostile;
   consistency 0; full_run.py 7,019 lines.
+
+## Terminal (driver)
+
+- 2026-07-17 · Review · Independent review subagent stopped mid-pass by user directive (wrap up).
+  Its one in-flight finding was real and is fixed: the extracted supervisor program had dropped the
+  original literal's leading newline (my byte-identity proof regex swallowed it — proof compared
+  the wrong baseline). Restored with a true byte-identity proof against the original literal value;
+  characterization 145/OK. Driver review evidence otherwise: every batch gated at Close, three
+  hostile-runner full-suite runs, VERIFY OK at 2.7.0. (D17)
+- 2026-07-17 · Ready · Master acceptance M-A1..M-A5 recorded with evidence. Landing sequence:
+  final-readiness gate -> operational-artifact cleanup commit -> clean-tip attestation -> checks ->
+  authorized merge (user, in-session) -> post-merge worktree gc + report.

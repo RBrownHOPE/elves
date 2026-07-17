@@ -1799,7 +1799,9 @@ def _provider_supervisor_script() -> str:
             "provider_supervisor.py must start with its module docstring",
             path=str(_PROVIDER_SUPERVISOR_PATH),
         )
-    return source[index + len(marker):]
+    # The pre-extraction literal began with a newline (r""" opened, then \n);
+    # preserve it so child tracebacks keep their historical line numbers.
+    return "\n" + source[index + len(marker):]
 
 
 

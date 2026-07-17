@@ -259,33 +259,33 @@
   "master_acceptance": [
     {
       "criterion": "Full suite green in an environment that includes short-valued secret-named env vars (Claude Code session): `CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 python3 -m unittest discover -s tests`",
-      "evidence": "",
+      "evidence": "CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH=1 python3 -m unittest discover -s tests -t . -> 1,067/OK; additionally proven under a hostile never-closing socket-stdin runner (three consecutive terminal runs).",
       "id": "M-A1",
-      "met": false
+      "met": true
     },
     {
       "criterion": "Dogfooded gc: five merged elves worktrees removed, unmerged benchmarks and unregistered siblings reported untouched; `git worktree list` reflects it",
-      "evidence": "",
+      "evidence": "Driver dogfood removed exactly the five staging-measured merged worktrees with branches deleted; five unmerged benchmarks + four unregistered siblings reported untouched; post-state registry verified. Evidence in B2 rows + execution log.",
       "id": "M-A2",
-      "met": false
+      "met": true
     },
     {
       "criterion": "A staged delegable run records `worker_packet_path`; the validator warns when it is missing for non-host-native drivers; both schemas and both staging templates carry the field",
-      "evidence": "",
+      "evidence": "This run's own session records worker_packet_path (dogfooded at staging); acceptance_contract.py validate warns (worker_packet_missing, advisory) for non-host-native drivers without a path \u2014 six warning tests green; both templates + SKILL.md + schema doc carry the field.",
       "id": "M-A3",
-      "met": false
+      "met": true
     },
     {
       "criterion": "README \u2264 450 lines, glossary exists, version narration lives only in CHANGELOG, repo-consistency CI green, `verify_repo.py --ci` green at the release version",
-      "evidence": "",
+      "evidence": "README 372 lines; references/glossary.md exists; version narration only in CHANGELOG (repo-wide sweep); repo-consistency checker exit 0; verify_repo --ci --version 2.7.0 VERIFY OK.",
       "id": "M-A4",
-      "met": false
+      "met": true
     },
     {
       "criterion": "No unapproved public API breaks: `api-break-approvals.json` entries exist for every intentional removal and strict verification accepts them",
-      "evidence": "",
+      "evidence": "api-break-approvals.json: consumed stale entry removed; no new entries needed (removed surfaces were never package-level exports \u2014 public-api gate [OK] diffed at count=0); strict validation green inside VERIFY OK.",
       "id": "M-A5",
-      "met": false
+      "met": true
     }
   ],
   "plan_path": "docs/plans/hygiene-and-hardening.md",
