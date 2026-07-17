@@ -2897,7 +2897,9 @@ class FullRunGrokArgvTests(unittest.TestCase):
             worker = root / "provider.py"
             worker.write_text(
                 "import os,time\n"
-                f"open({str(marker)!r}, 'w').write(str(os.getpid()))\n"
+                f"_t = {str(marker)!r} + '.tmp'\n"
+                f"open(_t, 'w').write(str(os.getpid()))\n"
+                f"os.replace(_t, {str(marker)!r})\n"
                 "time.sleep(30)\n",
                 encoding="utf-8",
             )
@@ -3033,7 +3035,9 @@ class FullRunGrokArgvTests(unittest.TestCase):
             worker = root / "provider.py"
             worker.write_text(
                 "import os,time\n"
-                f"open({str(marker)!r}, 'w').write(str(os.getpid()))\n"
+                f"_t = {str(marker)!r} + '.tmp'\n"
+                f"open(_t, 'w').write(str(os.getpid()))\n"
+                f"os.replace(_t, {str(marker)!r})\n"
                 "time.sleep(30)\n",
                 encoding="utf-8",
             )
