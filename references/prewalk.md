@@ -2,8 +2,9 @@
 
 ## Promise
 
-Elves **prewalk** is a trajectory property, not a richer handoff. One separate native worker
-session receives the task packet once, explores the repository on a guide route, creates a bounded
+Elves **prewalk** is a trajectory property, not a richer handoff. One separate subscription-native
+or separately qualified worker session receives the task packet once, explores the repository on a
+guide route, creates a bounded
 TODO, makes the first meaningful task edit, and writes a transition checkpoint. The outer
 supervisor then resumes that exact session in that exact worktree on the execution route with only
 `Continue.`. A new session that receives a summary or copied packet is a cold handoff and must not
@@ -59,11 +60,14 @@ single-phase launch/status/follow remains supported.
   honest fallback.
 - `required` fails before launch if exact resume, route change, worktree/stream binding, or usable
   instruction fidelity is unqualified.
-- External providers are not enabled by analogy.
+- External providers remain off unless their trajectory semantics are separately qualified. The
+  Grok Build arm exists behind exactly that gate: it is feature-gated, unqualified, and actually
+  off until an operator-authorized live canary records version-bound `retained_safe` evidence.
+  Analogy to a native host never qualifies an external provider.
 
 The initial release therefore normally reports actual mode `off`: read-only installed-help probes
-show advertised grammar, but neither Codex nor Claude is behaviorally qualified by this repository.
-No paid qualification is implicit.
+show advertised grammar, but no host — Codex, Claude, or Grok — is behaviorally qualified by this
+repository. No paid qualification is implicit.
 
 Configure or inspect the preference from the active Elves skill root:
 
@@ -86,7 +90,13 @@ python3 scripts/cobbler_agents.py native-worker prewalk-capabilities \
   --host codex --json
 python3 scripts/cobbler_agents.py native-worker prewalk-capabilities \
   --host claude --json
+python3 scripts/cobbler_agents.py native-worker prewalk-capabilities \
+  --host grok --json
 ```
+
+The `--host grok` probe is the same read-only shape: it parses installed `grok --help`/`--version`
+grammar, makes zero model calls, and reports a concrete unavailable reason when no installed grok
+binary exists. It never claims behavioral qualification.
 
 A behavioral qualification artifact is bounded, mode-safe JSON bound to the exact host, transport, and version,
 session, guide and continuation digests, successful create/resume exits, same worktree/session, a
@@ -107,23 +117,37 @@ history, so this implementation activates only with `retained_safe` evidence. `p
 `turn_scoped` remain explicit future transport states and must not activate this path without a
 different, behaviorally proven instruction-delivery mechanism.
 
+For the Grok Build transport the behavioral artifact is the `grok_prewalk_qualification_canary`
+(schema version 1): an operator-recorded, bounded (≤ 64 KiB), regular non-symlink JSON file read
+through a descriptor-bound (O_NOFOLLOW, fstat-identity) loader. It must carry exactly the required
+fields binding host `grok`, transport `grok_build`, the exact installed version and build commit
+reported by the installed binary, one canonical session UUID, both phase routes with model and
+effort, successful create/resume exits, same-worktree/session/stream continuity facts, guide-only
+fact retention, no packet replay, model-call provenance, and an explicit instruction-fidelity
+result. The loader validates artifacts; it never fabricates them, and `retained_safe` remains the
+only activating fidelity here as well. No such artifact has been recorded; Grok prewalk is
+unqualified.
+
 Provider cache tokens are telemetry only. Cache hits neither prove nor gate trajectory continuity.
 
 ## Host parity
 
-| Concern | Codex | Claude Code | Shared requirement |
-|---|---|---|---|
-| Fresh identity | capture `thread.started.thread_id` | caller-generated UUID | exact ID before transition |
-| Guide route | `--model`, `model_reasoning_effort` | `--model`, `--effort` | explicitly pinned |
-| Exact resume | `codex exec resume <id>` | `--resume <uuid>` | never `--last`/`--continue` |
-| Resume route | flags before `resume`; OS CWD | model/effort with resume; supervisor CWD | explicit execution route, same worktree |
-| Stream | JSONL | stream JSON | one redacted logical follow log |
-| Authority | workspace sandbox + narrow Git roots | `auto` classifier + narrow Git roots | existing no-push/protected-ref checks |
-| Failure | exact-session recovery | exact-session recovery | no post-edit cold fallback |
+| Concern | Codex | Claude Code | Grok Build (feature-gated, unqualified) | Shared requirement |
+|---|---|---|---|---|
+| Fresh identity | capture `thread.started.thread_id` | caller-generated UUID | caller-generated UUID via `--session-id` (create-only) | exact ID before transition |
+| Guide route | `--model`, `model_reasoning_effort` | `--model`, `--effort` | `--model`, `--effort` | explicitly pinned |
+| Exact resume | `codex exec resume <id>` | `--resume <uuid>` | exact `--resume <uuid>` | never `--last`/`--continue` |
+| Resume route | flags before `resume`; OS CWD | model/effort with resume; supervisor CWD | model/effort with resume; supervisor `--cwd`; sandbox resume-sticky | explicit execution route, same worktree |
+| Stream | JSONL | stream JSON | streaming JSON (no tool-call events; `sessionId` only on `end`) | one redacted logical follow log |
+| Authority | workspace sandbox + narrow Git roots | `auto` classifier + narrow Git roots | `--permission-mode auto`, never yolo/always-approve | existing no-push/protected-ref checks |
+| TODO/checkpoint | native mechanism + private JSON mirror | native mechanism + private JSON mirror | private JSON mirror is authoritative (installed `plan.json` persistence is vestigial) | bounded provider-neutral schema |
+| Failure | exact-session recovery | exact-session recovery | exact-session recovery | no post-edit cold fallback |
 
 Codex keeps sandbox and additional Git roots before the `resume` subcommand. Claude keeps
 `--safe-mode --print --verbose --output-format stream-json --permission-mode auto`; prewalk never
-uses `bypassPermissions`. Custom-agent surfaces that cannot change route while preserving the exact
+uses `bypassPermissions`. The Grok column is advertised-and-registry grammar only: the arm is
+feature-gated off, `launch_ready` is false, and this lane never emits `--always-approve`, `--yolo`,
+or `dontAsk`. Custom-agent surfaces that cannot change route while preserving the exact
 session do not qualify; the supervised CLI transport is the parity surface.
 
 ## Launch and recovery
@@ -148,7 +172,8 @@ worker; that result is not claimed as prewalk. After an edit, cold fallback is f
 ID, worktree, branch, origin, protected-ref, artifact, or meaningful-edit mismatch fails closed
 with a stable `prewalk_*` code and a bounded recovery hint.
 
-Live canaries for Codex and Claude are a separate operator-authorized rollout phase. They must prove
-the same session/worktree, route change, guide-only fact retention, no packet replay, stream
-identity, and honest instruction fidelity before `auto` can activate for that exact installed
-version.
+Live canaries for Codex, Claude, and Grok are a separate operator-authorized rollout phase. They
+must prove the same session/worktree, route change, guide-only fact retention, no packet replay,
+stream identity, and honest instruction fidelity before `auto` can activate for that exact
+installed version. The operator canary procedure for the Grok lane is in
+[`grok-open-source-worker.md`](grok-open-source-worker.md).

@@ -41,13 +41,12 @@ from pathlib import Path
 from typing import Any
 
 from cobbler_runtime.context import is_secret_env_name, redact_structure, redact_text
+from cobbler_runtime.schema import AMBIGUOUS_SESSION_TOKENS
 
 DEFAULT_MODEL = "openrouter/auto"
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
 SESSION_DIR_REL = Path(".elves") / "runtime" / "openrouter-sessions"
-_AMBIGUOUS = frozenset(
-    {"latest", "last", "continue", "most-recent", "most_recent", "recent", "current", "active"}
-)
+_AMBIGUOUS = AMBIGUOUS_SESSION_TOKENS
 _SENSITIVE_PATH_PARTS = frozenset(
     {".aws", ".git", ".gnupg", ".ssh", "credentials", "private-keys", "secrets"}
 )

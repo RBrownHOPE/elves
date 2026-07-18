@@ -146,7 +146,7 @@ from .git_contract import (
     snapshot_protected_refs,
     verify_protected_refs_unchanged,
 )
-from .schema import ELVES_SESSION_BASENAME, ValidationIssue
+from .schema import AMBIGUOUS_SESSION_TOKENS, ELVES_SESSION_BASENAME, ValidationIssue
 from .toml_compat import loads as _load_toml
 from .storage import (
     StorageError,
@@ -3145,7 +3145,7 @@ def prepare_full_run(
     normalized_grant_names = _normalize_credential_grant_names(
         credential_grant_names
     )
-    if not sid or sid.lower() in {"latest", "continue", "last", "most-recent"}:
+    if not sid or sid.lower() in AMBIGUOUS_SESSION_TOKENS:
         raise ValidationIssue(
             "full_run_session_required",
             "Exact session_id is required for full-run prepare",

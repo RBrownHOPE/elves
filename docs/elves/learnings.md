@@ -290,3 +290,24 @@ wrong altitude. Two chokepoints gave a total guarantee instead: an fd-level devn
 `tests/__init__.py` (children inherit closed stdin no matter the runner) and stdin+timeout
 hardening in the single gate runner and the canonical git helper. When a failure class comes from
 a default (inherited stdin), fix the default, not the instances.
+
+## Local environment floor and worker transport (2026-07-18, audit-follow-ups staging)
+
+- This machine runs system Python 3.9.6 only; the repo's implicit floor is 3.10
+  (`Path.parents` slicing in `sync_installed_skills.py`). Until the B1 floor guard lands, the
+  local suite shows 18 pre-existing errors confined to the sync/bundle test modules; CI
+  (3.10/3.12/3.14) is the authoritative broad gate. Do not "fix" this by weakening tests.
+- The standalone `claude` CLI binary is not installed here, so the supervised `native-worker`
+  CLI transport (and exact-session prewalk for a live worker) is unavailable on this machine.
+  Honest fallback: in-session native subagent workers with an explicit model/effort pin, driver
+  owns git. Record requested vs actual route in `.elves-session.json`.
+
+## Verified Grok Build grammar for the prewalk port (2026-07-18, audit PR #82)
+
+From grok-build 0.2.102 source (commit 98c3b24), adversarially verified: `--session-id <uuid>`
+is create-only; `--resume <id>` is strict exact resume; model/effort override IS applied on
+resume before the prompt; `--cwd` pins cwd; headless streaming JSON has no tool-call events and
+emits `sessionId` only on the terminal `end` event; non-yolo `--permission-mode auto` fails
+closed on unapproved tools; sandbox profile is resume-sticky; `todo_write`'s `plan.json`
+persistence is vestigial (the private JSON mirror must be the durable prewalk artifact). Source
+of truth: `docs/reviews/2026-07-repo-audit-grok-prewalk.md`.

@@ -46,7 +46,19 @@ pruning. The current persisted-instruction transport activates only for behavior
 `retained_safe`; `pruned` and `turn_scoped` remain schema states for future delivery mechanisms.
 Consequently the shipped code is feature-gated and `auto` remains actually off for an unqualified
 installed version on either host. A release must not claim general prewalk availability when one
-primary host would silently start a new session. See [`prewalk.md`](prewalk.md).
+primary host would silently start a new session. The same release-honesty rule extends to external
+providers: no release may claim Grok prewalk availability or behavioral qualification. See
+[`prewalk.md`](prewalk.md).
+
+The host-profile registry also carries a feature-gated `grok` prewalk arm.
+`native-worker prewalk-capabilities --host grok --json` reports installed advertised grammar with
+zero model calls, and `route-worker` accepts `--grok-prewalk-qualification <artifact.json>`. With
+`provider=grok`, `worker.prewalk auto` falls back honestly to actual mode `off` with
+`prewalk_capability_unavailable:grok_prewalk_unqualified:<concrete-reason>`, and `required` fails
+before launch, until a valid version-bound `retained_safe` qualification artifact exists;
+`allow_grok=false` vetoes regardless of evidence. This prewalk lane is non-yolo
+(`--permission-mode auto`) and distinct from the trusted full-run lane; see
+[`grok-open-source-worker.md`](grok-open-source-worker.md).
 
 ## Do not confuse
 

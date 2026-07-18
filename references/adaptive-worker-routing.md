@@ -88,11 +88,21 @@ multi-step work; atomic low-reasoning work records a skip. External providers re
 their trajectory semantics are separately qualified. `required` fails before launch rather than
 silently becoming a packet handoff.
 
+For `provider=grok` that separate qualification is a valid `grok_prewalk_qualification_canary`
+artifact, passed with `--grok-prewalk-qualification <artifact.json>`. Without one (today's every
+environment), `prewalk auto` falls back honestly with the concrete reason
+`prewalk_capability_unavailable:grok_prewalk_unqualified:<concrete-reason>` and actual mode `off`;
+`prewalk required` fails before launch with the same concrete reason. `allow_grok=false` remains
+an absolute veto regardless of any evidence. The release-honesty rule extends to external
+providers: no release may claim Grok prewalk availability or behavioral qualification while the
+arm is feature-gated and unqualified.
+
 Inspect the installed grammar without inference:
 
 ```bash
 python3 scripts/cobbler_agents.py native-worker prewalk-capabilities --host codex --json
 python3 scripts/cobbler_agents.py native-worker prewalk-capabilities --host claude --json
+python3 scripts/cobbler_agents.py native-worker prewalk-capabilities --host grok --json
 ```
 
 Static help establishes advertised flags only. Actual prewalk additionally requires exact-version
@@ -106,7 +116,9 @@ When Grok Build is explicitly permitted and silently qualifies:
 
 - choose the parsed default from the authenticated live `grok models` catalog unless the operator
   explicitly requests another catalog member;
-- never invent `auto`, `grok-code-fast-1`, `grok-4.5`, or any other unavailable model;
+- never invent an unavailable model: an explicit identifier (including `grok-4.5` or
+  `grok-code-fast-1`) is valid only when the authenticated live catalog returns that exact
+  identifier;
 - missing install, auth, live catalog, supported session grammar, consent, or another core launch
   capability records an honest native fallback with a concrete reason;
 - goal support is separate: behaviorally verified headless `/goal` enhances the launch, while an

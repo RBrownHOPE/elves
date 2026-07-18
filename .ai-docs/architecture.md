@@ -91,8 +91,20 @@ exact fresh/resume state, pending-acceptance ownership, current branch/HEAD, and
 leading Markdown or JSON packet capsule. Full-run prepare still owns immutable launch-time
 plan/session/packet binding. The capsule is cold-handoff evidence and never proves prewalk.
 
-Exact-session prewalk is a lifecycle inside one subscription-native worker, not a cross-worker
-context transfer. The packet appears once on the guide turn; private model-free policy verifies a
+Host differences live in one host-profile registry (`cobbler_runtime/host_profiles.py`): per host
+it carries create/resume argv builders, effort grammar, transport name, identity event typing,
+provider-secret allowlist, help-probe argv, commit mode, and `launch_ready`. Spec construction,
+child-env secret projection, launch identity readiness, prewalk probes, and routing transport
+naming all consume the registry instead of per-site `if/elif` chains; `native_worker_profiles()`
+is a view of it. The `grok` row is feature-gated (`launch_ready` false, non-yolo
+`--permission-mode auto`, `XAI_API_KEY`-only): grok prewalk routing requires the absence of the repository allow_grok=false veto, explicit
+consent, and a valid operator-recorded `grok_prewalk_qualification_canary` artifact
+(`retained_safe`, exact installed version/build binding), and otherwise records the honest
+concrete fallback `grok_prewalk_unqualified:<reason>` with actual mode `off`. No environment is
+qualified; nothing may claim Grok prewalk availability.
+
+Exact-session prewalk is a lifecycle inside one subscription-native (or separately qualified)
+worker, not a cross-worker context transfer. The packet appears once on the guide turn; private model-free policy verifies a
 bounded TODO, first meaningful edit, session/worktree/Git continuity, and checkpoint before the
 supervisor resumes that same ID on a separately pinned execution route with `Continue.`. Static
 host help is advertised capability only; version-bound behavioral evidence gates actual prewalk and

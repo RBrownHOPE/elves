@@ -27,6 +27,15 @@ from .full_run import (
     verify_protected_refs_unchanged,
 )
 from .context import is_secret_env_name
+from .host_profiles import (
+    HostLaunchRequest,
+    exact_session_id as _registry_exact_session_id,
+    host_profile_or_none,
+    identity_event_keys,
+    native_worker_profile_view,
+    provider_secret_names as _registry_provider_secret_names,
+    resolve_host_profile,
+)
 from .prewalk import (
     PREWALK_CONTINUATION_INPUT,
     PREWALK_DEFAULT_TODO_LIMIT,
@@ -67,6 +76,7 @@ class NativeWorkerSpec:
     visibility_mode: str = "commit_only"
     watcher_command: str | None = None
     git_write_roots: tuple[str, ...] = ()
+    prompt_file_flag: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -126,40 +136,12 @@ class NativeWorkerPrewalkSpec:
 
 
 def native_worker_profiles() -> dict[str, dict[str, Any]]:
-    """Semantically matched profiles; transport syntax stays host-specific."""
-    common = {
-        "model_policy": "inherit_live_driver_model",
-        "effort_policy": "plan_execution_reasoning",
-        "separate_session": True,
-        "full_packet": True,
-        "visibility_ready": False,
-        "visibility_mode": "commit_only",
-        "worker_merge_authority": False,
-        "cache_handoff": False,
-    }
-    return {
-        "codex": {
-            **common,
-            "transport": "codex_exec",
-            "worktree_binding": "-C create; OS cwd resume",
-            "session_identity": "thread.started.thread_id",
-            "commit_mode": "sandboxed_worker_commit",
-        },
-        "claude": {
-            **common,
-            "transport": "claude_code",
-            "worktree_binding": "supervisor cwd or native isolated worktree",
-            "session_identity": "caller-assigned UUID",
-            "commit_mode": "classifier_approved_worker_commit",
-        },
-    }
+    """Semantically matched profiles; a view of the host-profile registry."""
+    return native_worker_profile_view()
 
 
-def _exact_session_id(session_id: str) -> str:
-    value = session_id.strip()
-    if not value or value in {"last", "latest", "--last"} or value.startswith("-"):
-        raise ValidationIssue("invalid_exact_session_id", "An exact worker session id is required")
-    return value
+# Canonical exact-session validation lives in the host-profile registry.
+_exact_session_id = _registry_exact_session_id
 
 
 def _git_write_roots(worktree: Path) -> tuple[str, ...]:
@@ -261,7 +243,7 @@ def build_native_worker_spec(
     watcher_command: str | None = None,
     fixture_script: Path | None = None,
 ) -> NativeWorkerSpec:
-    host_token = host.strip().lower().replace("_", "-")
+    host_profile = resolve_host_profile(host)
     effort_token = effort.strip().lower()
     if effort_token not in {"low", "medium", "high"}:
         raise ValidationIssue("invalid_worker_effort", f"Invalid worker effort `{effort}`")
@@ -280,73 +262,36 @@ def build_native_worker_spec(
     visibility_ready = visibility_mode in {"native_host_agent_view", "follow_log"}
     if visibility_mode == "follow_log" and not watcher_command:
         raise ValidationIssue("visibility_not_bound", "Follow-log visibility requires an exact watcher command")
-    if host_token == "fixture":
-        if fixture_script is None:
-            raise ValidationIssue("fixture_script_required", "Fixture native worker requires --fixture-script")
-        sid = _exact_session_id(session_id) if session_id else f"fixture-{hashlib.sha256(str(fixture_script).encode()).hexdigest()[:16]}"
-        argv = (sys.executable, str(fixture_script.resolve(strict=True)))
-        return NativeWorkerSpec(
-            host="fixture", profile="elves-native-worker-fixture", effort=effort_token,
-            model_policy=model_policy, requested_model=requested_model, separate_session=True,
-            cwd=cwd, argv=argv, stdin_packet=True, session_id_source="fixture_session_id",
-            session_id=sid, commit_mode="fixture", visibility_ready=visibility_ready, visibility_mode=visibility_mode,
-            watcher_command=watcher_command,
-        )
-
-    if host_token == "codex":
-        common = [
-            "codex", "exec", "--json", "--ignore-user-config", "--ignore-rules",
-            "--sandbox", "workspace-write", "-c", f'model_reasoning_effort="{effort_token}"',
-        ]
-        for root in git_write_roots:
-            common.extend(["--add-dir", root])
-        common.extend(["--model", requested_model])
-        if session_id is None:
-            argv = (*common, "-C", cwd, "-")
-            resume = None
-        else:
-            sid = _exact_session_id(session_id)
-            # Keep exec-level sandbox and additional-write-root options before
-            # the resume subcommand. The supervisor binds the exact OS cwd.
-            argv = tuple(common + ["resume", sid, "-"])
-            resume = argv
-        return NativeWorkerSpec(
-            host="codex", profile="elves-native-worker", effort=effort_token,
-            model_policy=model_policy, requested_model=requested_model,
-            separate_session=True, cwd=cwd, argv=tuple(argv), stdin_packet=True,
-            session_id_source="thread.started.thread_id", session_id=session_id, resume_argv=resume,
-            commit_mode="sandboxed_worker_commit",
-            visibility_ready=visibility_ready, visibility_mode=visibility_mode, watcher_command=watcher_command,
+    plan = host_profile.launch_plan(
+        HostLaunchRequest(
+            effort=effort_token,
+            requested_model=requested_model,
+            cwd=cwd,
             git_write_roots=git_write_roots,
+            session_id=session_id,
+            fixture_script=fixture_script,
         )
-
-    if host_token in {"claude", "claude-code"}:
-        common = [
-            "claude", "--safe-mode", "--print", "--verbose",
-            "--output-format", "stream-json", "--input-format", "text",
-            "--effort", effort_token, "--permission-mode", "auto",
-        ]
-        for root in git_write_roots:
-            common.extend(["--add-dir", root])
-        common.extend(["--model", requested_model])
-        if session_id is None:
-            # Claude accepts a caller-generated UUID, providing exact identity before launch.
-            import uuid
-            sid = str(uuid.uuid4())
-            argv = tuple(common + ["--session-id", sid])
-        else:
-            sid = _exact_session_id(session_id)
-            argv = tuple(common + ["--resume", sid])
-        return NativeWorkerSpec(
-            host="claude-code", profile="elves-native-worker", effort=effort_token,
-            model_policy=model_policy, requested_model=requested_model,
-            separate_session=True, cwd=cwd, argv=argv, stdin_packet=True,
-            session_id_source="requested_session_id", session_id=sid, resume_argv=argv if session_id else None,
-            commit_mode="classifier_approved_worker_commit",
-            visibility_ready=visibility_ready, visibility_mode=visibility_mode, watcher_command=watcher_command,
-            git_write_roots=git_write_roots,
-        )
-    raise ValidationIssue("unsupported_host", f"Unsupported native worker host `{host}`")
+    )
+    return NativeWorkerSpec(
+        host=host_profile.host,
+        profile=host_profile.spec_profile,
+        effort=effort_token,
+        model_policy=model_policy,
+        requested_model=requested_model,
+        separate_session=True,
+        cwd=cwd,
+        argv=plan.argv,
+        stdin_packet=plan.stdin_packet,
+        session_id_source=plan.session_id_source,
+        session_id=plan.session_id,
+        resume_argv=plan.resume_argv,
+        commit_mode=host_profile.commit_mode,
+        visibility_ready=visibility_ready,
+        visibility_mode=visibility_mode,
+        watcher_command=watcher_command,
+        git_write_roots=git_write_roots if host_profile.grants_git_write_roots else (),
+        prompt_file_flag=plan.prompt_file_flag,
+    )
 
 
 def build_native_worker_prewalk_spec(
@@ -382,10 +327,12 @@ def build_native_worker_prewalk_spec(
             "prewalk_todo_limit_exceeded",
             f"Prewalk TODO limit must be {PREWALK_MIN_TODO_LIMIT}..{PREWALK_MAX_TODO_LIMIT}",
         )
-    host_token = host.strip().lower().replace("_", "-")
-    expected_host = "claude" if host_token == "claude-code" else host_token
-    capability_host = "claude" if capabilities.host == "claude-code" else capabilities.host
-    if host_token != "fixture" and capability_host != expected_host:
+    launch_profile = resolve_host_profile(host)
+    capability_profile = host_profile_or_none(capabilities.host)
+    capability_host = (
+        capability_profile.capability_host if capability_profile else capabilities.host
+    )
+    if launch_profile.host != "fixture" and capability_host != launch_profile.capability_host:
         raise ValidationIssue("prewalk_capability_unavailable", "Prewalk capability host does not match launch host")
     if not capabilities.route_matches(
         guide_model=guide_model.strip(),
@@ -462,13 +409,25 @@ def _transient_provider_failure(text: str) -> bool:
     return any(marker in normalized for marker in _TRANSIENT_PROVIDER_MARKERS)
 
 
-def _is_provider_event(line: str) -> bool:
-    """Return whether one stdout line is a structured provider event."""
+# Structured stdout event types that report a provider/transport error. Only
+# these stdout events may contribute to transient-failure classification; task
+# narration on stdout (for example a worker discussing a "timeout" bug) never
+# does. Stderr lines remain in scope unconditionally.
+_PROVIDER_ERROR_EVENT_TYPES = frozenset({"error", "turn.failed", "thread.error", "stream_error"})
+
+
+def _parse_provider_event(line: str) -> dict[str, Any] | None:
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
-        return False
-    return isinstance(event, dict) and isinstance(event.get("type"), str)
+        return None
+    if isinstance(event, dict) and isinstance(event.get("type"), str):
+        return event
+    return None
+
+
+def _is_provider_error_event(event: dict[str, Any]) -> bool:
+    return event.get("type") in _PROVIDER_ERROR_EVENT_TYPES
 
 
 def _run_key(run_id: str) -> str:
@@ -553,10 +512,7 @@ def _native_worker_child_env(
 ) -> dict[str, str]:
     """Project provider auth while removing ambient Git/network credentials."""
     parent = dict(os.environ)
-    provider_secret_names = {
-        "codex": {"OPENAI_API_KEY", "CODEX_API_KEY"},
-        "claude-code": {"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"},
-    }.get(host, set())
+    provider_secret_names = _registry_provider_secret_names(host)
     forbidden_exact = {
         "GH_TOKEN",
         "GITHUB_TOKEN",
@@ -574,8 +530,9 @@ def _native_worker_child_env(
         if is_secret_env_name(name) and name not in provider_secret_names:
             continue
         env[name] = value
-    # Subscription-backed Codex and Claude may need their own explicit provider
-    # token. No other secret-valued environment entry crosses the boundary.
+    # Each host may need only its registry-allowlisted provider auth names
+    # (subscription tokens for Codex/Claude; XAI_API_KEY/GROK_AUTH_PATH for
+    # Grok). No other secret-valued environment entry crosses the boundary.
     for name in provider_secret_names:
         if parent.get(name):
             env[name] = parent[name]
@@ -669,26 +626,40 @@ def _worktree_clean(worktree: Path) -> bool:
     return result.returncode == 0 and not result.stdout.strip()
 
 
-def _provider_session_id(line: str) -> str | None:
-    try:
-        event = json.loads(line)
-    except json.JSONDecodeError:
+# Identity is event-typed: only the documented identity/continuity events for
+# each host may bind or challenge session identity. Codex publishes
+# `thread.started.thread_id` at create and `turn.*` continuity events; Claude
+# Code sessions are caller-preset UUIDs whose stream confirms identity via the
+# `system`/`init` event; Grok Build sessions are caller-preset UUIDs whose
+# terminal `end` event may confirm identity via `sessionId`. Arbitrary typed
+# lines (for example a worker log event that merely mentions a `session_id`)
+# must never bind or mismatch identity. The per-host event vocabulary is
+# registry data: see `host_profiles.identity_event_keys`.
+
+
+def _provider_session_id(line: str, host: str | None = None) -> str | None:
+    event = _parse_provider_event(line)
+    if event is None:
         return None
-    if not isinstance(event, dict):
+    return _provider_session_id_from_event(event, host=host)
+
+
+def _provider_session_id_from_event(
+    event: dict[str, Any], host: str | None = None
+) -> str | None:
+    event_type = str(event["type"])
+    keys = identity_event_keys(host).get(event_type)
+    if keys is None:
         return None
-    for key in ("thread_id", "session_id", "sessionId"):
+    if event_type == "system" and event.get("subtype") != "init":
+        return None
+    for key in keys:
         value = event.get(key)
         if isinstance(value, str) and value.strip():
             try:
                 return _exact_session_id(value)
             except ValidationIssue:
                 return None
-    session = event.get("session")
-    if isinstance(session, dict) and isinstance(session.get("id"), str):
-        try:
-            return _exact_session_id(session["id"])
-        except ValidationIssue:
-            return None
     return None
 
 
@@ -814,16 +785,26 @@ def _run_worker_phase(
                     selector.unregister(key.fileobj)
                     continue
                 redacted = redact_text(line.rstrip("\n"))
-                if _transient_provider_failure(redacted.text):
+                # Transient markers classify transport health only: stderr
+                # lines and structured provider error events. Task stdout
+                # content never flips the transient classification.
+                if key.data == "stderr" and _transient_provider_failure(redacted.text):
                     transient_transport_failure = True
                 wrapper = {"stream": key.data, "line": redacted.text}
                 if is_prewalk_run:
                     wrapper["phase"] = phase
                 log.write(json.dumps(wrapper, sort_keys=True) + "\n")
                 log.flush()
-                if key.data == "stdout" and _is_provider_event(line):
+                event = _parse_provider_event(line) if key.data == "stdout" else None
+                if event is not None:
                     provider_event_count += 1
-                    observed = _provider_session_id(line)
+                    if _is_provider_error_event(event) and _transient_provider_failure(
+                        redacted.text
+                    ):
+                        transient_transport_failure = True
+                    observed = _provider_session_id_from_event(
+                        event, host=str(state.get("host")) if state.get("host") else None
+                    )
                     if observed:
                         if observed not in observed_session_ids:
                             observed_session_ids.append(observed)
@@ -845,6 +826,9 @@ def _run_worker_phase(
                         -_NATIVE_WORKER_STDERR_TAIL_CHARS:
                     ]
         code = child.wait()
+        for stream in (child.stdout, child.stderr):
+            if stream is not None:
+                stream.close()
     runtime_seconds = round(time.monotonic() - child_started, 3)
     if isinstance(phase_state, dict):
         phase_state["ended_at"] = datetime_now()
@@ -861,10 +845,11 @@ def _run_worker_phase(
                 }
             )
     state["provider_event_count"] = int(state.get("provider_event_count") or 0) + provider_event_count
+    # Preserve the bounded stderr tail on any failing exit, including runs
+    # that emitted provider events: transport diagnostics often land on
+    # stderr after the stream started.
     state["stderr_tail"] = (
-        stderr_tail.rstrip("\n")
-        if code != 0 and provider_event_count == 0 and stderr_tail
-        else None
+        stderr_tail.rstrip("\n") if code != 0 and stderr_tail else None
     )
     _write_private_json(state_path, state)
     return _PhaseResult(
@@ -893,14 +878,29 @@ def _terminalize_native_worker(
     failure_reason: str | None = None,
 ) -> int:
     prior_status = str(state.get("status") or "")
-    errors = _authority_errors(worktree, state)
+    # A hung git helper must never prevent the terminal state write.
+    authority_timed_out = False
+    try:
+        errors = _authority_errors(worktree, state)
+    except subprocess.TimeoutExpired:
+        authority_timed_out = True
+        errors = ["git authority verification timed out"]
     state["exit_code"] = exit_code
     state["authority_verified"] = not errors
     state["authority_errors"] = errors
-    state["final_head"] = _final_head(worktree)
+    try:
+        state["final_head"] = _final_head(worktree)
+    except subprocess.TimeoutExpired:
+        state["final_head"] = None
     if errors:
         _set_status(state, "failed")
-        state["failure_reason"] = "native_worker_git_authority_violation"
+        # A timed-out verification is an infrastructure failure, not evidence
+        # of worker misbehavior; only a real check failure is a violation.
+        state["failure_reason"] = (
+            "native_worker_git_timeout"
+            if authority_timed_out and len(errors) == 1
+            else "native_worker_git_authority_violation"
+        )
     elif failure_reason:
         _set_status(state, "failed")
         state["failure_reason"] = failure_reason
@@ -942,6 +942,15 @@ def launch_native_worker(
     cli_path: Path,
     prewalk_spec: NativeWorkerPrewalkSpec | None = None,
 ) -> dict[str, Any]:
+    # The fail-closed launch gate lives in the registry, not in CLI string
+    # compares: a host row with launch_ready=False (grok until qualification
+    # tooling lands) must be unlaunchable through every entry point.
+    launch_profile = resolve_host_profile(spec.host)
+    if not launch_profile.launch_ready:
+        raise ValidationIssue(
+            f"{launch_profile.capability_host}_native_worker_launch_unqualified",
+            f"{launch_profile.capability_host} native-worker launch is feature-gated off until a valid prewalk qualification artifact is supplied and validated",
+        )
     state_path, log_path = native_worker_paths(repo_root, run_id)
     if state_path.exists():
         raise ValidationIssue("native_worker_run_exists", f"Native worker run `{run_id}` already exists")
@@ -1079,8 +1088,10 @@ def launch_native_worker(
     deadline = time.monotonic() + 8.0
     while time.monotonic() < deadline:
         current = json.loads(state_path.read_text(encoding="utf-8"))
+        current_profile = host_profile_or_none(str(current.get("host") or ""))
         identity_ready = current.get("pid") and (
-            current.get("session_id") or current.get("host") != "codex"
+            current.get("session_id")
+            or not (current_profile and current_profile.identity_from_stream_required)
         )
         if identity_ready or current.get("status") in {"complete", "failed"}:
             return current
@@ -1156,14 +1167,23 @@ def _clean_fallback_allowed(state: dict[str, Any], worktree: Path) -> bool:
 
 def _guide_recovery_failure_reason(state: dict[str, Any], worktree: Path) -> str:
     try:
-        if _final_head(worktree) != str(state["start_head"]):
-            return "prewalk_worktree_continuity_violation"
+        head_moved = _final_head(worktree) != str(state["start_head"])
+        paths = observed_changed_paths(worktree, str(state["start_head"]))
+        task_edited = any(not path.startswith(".elves/") for path in paths)
+        if head_moved:
+            # A moved HEAD that retains task edits means the guide already
+            # committed real work: a cold fresh-session fallback is forbidden.
+            # A moved HEAD with no retained delta is history drift.
+            return (
+                "prewalk_post_edit_cold_fallback_forbidden"
+                if task_edited
+                else "prewalk_worktree_continuity_violation"
+            )
         if _verify_native_git_contract(worktree, state):
             return "prewalk_worktree_continuity_violation"
-        paths = observed_changed_paths(worktree, str(state["start_head"]))
     except ValidationIssue:
         return "prewalk_worktree_continuity_violation"
-    if any(not path.startswith(".elves/") for path in paths):
+    if task_edited:
         return "prewalk_post_edit_cold_fallback_forbidden"
     return "prewalk_guide_exit_before_checkpoint"
 
@@ -1525,8 +1545,13 @@ def supervise_native_worker(*, repo_root: Path, run_id: str, packet: Path) -> in
             packet=packet,
             child_env=child_env,
         )
-    except (OSError, UnicodeError, ValidationIssue) as exc:
-        failure = exc.code if isinstance(exc, ValidationIssue) else "native_worker_supervisor_failure"
+    except (OSError, UnicodeError, ValidationIssue, subprocess.SubprocessError) as exc:
+        if isinstance(exc, ValidationIssue):
+            failure = exc.code
+        elif isinstance(exc, subprocess.TimeoutExpired):
+            failure = "native_worker_git_timeout"
+        else:
+            failure = "native_worker_supervisor_failure"
         return _terminalize_native_worker(
             state_path=state_path,
             state=state,
@@ -1596,8 +1621,23 @@ def follow_native_worker(repo_root: Path, run_id: str, *, wait: bool = True, out
         if log_path.is_file():
             with log_path.open("r", encoding="utf-8", errors="replace") as handle:
                 handle.seek(offset)
-                for line in handle:
-                    event = json.loads(line)
+                while True:
+                    position = handle.tell()
+                    line = handle.readline()
+                    if not line:
+                        break
+                    if not line.endswith("\n"):
+                        # A torn tail is still being written; re-read it on the
+                        # next poll instead of surfacing a partial event.
+                        handle.seek(position)
+                        break
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        # Skip a torn or corrupt log line without dying.
+                        continue
+                    if not isinstance(event, dict) or "stream" not in event or "line" not in event:
+                        continue
                     label = (
                         f"{event['phase']}:{event['stream']}"
                         if event.get("phase")

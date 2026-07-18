@@ -2001,22 +2001,30 @@ PREWALK_PHRASES = {
     ],
     "references/prewalk.md": [
         "Elves **prewalk** is a trajectory property",
+        "separately qualified worker session",
         "execution route with only",
         "retained_safe",
         "post-edit cold fallback",
         "normally reports actual mode `off`",
+        "External providers remain off unless their trajectory semantics are separately qualified",
+        "grok_prewalk_qualification_canary",
+        "never fabricates them",
     ],
     "references/host-parity.md": [
         "Exact-session prewalk parity",
         "one redacted logical follow stream",
         "no post-edit cold fallback",
         "prewalk.md",
+        "no release may claim Grok prewalk availability or behavioral qualification",
+        "grok_prewalk_unqualified",
     ],
     "references/adaptive-worker-routing.md": [
         "Optional exact-session prewalk route",
         "requested/actual prewalk mode",
         "help probes always report false",
         "actual mode `off`",
+        "prewalk_capability_unavailable:grok_prewalk_unqualified:",
+        "no release may claim Grok prewalk availability or behavioral qualification",
     ],
     "guide/index.html": [
         "Use exact-session prewalk when qualified",
@@ -2028,6 +2036,8 @@ PREWALK_PHRASES = {
         "True exact-session native-worker prewalk",
         "execution-route resume with only",
         "no paid canary ran",
+        "remains feature-gated off",
+        "claims Grok prewalk availability or behavioral qualification",
     ],
 }
 
@@ -2130,6 +2140,11 @@ GROK_OPEN_SOURCE_WORKER_PHRASES = {
         "--host-tests-pass",
         "--resume --grant-grok-auth",
         "/goal resume",
+        "## Feature-gated prewalk lane (distinct from trusted full-run)",
+        "--permission-mode auto",
+        "grok_prewalk_qualification_canary",
+        "operator-authorized live canary",
+        "commit `98c3b24`",
     ],
     "guide/index.html": [
         "https://github.com/xai-org/grok-build",
