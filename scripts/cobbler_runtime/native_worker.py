@@ -27,6 +27,15 @@ from .full_run import (
     verify_protected_refs_unchanged,
 )
 from .context import is_secret_env_name
+from .host_profiles import (
+    HostLaunchRequest,
+    exact_session_id as _registry_exact_session_id,
+    host_profile_or_none,
+    identity_event_keys,
+    native_worker_profile_view,
+    provider_secret_names as _registry_provider_secret_names,
+    resolve_host_profile,
+)
 from .prewalk import (
     PREWALK_CONTINUATION_INPUT,
     PREWALK_DEFAULT_TODO_LIMIT,
@@ -44,7 +53,7 @@ from .prewalk import (
     validate_meaningful_edit,
     write_session_identity,
 )
-from .schema import AMBIGUOUS_SESSION_TOKENS, ValidationIssue
+from .schema import ValidationIssue
 
 
 @dataclass(frozen=True)
@@ -67,6 +76,7 @@ class NativeWorkerSpec:
     visibility_mode: str = "commit_only"
     watcher_command: str | None = None
     git_write_roots: tuple[str, ...] = ()
+    prompt_file_flag: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -126,40 +136,12 @@ class NativeWorkerPrewalkSpec:
 
 
 def native_worker_profiles() -> dict[str, dict[str, Any]]:
-    """Semantically matched profiles; transport syntax stays host-specific."""
-    common = {
-        "model_policy": "inherit_live_driver_model",
-        "effort_policy": "plan_execution_reasoning",
-        "separate_session": True,
-        "full_packet": True,
-        "visibility_ready": False,
-        "visibility_mode": "commit_only",
-        "worker_merge_authority": False,
-        "cache_handoff": False,
-    }
-    return {
-        "codex": {
-            **common,
-            "transport": "codex_exec",
-            "worktree_binding": "-C create; OS cwd resume",
-            "session_identity": "thread.started.thread_id",
-            "commit_mode": "sandboxed_worker_commit",
-        },
-        "claude": {
-            **common,
-            "transport": "claude_code",
-            "worktree_binding": "supervisor cwd or native isolated worktree",
-            "session_identity": "caller-assigned UUID",
-            "commit_mode": "classifier_approved_worker_commit",
-        },
-    }
+    """Semantically matched profiles; a view of the host-profile registry."""
+    return native_worker_profile_view()
 
 
-def _exact_session_id(session_id: str) -> str:
-    value = session_id.strip()
-    if not value or value.lower() in AMBIGUOUS_SESSION_TOKENS or value.startswith("-"):
-        raise ValidationIssue("invalid_exact_session_id", "An exact worker session id is required")
-    return value
+# Canonical exact-session validation lives in the host-profile registry.
+_exact_session_id = _registry_exact_session_id
 
 
 def _git_write_roots(worktree: Path) -> tuple[str, ...]:
@@ -261,7 +243,7 @@ def build_native_worker_spec(
     watcher_command: str | None = None,
     fixture_script: Path | None = None,
 ) -> NativeWorkerSpec:
-    host_token = host.strip().lower().replace("_", "-")
+    host_profile = resolve_host_profile(host)
     effort_token = effort.strip().lower()
     if effort_token not in {"low", "medium", "high"}:
         raise ValidationIssue("invalid_worker_effort", f"Invalid worker effort `{effort}`")
@@ -280,73 +262,36 @@ def build_native_worker_spec(
     visibility_ready = visibility_mode in {"native_host_agent_view", "follow_log"}
     if visibility_mode == "follow_log" and not watcher_command:
         raise ValidationIssue("visibility_not_bound", "Follow-log visibility requires an exact watcher command")
-    if host_token == "fixture":
-        if fixture_script is None:
-            raise ValidationIssue("fixture_script_required", "Fixture native worker requires --fixture-script")
-        sid = _exact_session_id(session_id) if session_id else f"fixture-{hashlib.sha256(str(fixture_script).encode()).hexdigest()[:16]}"
-        argv = (sys.executable, str(fixture_script.resolve(strict=True)))
-        return NativeWorkerSpec(
-            host="fixture", profile="elves-native-worker-fixture", effort=effort_token,
-            model_policy=model_policy, requested_model=requested_model, separate_session=True,
-            cwd=cwd, argv=argv, stdin_packet=True, session_id_source="fixture_session_id",
-            session_id=sid, commit_mode="fixture", visibility_ready=visibility_ready, visibility_mode=visibility_mode,
-            watcher_command=watcher_command,
-        )
-
-    if host_token == "codex":
-        common = [
-            "codex", "exec", "--json", "--ignore-user-config", "--ignore-rules",
-            "--sandbox", "workspace-write", "-c", f'model_reasoning_effort="{effort_token}"',
-        ]
-        for root in git_write_roots:
-            common.extend(["--add-dir", root])
-        common.extend(["--model", requested_model])
-        if session_id is None:
-            argv = (*common, "-C", cwd, "-")
-            resume = None
-        else:
-            sid = _exact_session_id(session_id)
-            # Keep exec-level sandbox and additional-write-root options before
-            # the resume subcommand. The supervisor binds the exact OS cwd.
-            argv = tuple(common + ["resume", sid, "-"])
-            resume = argv
-        return NativeWorkerSpec(
-            host="codex", profile="elves-native-worker", effort=effort_token,
-            model_policy=model_policy, requested_model=requested_model,
-            separate_session=True, cwd=cwd, argv=tuple(argv), stdin_packet=True,
-            session_id_source="thread.started.thread_id", session_id=session_id, resume_argv=resume,
-            commit_mode="sandboxed_worker_commit",
-            visibility_ready=visibility_ready, visibility_mode=visibility_mode, watcher_command=watcher_command,
+    plan = host_profile.launch_plan(
+        HostLaunchRequest(
+            effort=effort_token,
+            requested_model=requested_model,
+            cwd=cwd,
             git_write_roots=git_write_roots,
+            session_id=session_id,
+            fixture_script=fixture_script,
         )
-
-    if host_token in {"claude", "claude-code"}:
-        common = [
-            "claude", "--safe-mode", "--print", "--verbose",
-            "--output-format", "stream-json", "--input-format", "text",
-            "--effort", effort_token, "--permission-mode", "auto",
-        ]
-        for root in git_write_roots:
-            common.extend(["--add-dir", root])
-        common.extend(["--model", requested_model])
-        if session_id is None:
-            # Claude accepts a caller-generated UUID, providing exact identity before launch.
-            import uuid
-            sid = str(uuid.uuid4())
-            argv = tuple(common + ["--session-id", sid])
-        else:
-            sid = _exact_session_id(session_id)
-            argv = tuple(common + ["--resume", sid])
-        return NativeWorkerSpec(
-            host="claude-code", profile="elves-native-worker", effort=effort_token,
-            model_policy=model_policy, requested_model=requested_model,
-            separate_session=True, cwd=cwd, argv=argv, stdin_packet=True,
-            session_id_source="requested_session_id", session_id=sid, resume_argv=argv if session_id else None,
-            commit_mode="classifier_approved_worker_commit",
-            visibility_ready=visibility_ready, visibility_mode=visibility_mode, watcher_command=watcher_command,
-            git_write_roots=git_write_roots,
-        )
-    raise ValidationIssue("unsupported_host", f"Unsupported native worker host `{host}`")
+    )
+    return NativeWorkerSpec(
+        host=host_profile.host,
+        profile=host_profile.spec_profile,
+        effort=effort_token,
+        model_policy=model_policy,
+        requested_model=requested_model,
+        separate_session=True,
+        cwd=cwd,
+        argv=plan.argv,
+        stdin_packet=plan.stdin_packet,
+        session_id_source=plan.session_id_source,
+        session_id=plan.session_id,
+        resume_argv=plan.resume_argv,
+        commit_mode=host_profile.commit_mode,
+        visibility_ready=visibility_ready,
+        visibility_mode=visibility_mode,
+        watcher_command=watcher_command,
+        git_write_roots=git_write_roots if host_profile.grants_git_write_roots else (),
+        prompt_file_flag=plan.prompt_file_flag,
+    )
 
 
 def build_native_worker_prewalk_spec(
@@ -382,10 +327,12 @@ def build_native_worker_prewalk_spec(
             "prewalk_todo_limit_exceeded",
             f"Prewalk TODO limit must be {PREWALK_MIN_TODO_LIMIT}..{PREWALK_MAX_TODO_LIMIT}",
         )
-    host_token = host.strip().lower().replace("_", "-")
-    expected_host = "claude" if host_token == "claude-code" else host_token
-    capability_host = "claude" if capabilities.host == "claude-code" else capabilities.host
-    if host_token != "fixture" and capability_host != expected_host:
+    launch_profile = resolve_host_profile(host)
+    capability_profile = host_profile_or_none(capabilities.host)
+    capability_host = (
+        capability_profile.capability_host if capability_profile else capabilities.host
+    )
+    if launch_profile.host != "fixture" and capability_host != launch_profile.capability_host:
         raise ValidationIssue("prewalk_capability_unavailable", "Prewalk capability host does not match launch host")
     if not capabilities.route_matches(
         guide_model=guide_model.strip(),
@@ -565,10 +512,7 @@ def _native_worker_child_env(
 ) -> dict[str, str]:
     """Project provider auth while removing ambient Git/network credentials."""
     parent = dict(os.environ)
-    provider_secret_names = {
-        "codex": {"OPENAI_API_KEY", "CODEX_API_KEY"},
-        "claude-code": {"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"},
-    }.get(host, set())
+    provider_secret_names = _registry_provider_secret_names(host)
     forbidden_exact = {
         "GH_TOKEN",
         "GITHUB_TOKEN",
@@ -586,8 +530,9 @@ def _native_worker_child_env(
         if is_secret_env_name(name) and name not in provider_secret_names:
             continue
         env[name] = value
-    # Subscription-backed Codex and Claude may need their own explicit provider
-    # token. No other secret-valued environment entry crosses the boundary.
+    # Each host may need only its registry-allowlisted provider auth names
+    # (subscription tokens for Codex/Claude; XAI_API_KEY/GROK_AUTH_PATH for
+    # Grok). No other secret-valued environment entry crosses the boundary.
     for name in provider_secret_names:
         if parent.get(name):
             env[name] = parent[name]
@@ -685,26 +630,25 @@ def _worktree_clean(worktree: Path) -> bool:
 # each host may bind or challenge session identity. Codex publishes
 # `thread.started.thread_id` at create and `turn.*` continuity events; Claude
 # Code sessions are caller-preset UUIDs whose stream confirms identity via the
-# `system`/`init` event. Arbitrary typed lines (for example a worker log event
-# that merely mentions a `session_id`) must never bind or mismatch identity.
-_IDENTITY_EVENT_KEYS: dict[str, tuple[str, ...]] = {
-    "thread.started": ("thread_id",),
-    "turn.started": ("thread_id", "session_id"),
-    "turn.completed": ("thread_id", "session_id"),
-    "system": ("session_id",),
-}
+# `system`/`init` event; Grok Build sessions are caller-preset UUIDs whose
+# terminal `end` event may confirm identity via `sessionId`. Arbitrary typed
+# lines (for example a worker log event that merely mentions a `session_id`)
+# must never bind or mismatch identity. The per-host event vocabulary is
+# registry data: see `host_profiles.identity_event_keys`.
 
 
-def _provider_session_id(line: str) -> str | None:
+def _provider_session_id(line: str, host: str | None = None) -> str | None:
     event = _parse_provider_event(line)
     if event is None:
         return None
-    return _provider_session_id_from_event(event)
+    return _provider_session_id_from_event(event, host=host)
 
 
-def _provider_session_id_from_event(event: dict[str, Any]) -> str | None:
+def _provider_session_id_from_event(
+    event: dict[str, Any], host: str | None = None
+) -> str | None:
     event_type = str(event["type"])
-    keys = _IDENTITY_EVENT_KEYS.get(event_type)
+    keys = identity_event_keys(host).get(event_type)
     if keys is None:
         return None
     if event_type == "system" and event.get("subtype") != "init":
@@ -858,7 +802,9 @@ def _run_worker_phase(
                         redacted.text
                     ):
                         transient_transport_failure = True
-                    observed = _provider_session_id_from_event(event)
+                    observed = _provider_session_id_from_event(
+                        event, host=str(state.get("host")) if state.get("host") else None
+                    )
                     if observed:
                         if observed not in observed_session_ids:
                             observed_session_ids.append(observed)
@@ -996,6 +942,15 @@ def launch_native_worker(
     cli_path: Path,
     prewalk_spec: NativeWorkerPrewalkSpec | None = None,
 ) -> dict[str, Any]:
+    # The fail-closed launch gate lives in the registry, not in CLI string
+    # compares: a host row with launch_ready=False (grok until qualification
+    # tooling lands) must be unlaunchable through every entry point.
+    launch_profile = resolve_host_profile(spec.host)
+    if not launch_profile.launch_ready:
+        raise ValidationIssue(
+            f"{launch_profile.capability_host}_native_worker_launch_unqualified",
+            f"{launch_profile.capability_host} native-worker launch is feature-gated off until a valid prewalk qualification artifact is supplied and validated",
+        )
     state_path, log_path = native_worker_paths(repo_root, run_id)
     if state_path.exists():
         raise ValidationIssue("native_worker_run_exists", f"Native worker run `{run_id}` already exists")
@@ -1133,8 +1088,10 @@ def launch_native_worker(
     deadline = time.monotonic() + 8.0
     while time.monotonic() < deadline:
         current = json.loads(state_path.read_text(encoding="utf-8"))
+        current_profile = host_profile_or_none(str(current.get("host") or ""))
         identity_ready = current.get("pid") and (
-            current.get("session_id") or current.get("host") != "codex"
+            current.get("session_id")
+            or not (current_profile and current_profile.identity_from_stream_required)
         )
         if identity_ready or current.get("status") in {"complete", "failed"}:
             return current

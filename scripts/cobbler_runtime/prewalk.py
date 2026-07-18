@@ -20,6 +20,7 @@ import stat
 import subprocess
 from typing import Any, Mapping, Sequence
 
+from .host_profiles import host_profile_or_none
 from .schema import ValidationIssue
 from .storage import StorageError, atomic_write_json, guard_repo_path
 
@@ -702,24 +703,13 @@ def fixture_prewalk_capabilities(host: str = "fixture") -> PrewalkCapabilities:
 def advertised_prewalk_capabilities(
     *, host: str, version: str | None, create_help: str, resume_help: str
 ) -> PrewalkCapabilities:
-    host_name = host.strip().lower().replace("_", "-")
-    if host_name == "codex":
-        exact = "resume" in create_help and "SESSION_ID" in resume_help.upper()
-        config_override = ("--config" in create_help or "-c" in create_help) and (
-            "--config" in resume_help or "-c" in resume_help
-        )
-        route = "--model" in create_help and "--model" in resume_help and config_override
-        transport = "codex_exec"
-    elif host_name in {"claude", "claude-code"}:
-        exact = "--session-id" in create_help and "--resume" in resume_help
-        route = "--model" in resume_help and "--effort" in resume_help
-        transport = "claude_code"
-        host_name = "claude"
-    else:
+    profile = host_profile_or_none(host)
+    if profile is None or profile.help_grammar is None:
         raise ValidationIssue("prewalk_capability_unavailable", f"Unsupported prewalk host `{host}`")
+    exact, route = profile.help_grammar(create_help, resume_help)
     return PrewalkCapabilities(
-        host=host_name,
-        transport=transport,
+        host=profile.capability_host,
+        transport=profile.transport,
         installed_version=version,
         advertised_exact_resume=exact,
         advertised_route_override_on_resume=route,
@@ -736,15 +726,14 @@ def probe_installed_prewalk_capabilities(
     runner: Any = subprocess.run,
 ) -> PrewalkCapabilities:
     """Read installed help/version only; never launch an inference turn."""
-    token = host.strip().lower().replace("_", "-")
-    executable = "codex" if token == "codex" else "claude" if token in {"claude", "claude-code"} else None
-    if executable is None:
+    profile = host_profile_or_none(host)
+    if profile is None or profile.executable is None or profile.help_grammar is None:
         raise ValidationIssue("prewalk_capability_unavailable", f"Unsupported prewalk host `{host}`")
-    located = shutil.which(executable)
+    located = shutil.which(profile.executable)
     if not located:
         return PrewalkCapabilities(
-            host="claude" if token.startswith("claude") else token,
-            transport="claude_code" if token.startswith("claude") else "codex_exec",
+            host=profile.capability_host,
+            transport=profile.transport,
             evidence_source="installed_binary_missing",
         )
 
@@ -761,7 +750,7 @@ def probe_installed_prewalk_capabilities(
         except (OSError, subprocess.TimeoutExpired) as exc:
             return subprocess.CompletedProcess(argv, 1, "", type(exc).__name__)
 
-    version_result = invoke([located, "--version"])
+    version_result = invoke([located, *profile.version_argv])
     version_text = (
         version_result.stdout + version_result.stderr
         if version_result.returncode == 0
@@ -769,14 +758,14 @@ def probe_installed_prewalk_capabilities(
     )
     version_match = re.search(r"\d+\.\d+(?:\.\d+)?", version_text)
     version = version_match.group(0) if version_match else None
-    if token == "codex":
-        create_result = invoke([located, "exec", "--help"])
-        resume_result = invoke([located, "exec", "resume", "--help"])
-    else:
-        create_result = invoke([located, "--help"])
-        resume_result = create_result
+    create_result = invoke([located, *profile.create_help_argv])
+    resume_result = (
+        create_result
+        if profile.resume_help_argv == profile.create_help_argv
+        else invoke([located, *profile.resume_help_argv])
+    )
     advertised = advertised_prewalk_capabilities(
-        host=token,
+        host=profile.capability_host,
         version=version,
         create_help=(
             (create_result.stdout + create_result.stderr)[:PREWALK_RUNTIME_ARTIFACT_MAX_BYTES]
@@ -793,7 +782,7 @@ def probe_installed_prewalk_capabilities(
         return advertised
     return load_prewalk_capability_evidence(
         behavioral_evidence,
-        host=token,
+        host=profile.capability_host,
         installed_version=version,
         advertised=advertised,
     )

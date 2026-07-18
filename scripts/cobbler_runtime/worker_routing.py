@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .config import load_json_file, load_toml_file
+from .host_profiles import transport_for_host
 from .prewalk import PrewalkCapabilities
 from .schema import (
     NativeWorkerPhaseRole,
@@ -753,6 +754,34 @@ def probe_grok_capabilities(
     )
 
 
+def grok_prewalk_unqualified_reason(
+    qualification: PrewalkCapabilities | None,
+) -> str | None:
+    """Concrete reason grok prewalk is unqualified, or None for valid evidence.
+
+    This is the B3 seam: Batch 2 ships the qualification-based gate without
+    any qualification tooling, so no caller can produce a valid grok prewalk
+    qualification and every default environment reports a concrete
+    unqualified reason (prewalk actual mode stays ``off``). Batch 3 plugs in
+    the artifact loader by validating its bounded qualification artifact into
+    a ``PrewalkCapabilities`` and passing it here; the gate itself does not
+    change shape.
+    """
+    if qualification is None:
+        return "qualification_artifact_missing"
+    if not isinstance(qualification, PrewalkCapabilities):
+        return "qualification_artifact_invalid"
+    if qualification.host != "grok" or qualification.transport != "grok_build":
+        return "qualification_host_mismatch"
+    # Deterministic fixtures bypass route matching inside PrewalkCapabilities;
+    # that convenience is for native-host tests and must never qualify grok.
+    if qualification.evidence_source == "deterministic_fixture":
+        return "qualification_fixture_evidence_forbidden"
+    if not qualification.qualified():
+        return qualification.unavailable_reason() or "qualification_incomplete"
+    return None
+
+
 @dataclass(frozen=True)
 class RouteDecision:
     provider: str
@@ -814,6 +843,7 @@ def decide_worker_route(
     grok: GrokCapabilities | None = None,
     driver_effort: str | None = None,
     prewalk_capabilities: PrewalkCapabilities | None = None,
+    grok_prewalk_qualification: PrewalkCapabilities | None = None,
 ) -> RouteDecision:
     """Return an inspectable route. Repository policy is the final safety veto."""
     host_token = host.strip().lower().replace("_", "-")
@@ -978,25 +1008,58 @@ def decide_worker_route(
     requested_prewalk = PrewalkMode(prewalk_token)
     caps = prewalk_capabilities or PrewalkCapabilities(
         host=host_token,
-        transport=("codex_exec" if host_token == "codex" else "claude_code"),
+        transport=transport_for_host(host_token),
     )
     prewalk_transport = (
-        "codex_exec" if host_token == "codex" else "claude_code"
+        transport_for_host("grok")
+        if selected_provider == "grok"
+        else transport_for_host(host_token)
     )
     guide_model = str(guide_model_value).strip() if guide_model_value else None
     guide_policy = "explicit_guide_model_pin" if guide_model else "inherit_live_driver_model"
-    capability_state = (
-        PrewalkCapabilityState.QUALIFIED
-        if caps.qualified()
-        else PrewalkCapabilityState.ADVERTISED
-        if caps.advertised_exact_resume or caps.advertised_route_override_on_resume
-        else PrewalkCapabilityState.UNAVAILABLE
-    )
     actual_prewalk = "off"
     prewalk_fallback: str | None = None
     if requested_prewalk is not PrewalkMode.OFF:
         if selected_provider != "native":
-            prewalk_fallback = "prewalk_capability_unavailable:external_provider_not_qualified"
+            # Qualification-based gating (never a categorical veto): a grok
+            # prewalk request activates only on a valid behavioral
+            # qualification whose routes match. The absolute `allow_grok`
+            # veto and consent rules were already applied before any
+            # evidence was consulted, so an unpermitted or vetoed request
+            # never reaches this arm. Without Batch 3 qualification tooling
+            # every request reports the concrete unqualified fallback.
+            # The reported capability fields must describe grok evidence:
+            # native-host capabilities never appear under grok transports.
+            caps = (
+                grok_prewalk_qualification
+                if isinstance(grok_prewalk_qualification, PrewalkCapabilities)
+                and grok_prewalk_qualification.host == "grok"
+                and grok_prewalk_qualification.transport == "grok_build"
+                else PrewalkCapabilities(
+                    host="grok", transport=transport_for_host("grok")
+                )
+            )
+            unqualified = grok_prewalk_unqualified_reason(grok_prewalk_qualification)
+            if unqualified is None and grok_prewalk_qualification is not None:
+                caps = grok_prewalk_qualification
+                if caps.route_matches(
+                    guide_model=guide_model,
+                    guide_effort=guide_effort,
+                    execution_model=selected_model,
+                    execution_effort=effort,
+                ):
+                    actual_prewalk = "exact_session"
+                    reasons.append("trajectory_preserving_prewalk_qualified")
+                else:
+                    prewalk_fallback = (
+                        "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+                        "qualification_route_mismatch"
+                    )
+            else:
+                prewalk_fallback = (
+                    "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+                    f"{unqualified}"
+                )
         elif requested_prewalk is PrewalkMode.AUTO and execution == "low":
             prewalk_fallback = "prewalk_atomic_task_skipped"
         elif caps.qualified() and caps.route_matches(
@@ -1019,11 +1082,18 @@ def decide_worker_route(
             )
             raise ValidationIssue(
                 failure_code,
-                "Required prewalk is unavailable for the selected native transport",
+                "Required prewalk is unavailable for the selected worker transport",
                 hint=prewalk_fallback,
             )
     if prewalk_fallback:
         reasons.append(f"honest_prewalk_fallback:{prewalk_fallback}")
+    capability_state = (
+        PrewalkCapabilityState.QUALIFIED
+        if caps.qualified()
+        else PrewalkCapabilityState.ADVERTISED
+        if caps.advertised_exact_resume or caps.advertised_route_override_on_resume
+        else PrewalkCapabilityState.UNAVAILABLE
+    )
     try:
         fidelity = PrewalkInstructionFidelity(caps.instruction_fidelity)
     except ValueError:
@@ -1059,7 +1129,11 @@ def decide_worker_route(
 
     return RouteDecision(
         provider=selected_provider,
-        worker_transport=("codex_exec" if host_token == "codex" else "claude_code") if selected_provider == "native" else "grok_build",
+        worker_transport=(
+            transport_for_host(host_token)
+            if selected_provider == "native"
+            else transport_for_host("grok")
+        ),
         worker_model_policy=model_policy,
         worker_model=selected_model,
         worker_effort=effort,

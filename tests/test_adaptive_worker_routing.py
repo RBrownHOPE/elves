@@ -30,7 +30,10 @@ from cobbler_runtime.native_worker import (  # noqa: E402
     native_worker_status,
     parse_codex_thread_id,
 )
-from cobbler_runtime.prewalk import fixture_prewalk_capabilities  # noqa: E402
+from cobbler_runtime.prewalk import (  # noqa: E402
+    PrewalkCapabilities,
+    fixture_prewalk_capabilities,
+)
 from cobbler_runtime.full_run import FullRunState, build_full_run_argv  # noqa: E402
 from cobbler_runtime.preferences import (  # noqa: E402
     global_preferences_path,
@@ -1093,6 +1096,189 @@ class NativeWorkerGrammarTests(unittest.TestCase):
             self.assertIn("[REDACTED:secret_assignment]", state["stderr_tail"])
             self.assertNotIn("redaction-marker-1234567890", state["stderr_tail"])
             self.assertLessEqual(len(state["stderr_tail"]), 2000)
+
+
+class GrokPrewalkQualificationGateTests(unittest.TestCase):
+    """B2-A3: qualification-based gating replaces the categorical grok veto."""
+
+    LAUNCHABLE_GROK = GrokCapabilities(
+        installed=True,
+        authenticated=True,
+        models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL),
+        default_model=GROK_COMPOSER_MODEL,
+    )
+
+    def decide(self, **overrides):
+        params = {
+            "host": "codex",
+            "execution_reasoning": "medium",
+            "review_risk": "standard",
+            "grok": self.LAUNCHABLE_GROK,
+        }
+        params.update(overrides)
+        return decide_worker_route(**params)
+
+    def _grok_qualification(self, **overrides) -> PrewalkCapabilities:
+        params = dict(
+            host="grok",
+            transport="grok_build",
+            installed_version="0.2.102",
+            advertised_exact_resume=True,
+            advertised_route_override_on_resume=True,
+            behaviorally_verified_session_continuity=True,
+            worktree_binding_verified=True,
+            stream_identity_verified=True,
+            instruction_fidelity="retained_safe",
+            evidence_source="artifact:/fixture/grok-qualification.json",
+            model_calls_made=False,
+            qualified_guide_model="guide-model",
+            qualified_guide_effort="high",
+            qualified_execution_model=GROK_COMPOSER_MODEL,
+            qualified_execution_effort="medium",
+        )
+        params.update(overrides)
+        return PrewalkCapabilities(**params)
+
+    def test_auto_prewalk_without_artifact_reports_concrete_unqualified_fallback(self) -> None:
+        decision = self.decide(
+            explicit_intent={"worker": {"provider": "grok", "prewalk": "auto"}},
+            # Native-host evidence must never leak into the grok payload: even
+            # with a fully qualified codex artifact supplied, the grok route
+            # reports grok capability facts (unavailable), not native ones.
+            prewalk_capabilities=fixture_prewalk_capabilities("codex"),
+        )
+        self.assertEqual(decision.provider, "grok")
+        self.assertEqual(decision.prewalk.actual_mode, "off")
+        self.assertEqual(
+            decision.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "qualification_artifact_missing",
+        )
+        self.assertEqual(decision.prewalk.guide.transport, "grok_build")
+        self.assertEqual(decision.prewalk.capability_state.value, "unavailable")
+        self.assertFalse(decision.prewalk.advertised_exact_resume)
+        self.assertEqual(decision.prewalk.instruction_fidelity.value, "unsupported")
+        self.assertFalse(decision.model_calls_made)
+
+    def test_fixture_sourced_grok_qualification_is_forbidden(self) -> None:
+        fixture_evidence = self._grok_qualification(
+            evidence_source="deterministic_fixture"
+        )
+        decision = self.decide(
+            explicit_intent={
+                "worker": {
+                    "provider": "grok",
+                    "prewalk": "auto",
+                    "prewalk_guide_model": "guide-model",
+                }
+            },
+            grok_prewalk_qualification=fixture_evidence,
+        )
+        self.assertEqual(decision.prewalk.actual_mode, "off")
+        self.assertEqual(
+            decision.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "qualification_fixture_evidence_forbidden",
+        )
+
+    def test_required_prewalk_without_artifact_fails_before_launch(self) -> None:
+        with self.assertRaises(ValidationIssue) as caught:
+            self.decide(
+                explicit_intent={"worker": {"provider": "grok", "prewalk": "required"}},
+            )
+        self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
+        self.assertEqual(
+            caught.exception.hint,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "qualification_artifact_missing",
+        )
+
+    def test_incomplete_qualification_reports_its_concrete_reason(self) -> None:
+        pruned = self._grok_qualification(instruction_fidelity="pruned")
+        decision = self.decide(
+            explicit_intent={"worker": {"provider": "grok", "prewalk": "auto"}},
+            grok_prewalk_qualification=pruned,
+        )
+        self.assertEqual(decision.prewalk.actual_mode, "off")
+        self.assertEqual(
+            decision.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "prewalk_instruction_pruning_unqualified",
+        )
+        wrong_host = self._grok_qualification(host="claude", transport="claude_code")
+        mismatch = self.decide(
+            explicit_intent={"worker": {"provider": "grok", "prewalk": "auto"}},
+            grok_prewalk_qualification=wrong_host,
+        )
+        self.assertEqual(
+            mismatch.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "qualification_host_mismatch",
+        )
+
+    def test_allow_grok_false_vetoes_before_any_evidence(self) -> None:
+        decision = self.decide(
+            explicit_intent={
+                "worker": {
+                    "provider": "grok",
+                    "prewalk": "required",
+                    "prewalk_guide_model": "guide-model",
+                }
+            },
+            repo_policy={"worker": {"allow_grok": False}},
+            grok_prewalk_qualification=self._grok_qualification(),
+            prewalk_capabilities=fixture_prewalk_capabilities("codex"),
+        )
+        self.assertEqual(decision.provider, "native")
+        self.assertEqual(decision.fallback["reason"], "repository_policy_prohibits_grok")
+        self.assertEqual(decision.provenance["grok_safety_veto"], "repository_policy")
+        # The vetoed request never reaches the grok qualification arm; the
+        # native transport carries the (fixture-qualified) prewalk instead.
+        self.assertEqual(decision.prewalk.guide.transport, "codex_exec")
+
+    def test_b3_loader_seam_activates_only_on_matching_retained_safe_evidence(self) -> None:
+        decision = self.decide(
+            explicit_intent={
+                "worker": {
+                    "provider": "grok",
+                    "prewalk": "required",
+                    "prewalk_guide_model": "guide-model",
+                }
+            },
+            grok_prewalk_qualification=self._grok_qualification(),
+        )
+        self.assertEqual(decision.provider, "grok")
+        self.assertEqual(decision.prewalk.actual_mode, "exact_session")
+        self.assertEqual(decision.prewalk.guide.transport, "grok_build")
+        self.assertEqual(decision.prewalk.instruction_fidelity.value, "retained_safe")
+        route_changed = self.decide(
+            explicit_intent={
+                "worker": {
+                    "provider": "grok",
+                    "prewalk": "auto",
+                    "prewalk_guide_model": "other-guide-model",
+                }
+            },
+            grok_prewalk_qualification=self._grok_qualification(
+                evidence_source="artifact:/fixture/grok-qualification.json"
+            ),
+        )
+        self.assertEqual(route_changed.prewalk.actual_mode, "off")
+        self.assertEqual(
+            route_changed.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "qualification_route_mismatch",
+        )
+
+    def test_default_environments_keep_actual_mode_off_for_every_host(self) -> None:
+        for host in ("codex", "claude"):
+            for prewalk in ("off", "auto"):
+                decision = self.decide(
+                    host=host,
+                    explicit_intent={"worker": {"prewalk": prewalk}},
+                    grok=GrokCapabilities(),
+                )
+                self.assertEqual(decision.prewalk.actual_mode, "off", (host, prewalk))
 
 
 if __name__ == "__main__":

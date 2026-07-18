@@ -82,6 +82,7 @@ from cobbler_runtime.leases import (  # noqa: E402
     LeaseStore,
     build_write_task_packet,
 )
+from cobbler_runtime.host_profiles import resolve_host_profile  # noqa: E402
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.sessions import SessionRegistry  # noqa: E402
 from cobbler_runtime.implement import (  # noqa: E402
@@ -508,7 +509,7 @@ def cmd_native_worker(args: argparse.Namespace) -> int:
         if not args.host or args.host == "fixture":
             issue = ValidationIssue(
                 "native_worker_arguments_required",
-                "prewalk-capabilities requires --host codex or claude",
+                "prewalk-capabilities requires --host codex, claude, or grok",
             )
             return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
         try:
@@ -536,6 +537,18 @@ def cmd_native_worker(args: argparse.Namespace) -> int:
         return 0
     if action == "_supervise":
         return supervise_native_worker(repo_root=repo_root, run_id=args.run_id, packet=Path(args.packet))
+    if action == "launch":
+        # Feature-gated hosts (registry launch_ready=False) exist for spec and
+        # prewalk-capabilities only. Launch requires a valid prewalk
+        # qualification artifact, whose loader lands with the qualification
+        # tooling batch; until then every launch fails closed here.
+        launch_profile = resolve_host_profile(args.host)
+        if not launch_profile.launch_ready:
+            issue = ValidationIssue(
+                f"{launch_profile.capability_host}_native_worker_launch_unqualified",
+                f"{launch_profile.capability_host} native-worker launch is feature-gated off until a valid prewalk qualification artifact is supplied and validated",
+            )
+            return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
     prewalk_requested = (args.prewalk or "off") != "off"
     execution_effort = args.execution_effort or args.effort
     execution_model = args.execution_model or args.model
@@ -2220,7 +2233,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("spec", "launch", "follow", "status", "prewalk-capabilities", "_supervise"),
         default="spec",
     )
-    native_worker.add_argument("--host", choices=("codex", "claude", "fixture"))
+    native_worker.add_argument("--host", choices=("codex", "claude", "fixture", "grok"))
     native_worker.add_argument("--worktree")
     native_worker.add_argument("--effort", choices=("low", "medium", "high"))
     native_worker.add_argument("--model", help="Current driver model observed by the host, or an explicit routed model")
