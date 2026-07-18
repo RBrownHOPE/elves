@@ -160,6 +160,16 @@ def main() -> int:
         )
     )
     errors.extend(
+        find_missing_phrases(
+            {
+                label: read_text(REPO_ROOT / label)
+                for label in WORKER_CONFIDENCE_SIGNAL_PHRASES
+            },
+            WORKER_CONFIDENCE_SIGNAL_PHRASES,
+            "worker confidence signal",
+        )
+    )
+    errors.extend(
         find_unscoped_patterns(
             single_kickoff_texts
             | {

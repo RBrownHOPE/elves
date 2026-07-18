@@ -85,6 +85,21 @@
     "notes": {
       "type": "string",
       "description": "Optional free-form notes for the host gate."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "Optional worker confidence in this batch. Review triage signal only, never authority: it does not skip gates or waive review in either direction."
+    },
+    "unsure_about": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "description": "Optional list of areas the worker was unsure about, if any. An empty list is a valid, complete answer meaning 'I verified everything I touched and have no reservations' — never a lazy default. No secret-like text."
     }
   }
 }

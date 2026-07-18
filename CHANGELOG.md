@@ -75,6 +75,22 @@ All notable changes to the Elves skill are documented here.
 - Grok prewalk remains feature-gated off for every host and environment; nothing in this release
   claims Grok prewalk availability or behavioral qualification.
 
+### Worker confidence signal (audit B5)
+
+- Add optional additive `confidence` (`high`/`medium`/`low`) and `unsure_about` (bounded list of
+  non-empty strings, at most 16 items of 500 chars, no secret-like text) fields to trusted
+  full-run `batch_complete`/`run_complete` events, report `batches[]` rows, and the legacy done
+  report schema. Absent fields stay valid; present fields are validated fail-closed with stable
+  diagnostics, and the legacy gate reports malformed fields as non-fatal warnings.
+- An empty `unsure_about` list is a valid, complete answer everywhere — a positive assertion
+  ("I verified everything I touched and have no reservations"), never a lazy default. The signal
+  is review triage only, never authority: it does not skip gates, waive review, or change
+  completion requirements in either direction.
+- The parked supervisor surfaces the latest `batch_complete` confidence signal in its bounded
+  monitor `check_summary` (redacted; under shared OAuth the free-text list is replaced by a bounded derived count and the confidence enum still surfaces, so suppression never conflates with the asserted-clean empty list; null means no signal). SKILL.md adds
+  the batch-Close `Confidence:` commit trailer format, and the review subagent reads the signal
+  first to allocate attention to flagged areas.
+
 ## [2.9.0] - 2026-07-17
 
 ### Grok Build unattended-launch compatibility

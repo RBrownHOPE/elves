@@ -270,6 +270,15 @@ A full-run packet must stand alone after compaction and include:
     machine-equivalent schema); shorthand such as “write valid events/report” is not sufficient for
     unattended completion and can force an otherwise healthy parked driver to wake on malformed
     evidence.
+11. **worker confidence signal** — the packet's worker-facing instruction: with each batch
+    completion, report your confidence (high | medium | low) and flag any areas you were unsure
+    about, if any. It is entirely acceptable — and expected for straightforward batches — to
+    report none: an empty list means "I verified everything I touched and have no reservations,"
+    and that is a valid, complete answer. When you do have reservations, name them concretely
+    (file or behavior, and why). Neither answer is penalized: an honest "all good" is worth more
+    than invented caveats, and an honest "I'm not sure about X" is worth more than inflated
+    confidence. This is triage signal for the reviewer, never authority — it does not skip gates
+    or waive review in either direction.
 
 Store packets under `.elves/runtime/packets/` (ignored runtime tree). Prefer absolute `--prompt-file`
 paths when the process CWD is not the host runtime directory.
@@ -304,6 +313,8 @@ may be ignored by the supervisor):
 | `type` | string enum | `run_started`, `heartbeat`, `batch_started`, `commit_pushed`, `gate_result`, `batch_complete`, `high_risk_checkpoint`, `blocked`, or `run_complete` |
 | `summary` | string | at most 500 characters; no secret-like text such as API keys, bearer tokens, authorization headers, or private-key material |
 | `checkpoint_id` | string, conditional | required only when `type` is `high_risk_checkpoint`; exact packet-staged ID of 1–64 characters, beginning alphanumeric and continuing with alphanumerics, dot, underscore, or hyphen; forbidden on every other event type |
+| `confidence` | string enum, optional | worker confidence signal, reported with `batch_complete` and `run_complete`: `high`, `medium`, or `low`; absent stays valid; validated fail-closed when present; review triage only, never authority |
+| `unsure_about` | array of strings, optional | areas the worker was unsure about, if any: at most 16 non-empty strings of at most 500 characters each, no secret-like text; an empty list is a valid, complete answer ("I verified everything I touched and have no reservations"), never a lazy default. The supervisor surfaces the latest `batch_complete` signal in its bounded status summary; a `run_complete` signal reaches only the final report rows. Under shared OAuth the free-text list is replaced by a bounded derived `unsure_about_count`, so suppression never reads as the asserted-clean empty list |
 
 The exact `session_id` and `branch` must match supervisor state. Emit at most one terminal event:
 either `blocked` or `run_complete`. A terminal event is a wake signal, not completion authority.
@@ -329,7 +340,7 @@ The report is one JSON object with these required fields:
 | `start_head` | string | exact launch head from the baseline report |
 | `final_head` | string | observed final feature-branch SHA; non-empty when `status` is `complete` |
 | `status` | string enum | `running`, `complete`, `blocked`, `failed`, or `stopped` |
-| `batches` | array | internal batch summaries; each complete row has non-empty `id`, `status: "complete"`, and non-empty string `evidence` |
+| `batches` | array | internal batch summaries; each complete row has non-empty `id`, `status: "complete"`, and non-empty string `evidence`; rows may optionally carry `confidence` (`high`/`medium`/`low`) and `unsure_about` (at most 16 non-empty strings of at most 500 characters, empty list valid), validated fail-closed when present — review triage only, never authority |
 | `acceptance` | array of objects | exact staged `B#-A#` and `M-A#` rows described below |
 | `commits` | array | exact 40-character worker SHAs, or `{sha, subject}` records with an exact SHA and non-empty subject |
 
@@ -436,7 +447,9 @@ Read the launch packet at the path given via --prompt-file. Restate the contract
 surfaces, acceptance, validation) in one short block, then implement the whole run end-to-end.
 Do not wait for per-batch host prompts. Commit and push progress with the packet's subject schema.
 Run the packet's validation commands before claiming done. Write bounded events and the final run
-report to the paths supplied in the environment. Do not
+report to the paths supplied in the environment. On each batch_complete and in the final report,
+include your confidence (high | medium | low) and any areas you were unsure about, if any — an
+empty list is a valid, complete answer. Do not
 merge, tag, or open a second PR. Do not review your own work as independent review. If blocked,
 write status=blocked, populate blockers with concrete bounded and redacted reasons, and stop.
 ```

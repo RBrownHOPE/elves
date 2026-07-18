@@ -211,6 +211,48 @@ Acceptance criteria:
 Blast radius: docs plus `consistency_policy.py`; risk concentrated in phrase-pin synchronization.
 Risk: medium.
 
+### Batch 5: Worker confidence signal
+
+Scope (follow-on batch on the same branch):
+
+1. Trusted full-run machine surface: `batch_complete`/`run_complete` events and report `batches[]`
+   rows gain optional `confidence` (`high`/`medium`/`low`) and `unsure_about` (array of non-empty
+   strings, at most 16 items of at most 500 chars, no secret-like text) fields — absent stays
+   valid, present is validated fail-closed with stable diagnostics; the supervisor surfaces the
+   latest `batch_complete` signal in its bounded `check_summary` (redacted; under shared OAuth
+   the free-text list becomes a bounded derived count while the confidence enum survives, and
+   null means no signal — suppression never conflates with the asserted-clean empty list), and
+   the worker event contract advertises the optional fields.
+2. Legacy done report: same optional fields in `implement-done-report.schema.json`; the gate
+   validates them when present with non-fatal warnings (legacy dogfood posture).
+3. Contracts/docs: `grok-implementer-launch-prompt.md` documents both fields in the Event v1 and
+   Full-run report v1 tables, adds the confidence-reporting instruction to the full-run packet
+   contract and the launch text; SKILL.md adds the batch-Close `Confidence:` trailer format and
+   review-triage-first instruction; `review-subagent.md` adds the triage step;
+   `survival-guide-template.md` notes the packet carries the requirement; consistency pins for
+   every new normative sentence.
+4. Semantics (pinned): an empty `unsure_about` list is a valid, complete, expected answer — a
+   positive assertion, never a lazy default; neither honest answer is penalized; the signal is
+   review triage only, never authority — it does not skip gates, waive review, or change
+   completion requirements in either direction.
+
+Acceptance criteria:
+
+- [x] B5-A1: batch_complete/run_complete events and report batch rows accept optional
+  confidence/unsure_about, validated fail-closed when present (bad enum, non-string items,
+  oversized, secret-like content all rejected with stable codes), absent stays valid — proven by
+  new tests both directions.
+- [x] B5-A2: an empty unsure_about list is explicitly valid everywhere (event, report, legacy
+  done report) and the contract language states the if-any / empty-is-an-assertion /
+  never-authority semantics — proven by tests + consistency pins.
+- [x] B5-A3: supervisor surfaces the fields in its bounded batch summaries when present;
+  SKILL.md commit-trailer format and review-triage instructions landed; full 3.9 suite
+  0 failures / 0 errors.
+
+Blast radius: `full_run.py` validation/monitor, `provider_auth.py` contract constants,
+`implement.py` gate warnings, schema JSON, docs plus `consistency_policy.py` pins. Additive and
+backward compatible. Risk: low.
+
 ## Master Acceptance
 
 - [x] M-A1: Full suite green on CI matrix (3.10/3.12/3.14, ubuntu+macos) and green-with-skips

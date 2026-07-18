@@ -65,7 +65,9 @@ session-cookie approach. All existing auth tests must pass. The public API surfa
 - **Coordinator-to-implementer handoff:** Every worker packet carries intent/why, non-obvious
   rationale, Build On targets, owned surfaces, forbidden surfaces, acceptance evidence, failure
   modes/pitfalls, and HEAD/run-doc paths/route-session identity/output format. Incomplete handoffs are
-  blocking coordinator defects.
+  blocking coordinator defects. The packet also carries the confidence-reporting requirement:
+  each batch completion reports confidence (high | medium | low) and unsure areas, if any — an
+  empty list is a valid, complete answer; triage signal only, never authority.
 - **Worker packet:** [path recorded at staging (also `worker_packet_path` in
   `.elves-session.json`) | n/a — host-native]. For any run that may be delegated, the consolidated
   standalone packet is a staging deliverable; the plan's per-batch handoff blocks are not a

@@ -64,6 +64,14 @@ EVENT_TYPES = frozenset(
     }
 )
 
+# Worker confidence signal (review triage only, never authority). Optional on
+# batch_complete/run_complete events and report batches[] rows: absent stays
+# valid; when present the fields are validated fail-closed. An empty
+# unsure_about list is a valid, complete answer, not a lazy default.
+CONFIDENCE_LEVELS = frozenset({"high", "medium", "low"})
+MAX_UNSURE_ABOUT_ITEMS = 16
+MAX_UNSURE_ABOUT_ITEM_CHARS = 500
+
 WORKER_EVENT_CONTRACT = {
     "version": 1,
     "required": [
@@ -81,6 +89,17 @@ WORKER_EVENT_CONTRACT = {
         "required": ["change_id", "change_kind"],
         "change_kind": sorted(_MATERIAL_CHANGE_KINDS),
         "driver_action": "wake",
+    },
+    "confidence_signal": {
+        "optional": ["confidence", "unsure_about"],
+        "confidence": sorted(CONFIDENCE_LEVELS),
+        "unsure_about": {
+            "type": "array_of_nonempty_strings",
+            "max_items": MAX_UNSURE_ABOUT_ITEMS,
+            "max_item_chars": MAX_UNSURE_ABOUT_ITEM_CHARS,
+            "empty_list_is_valid_complete_answer": True,
+        },
+        "semantics": "review_triage_only_never_authority",
     },
 }
 _FULL_RUN_SECRET_KEY_RE = re.compile(

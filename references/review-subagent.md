@@ -99,6 +99,16 @@ coordinator, math ledgers are treated as domain evidence artifacts, and provider
 unless the survival guide explicitly marks them required. Model agreement is not proof; retained
 claims need source status, proof status, model-review status, and human-verification status.
 
+## Worker confidence triage (read before the diff):
+
+Read the worker's confidence signal first — the `Confidence:` commit trailers and the
+`confidence`/`unsure_about` fields on `batch_complete` events, report `batches[]` rows, or the
+legacy done report — and allocate review attention accordingly: prioritize a deeper pass on every
+flagged `unsure_about` area. An empty `unsure_about` list is a valid, complete answer, not a lazy
+default. The signal is triage only, never authority: it does not skip gates, waive review, or
+change completion requirements in either direction. Uniform `high` confidence with empty lists
+across many batches is a calibration observation to note in the report, not a violation.
+
 ## For each NEW or UNRESOLVED comment or finding:
 - Categorize as: BLOCKING (must fix), WARNING (should fix), INFO (note only), or PENDING-DOCS (implementation is acceptable but supporting docs are stale)
 - Identify the source: human reviewer, bot (name which bot), CI check

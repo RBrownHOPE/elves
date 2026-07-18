@@ -2208,6 +2208,48 @@ def _read_done_report(
     return True, payload, None
 
 
+def _done_report_confidence_warnings(report: Mapping[str, Any]) -> list[str]:
+    """Validate the optional worker confidence signal on a legacy done report.
+
+    Absent fields are valid; an empty `unsure_about` list is a valid, complete
+    answer. Warnings match the legacy gate's non-fatal dogfood posture; the
+    signal is review triage only, never authority.
+    """
+    from .provider_auth import (  # noqa: PLC0415 - keep gate import surface lazy
+        CONFIDENCE_LEVELS,
+        MAX_UNSURE_ABOUT_ITEM_CHARS,
+        MAX_UNSURE_ABOUT_ITEMS,
+    )
+
+    warnings: list[str] = []
+    if "confidence" in report and report.get("confidence") not in CONFIDENCE_LEVELS:
+        warnings.append(
+            "done report confidence must be one of high, medium, low"
+        )
+    if "unsure_about" not in report:
+        return warnings
+    unsure = report.get("unsure_about")
+    if not isinstance(unsure, list):
+        warnings.append("done report unsure_about must be a list")
+        return warnings
+    if len(unsure) > MAX_UNSURE_ABOUT_ITEMS:
+        warnings.append(
+            f"done report unsure_about exceeds {MAX_UNSURE_ABOUT_ITEMS} items"
+        )
+    if any(not isinstance(item, str) or not item.strip() for item in unsure):
+        warnings.append(
+            "done report unsure_about items must be non-empty strings"
+        )
+    if any(
+        isinstance(item, str) and len(item) > MAX_UNSURE_ABOUT_ITEM_CHARS
+        for item in unsure
+    ):
+        warnings.append(
+            f"done report unsure_about item exceeds {MAX_UNSURE_ABOUT_ITEM_CHARS} chars"
+        )
+    return warnings
+
+
 def _redact_gate_record_in_place(
     record: dict[str, Any],
     *,
@@ -2338,6 +2380,8 @@ def run_gate(
     )
     if done_warning:
         warnings.append(done_warning)
+    if done_report is not None:
+        warnings.extend(_done_report_confidence_warnings(done_report))
     if not done_present:
         warnings.append(
             f"done report missing (non-fatal for dogfood): {done_path}"
