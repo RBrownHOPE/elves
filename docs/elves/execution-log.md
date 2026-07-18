@@ -107,3 +107,32 @@ write worker packet, tag `elves/pre-batch-1`, launch B1 worker.
 **Docs impacted:** none durable this batch (B4 owns changelog/.ai-docs/contract amendments). PENDING-DOCS: B2 registry architecture note carried to B4 by design.
 
 **Next:** tag pre-batch-3; launch B3 worker.
+
+---
+
+## 2026-07-18 ~13:05 — Batch 3: Grok prewalk qualification tooling — COMPLETE
+
+**Timing:** worker implement ~20m (fable/medium, 48 tool calls) · driver validate ~11m · adversarial review ~11m · review fixes ~15m.
+
+**Contract:** plan Batch 3, B3-A1..B3-A3 — all met (evidence in `.elves-session.json`).
+
+**What changed:** static probe `prewalk-capabilities --host grok` (registry-driven, zero model calls, fail-closed); `grok_prewalk_qualification_canary` schema v1 + `load_grok_prewalk_qualification` (18-field exact set, canonical UUID, version+build binding, fd-bound O_NOFOLLOW reader); `route-worker --grok-prewalk-qualification`; current-version help fixture; 14 new tests incl. 29-case mutation coverage. `worker_routing.py` unchanged — the B2 seam absorbed the loader as designed.
+
+**Validation:** full 3.9 suite **1194 OK / 0 / 0 / 38 skips**; consistency aligned; public API additions only; 3.13 spot suites (prewalk + routing, 93 tests) OK.
+
+**Review (adversarial-parser lens):** 0 BLOCKING, 2 WARNING, both fixed in-batch: (1) TOCTOU check-then-read window → replaced with the goal-canary fd-bound pattern (O_NOFOLLOW open, fstat dev/ino identity, mode/size checks on the read descriptor); (2) dead `installed_build_commit` parameter → probe now parses the `(hex)` build commit from `grok --version` and binds the artifact to it, with mismatch tests. Reviewer judged worker decisions #3 (advertised-from-artifact: behavioral create/resume evidence subsumes help grammar) and #4 (self-binding artifact, no probe pairing) SOUND. Added 3 reviewer-suggested mutation locks (string schema_version, urn-form UUID, uppercase artifact_type). One in-flight defect caught by tests before commit: missing `os` import in prewalk.py.
+
+**Deferred:** native evidence loader (`load_prewalk_capability_evidence`) shares the older path-based read pattern — `[elves-scout]` hardening item (same fd-bound treatment); optional narrowing of standalone advertised_* payload annotation.
+
+**Regression attestation:**
+1. Cumulative diff: in-scope files only; fixture added; no deletions.
+2. Shared surfaces: prewalk.py additions + one behavior-identical extraction (`_qualification_phase_routes`) proven by the untouched native loader tests; worker_routing untouched.
+3. Public API: additions only.
+4. Test baseline: 1180 → 1194 (+14; nothing deleted/weakened).
+5. Confidence: HIGH — hostile-artifact review with empirical attacks; every attack failed closed; the two hardening gaps found were fixed and test-locked.
+
+**Commits:** 9dbe649 (Implement, review fixes folded). Rollback tag: `elves/audit-follow-ups/pre-batch-3`.
+
+**Docs impacted:** none this batch (B4 owns all doc surfaces; operator canary procedure documented there per plan).
+
+**Next:** tag pre-batch-4; launch B4 worker (final batch), then final readiness review and landing.

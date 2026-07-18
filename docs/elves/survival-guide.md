@@ -106,16 +106,16 @@ readiness review is green.
 - **Checkpoint expectation:** landed PR on fork main with all four batches complete
 - **Time budget:** ~8 hours
 - **Average batch time so far:** ~70m (B1 ~55m; B2 ~85m: worker 42m + driver validate/dual-review/fix ~43m)
-- **Batches remaining:** 2 of 4
+- **Batches remaining:** 1 of 4
 
 ---
 
 ## Stop Gate
 
-- **Planned batches remaining:** 2
+- **Planned batches remaining:** 1
 - **Stop allowed right now:** no
-- **Why:** B1-B2 complete; B3-B4 remain.
-- **Next required action:** tag pre-batch-3 and launch the B3 worker (fable, medium).
+- **Why:** B1-B3 complete; B4 (docs/contracts) remains, then final readiness and landing.
+- **Next required action:** tag pre-batch-4 and launch the B4 worker (fable, medium).
 
 ---
 
@@ -174,11 +174,11 @@ readiness review is green.
 
 **Status:** In progress
 
-**Active batch:** B3: Grok prewalk qualification tooling
+**Active batch:** B4: Contracts, glossary, changelog, consistency pins, doc hygiene
 
-**What was just finished:** B2 complete: host registry + gated grok arm; suite 1180/0/0/38; two review lenses clean (0 blocking / 0 confirmed breaks; 4 warnings fixed in-batch).
+**What was just finished:** B3 complete: qualification tooling; suite 1194/0/0/38; adversarial review 0 blocking, 2 warnings fixed in-batch.
 
-**Single next action:** Launch B3 worker (fable, medium).
+**Single next action:** Launch B4 worker (fable, medium).
 
 ---
 
@@ -191,19 +191,22 @@ batch.
 
 ## Next Exact Batch
 
-**Batch:** B3: Grok prewalk qualification tooling
+**Batch:** B4: Contracts, glossary, changelog, consistency pins, doc hygiene
 
 **Scope:**
-- prewalk-capabilities --host grok static probe (advertised grammar, zero model calls, fixture-backed test with current-version recorded help)
-- Bounded grok prewalk qualification artifact schema + fail-closed loader (modeled on goal canary + prewalk evidence loader)
-- retained_safe-only activation; loader must NEVER emit fixture-sourced evidence (B2 review precondition); route-worker integration for provider grok x prewalk auto/required
+- prewalk.md external-provider doorway amendment + Grok host column; Promise rewording
+- adaptive-worker-routing.md + host-parity.md: --host grok probe, provider=grok x prewalk semantics, release-honesty extension
+- grok-open-source-worker.md prewalk-lane section (non-yolo, no push grants; 0.2.102 verification note; vestigial plan.json caveat); operator canary procedure
+- glossary.md: add prewalk vocabulary entries, remove dead "Handling matrix"
+- Doc hygiene: dead installed-bundle link, opencode-cli spelling, grok-4.5 framing, version-applicability markers, TODO.md live/archive split
+- CHANGELOG [Unreleased] for all four batches; consistency_policy.py pins for every edited normative sentence; .ai-docs updates (registry architecture)
 
 **Acceptance criteria:**
-- [ ] B3-A1 through B3-A3 (see plan)
+- [ ] B4-A1 through B4-A3 (see plan)
 
-**Risk:** artifact loader is a security-relevant parser (bounded read, symlink refusal, exact binding); B2 preconditions must hold (fixture evidence forbidden, no native-caps leakage).
+**Risk:** phrase-pin synchronization (every normative sentence edited needs its consistency_policy.py pin updated in the same change); no sentence may claim Grok prewalk availability or qualification.
 
-**Rollback authority:** host rollback tag `elves/audit-follow-ups/pre-batch-3` before the batch.
+**Rollback authority:** host rollback tag `elves/audit-follow-ups/pre-batch-4` before the batch.
 
 ## Post-Checkpoint Control Loop
 

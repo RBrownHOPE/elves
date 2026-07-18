@@ -91,28 +91,29 @@
       "acceptance": [
         {
           "criterion": "`prewalk-capabilities --host grok` returns fixture-backed advertised grammar with zero model calls; absent an installed grok binary it reports a concrete unavailable reason instead of erroring.",
-          "evidence": "",
+          "evidence": "GrokPrewalkStaticProbeTests: fixture-backed advertised grammar (exact resume + route override) from grok-0.2.102-help.txt; every probe subprocess argv is --version/--help (zero model calls, test-asserted); missing binary -> installed_binary_missing with concrete unavailable_reason, CLI end-to-end without traceback.",
           "id": "B3-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "The artifact loader accepts a golden valid grok qualification artifact and rejects each single-field mutation (wrong host, wrong version, wrong session, missing route, fidelity `pruned`, oversized, symlink) with a stable diagnostic, all proven by tests.",
-          "evidence": "",
+          "evidence": "GrokPrewalkQualificationLoaderTests: golden retained_safe artifact accepted with evidence_source = resolved artifact path; 29 single-field mutations + symlink/group-writable/oversized/absent all rejected with stable codes before any field trusted; probe binds artifact to installed version AND build commit (mismatch tests); fd-bound O_NOFOLLOW read (review hardening).",
           "id": "B3-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "With a golden `retained_safe` artifact present, `route-worker` provider grok + prewalk required passes the gate in a fixture environment; with `pruned` it fails before launch; both proven by tests without any live grok invocation.",
-          "evidence": "",
+          "evidence": "GrokPrewalkQualificationArtifactGateTests: retained_safe artifact passes required gate in fixture env (actual_mode exact_session, transport grok_build); pruned fails before launch (required) and reports honest fallback (auto); --grok-prewalk-qualification CLI proven end-to-end by subprocess; no live grok invocation anywhere.",
           "id": "B3-A3",
-          "met": false
+          "met": true
         }
       ],
-      "commit": null,
+      "commit": "9dbe649",
+      "completed_at": "2026-07-18T13:05:00-04:00",
       "id": "B3",
       "name": "Grok prewalk qualification tooling",
       "rollback_tag": "elves/audit-follow-ups/pre-batch-3",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [
@@ -156,13 +157,13 @@
   },
   "continuation_guard": {
     "checkpoint_is_stop": false,
-    "next_required_action": "Tag pre-batch-3, launch B3 worker (fable, medium)",
-    "remaining_batches": 2,
+    "next_required_action": "Tag pre-batch-4, launch B4 worker (fable, medium)",
+    "remaining_batches": 1,
     "stop_allowed": false
   },
   "current_batch": {
-    "id": "B3",
-    "name": "Grok prewalk qualification tooling",
+    "id": "B4",
+    "name": "Contracts, glossary, changelog, consistency pins, doc hygiene",
     "status": "pending"
   },
   "execution_log_path": "docs/elves/execution-log.md",
@@ -236,6 +237,16 @@
       "source": "regression-only-lens",
       "summary": "0 confirmed breaks; 3 plausible-risks accepted (error-precedence flip unknown-host-first, required-prewalk message reword pinned nowhere, host-less identity union grew by grok end vocabulary unused by codex/claude streams); found python3.13 (miniforge) with 20 pre-existing dispatch failures identical at HEAD (env artifact).",
       "type": "review_subagent"
+    },
+    {
+      "batch": 3,
+      "cycle": 1,
+      "disposition": "fixed",
+      "fix_commit": "9dbe649",
+      "id": "b3-review-adversarial",
+      "source": "adversarial-parser-lens",
+      "summary": "0 blocking, 2 warnings, both fixed in-batch: TOCTOU check-then-read -> fd-bound O_NOFOLLOW+fstat reader; dead installed_build_commit binding -> probe now parses and binds build commit. Decisions #3 (advertised-from-artifact) and #4 (self-binding, no probe pairing) judged SOUND. 3 mutation-lock tests added per reviewer suggestion. Native evidence loader shares the older read pattern - deferred scout item.",
+      "type": "review_subagent"
     }
   ],
   "rollback_tag_prefix": "elves/audit-follow-ups/",
@@ -255,9 +266,9 @@
   "test_baseline_current": {
     "errors": 0,
     "failures": 0,
-    "passed": 1142,
+    "passed": 1156,
     "skipped": 38,
-    "total": 1180
+    "total": 1194
   },
   "version": "2.9.0",
   "work_driver": "host-native",
