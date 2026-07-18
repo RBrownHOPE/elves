@@ -1,0 +1,219 @@
+{
+  "base_branch": "main",
+  "batches": [
+    {
+      "acceptance": [
+        {
+          "criterion": "On Python 3.9, `python3 -m unittest discover -s tests -t .` reports 0 failures and 0 errors, with the sync/bundle modules skipped via an explicit version gate whose message names the 3.10 floor.",
+          "evidence": "",
+          "id": "B1-A1",
+          "met": false
+        },
+        {
+          "criterion": "A worker stdout line `{\"type\": \"log\", \"session_id\": \"<foreign-uuid>\"}` no longer binds or mismatches session identity on any host; a new regression test proves it, and the codex `thread.started` and claude caller-preset paths still bind correctly.",
+          "evidence": "",
+          "id": "B1-A2",
+          "met": false
+        },
+        {
+          "criterion": "A failing execution phase whose stdout contains the word \"timeout\" is classified terminal (not transient); a stderr/provider-error transport failure is still classified transient; both proven by new tests.",
+          "evidence": "",
+          "id": "B1-A3",
+          "met": false
+        },
+        {
+          "criterion": "A session id literally spelled `continue` (and `most-recent`/`most_recent`) is rejected by the shared validator everywhere it is used, proven by tests exercising the shared set from at least two call sites.",
+          "evidence": "",
+          "id": "B1-A4",
+          "met": false
+        },
+        {
+          "criterion": "New tests prove a hung-git `TimeoutExpired` produces a terminal failed state (not a raw traceback), a torn follow-log line is skipped by the follower, and `stderr_tail` survives when provider events exist.",
+          "evidence": "",
+          "id": "B1-A5",
+          "met": false
+        },
+        {
+          "criterion": "A test asserts every failure reason the supervisor can emit is a member of `PREWALK_FAILURE_CODES`, and the guide-recovery misclassification case now reports `prewalk_post_edit_cold_fallback_forbidden`.",
+          "evidence": "",
+          "id": "B1-A6",
+          "met": false
+        }
+      ],
+      "commit": null,
+      "id": "B1",
+      "name": "Runtime correctness and robustness fixes",
+      "rollback_tag": "elves/pre-batch-1",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "A host-profile registry exists and is consumed by spec construction, child-env secrets, identity readiness, probe argv, and transport naming; the codex/claude `if/elif` chains at the audited sites are gone, and all pre-existing native-worker/prewalk/routing tests pass unchanged.",
+          "evidence": "",
+          "id": "B2-A1",
+          "met": false
+        },
+        {
+          "criterion": "`native-worker spec --host grok` emits the exact create/resume argv above (proven by test), with `--permission-mode auto`, without any yolo/always-approve/dontAsk token, and with the caller-generated UUID recorded before launch.",
+          "evidence": "",
+          "id": "B2-A2",
+          "met": false
+        },
+        {
+          "criterion": "With no qualification artifact, `route-worker` with provider grok and prewalk auto/required reports actual mode `off`/fails before launch respectively, with the new concrete fallback reason; `allow_grok=false` still vetoes regardless of evidence, proven by tests.",
+          "evidence": "",
+          "id": "B2-A3",
+          "met": false
+        },
+        {
+          "criterion": "The grok child environment passes through only the documented auth names via the registry allowlist, proven by a test that asserts `XAI_API_KEY` survives and arbitrary secrets are stripped.",
+          "evidence": "",
+          "id": "B2-A4",
+          "met": false
+        },
+        {
+          "criterion": "Public API snapshot gate passes with additions only; no existing exported name changes.",
+          "evidence": "",
+          "id": "B2-A5",
+          "met": false
+        }
+      ],
+      "commit": null,
+      "id": "B2",
+      "name": "Host profile registry and feature-gated Grok prewalk arm",
+      "rollback_tag": "elves/pre-batch-2",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "`prewalk-capabilities --host grok` returns fixture-backed advertised grammar with zero model calls; absent an installed grok binary it reports a concrete unavailable reason instead of erroring.",
+          "evidence": "",
+          "id": "B3-A1",
+          "met": false
+        },
+        {
+          "criterion": "The artifact loader accepts a golden valid grok qualification artifact and rejects each single-field mutation (wrong host, wrong version, wrong session, missing route, fidelity `pruned`, oversized, symlink) with a stable diagnostic, all proven by tests.",
+          "evidence": "",
+          "id": "B3-A2",
+          "met": false
+        },
+        {
+          "criterion": "With a golden `retained_safe` artifact present, `route-worker` provider grok + prewalk required passes the gate in a fixture environment; with `pruned` it fails before launch; both proven by tests without any live grok invocation.",
+          "evidence": "",
+          "id": "B3-A3",
+          "met": false
+        }
+      ],
+      "commit": null,
+      "id": "B3",
+      "name": "Grok prewalk qualification tooling",
+      "rollback_tag": "elves/pre-batch-3",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "`python3 scripts/check_repo_consistency.py` passes with the amended contracts and updated pins; no forbidden-phrase guard regressions.",
+          "evidence": "",
+          "id": "B4-A1",
+          "met": false
+        },
+        {
+          "criterion": "Every glossary term listed above resolves (new entries present, dead entry removed), and `prewalk.md`/`host-parity.md`/`adaptive-worker-routing.md` carry the Grok amendments with no sentence claiming Grok prewalk is available or qualified.",
+          "evidence": "",
+          "id": "B4-A2",
+          "met": false
+        },
+        {
+          "criterion": "The five doc-hygiene items are fixed and `CHANGELOG.md` `[Unreleased]` describes all four batches accurately.",
+          "evidence": "",
+          "id": "B4-A3",
+          "met": false
+        }
+      ],
+      "commit": null,
+      "id": "B4",
+      "name": "Contracts, glossary, changelog, consistency pins, doc hygiene",
+      "rollback_tag": "elves/pre-batch-4",
+      "status": "pending"
+    }
+  ],
+  "branch": "feat/audit-follow-ups",
+  "cobbler": {
+    "activated_by": "elves invocation",
+    "default_for_session": true,
+    "exit_phrases": [
+      "Cobbler Mode: off",
+      "leave Cobbler Mode",
+      "stop using Cobbler by default"
+    ],
+    "mode": "run",
+    "scope": "current Elves run"
+  },
+  "continuation_guard": {
+    "checkpoint_is_stop": false,
+    "next_required_action": "Commit staging docs, push, open PR on fork main, then launch B1 worker (fable, medium)",
+    "remaining_batches": 4,
+    "stop_allowed": false
+  },
+  "current_batch": null,
+  "execution_log_path": "docs/elves/execution-log.md",
+  "landing_remote": "origin (RBrownHOPE/elves fork; upstream aigorahub/elves is READ-only, never merge there)",
+  "learnings_path": "docs/elves/learnings.md",
+  "master_acceptance": [
+    {
+      "criterion": "Full suite green on CI matrix (3.10/3.12/3.14, ubuntu+macos) and green-with-skips locally on 3.9; no test deleted or weakened; test total strictly increased.",
+      "evidence": "",
+      "id": "M-A1",
+      "met": false
+    },
+    {
+      "criterion": "Prewalk actual mode remains `off` for every host in every default environment, with honest concrete fallback reasons; no doc or code claims Grok prewalk availability or behavioral qualification.",
+      "evidence": "",
+      "id": "M-A2",
+      "met": false
+    },
+    {
+      "criterion": "`verify_repo.py --ci --version Unreleased` passes on CI for the final tip, and the landing check (`elves_landing_check.py`) passes locally before cleanup.",
+      "evidence": "",
+      "id": "M-A3",
+      "met": false
+    }
+  ],
+  "merge_policy": {
+    "authorized_by": "explicit in-session chat-to-land: 'then review the work and land the pr' (2026-07-18)",
+    "method": "regular merge commit, never squash, only after Final Readiness Review passes",
+    "mode": "merge-commit-on-green",
+    "target": "RBrownHOPE/elves main"
+  },
+  "model_routes": [
+    {
+      "actual_route": "in-session native subagent (model claude-fable-5, effort medium), git host_only",
+      "batch": "all",
+      "fallback_reason": "claude CLI binary not installed on PATH; supervised transport and exact-session prewalk unavailable on this machine. Prewalk requested auto -> actual off (supervised_cli_transport_unavailable).",
+      "phase": "implement",
+      "requested_route": "supervised native-worker CLI (claude, model claude-fable-5, effort medium, prewalk auto)"
+    }
+  ],
+  "plan_path": "docs/plans/audit-follow-ups.md",
+  "pr_number": null,
+  "review_comments": [],
+  "run_id": "audit-follow-ups-2026-07-18",
+  "session_id": "elves-2026-07-18-audit-follow-ups",
+  "start_head": "f32ce0dd6bc0ce37b605551ad1336526181b1796",
+  "status": "staging",
+  "survival_guide_path": "docs/elves/survival-guide.md",
+  "test_baseline": {
+    "errors_preexisting": 18,
+    "passed": 1102,
+    "reason": "Local Python 3.9.6 below repo 3.10 floor; 18 errors confined to test_sync_installed_skills + test_installed_bundle_smoke (pre-existing, audited); CI matrix 3.10/3.12/3.14 is authoritative. B1 converts these to explicit version-gated skips.",
+    "skipped": 14,
+    "status": "captured",
+    "total": 1134
+  },
+  "version": "2.9.0",
+  "work_driver": "host-native",
+  "worker_packet_path": ".elves/runtime/packets/audit-follow-ups.md"
+}
