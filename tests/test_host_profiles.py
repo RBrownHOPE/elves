@@ -389,6 +389,18 @@ class GrokNativeWorkerCliTests(unittest.TestCase):
                 (repo / ".elves" / "runtime" / "native-worker").exists()
             )
 
+    def test_launch_without_host_emits_arguments_envelope_not_traceback(self) -> None:
+        # The launch_ready gate must not resolve a profile before the
+        # required-arguments check: a missing --host keeps the clean JSON
+        # envelope instead of an uncaught unsupported-host ValidationIssue.
+        result = self._cli("native-worker", "launch", "--json")
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(
+            payload["issues"][0]["code"], "native_worker_arguments_required"
+        )
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_prewalk_capabilities_host_grok_is_probeable_without_model_calls(self) -> None:
         result = self._cli(
             "native-worker", "prewalk-capabilities", "--host", "grok", "--json"

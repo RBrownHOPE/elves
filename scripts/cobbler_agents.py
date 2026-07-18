@@ -557,11 +557,12 @@ def cmd_native_worker(args: argparse.Namespace) -> int:
         return 0
     if action == "_supervise":
         return supervise_native_worker(repo_root=repo_root, run_id=args.run_id, packet=Path(args.packet))
-    if action == "launch":
+    if action == "launch" and args.host:
         # Feature-gated hosts (registry launch_ready=False) exist for spec and
         # prewalk-capabilities only. Launch requires a valid prewalk
         # qualification artifact, whose loader lands with the qualification
-        # tooling batch; until then every launch fails closed here.
+        # tooling batch; until then every launch fails closed here. A missing
+        # --host falls through to the required-arguments envelope below.
         launch_profile = resolve_host_profile(args.host)
         if not launch_profile.launch_ready:
             issue = ValidationIssue(

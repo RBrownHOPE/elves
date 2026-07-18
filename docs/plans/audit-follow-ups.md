@@ -62,22 +62,22 @@ Scope (audit recommendations #1, #2, #3, #5, #7, #11 plus two small verified def
 
 Acceptance criteria:
 
-- [ ] B1-A1: On Python 3.9, `python3 -m unittest discover -s tests -t .` reports 0 failures and 0
+- [x] B1-A1: On Python 3.9, `python3 -m unittest discover -s tests -t .` reports 0 failures and 0
   errors, with the sync/bundle modules skipped via an explicit version gate whose message names
   the 3.10 floor.
-- [ ] B1-A2: A worker stdout line `{"type": "log", "session_id": "<foreign-uuid>"}` no longer
+- [x] B1-A2: A worker stdout line `{"type": "log", "session_id": "<foreign-uuid>"}` no longer
   binds or mismatches session identity on any host; a new regression test proves it, and the
   codex `thread.started` and claude caller-preset paths still bind correctly.
-- [ ] B1-A3: A failing execution phase whose stdout contains the word "timeout" is classified
+- [x] B1-A3: A failing execution phase whose stdout contains the word "timeout" is classified
   terminal (not transient); a stderr/provider-error transport failure is still classified
   transient; both proven by new tests.
-- [ ] B1-A4: A session id literally spelled `continue` (and `most-recent`/`most_recent`) is
+- [x] B1-A4: A session id literally spelled `continue` (and `most-recent`/`most_recent`) is
   rejected by the shared validator everywhere it is used, proven by tests exercising the shared
   set from at least two call sites.
-- [ ] B1-A5: New tests prove a hung-git `TimeoutExpired` produces a terminal failed state (not a
+- [x] B1-A5: New tests prove a hung-git `TimeoutExpired` produces a terminal failed state (not a
   raw traceback), a torn follow-log line is skipped by the follower, and `stderr_tail` survives
   when provider events exist.
-- [ ] B1-A6: A test asserts every failure reason the supervisor can emit is a member of
+- [x] B1-A6: A test asserts every failure reason the supervisor can emit is a member of
   `PREWALK_FAILURE_CODES`, and the guide-recovery misclassification case now reports
   `prewalk_post_edit_cold_fallback_forbidden`.
 
@@ -112,20 +112,20 @@ Scope (audit recommendation #4, phase 1 of the port):
 
 Acceptance criteria:
 
-- [ ] B2-A1: A host-profile registry exists and is consumed by spec construction, child-env
+- [x] B2-A1: A host-profile registry exists and is consumed by spec construction, child-env
   secrets, identity readiness, probe argv, and transport naming; the codex/claude `if/elif`
   chains at the audited sites are gone, and all pre-existing native-worker/prewalk/routing tests
   pass unchanged.
-- [ ] B2-A2: `native-worker spec --host grok` emits the exact create/resume argv above (proven by
+- [x] B2-A2: `native-worker spec --host grok` emits the exact create/resume argv above (proven by
   test), with `--permission-mode auto`, without any yolo/always-approve/dontAsk token, and with
   the caller-generated UUID recorded before launch.
-- [ ] B2-A3: With no qualification artifact, `route-worker` with provider grok and prewalk
+- [x] B2-A3: With no qualification artifact, `route-worker` with provider grok and prewalk
   auto/required reports actual mode `off`/fails before launch respectively, with the new concrete
   fallback reason; `allow_grok=false` still vetoes regardless of evidence, proven by tests.
-- [ ] B2-A4: The grok child environment passes through only the documented auth names via the
+- [x] B2-A4: The grok child environment passes through only the documented auth names via the
   registry allowlist, proven by a test that asserts `XAI_API_KEY` survives and arbitrary secrets
   are stripped.
-- [ ] B2-A5: Public API snapshot gate passes with additions only; no existing exported name
+- [x] B2-A5: Public API snapshot gate passes with additions only; no existing exported name
   changes.
 
 Blast radius: high — `native_worker.py`, `prewalk.py`, `worker_routing.py`, `cobbler_agents.py`
@@ -156,13 +156,13 @@ Scope (audit recommendation #4, phase 2 of the port):
 
 Acceptance criteria:
 
-- [ ] B3-A1: `prewalk-capabilities --host grok` returns fixture-backed advertised grammar with
+- [x] B3-A1: `prewalk-capabilities --host grok` returns fixture-backed advertised grammar with
   zero model calls; absent an installed grok binary it reports a concrete unavailable reason
   instead of erroring.
-- [ ] B3-A2: The artifact loader accepts a golden valid grok qualification artifact and rejects
+- [x] B3-A2: The artifact loader accepts a golden valid grok qualification artifact and rejects
   each single-field mutation (wrong host, wrong version, wrong session, missing route, fidelity
   `pruned`, oversized, symlink) with a stable diagnostic, all proven by tests.
-- [ ] B3-A3: With a golden `retained_safe` artifact present, `route-worker` provider grok +
+- [x] B3-A3: With a golden `retained_safe` artifact present, `route-worker` provider grok +
   prewalk required passes the gate in a fixture environment; with `pruned` it fails before
   launch; both proven by tests without any live grok invocation.
 
@@ -200,12 +200,12 @@ Scope (audit recommendations #6, #9, #10 and the port's contract amendments):
 
 Acceptance criteria:
 
-- [ ] B4-A1: `python3 scripts/check_repo_consistency.py` passes with the amended contracts and
+- [x] B4-A1: `python3 scripts/check_repo_consistency.py` passes with the amended contracts and
   updated pins; no forbidden-phrase guard regressions.
-- [ ] B4-A2: Every glossary term listed above resolves (new entries present, dead entry removed),
+- [x] B4-A2: Every glossary term listed above resolves (new entries present, dead entry removed),
   and `prewalk.md`/`host-parity.md`/`adaptive-worker-routing.md` carry the Grok amendments with
   no sentence claiming Grok prewalk is available or qualified.
-- [ ] B4-A3: The five doc-hygiene items are fixed and `CHANGELOG.md` `[Unreleased]` describes all
+- [x] B4-A3: The five doc-hygiene items are fixed and `CHANGELOG.md` `[Unreleased]` describes all
   four batches accurately.
 
 Blast radius: docs plus `consistency_policy.py`; risk concentrated in phrase-pin synchronization.
@@ -213,12 +213,12 @@ Risk: medium.
 
 ## Master Acceptance
 
-- [ ] M-A1: Full suite green on CI matrix (3.10/3.12/3.14, ubuntu+macos) and green-with-skips
+- [x] M-A1: Full suite green on CI matrix (3.10/3.12/3.14, ubuntu+macos) and green-with-skips
   locally on 3.9; no test deleted or weakened; test total strictly increased.
-- [ ] M-A2: Prewalk actual mode remains `off` for every host in every default environment, with
+- [x] M-A2: Prewalk actual mode remains `off` for every host in every default environment, with
   honest concrete fallback reasons; no doc or code claims Grok prewalk availability or behavioral
   qualification.
-- [ ] M-A3: `verify_repo.py --ci --version Unreleased` passes on CI for the final tip, and the
+- [x] M-A3: `verify_repo.py --ci --version Unreleased` passes on CI for the final tip, and the
   landing check (`elves_landing_check.py`) passes locally before cleanup.
 
 ## Batch sizing

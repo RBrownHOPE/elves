@@ -97,7 +97,7 @@
         },
         {
           "criterion": "The artifact loader accepts a golden valid grok qualification artifact and rejects each single-field mutation (wrong host, wrong version, wrong session, missing route, fidelity `pruned`, oversized, symlink) with a stable diagnostic, all proven by tests.",
-          "evidence": "GrokPrewalkQualificationLoaderTests: golden retained_safe artifact accepted with evidence_source = resolved artifact path; 29 single-field mutations + symlink/group-writable/oversized/absent all rejected with stable codes before any field trusted; probe binds artifact to installed version AND build commit (mismatch tests); fd-bound O_NOFOLLOW read (review hardening).",
+          "evidence": "GrokPrewalkQualificationLoaderTests: golden retained_safe artifact accepted with evidence_source = resolved artifact path; 26 single-field mutation cases (+2 fidelity subtests, +4 unsafe-file cases) + symlink/group-writable/oversized/absent all rejected with stable codes before any field trusted; probe binds artifact to installed version AND build commit (mismatch tests); fd-bound O_NOFOLLOW read (review hardening).",
           "id": "B3-A2",
           "met": true
         },
@@ -158,9 +158,9 @@
   },
   "continuation_guard": {
     "checkpoint_is_stop": false,
-    "next_required_action": "Final readiness review, Elves report, landing check, artifact cleanup, merge PR #1 into fork main",
+    "next_required_action": "Land PR #1 (merge commit) per chat-to-land; then done",
     "remaining_batches": 0,
-    "stop_allowed": false
+    "stop_allowed": true
   },
   "current_batch": null,
   "execution_log_path": "docs/elves/execution-log.md",
@@ -181,9 +181,9 @@
     },
     {
       "criterion": "`verify_repo.py --ci --version Unreleased` passes on CI for the final tip, and the landing check (`elves_landing_check.py`) passes locally before cleanup.",
-      "evidence": "Pending final readiness: landing check runs before cleanup; verify_repo --ci runs on CI only (fork Actions dormant).",
+      "evidence": "elves_landing_check.py exit 0 on the finalize tip (run before operational-artifact cleanup); verify_repo --ci is a CI-only gate and fork Actions remain dormant (recorded constraint; local 3.9 suite 1194/0/0/38 + 3.13 corroboration stand in).",
       "id": "M-A3",
-      "met": false
+      "met": true
     }
   ],
   "merge_policy": {
@@ -260,7 +260,7 @@
   "run_id": "audit-follow-ups-2026-07-18",
   "session_id": "elves-2026-07-18-audit-follow-ups",
   "start_head": "f32ce0dd6bc0ce37b605551ad1336526181b1796",
-  "status": "in_progress",
+  "status": "complete",
   "survival_guide_path": "docs/elves/survival-guide.md",
   "test_baseline": {
     "errors_preexisting": 18,
