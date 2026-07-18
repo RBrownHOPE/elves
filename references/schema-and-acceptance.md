@@ -146,9 +146,10 @@ prewalk; see [`prewalk.md`](prewalk.md).
 
 ## Work-driver spellings
 
-Canonical work drivers are `host-native`, `grok-build`, `devin-cli`, and `untrusted-writer`
-(survival-guide Run Control spelling). Hyphen and underscore forms are equivalent everywhere a
-work driver is read: `grok_build` == `grok-build`, `devin_cli` == `devin-cli`,
+Canonical work drivers are `host-native`, `grok-build`, `devin-cli`, `opencode-cli`, and
+`untrusted-writer` (survival-guide Run Control spelling). Hyphen and underscore forms are
+equivalent everywhere a work driver is read: `grok_build` == `grok-build`,
+`devin_cli` == `devin-cli`, `opencode_cli` == `opencode-cli`,
 `untrusted_writer` == `untrusted-writer`, `host_native` == `host-native`, and `n_a`/`n-a` mean
 not-applicable. Runtime code that documents the underscore forms (for example
 `cobbler_runtime/behavior_policy.py`) refers to the same drivers; validators normalize input by

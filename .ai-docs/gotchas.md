@@ -99,6 +99,12 @@
   prewalk. Help text proves only advertised grammar; do not enable `auto`, claim instruction
   pruning, or accept post-edit cold fallback without exact-version behavioral evidence. Preserve
   the dirty worktree and stable `prewalk_*` diagnostic on failure.
+- `scripts/consistency_policy.py` phrase-pins many normative sentences in `SKILL.md`, `README.md`,
+  `AGENTS.md`, `CHANGELOG.md`, and `references/*`. Editing a pinned sentence without updating its
+  pin (or adding a pinned phrase the doc does not contain) fails
+  `check_repo_consistency.py`. Work doc-first: edit the doc, run the checker, fix pins, repeat —
+  after every touched file, not once at the end — and keep the pin change in the same commit as
+  the sentence it pins.
 - Do not confuse explicit handoff v1 with prewalk. Declaring session `handoff` makes cold-handoff
   state, ownership, branch/HEAD, and the matching bounded packet capsule strict; omitting it keeps
   the v2.8 advisory packet-path behavior. Neither Markdown nor JSON capsule proves same-session

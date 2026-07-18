@@ -93,7 +93,8 @@ landable PR.
 
 - Runtime CLI: `scripts/cobbler_agents.py` (`implement` optional external implementer; `worker` host-import)
 - Optional Grok implementer: `references/grok-implementer-launch-prompt.md`
-- Design: `docs/plans/smart-plan-grok-implement.md`
+- Design history: repo-only worked plans under `docs/plans/` in a source checkout; installed
+  bundles must not depend on those files
 - Setup: `/setup-cobbler`, `/setup-council`, `$elves setup-cobbler` / natural Codex wording
 - Recipes: `references/cobbler-setup-recipes.md`
 - Workflow: `references/council-workflow.md`

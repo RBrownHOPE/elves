@@ -169,7 +169,21 @@ for `prepare` / `status` / argv emission.
 | Git default | `branch_progress` (Mode A1) | Grok commits/pushes progress slices on the feature branch |
 | Failure UX | `error_human` on failed `--exec` | short mapped messages for auth / tool-config / rate-limit dumps |
 
-### Grok CLI 0.2.93 tool-gating note
+### Version applicability
+
+Grok Build behavior differs across installed versions; treat these markers as scoping, not
+availability claims:
+
+- **~0.2.93 battle-scars** — the tool-gating note and the legacy bounded-batch recipe below were
+  observed on ~0.2.93 and are not re-verified on newer builds; keep them only for that vintage.
+- **>= 0.2.101 behavior** — explicit `--permission-mode` takes precedence over `--always-approve`
+  (never combine them), and 0.2.102 source verification adds: `--session-id` is create-only,
+  `--resume` is exact, model/effort apply on resume, sandbox is resume-sticky, streaming JSON
+  emits no tool-call events, and `plan.json` persistence is vestigial.
+
+The installed executable's probed behavior is always launch authority.
+
+### Grok CLI 0.2.93 tool-gating note (~0.2.93 battle-scar)
 
 For **read-only review / media-style** Grok invocations (not Lane A implement), prefer the
 **default toolset + `--disallowed-tools` denylist** over a `--tools` allowlist. On Grok Build
@@ -182,7 +196,7 @@ This denylist guidance is informed by community companion battle-scars in
 [stdevMac/grok-in-codex](https://github.com/stdevMac/grok-in-codex) (Apache-2.0). Elves does not
 vendor those plugins; host-owned implement leases and run memory remain Elves-native.
 
-### Legacy bounded-batch headless recipe (Grok Build 0.2.93)
+### Legacy bounded-batch headless recipe (Grok Build 0.2.93 battle-scar; not re-verified on >= 0.2.101)
 
 Whole-batch implement (~3 minutes for docs+CLI+tests on this repo):
 
