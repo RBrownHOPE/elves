@@ -132,6 +132,7 @@ from cobbler_runtime.worker_routing import (  # noqa: E402
 )
 from cobbler_runtime.prewalk import (  # noqa: E402
     fixture_prewalk_capabilities,
+    load_grok_prewalk_qualification,
     probe_installed_prewalk_capabilities,
 )
 from cobbler_runtime.native_worker import (  # noqa: E402
@@ -445,6 +446,19 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         )
     except ValidationIssue as issue:
         return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+    grok_prewalk_qualification = None
+    if args.grok_prewalk_qualification:
+        # Same fail-closed posture as the goal canary: an invalid artifact is
+        # a hard error, never silently downgraded routing input. Unlike the
+        # goal canary the artifact is self-binding (exact version and build
+        # commit live inside it), so no installed-binary probe is required
+        # and fixture environments can validate the gate without live grok.
+        try:
+            grok_prewalk_qualification = load_grok_prewalk_qualification(
+                Path(args.grok_prewalk_qualification)
+            )
+        except ValidationIssue as issue:
+            return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
     try:
         decision = decide_worker_route(
             host=args.host,
@@ -456,6 +470,7 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
             grok=grok,
             driver_effort=args.driver_effort,
             prewalk_capabilities=prewalk_caps,
+            grok_prewalk_qualification=grok_prewalk_qualification,
         )
     except ValidationIssue as issue:
         return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
@@ -466,6 +481,11 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         "repository_policy_source": repo_policy_source,
         "grok_capabilities": grok.safe_snapshot(),
         "prewalk_capabilities": prewalk_caps.to_dict() if prewalk_caps else None,
+        "grok_prewalk_qualification": (
+            grok_prewalk_qualification.to_dict()
+            if grok_prewalk_qualification
+            else None
+        ),
     }
     if args.json:
         return _emit_json(payload, exit_code=0)
@@ -2215,6 +2235,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Path to a bounded JSON terminal-canary artifact; requires --probe-grok "
             "and must match the installed version/build"
+        ),
+    )
+    route_worker.add_argument(
+        "--grok-prewalk-qualification",
+        help=(
+            "Path to a bounded JSON grok prewalk qualification artifact "
+            "(artifact_type grok_prewalk_qualification_canary); validated "
+            "fail-closed before routing, never fabricated"
         ),
     )
     route_worker.add_argument("--grok-version")
