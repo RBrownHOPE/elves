@@ -15,6 +15,10 @@
 - Coordinator-to-implementer handoff packets must carry intent/why, non-obvious rationale,
   Build On targets, owned/forbidden surfaces, acceptance evidence, failure modes/pitfalls, and
   HEAD/run-doc/route-session/output identity. Pin drift with consistency phrases.
+- Missing delegated packet paths remain an advisory compatibility diagnostic. A session opts into
+  strict handoff v1 only by declaring top-level `handoff`; then its exact state/ownership and the
+  matching bounded leading Markdown or JSON capsule are blocking staging inputs. A capsule never
+  establishes exact-session prewalk continuity.
 - Git history is an operator UI: prefer
   `[branch · Batch N/total · Contract|Implement|Validate|Review|Close] concrete outcome`,
   forbid vague subjects, push meaningful mid-batch slices, and reserve `Close` for acceptance-

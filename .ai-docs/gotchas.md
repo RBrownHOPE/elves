@@ -43,7 +43,7 @@
 - PR review automation only becomes useful once the branch is pushed and the PR exists. Opening the
   PR late starves the review loop.
 - This repo has no package-managed lint/typecheck/build pipeline. Use
-  `python3 scripts/verify_repo.py --version 2.8.0` as the canonical aggregate proof command, plus
+  `python3 scripts/verify_repo.py --version 2.9.0` as the canonical aggregate proof command, plus
   `--final-readiness --session <session-path>` for live landing readiness.
 - Provider wording drifts easily. Normal Cobbler and ordinary Elves must not require OpenRouter.
   Math may show `openrouter:<model-id>` as an optional role route, but default config should keep
@@ -99,9 +99,17 @@
   prewalk. Help text proves only advertised grammar; do not enable `auto`, claim instruction
   pruning, or accept post-edit cold fallback without exact-version behavioral evidence. Preserve
   the dirty worktree and stable `prewalk_*` diagnostic on failure.
+- Do not confuse explicit handoff v1 with prewalk. Declaring session `handoff` makes cold-handoff
+  state, ownership, branch/HEAD, and the matching bounded packet capsule strict; omitting it keeps
+  the v2.8 advisory packet-path behavior. Neither Markdown nor JSON capsule proves same-session
+  guide→execution continuity.
 - Grok parent→worktree child lineage uses a **new** child UUID. Headless `--worktree --resume` on
   Grok Build 0.2.93 is broken (retains source CWD); fail closed without verified CWD/worktree
   registration, then resume the discovered child exactly from that worktree.
+- Grok Build 0.2.101 treats explicit `--permission-mode auto` as higher precedence than
+  `--always-approve`; do not emit both for a trusted implement run. The conflict can terminate the
+  first permission round-trip as `Cancelled` while the process still exits zero, so monitor the
+  bounded terminal stream category as well as the exit record.
 - `remaining_quota` is `unknown` unless a harness explicitly sets `quota_known`. Never invent limits
   from token counts, and never treat unknown as zero.
 - Unexpected model/CWD/parent/worktree drift blocks write reuse; expected HEAD/plan digest change

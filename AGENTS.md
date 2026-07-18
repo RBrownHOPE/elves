@@ -1,5 +1,5 @@
 ---
-version: "2.8.0"
+version: "2.9.0"
 ---
 
 # Elves: Codex repository adapter
@@ -54,7 +54,8 @@ authenticated live catalog (`references/adaptive-worker-routing.md`).
   **owned surfaces**, **forbidden surfaces**, **acceptance evidence**, failure modes, and
   identity/output format — an incomplete handoff is a **blocking coordinator defect**; for
   delegable runs the consolidated packet is a staging deliverable recorded as
-  `worker_packet_path` (`references/schema-and-acceptance.md`)
+  `worker_packet_path`; an explicitly declared handoff-v1 session/capsule is strict and
+  host-neutral (`references/schema-and-acceptance.md`)
 - **Git history as operator UI:** subjects use
   `[<branch> · Batch N/total · Contract|Implement|Validate|Review|Close] <concrete outcome>`;
   **Forbid vague subjects** (anti-patterns: `[feat/auth · Batch 3/12] Updates`,

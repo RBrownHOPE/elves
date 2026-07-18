@@ -85,6 +85,12 @@ sanitized progress and terminal facts without passing raw provider output throug
 Detached worker commits belong to the separate untrusted lease path: the host creates branch
 commits and pushes only after binary patch audit/import.
 
+Acceptance staging has two compatible handoff layers. The v2.8 default keeps a missing delegated
+packet path advisory, while a session that declares top-level `handoff` opts into strict handoff v1:
+exact fresh/resume state, pending-acceptance ownership, current branch/HEAD, and a matching bounded
+leading Markdown or JSON packet capsule. Full-run prepare still owns immutable launch-time
+plan/session/packet binding. The capsule is cold-handoff evidence and never proves prewalk.
+
 Exact-session prewalk is a lifecycle inside one subscription-native worker, not a cross-worker
 context transfer. The packet appears once on the guide turn; private model-free policy verifies a
 bounded TODO, first meaningful edit, session/worktree/Git continuity, and checkpoint before the

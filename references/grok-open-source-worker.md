@@ -100,6 +100,13 @@ python3 scripts/cobbler_agents.py implement full-run-await --json \
   --session-id <uuid>
 ```
 
+The trusted launcher emits Grok's `--always-approve` flag without also emitting
+`--permission-mode auto`. Grok Build 0.2.101 makes the explicit permission mode win over the yolo
+flag; combining them disables the intended unattended path and can end the first tool turn as
+`Cancelled`. Restricted/non-yolo routes still retain their explicit permission mode. A structural
+terminal cancellation, refusal, provider error, or max-turn event is a typed failed run even if
+the Grok process itself exits zero.
+
 Add `--grok-goal-behavioral-evidence <artifact.json>` to `full-run-prepare` only when that artifact
 meets the contract above. Otherwise the same launch uses the one-packet fallback.
 

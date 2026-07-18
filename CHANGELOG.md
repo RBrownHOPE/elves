@@ -4,6 +4,31 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-07-17
+
+### Grok Build unattended-launch compatibility
+
+- Stop combining Grok Build's `--permission-mode auto` with `--always-approve`. Grok Build 0.2.101
+  gives the explicit permission mode precedence, which disables always-approve and can cancel the
+  first headless tool permission. Trusted implementation launches now use the unambiguous
+  `--always-approve` surface alone; non-yolo launches retain their explicit permission mode.
+- Treat structural Grok terminal `Cancelled`, refusal, error, and max-turn records as typed worker
+  failures even when the provider process exits zero. Shared-OAuth monitoring exposes only the
+  bounded category and never raw transcript text.
+
+### Explicit handoff v1 staging contract
+
+- Add opt-in machine-readable coordinator-to-worker handoff validation. A session that declares a
+  top-level `handoff` object now binds fresh-start/resume state, the active batch, completed-slice
+  commit evidence, exact pending-acceptance ownership, and the next worker action to the current
+  repository branch and HEAD.
+- Support the same state capsule and exact plan/packet acceptance mapping in leading Markdown
+  `elves-handoff-v1` comments and JSON `elves_handoff` objects. Packet reads are UTF-8 and bounded;
+  malformed, misplaced, oversized, or identity-drifting declared capsules block staging.
+- Preserve v2.8 compatibility: delegable sessions that do not declare handoff v1 retain the
+  advisory-only missing-`worker_packet_path` diagnostic. A capsule describes a cold handoff and
+  never proves exact-session prewalk continuity.
+
 ## [2.8.0] - 2026-07-17
 
 ### True exact-session native-worker prewalk

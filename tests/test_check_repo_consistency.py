@@ -175,6 +175,44 @@ class ConsistencyPhraseTests(unittest.TestCase):
         self.assertTrue(errors)
         self.assertTrue(any("fresh session" in error for error in errors))
 
+    def test_explicit_handoff_corpus_pins_opt_in_without_prewalk_claim(self) -> None:
+        required = {
+            "SKILL.md",
+            "AGENTS.md",
+            "README.md",
+            "references/schema-and-acceptance.md",
+            "references/survival-guide-template.md",
+            "CHANGELOG.md",
+        }
+        self.assertEqual(
+            set(self.consistency.EXPLICIT_HANDOFF_V1_PHRASES),
+            required,
+        )
+        schema = " ".join(
+            self.consistency.EXPLICIT_HANDOFF_V1_PHRASES[
+                "references/schema-and-acceptance.md"
+            ]
+        )
+        self.assertIn("Presence is the opt-in", schema)
+        self.assertIn("not trajectory continuity", schema)
+
+    def test_explicit_handoff_corpus_rejects_mandatory_prewalk_approximation(self) -> None:
+        errors = self.consistency.find_missing_phrases(
+            {
+                "SKILL.md": (
+                    "Every delegated run must include a packet capsule; that capsule proves prewalk."
+                )
+            },
+            {
+                "SKILL.md": self.consistency.EXPLICIT_HANDOFF_V1_PHRASES[
+                    "SKILL.md"
+                ]
+            },
+            "explicit handoff v1",
+        )
+        self.assertTrue(errors)
+        self.assertTrue(any("advisory, never" in error for error in errors))
+
     def test_grok_worker_consistency_rejects_stale_fixed_model_policy(self) -> None:
         label = "docs/elves/learnings.md"
         stale = "use permitted Grok Composer 2.5 Fast for regular clear work"

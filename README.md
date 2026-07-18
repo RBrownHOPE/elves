@@ -8,7 +8,7 @@ plans and reviews; a subscription-native (or optional external) worker implement
 files let the work survive context compaction. You write the plan and own the merge decision. The
 agent does the middle.
 
-**Current release: v2.8.0** — see [`CHANGELOG.md`](CHANGELOG.md) for version history. Coined terms
+**Current release: v2.9.0** — see [`CHANGELOG.md`](CHANGELOG.md) for version history. Coined terms
 are defined once in [`references/glossary.md`](references/glossary.md).
 
 **New to Elves? Start with the [practical user guide](https://aigorahub.github.io/elves/).** It
@@ -76,6 +76,11 @@ in-session authorization (chat-to-land) or the reviewed-landing command `\land-p
 See [`references/e2e-chat-to-land.md`](references/e2e-chat-to-land.md) and
 [`references/kickoff-prompt-template.md`](references/kickoff-prompt-template.md).
 
+For a machine-checked cold handoff, the session may opt into explicit handoff v1: exact state,
+acceptance ownership, branch/HEAD, and a matching bounded Markdown or JSON packet capsule. The
+ordinary v2.8 path remains advisory when this schema is absent. The capsule is not prewalk continuity proof.
+See [`references/schema-and-acceptance.md`](references/schema-and-acceptance.md).
+
 ---
 
 ## Who implements
@@ -89,6 +94,8 @@ refs, final gates, PR, and merge — always. Details:
 [`references/prewalk.md`](references/prewalk.md),
 [`references/grok-open-source-worker.md`](references/grok-open-source-worker.md),
 [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
+Trusted Grok implementation launches use `--always-approve` alone: Grok Build treats an explicit
+`--permission-mode auto` as an override, so the two flags must not be combined.
 
 ### Optional exact-session prewalk
 
@@ -294,12 +301,12 @@ exactly one file below; other docs link instead of restating.
 
 ```bash
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.8.0
+python3 scripts/verify_repo.py --version 2.9.0
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.8.0 --final-readiness \
+python3 scripts/verify_repo.py --version 2.9.0 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.8.0 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.9.0 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 

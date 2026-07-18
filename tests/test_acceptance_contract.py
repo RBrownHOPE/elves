@@ -1116,30 +1116,125 @@ class AcceptanceContractCliTests(unittest.TestCase):
                 self.assertEqual(self.session_path.read_bytes(), before)
 
 
-class WorkerPacketStagingWarningTests(unittest.TestCase):
-    """validate warns — never blocks — when a delegable run has no recorded packet.
+class DelegatedHandoffContractTests(unittest.TestCase):
+    """Explicit handoff v1 fails closed without breaking undeclared v2.8 sessions."""
 
-    Standalone TestCase (not an AcceptanceContractCliTests subclass) so the
-    parent suite is not re-collected a second time.
-    """
-
-    setUp = AcceptanceContractCliTests.setUp
     write_plan = AcceptanceContractCliTests.write_plan
     write_session = AcceptanceContractCliTests.write_session
     run_cli = AcceptanceContractCliTests.run_cli
+
+    def setUp(self) -> None:
+        AcceptanceContractCliTests.setUp(self)
+        subprocess.run(
+            ["git", "init", "-q"],
+            cwd=self.repo,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "elves-tests@example.com"],
+            cwd=self.repo,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Elves Tests"],
+            cwd=self.repo,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "--allow-empty", "-qm", "initial"],
+            cwd=self.repo,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "branch", "-m", "codex/delegated-test"],
+            cwd=self.repo,
+            check=True,
+        )
+        self.head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        ).stdout.strip()
 
     def _session_with_driver(
         self,
         work_driver: str | None,
         *,
         worker_packet_path: str | None = None,
+        include_handoff: bool = False,
     ) -> dict[str, object]:
         session = session_for_plan()
+        session["branch"] = "codex/delegated-test"
         if work_driver is not None:
             session["work_driver"] = work_driver
         if worker_packet_path is not None:
             session["worker_packet_path"] = worker_packet_path
+        if include_handoff:
+            session["delegation_scope"] = "full_run"
+            session["handoff"] = {
+                "schema_version": 1,
+                "mode": "fresh_start",
+                "active_batch": "B0",
+                "product_implementation_started": False,
+                "coordinator_completed_slices": [],
+                "worker_owned_acceptance_ids": ["B0-A1", "B0-A2"],
+                "coordinator_owned_acceptance_ids": ["M-A1"],
+                "next_exact_action": "Begin B0-A1 with its focused failing test.",
+            }
         return session
+
+    def _write_packet(
+        self,
+        session: dict[str, object],
+        *,
+        launch_head: str | None = None,
+        handoff: dict[str, object] | None = None,
+        criterion: str = "Bracketed B0 criterion.",
+        json_packet: bool = False,
+        markdown_prefix: str = "",
+    ) -> str:
+        suffix = ".json" if json_packet else ".md"
+        packet_path = self.repo / ".elves" / "runtime" / f"worker-packet{suffix}"
+        packet_path.parent.mkdir(parents=True, exist_ok=True)
+        capsule = {
+            "schema_version": 1,
+            "run_id": "acceptance-contract-test",
+            "branch": session["branch"],
+            "launch_head": launch_head or self.head,
+            "handoff": handoff or session["handoff"],
+        }
+        if json_packet:
+            packet_path.write_text(
+                json.dumps(
+                    {
+                        "elves_handoff": capsule,
+                        "acceptance": [
+                            {"id": "B0-A1", "criterion": criterion},
+                            {"id": "B0-A2", "criterion": "Bare B0 criterion."},
+                            {"id": "M-A1", "criterion": "Master criterion."},
+                        ],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        else:
+            packet_path.write_text(
+                markdown_prefix
+                + "<!-- elves-handoff-v1\n"
+                + json.dumps(capsule, indent=2, sort_keys=True)
+                + "\n-->\n\n"
+                + "# Worker packet\n\n"
+                + f"- [ ] B0-A1: {criterion}\n"
+                + "- [ ] B0-A2: Bare B0 criterion.\n"
+                + "- [ ] M-A1: Master criterion.\n",
+                encoding="utf-8",
+            )
+        return str(packet_path.relative_to(self.repo))
 
     def _validate(self, *extra: str) -> subprocess.CompletedProcess[str]:
         return self.run_cli(
@@ -1151,55 +1246,10 @@ class WorkerPacketStagingWarningTests(unittest.TestCase):
             *extra,
         )
 
-    def test_validate_warns_for_grok_build_without_packet_path(self) -> None:
-        self.write_plan()
-        self.write_session(self._session_with_driver("grok-build"))
+    def _issue_codes(self, result: subprocess.CompletedProcess[str]) -> set[str]:
+        return {issue["code"] for issue in json.loads(result.stdout)["issues"]}
 
-        result = self._validate()
-
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Elves acceptance staging check OK", result.stdout)
-        self.assertIn("WARN", result.stdout)
-        self.assertIn("worker_packet_missing", result.stdout)
-
-    def test_validate_warns_for_underscore_and_devin_spellings(self) -> None:
-        for driver in ("grok_build", "devin-cli", "devin_cli", "untrusted_writer"):
-            with self.subTest(driver=driver):
-                self.write_plan()
-                self.write_session(self._session_with_driver(driver))
-
-                result = self._validate()
-
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn("worker_packet_missing", result.stdout)
-
-    def test_validate_silent_with_packet_path_recorded(self) -> None:
-        self.write_plan()
-        self.write_session(
-            self._session_with_driver(
-                "grok-build",
-                worker_packet_path=".elves/runtime/worker-packet.md",
-            )
-        )
-
-        result = self._validate()
-
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertNotIn("WARN", result.stdout)
-        self.assertNotIn("worker_packet_missing", result.stdout)
-
-    def test_validate_silent_for_host_native_and_absent_driver(self) -> None:
-        for driver in ("host-native", "host_native", "n_a", None):
-            with self.subTest(driver=driver):
-                self.write_plan()
-                self.write_session(self._session_with_driver(driver))
-
-                result = self._validate()
-
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertNotIn("worker_packet_missing", result.stdout)
-
-    def test_validate_warning_reported_in_json_without_flipping_ok(self) -> None:
+    def test_validate_warns_for_delegated_run_without_explicit_handoff(self) -> None:
         self.write_plan()
         self.write_session(self._session_with_driver("grok-build"))
 
@@ -1208,27 +1258,314 @@ class WorkerPacketStagingWarningTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         payload = json.loads(result.stdout)
         self.assertTrue(payload["ok"])
-        self.assertEqual(
-            ["worker_packet_missing"],
-            [warning["code"] for warning in payload.get("warnings", [])],
-        )
+        self.assertEqual([], payload["issues"])
+        self.assertEqual(["worker_packet_missing"], [item["code"] for item in payload["warnings"]])
 
-    def test_validate_blocking_issue_still_fails_with_warning_present(self) -> None:
+    def test_validate_warns_for_all_delegated_driver_spellings_without_handoff(self) -> None:
+        for driver in ("grok_build", "devin-cli", "devin_cli", "untrusted_writer"):
+            with self.subTest(driver=driver):
+                self.write_plan()
+                self.write_session(self._session_with_driver(driver))
+
+                result = self._validate("--json")
+
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertEqual(
+                    ["worker_packet_missing"],
+                    [item["code"] for item in payload["warnings"]],
+                )
+
+    def test_validate_accepts_complete_fresh_start_handoff(self) -> None:
         self.write_plan()
-        session = self._session_with_driver("grok-build")
-        session["batches"][0]["acceptance"][0]["criterion"] = "Drifted criterion text."
+        session = self._session_with_driver("subscription-native-codex", include_handoff=True)
+        session["worker_packet_path"] = self._write_packet(session)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(json.loads(result.stdout)["ok"])
+
+    def test_validate_accepts_equivalent_json_packet_handoff(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["worker_packet_path"] = self._write_packet(
+            session,
+            json_packet=True,
+        )
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(json.loads(result.stdout)["ok"])
+
+    def test_declared_handoff_requires_packet(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
         self.write_session(session)
 
         result = self._validate("--json")
 
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        payload = json.loads(result.stdout)
-        self.assertFalse(payload["ok"])
-        self.assertTrue(payload["issues"])
-        self.assertEqual(
-            ["worker_packet_missing"],
-            [warning["code"] for warning in payload.get("warnings", [])],
+        self.assertIn("worker_packet_missing", self._issue_codes(result))
+        self.assertEqual([], json.loads(result.stdout)["warnings"])
+
+    def test_declared_non_object_handoff_blocks(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build")
+        session["handoff"] = None
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("delegated_handoff_invalid", self._issue_codes(result))
+
+    def test_host_native_full_run_scope_remains_silent_without_handoff(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("host-native")
+        session["delegation_scope"] = "full_run"
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([], json.loads(result.stdout)["warnings"])
+
+    def test_validate_silent_for_host_native_and_absent_driver(self) -> None:
+        for driver in ("host-native", "host_native", "n_a", None):
+            with self.subTest(driver=driver):
+                self.write_plan()
+                self.write_session(self._session_with_driver(driver))
+
+                result = self._validate("--json")
+
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(json.loads(result.stdout)["ok"])
+
+    def test_validate_blocks_unowned_pending_acceptance(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["handoff"]["worker_owned_acceptance_ids"] = ["B0-A1"]
+        session["worker_packet_path"] = self._write_packet(session)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("delegated_handoff_ownership_mismatch", self._issue_codes(result))
+
+    def test_validate_blocks_overlapping_acceptance_ownership(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["handoff"]["coordinator_owned_acceptance_ids"] = ["B0-A1", "M-A1"]
+        session["worker_packet_path"] = self._write_packet(session)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("delegated_handoff_ownership_overlap", self._issue_codes(result))
+
+    def test_validate_blocks_fresh_start_that_claims_implementation_started(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["handoff"]["product_implementation_started"] = True
+        session["worker_packet_path"] = self._write_packet(session)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("delegated_handoff_started_mismatch", self._issue_codes(result))
+
+    def test_validate_accepts_resume_active_batch_with_evidenced_slice(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["handoff"].update(
+            {
+                "mode": "resume_active_batch",
+                "product_implementation_started": True,
+                "coordinator_completed_slices": [
+                    {
+                        "description": "Locked the persistence contract.",
+                        "evidence": "Focused contract test passes.",
+                        "commit": self.head,
+                    }
+                ],
+                "next_exact_action": "Continue B0-A1 from the service implementation seam.",
+            }
         )
+        session["worker_packet_path"] = self._write_packet(session)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_validate_blocks_resume_without_completed_slice(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["handoff"].update(
+            {
+                "mode": "resume_active_batch",
+                "product_implementation_started": True,
+                "next_exact_action": "Continue B0-A1.",
+            }
+        )
+        session["worker_packet_path"] = self._write_packet(session)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("delegated_handoff_slices_mismatch", self._issue_codes(result))
+
+    def test_validate_blocks_nonancestor_completed_slice(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["handoff"].update(
+            {
+                "mode": "resume_active_batch",
+                "product_implementation_started": True,
+                "coordinator_completed_slices": [
+                    {
+                        "description": "Claims an unrelated slice.",
+                        "evidence": "Untrusted evidence.",
+                        "commit": "b" * 40,
+                    }
+                ],
+                "next_exact_action": "Continue B0-A1.",
+            }
+        )
+        session["worker_packet_path"] = self._write_packet(session)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "delegated_handoff_slice_commit_unproven",
+            self._issue_codes(result),
+        )
+
+    def test_validate_blocks_noncanonical_owned_acceptance_id(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["handoff"]["worker_owned_acceptance_ids"] = ["B00-A1"]
+        session["worker_packet_path"] = self._write_packet(session)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("delegated_handoff_ownership_invalid", self._issue_codes(result))
+
+    def test_validate_blocks_packet_state_that_differs_from_session(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        packet_handoff = dict(session["handoff"])
+        packet_handoff["next_exact_action"] = "A different action."
+        session["worker_packet_path"] = self._write_packet(
+            session,
+            handoff=packet_handoff,
+        )
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("worker_packet_handoff_mismatch", self._issue_codes(result))
+
+    def test_validate_blocks_packet_for_a_different_launch_head(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["worker_packet_path"] = self._write_packet(
+            session,
+            launch_head="b" * 40,
+        )
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("worker_packet_launch_head_mismatch", self._issue_codes(result))
+
+    def test_validate_blocks_session_for_a_different_current_branch(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["branch"] = "codex/other-branch"
+        session["worker_packet_path"] = self._write_packet(session)
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("delegated_handoff_branch_mismatch", self._issue_codes(result))
+
+    def test_validate_blocks_markdown_capsule_after_packet_content(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["worker_packet_path"] = self._write_packet(
+            session,
+            markdown_prefix="# Content before state\n\n",
+        )
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "worker_packet_state_capsule_position_invalid",
+            self._issue_codes(result),
+        )
+
+    def test_validate_blocks_oversized_explicit_packet(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        relative = self._write_packet(session)
+        packet_path = self.repo / relative
+        packet_path.write_text("x" * ((1024 * 1024) + 1), encoding="utf-8")
+        session["worker_packet_path"] = relative
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("worker_packet_invalid", self._issue_codes(result))
+
+    def test_validate_reports_malformed_json_packet_once(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        relative = self._write_packet(session, json_packet=True)
+        (self.repo / relative).write_text("{", encoding="utf-8")
+        session["worker_packet_path"] = relative
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        issues = json.loads(result.stdout)["issues"]
+        self.assertEqual(
+            ["worker_packet_invalid_json"],
+            [item["code"] for item in issues],
+        )
+
+    def test_validate_blocks_packet_criterion_text_drift(self) -> None:
+        self.write_plan()
+        session = self._session_with_driver("grok-build", include_handoff=True)
+        session["worker_packet_path"] = self._write_packet(
+            session,
+            criterion="Drifted criterion text.",
+        )
+        self.write_session(session)
+
+        result = self._validate("--json")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("worker_packet_acceptance_text_mismatch", self._issue_codes(result))
 
 
 if __name__ == "__main__":

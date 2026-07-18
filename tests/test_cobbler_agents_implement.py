@@ -169,8 +169,7 @@ class BuildLaunchArgvTests(unittest.TestCase):
         self.assertIn("--resume", argv)
         self.assertIn(TEST_GROK_SESSION, argv)
         self.assertNotIn("--session-id", argv)
-        self.assertIn("--permission-mode", argv)
-        self.assertEqual(argv[argv.index("--permission-mode") + 1], DEFAULT_PERMISSION_MODE)
+        self.assertNotIn("--permission-mode", argv)
         self.assertEqual(argv[argv.index("--model") + 1], DEFAULT_MODEL)
         self.assertIn("--prompt-file", argv)
         self.assertIn("--always-approve", argv)
@@ -181,6 +180,23 @@ class BuildLaunchArgvTests(unittest.TestCase):
         self.assertNotIn("dontAsk", argv)
         self.assertNotIn("-p", argv)
         self.assertNotIn("--single", argv)
+
+    def test_non_yolo_launch_keeps_explicit_permission_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "batch-1.md"
+            packet.write_text("# packet\n", encoding="utf-8")
+            argv = build_launch_argv(
+                session_id=TEST_GROK_SESSION,
+                packet=packet,
+                cwd=tmp,
+                permission_mode=DEFAULT_PERMISSION_MODE,
+                yolo=False,
+            )
+        self.assertEqual(
+            argv[argv.index("--permission-mode") + 1],
+            DEFAULT_PERMISSION_MODE,
+        )
+        self.assertNotIn("--always-approve", argv)
 
     def test_create_uses_session_id_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1219,7 +1235,8 @@ class CliIntegrationTests(unittest.TestCase):
             line = launch.stdout.strip()
             self.assertTrue(line.startswith(str(fake_grok)))
             self.assertIn(f"--resume {TEST_GROK_SESSION}", line)
-            self.assertIn("--permission-mode auto", line)
+            self.assertNotIn("--permission-mode", line)
+            self.assertIn("--always-approve", line)
             self.assertNotIn("--no-subagents", line)
             self.assertNotIn("dontAsk", line)
 

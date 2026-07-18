@@ -69,8 +69,9 @@ the runtime surfaces, and the checks that usually matter before editing.
 - `scripts/preflight_worktree.py`: explicit dedicated-worktree helper used by
   `./scripts/preflight.sh --create-worktree`.
 - `scripts/validate_survival_guide.py`: advisory validator for required survival-guide sections.
-- `scripts/acceptance_contract.py`: pre-launch stable-ID syntax, plan/session synchronization, and
-  exact criterion-parity validation.
+- `scripts/acceptance_contract.py`: pre-launch stable-ID syntax, plan/session synchronization,
+  exact criterion parity, advisory packet-path compatibility, and opt-in strict Markdown/JSON
+  handoff-v1 state validation.
 - `scripts/elves_landing_check.py`: acceptance/readiness proof gate for a live session.
 - `scripts/cobbler_agents.py`: thin CLI for onboarding, routing, sessions, trusted full-run
   supervision, legacy bounded implementation, and untrusted writer leases.
@@ -134,13 +135,13 @@ For this repo, use the canonical aggregate verifier instead of maintaining a dup
 list:
 
 ```bash
-python3 scripts/verify_repo.py --version 2.8.0
+python3 scripts/verify_repo.py --version 2.9.0
 ```
 
 Before final readiness on an active run, use:
 
 ```bash
-python3 scripts/verify_repo.py --version 2.8.0 --final-readiness --session <session-path>
+python3 scripts/verify_repo.py --version 2.9.0 --final-readiness --session <session-path>
 ```
 
 The aggregate verifier includes `git diff --check`; focused tests remain useful while iterating.

@@ -29,6 +29,113 @@ the **path is recorded**, not that the file is tracked. `acceptance_contract.py 
 advisory `worker_packet_missing` warning — never a blocking issue and never an exit-code change —
 when a delegable session lacks the recorded path. Host-native runs legitimately skip the packet.
 
+### Optional explicit handoff v1
+
+The v2.8 advisory path above remains the compatibility default. A coordinator opts into strict
+machine validation by declaring a top-level `handoff` field in the session. Presence is the opt-in:
+after that field exists, a missing or malformed packet, state capsule, ownership partition, or Git
+identity is blocking. Do not write `handoff: null` as a placeholder.
+
+The session handoff object has this exact shape (no extension fields):
+
+```json
+{
+  "handoff": {
+    "schema_version": 1,
+    "mode": "fresh_start",
+    "active_batch": "B1",
+    "product_implementation_started": false,
+    "coordinator_completed_slices": [],
+    "worker_owned_acceptance_ids": ["B1-A1", "B1-A2"],
+    "coordinator_owned_acceptance_ids": ["M-A1"],
+    "next_exact_action": "Begin B1-A1 at the named service seam."
+  }
+}
+```
+
+Rules:
+
+- `mode` is `fresh_start` or `resume_active_batch`. Fresh start requires no product implementation
+  and an empty completed-slice list. Resume requires implementation to have started and at least
+  one completed slice.
+- `active_batch` is one canonical plan batch. The worker owns at least one pending criterion in
+  that batch.
+- Every completed slice has exactly `description`, `evidence`, and an exact 40-character `commit`
+  that exists as an ancestor of current `HEAD`.
+- Worker and coordinator ownership arrays contain canonical stable IDs, never overlap, and
+  partition every pending plan criterion exactly once. Completed or unknown IDs cannot be assigned;
+  the worker owns at least one pending criterion.
+- `next_exact_action` is non-empty. The session `branch` equals the current symbolic branch.
+
+The matching packet state capsule has exactly `schema_version`, `run_id`, `branch`, `launch_head`,
+and `handoff`. `run_id`, `branch`, and the handoff object equal the session; `launch_head` equals
+the repository's exact current `HEAD`. Markdown packets begin at byte zero with this comment:
+
+```markdown
+<!-- elves-handoff-v1
+{
+  "branch": "codex/project-task",
+  "handoff": {
+    "active_batch": "B1",
+    "coordinator_completed_slices": [],
+    "coordinator_owned_acceptance_ids": ["M-A1"],
+    "mode": "fresh_start",
+    "next_exact_action": "Begin B1-A1 at the named service seam.",
+    "product_implementation_started": false,
+    "schema_version": 1,
+    "worker_owned_acceptance_ids": ["B1-A1", "B1-A2"]
+  },
+  "launch_head": "0123456789abcdef0123456789abcdef01234567",
+  "run_id": "project-task-2026-07-17",
+  "schema_version": 1
+}
+-->
+
+# Worker packet
+
+- [ ] B1-A1: Exact criterion text from the plan.
+- [ ] B1-A2: Another exact plan criterion.
+- [ ] M-A1: Exact master criterion text from the plan.
+```
+
+JSON packets carry the same capsule under top-level `elves_handoff` and the canonical acceptance
+definitions under `acceptance`:
+
+```json
+{
+  "elves_handoff": {
+    "schema_version": 1,
+    "run_id": "project-task-2026-07-17",
+    "branch": "codex/project-task",
+    "launch_head": "0123456789abcdef0123456789abcdef01234567",
+    "handoff": {
+      "schema_version": 1,
+      "mode": "fresh_start",
+      "active_batch": "B1",
+      "product_implementation_started": false,
+      "coordinator_completed_slices": [],
+      "worker_owned_acceptance_ids": ["B1-A1", "B1-A2"],
+      "coordinator_owned_acceptance_ids": ["M-A1"],
+      "next_exact_action": "Begin B1-A1 at the named service seam."
+    }
+  },
+  "acceptance": [
+    {"id": "B1-A1", "criterion": "Exact criterion text from the plan."},
+    {"id": "B1-A2", "criterion": "Another exact plan criterion."},
+    {"id": "M-A1", "criterion": "Exact master criterion text from the plan."}
+  ]
+}
+```
+
+Both formats are bounded to 1 MiB (1,048,576 UTF-8 bytes) and must define the same ID→criterion mapping as
+the plan. JSON duplicate keys, Markdown capsules after other content, duplicate acceptance IDs,
+and missing/extra/text-drifted rows fail closed with stable diagnostics. Full-run prepare still
+performs its existing immutable plan/session/packet binding at the launch boundary; explicit
+handoff v1 adds staging state/ownership proof and does not replace that binding.
+
+This capsule describes a coordinator-to-worker handoff. It is not trajectory continuity: sending
+the packet to a fresh worker remains a cold handoff and is never exact-session prewalk.
+
 For exact-session native-worker prewalk the same packet remains a staging deliverable and is sent
 exactly once, on the guide turn. The later execution turn receives only `Continue.`. The run-level
 session may record requested/actual prewalk mode and the safe exact worker-session identifier, but

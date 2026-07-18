@@ -512,7 +512,7 @@
     <div class="masthead-inner">
       <div class="brand-row">
         <a class="wordmark" href="https://github.com/aigorahub/elves">Elves</a>
-        <a class="repo-link" href="https://github.com/aigorahub/elves">v2.8.0 source and releases on GitHub</a>
+        <a class="repo-link" href="https://github.com/aigorahub/elves">v2.9.0 source and releases on GitHub</a>
       </div>
       <h1>Using Elves</h1>
       <p class="intro">Plan with the main agent, hand implementation to a separate worker, then
@@ -686,6 +686,14 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup</code></pre>
           <code>/goal</code> is an enhancement, and a compatible one-packet prompt is the recorded
           fallback.</p>
 
+        <h3>Machine-check a cold handoff when needed</h3>
+        <p>Elves v2.9 adds optional explicit handoff v1 for coordinators that need deterministic
+          state transfer to a separate worker. Declaring it binds fresh-start or resume state,
+          acceptance ownership, the current branch and commit, and a matching bounded Markdown or
+          JSON packet capsule. The ordinary path stays advisory when the schema is absent. This is
+          cold-handoff evidence, not prewalk continuity; see the
+          <a href="https://github.com/aigorahub/elves/blob/main/references/schema-and-acceptance.md">schema and acceptance contract</a>.</p>
+
         <h3>Use exact-session prewalk when qualified</h3>
         <p>Prewalk lets one native worker orient on a guide model or effort, create a bounded TODO,
           make the first real task edit, and then resume the <strong>same session in the same
@@ -737,6 +745,13 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" route-worker --json \
           matching end event. Invalid or incomplete evidence keeps goal mode off. See the
           <a href="https://github.com/aigorahub/elves/blob/main/references/grok-open-source-worker.md">open-source
           Grok worker reference</a> for the artifact schema.</p>
+
+        <div class="note">
+          <strong>Unattended Grok launch:</strong> Elves uses <code>--always-approve</code> alone.
+          Grok Build 0.2.101 treats <code>--permission-mode auto</code> as an override, so combining
+          the two can cancel the first tool turn. Elves also treats a structural cancelled,
+          refused, errored, or max-turn terminal event as failure even when Grok exits zero.
+        </div>
 
         <div class="note">
           <strong>Cache handoff is not promised.</strong> A separate session may receive provider

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "2.8.0"
+  version: "2.9.0"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -35,7 +35,7 @@ handoff remains valid for huge/unstable plans.
 `references/joyful-runs-contract.md`, `landing-authority.md`, `follow-mode.md`,
 `proof-and-review.md`, `host-parity.md`, `schema-and-acceptance.md`, `prewalk.md`.
 
-**User guide (v2.8):** `https://aigorahub.github.io/elves/` is the short task-first path for
+**User guide (v2.9):** `https://aigorahub.github.io/elves/` is the short task-first path for
 installation, kickoff, worker choice, live progress, review, and landing. The references above
 remain the detailed workflow contracts.
 
@@ -299,7 +299,10 @@ coordinator→implementer packet is written and its path recorded in Run Control
 `worker_packet_path` in `.elves-session.json` — staging is not launch-ready without it. The
 per-batch handoff block in the plan and the consolidated staging packet are not substitutes; see
 `references/schema-and-acceptance.md`. `acceptance_contract.py validate` warns (advisory, never
-blocking) when a delegable session lacks the recorded path.
+blocking) when a delegable session lacks the recorded path. A session may opt into strict explicit
+handoff v1 by declaring top-level `handoff` state and the matching leading Markdown or JSON packet
+capsule; once declared, state/ownership/repository drift is blocking.
+The capsule does not turn a cold handoff into exact-session prewalk.
 
 ### Preflight
 
