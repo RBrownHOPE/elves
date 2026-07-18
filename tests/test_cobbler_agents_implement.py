@@ -676,6 +676,81 @@ class RunGateTests(unittest.TestCase):
             self.assertTrue(record["done_report_present"])
             self.assertEqual(record["done_report"]["status"], "complete")
 
+    def test_gate_confidence_signal_valid_and_malformed_fields(self) -> None:
+        base_report = {
+            "batch": 5,
+            "status": "complete",
+            "session_id": "s",
+            "head": "abc",
+            "commits": [],
+            "tests": {"passed": 1, "failed": 0, "skipped": 0},
+            "blockers": [],
+            "acceptance": [{"criterion": "x", "met": True, "evidence": "y"}],
+        }
+        ok_cmd = [
+            sys.executable,
+            "-c",
+            "print('Ran 1 test in 0.0s'); print('OK')",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare_implement(root)
+            done = implement_root(root) / "done" / "batch-5.json"
+            for signal in (
+                {"confidence": "low", "unsure_about": ["retry bounds", "csv path"]},
+                # Empty unsure_about is a valid, complete answer.
+                {"confidence": "high", "unsure_about": []},
+                # Absent fields stay valid.
+                {},
+            ):
+                with self.subTest(signal=signal):
+                    done.write_text(
+                        json.dumps({**base_report, **signal}), encoding="utf-8"
+                    )
+                    record = run_gate(root, batch=5, test_command=ok_cmd)
+                    self.assertTrue(record["ok"])
+                    self.assertFalse(
+                        [
+                            w
+                            for w in record["warnings"]
+                            if "confidence" in w or "unsure_about" in w
+                        ],
+                        record["warnings"],
+                    )
+            done.write_text(
+                json.dumps(
+                    {**base_report, "confidence": "certain", "unsure_about": "oops"}
+                ),
+                encoding="utf-8",
+            )
+            record = run_gate(root, batch=5, test_command=ok_cmd)
+            # Legacy dogfood posture: malformed signal is warning-only.
+            self.assertTrue(record["ok"])
+            self.assertIn(
+                "done report confidence must be one of high, medium, low",
+                record["warnings"],
+            )
+            self.assertIn(
+                "done report unsure_about must be a list", record["warnings"]
+            )
+
+    def test_done_report_confidence_warning_helper_bounds(self) -> None:
+        helper = implement_module._done_report_confidence_warnings
+        self.assertEqual(helper({}), [])
+        self.assertEqual(helper({"confidence": "medium", "unsure_about": []}), [])
+        self.assertEqual(
+            helper({"unsure_about": [7]}),
+            ["done report unsure_about items must be non-empty strings"],
+        )
+        self.assertEqual(
+            helper({"unsure_about": ["x" * 501]}),
+            ["done report unsure_about item exceeds 500 chars"],
+        )
+        self.assertEqual(
+            helper({"unsure_about": [f"item {index}" for index in range(17)]}),
+            ["done report unsure_about exceeds 16 items"],
+        )
+
     def test_gate_uses_minimal_env_and_redacts_all_returned_and_saved_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

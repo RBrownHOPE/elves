@@ -2185,3 +2185,34 @@ GROK_OPEN_SOURCE_WORKER_FORBIDDEN_PHRASES = {
         "resume, `/goal`, streaming JSON",
     ],
 }
+
+WORKER_CONFIDENCE_SIGNAL_PHRASES = {
+    "SKILL.md": [
+        "**Confidence trailer**",
+        "`Confidence: <level>` alone when `unsure_about` is empty",
+        "never a lazy default",
+        "flagged `unsure_about` areas get a deeper pass",
+        "it does not skip gates or waive review in either direction",
+    ],
+    "references/review-subagent.md": [
+        "## Worker confidence triage (read before the diff):",
+        "An empty `unsure_about` list is a valid, complete answer",
+        "The signal is triage only, never authority",
+        "calibration observation to note in the report, not a violation",
+    ],
+    "references/grok-implementer-launch-prompt.md": [
+        "**worker confidence signal**",
+        "an empty list means \"I verified everything I touched and have no reservations,\"",
+        "review triage only, never authority",
+        "include your confidence (high | medium | low) and any areas you were unsure about, if any",
+    ],
+    "references/survival-guide-template.md": [
+        "The packet also carries the confidence-reporting requirement:",
+        "empty list is a valid, complete answer; triage signal only, never authority.",
+    ],
+    "CHANGELOG.md": [
+        "Worker confidence signal (audit B5)",
+        "never a lazy default",
+        "review triage only, never authority",
+    ],
+}

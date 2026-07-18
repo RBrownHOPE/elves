@@ -258,6 +258,13 @@ Trusted `branch_progress` workers may commit/push only the assigned feature bran
 workers create **audited detached handoff commits** and never own refs, remotes, push, PRs, or canonical run memory. Reserve the `Close` phase for acceptance-backed batch completion.
 **Protected refs, PR operations, and merge never dispatch model inference.**
 
+Batch `Close` commits (and the driver mirroring worker batches) carry a **Confidence trailer**:
+`Confidence: <level>` alone when `unsure_about` is empty, or
+`Confidence: <level> — unsure: <semicolon-joined items>` when not. An empty unsure list is a valid,
+complete answer — a positive assertion, never a lazy default; the trailer is review triage only,
+never authority. Example:
+`Confidence: medium — unsure: retry backoff bounds in queue.py; whether the legacy CSV importer still hits the new validator`.
+
 ## Effort Standard
 
 Do not be lazy. Work as hard as you can for the full run. Same effort on the last batch as the
@@ -364,6 +371,9 @@ broad at high-risk checkpoints and terminal. Bug-fix protocol: category → cate
 
 ### 7. Review
 
+Reviewers read worker confidence trailers/report fields **first** and allocate attention
+accordingly: flagged `unsure_about` areas get a deeper pass. The signal is triage, never
+authority — it does not skip gates or waive review in either direction.
 Independent feedback. Walk contract. Enforce code quality. Medium/high blast radius: regression
 pass. Fix blocking; advisory does not delay readiness. Resolve PR threads. **PENDING-DOCS** is not
 clean. **Public API surface snapshots are optional regression evidence.** Use existing structured sources before inventing scanners. If no credible source exists, record `unavailable` with the reason instead of fabricating a snapshot. A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide. `required: true` is valid only when explicitly set by the user or project survival guide. Do not infer required mode from project type, provider config, framework choice, or the presence of API files. Snapshot artifacts are run artifacts, not product docs. Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly asks. Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data. A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution. Record the public API surface delta when configured.
