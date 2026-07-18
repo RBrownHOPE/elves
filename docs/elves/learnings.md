@@ -73,6 +73,10 @@ silently deleting it.
   still uses default tools + `--yolo`. Model aliases `fast`/`deep` and optional `--check` are
   supported on `implement prepare|launch`. Battle-scar credit: stdevMac/grok-in-claude and
   grok-in-codex (Apache-2.0); backlog in `references/community-grok-plugin-ideas.md`.
+- [2026-07-17] Grok Build 0.2.101 gives explicit `--permission-mode` precedence over
+  `--always-approve`. Never combine `--permission-mode auto` with yolo for a trusted headless
+  implement launch: it disables the intended unattended mode and can return terminal `Cancelled`
+  with process exit zero. Classify the structural terminal record, not the OS exit alone.
 - [2026-07-12] Never update an accepted session context digest before rehydration proof. Store
   pending digests/heads on expected canonical drift and promote only after an exact resume matches
   the pending packet; otherwise a later resume silently erases the rehydration obligation.

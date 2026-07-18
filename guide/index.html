@@ -747,6 +747,13 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" route-worker --json \
           Grok worker reference</a> for the artifact schema.</p>
 
         <div class="note">
+          <strong>Unattended Grok launch:</strong> Elves uses <code>--always-approve</code> alone.
+          Grok Build 0.2.101 treats <code>--permission-mode auto</code> as an override, so combining
+          the two can cancel the first tool turn. Elves also treats a structural cancelled,
+          refused, errored, or max-turn terminal event as failure even when Grok exits zero.
+        </div>
+
+        <div class="note">
           <strong>Cache handoff is not promised.</strong> A separate session may receive provider
           cache hits, but Elves cannot export the live driver's active conversation memory or model
           state and inject it into another process.

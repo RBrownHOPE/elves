@@ -46,8 +46,8 @@ DEFAULT_GIT_MODE = "branch_progress"
 DEFAULT_EXECUTABLE = "grok"
 DEFAULT_EFFORT = "medium"
 FORBIDDEN_DEFAULT_PERMISSION = "dontAsk"
-# Empirically required for unattended headless tool use (Grok Build 0.2.93 docs + dogfood).
-# --permission-mode auto alone does not auto-approve writes; --yolo / --always-approve does.
+# Required for unattended headless tool use. Grok Build 0.2.101 gives an explicit
+# --permission-mode precedence over yolo, so trusted launches emit --always-approve alone.
 
 GROK_LIVE_DEFAULT = DEFAULT_MODEL
 
@@ -1409,9 +1409,10 @@ def build_launch_argv(
 ) -> list[str]:
     """Build headless implementer argv for Grok Build (Lane A), OpenCode, or Devin.
 
-    Grok Build dogfood (0.2.93):
+    Grok Build dogfood (0.2.93–0.2.101):
     - ``--prompt-file`` or ``-p`` both trigger headless multi-turn with tools.
-    - ``--yolo`` / ``--always-approve`` is required for unattended edits.
+    - ``--yolo`` / ``--always-approve`` alone is required for unattended edits;
+      do not combine it with an explicit ``--permission-mode auto``.
     - Exact session id only; never bare continue.
     - Optional ``--check`` asks Grok to verify before returning (CLI flag).
 
@@ -1516,18 +1517,15 @@ def build_launch_argv(
     # Goal mode is a behaviorally-proven `/goal ...` slash command stored in a
     # private prompt file. The installed CLI has no public `--goal` flag.
     argv.extend(["--prompt-file", str(packet_path)])
-    argv.extend(
-        [
-            "--cwd",
-            str(cwd_path),
-            "--model",
-            model_name,
-            "--permission-mode",
-            perm,
-            "--effort",
-            effort_name,
-        ]
-    )
+    argv.extend(["--cwd", str(cwd_path), "--model", model_name])
+    # Grok Build gives an explicit --permission-mode precedence over
+    # --always-approve. In 0.2.101, combining `auto` with yolo disables both
+    # unattended paths and the first headless permission prompt is cancelled.
+    # Keep the explicit mode for non-yolo/restricted launches; the trusted
+    # implementation lane uses the unambiguous --always-approve surface alone.
+    if not (yolo and perm == DEFAULT_PERMISSION_MODE):
+        argv.extend(["--permission-mode", perm])
+    argv.extend(["--effort", effort_name])
     if yolo:
         argv.append("--always-approve")
     if check:

@@ -6,6 +6,16 @@ All notable changes to the Elves skill are documented here.
 
 ## [2.9.0] - 2026-07-17
 
+### Grok Build unattended-launch compatibility
+
+- Stop combining Grok Build's `--permission-mode auto` with `--always-approve`. Grok Build 0.2.101
+  gives the explicit permission mode precedence, which disables always-approve and can cancel the
+  first headless tool permission. Trusted implementation launches now use the unambiguous
+  `--always-approve` surface alone; non-yolo launches retain their explicit permission mode.
+- Treat structural Grok terminal `Cancelled`, refusal, error, and max-turn records as typed worker
+  failures even when the provider process exits zero. Shared-OAuth monitoring exposes only the
+  bounded category and never raw transcript text.
+
 ### Explicit handoff v1 staging contract
 
 - Add opt-in machine-readable coordinator-to-worker handoff validation. A session that declares a

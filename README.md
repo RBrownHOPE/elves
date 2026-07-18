@@ -94,6 +94,8 @@ refs, final gates, PR, and merge — always. Details:
 [`references/prewalk.md`](references/prewalk.md),
 [`references/grok-open-source-worker.md`](references/grok-open-source-worker.md),
 [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
+Trusted Grok implementation launches use `--always-approve` alone: Grok Build treats an explicit
+`--permission-mode auto` as an override, so the two flags must not be combined.
 
 ### Optional exact-session prewalk
 

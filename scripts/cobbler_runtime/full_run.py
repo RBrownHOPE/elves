@@ -5071,6 +5071,81 @@ def grok_streaming_follow_lines(
     return [format_grok_streaming_follow_line(item) for item in decoded], cursor + decoded_total
 
 
+def classify_grok_terminal_records(
+    raw_lines: Sequence[str],
+    *,
+    expected_session_id: str,
+    exact_values: Sequence[str] = (),
+    credential_grant_state: FullRunState | None = None,
+) -> dict[str, str] | None:
+    """Classify a bounded Grok terminal stream without exposing provider text."""
+    max_turns_seen = False
+    terminal_failure: dict[str, str] | None = None
+    for line in raw_lines:
+        try:
+            raw = _loads_bounded_json(line, label="Grok streaming event")
+            _assert_bounded_json_structure(raw, label="Grok streaming event")
+        except (TypeError, ValueError, RecursionError, StorageError, json.JSONDecodeError):
+            continue
+        if not isinstance(raw, Mapping):
+            continue
+        if raw.get("type") == "max_turns_reached":
+            max_turns_seen = True
+            continue
+        record = decode_grok_streaming_event(
+            line,
+            shared_oauth=True,
+            exact_values=exact_values,
+            expected_session_id=expected_session_id,
+            credential_grant_state=credential_grant_state,
+        )
+        if not record or not record.get("terminal"):
+            continue
+        event_type = str(record.get("event_type") or "")
+        if event_type == "error":
+            terminal_failure = {"code": "grok_provider_error"}
+            if record.get("error_type"):
+                terminal_failure["error_type"] = str(record["error_type"])
+            continue
+        stop_reason = str(record.get("stop_reason") or "")
+        normalized = stop_reason.casefold().replace("_", "")
+        if normalized in {"cancelled", "canceled"}:
+            terminal_failure = {
+                "code": (
+                    "grok_max_turns_reached"
+                    if max_turns_seen
+                    else "grok_provider_cancelled"
+                ),
+                "stop_reason": stop_reason,
+            }
+        elif normalized == "refusal":
+            terminal_failure = {
+                "code": "grok_provider_refusal",
+                "stop_reason": stop_reason,
+            }
+        else:
+            terminal_failure = None
+    return terminal_failure
+
+
+def _grok_terminal_failure(
+    repo_root: Path,
+    state: FullRunState,
+    *,
+    exact_values: Sequence[str],
+) -> dict[str, str] | None:
+    """Read only the bounded structural tail needed for terminal classification."""
+    if state.adapter != "grok-build":
+        return None
+    transcript = full_run_root(repo_root, state.session_id) / "transcript.log"
+    return classify_grok_terminal_records(
+        _bounded_text_tail(transcript, lines=64, repo_root=repo_root),
+        expected_session_id=state.session_id,
+        exact_values=exact_values,
+        credential_grant_state=state,
+    )
+
+
 @dataclass
 class GrokTranscriptCursor:
     """Byte-accurate cursor for an append-only or atomically rotated JSONL transcript."""
@@ -5232,6 +5307,8 @@ def _driver_visible_blocker(state: FullRunState) -> str | None:
         "driver_wake_blocker": "shared OAuth worker reported a blocked state",
         "driver_wake_safety_tripwire": "shared OAuth run triggered a safety tripwire",
         "driver_wake_stale_heartbeat": "shared OAuth worker heartbeat became stale",
+        "driver_wake_provider_cancelled": "Grok provider cancelled before completion",
+        "driver_wake_provider_limit": "Grok provider reached its configured turn limit",
         "driver_wake_error": "shared OAuth run requires driver error review",
         "stopped": "shared OAuth run was stopped",
     }
@@ -5645,6 +5722,17 @@ def monitor_full_run(
                 fp_ok = False
                 fp_reason = "validated exit record after full process-group exit"
 
+    grok_terminal_failure: dict[str, str] | None = None
+    if exit_record is not None and state.adapter == "grok-build" and grant_context_verified:
+        try:
+            grok_terminal_failure = _grok_terminal_failure(
+                Path(repo_root),
+                state,
+                exact_values=exact_secret_values,
+            )
+        except ValidationIssue as issue:
+            exit_record_errors.append(issue.message)
+
     # Observed feature-branch state. Process liveness is not a heartbeat: a hung
     # provider can remain fingerprint-valid indefinitely and must still wake the
     # parked driver when no meaningful worker/event activity is observed.
@@ -5849,6 +5937,19 @@ def monitor_full_run(
         state.status = "failed"
         state.blocker = f"provider nonzero exit: {state.exit_code}"
         state.next_action = "driver_wake_error"
+    elif exit_record is not None and grok_terminal_failure is not None:
+        failure_code = grok_terminal_failure["code"]
+        state.status = "failed"
+        state.blocker = f"{failure_code}: Grok provider did not complete the run"
+        state.next_action = (
+            "driver_wake_provider_limit"
+            if failure_code == "grok_max_turns_reached"
+            else (
+                "driver_wake_provider_cancelled"
+                if failure_code == "grok_provider_cancelled"
+                else "driver_wake_error"
+            )
+        )
 
     if state.status not in {"blocked", "failed", "stopped"} and not (
         identity_retired

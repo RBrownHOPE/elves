@@ -55,7 +55,7 @@ python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --session-id <exact-uuid> --branch <feature-branch> --start-head <sha> \
   --packet <absolute-full-run-packet> --worktree <absolute-worktree> \
   --session <canonical-.elves-session.json> \
-  --adapter grok-build --model auto --permission-mode auto \
+  --adapter grok-build --model auto \
   --effort medium --max-turns 80
 
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
@@ -158,7 +158,7 @@ for `prepare` / `status` / argv emission.
 | Setting | Value | Why |
 |---------|-------|-----|
 | Session | caller UUID via `--session-id` create once; exact `--resume` after interruption | installed grammar; never emit unsupported `--new-session` |
-| Unattended tools | **`--yolo`** (alias `--always-approve`) | required for headless edits; `--permission-mode auto` alone is not enough |
+| Unattended tools | **`--yolo`** (alias `--always-approve`) without `--permission-mode auto` | required for headless edits; in Grok Build 0.2.101 an explicit permission mode overrides yolo, so combining the flags can cancel the first tool turn |
 | Effort | **`medium`** default (`--effort medium`) | `high` roughly doubles tiny-task latency; reserve high for hard batches |
 | Subagents | enabled | never pass `--no-subagents` |
 | Unit of work | whole delegated run per full-run packet | avoid per-batch host tax |
@@ -225,7 +225,7 @@ grok --model <live-model-id> \
 |--------|--------|
 | Nested host loop (Codex drives every tool call) | Hours of ceremony tax |
 | `--reasoning-effort high` on volume implement | ~2× tiny-task latency; long thought streams |
-| `--permission-mode auto` without `--yolo` | May not auto-approve writes unattended |
+| `--permission-mode auto`, alone or combined with `--yolo` | Does not provide the trusted unattended path; the combined flags conflict in 0.2.101 |
 | `--tools` allowlist for read-only/media on 0.2.93 | Session-create `RequirementError` — use denylist instead |
 | Host re-audits / full suite between every amend | Recreates nested-driver slowness |
 

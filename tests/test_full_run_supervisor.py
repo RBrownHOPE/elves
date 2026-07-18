@@ -1516,6 +1516,74 @@ class FullRunReportValidationTests(unittest.TestCase):
 
 
 class FullRunGrokArgvTests(unittest.TestCase):
+    def test_cancelled_terminal_stream_is_a_typed_failure(self) -> None:
+        session_id = "11111111-1111-1111-1111-111111111111"
+        cancelled = full_run_module.classify_grok_terminal_records(
+            [
+                json.dumps({"type": "thought", "data": "working"}),
+                json.dumps(
+                    {
+                        "type": "end",
+                        "stopReason": "Cancelled",
+                        "sessionId": session_id,
+                    }
+                ),
+            ],
+            expected_session_id=session_id,
+        )
+        self.assertEqual(cancelled["code"], "grok_provider_cancelled")
+        self.assertEqual(cancelled["stop_reason"], "Cancelled")
+
+        max_turns = full_run_module.classify_grok_terminal_records(
+            [
+                json.dumps({"type": "max_turns_reached"}),
+                json.dumps(
+                    {
+                        "type": "end",
+                        "stopReason": "Cancelled",
+                        "sessionId": session_id,
+                    }
+                ),
+            ],
+            expected_session_id=session_id,
+        )
+        self.assertEqual(max_turns["code"], "grok_max_turns_reached")
+
+        refusal = full_run_module.classify_grok_terminal_records(
+            [
+                json.dumps(
+                    {
+                        "type": "end",
+                        "stopReason": "Refusal",
+                        "sessionId": session_id,
+                    }
+                )
+            ],
+            expected_session_id=session_id,
+        )
+        self.assertEqual(refusal["code"], "grok_provider_refusal")
+
+        provider_error = full_run_module.classify_grok_terminal_records(
+            [json.dumps({"type": "error", "errorType": "ProviderUnavailable"})],
+            expected_session_id=session_id,
+        )
+        self.assertEqual(provider_error["code"], "grok_provider_error")
+        self.assertEqual(provider_error["error_type"], "ProviderUnavailable")
+
+        completed = full_run_module.classify_grok_terminal_records(
+            [
+                json.dumps(
+                    {
+                        "type": "end",
+                        "stopReason": "EndTurn",
+                        "sessionId": session_id,
+                    }
+                )
+            ],
+            expected_session_id=session_id,
+        )
+        self.assertIsNone(completed)
+
     def test_goal_canary_state_keeps_private_artifact_and_safe_evidence_across_resume(self) -> None:
         artifact = "/private/runtime/grok-goal-canary.json"
         evidence = "grok-goal-canary:v1:" + "a" * 24
@@ -2545,8 +2613,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertIn("--cwd", argv)
             self.assertIn("--model", argv)
             self.assertIn("grok-4.5", argv)
-            self.assertIn("--permission-mode", argv)
-            self.assertIn("auto", argv)
+            self.assertNotIn("--permission-mode", argv)
             self.assertIn("--always-approve", argv)
             self.assertNotIn("--yolo", argv)
             self.assertIn("--effort", argv)

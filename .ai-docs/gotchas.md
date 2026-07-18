@@ -106,6 +106,10 @@
 - Grok parent→worktree child lineage uses a **new** child UUID. Headless `--worktree --resume` on
   Grok Build 0.2.93 is broken (retains source CWD); fail closed without verified CWD/worktree
   registration, then resume the discovered child exactly from that worktree.
+- Grok Build 0.2.101 treats explicit `--permission-mode auto` as higher precedence than
+  `--always-approve`; do not emit both for a trusted implement run. The conflict can terminate the
+  first permission round-trip as `Cancelled` while the process still exits zero, so monitor the
+  bounded terminal stream category as well as the exit record.
 - `remaining_quota` is `unknown` unless a harness explicitly sets `quota_known`. Never invent limits
   from token counts, and never treat unknown as zero.
 - Unexpected model/CWD/parent/worktree drift blocks write reuse; expected HEAD/plan digest change
