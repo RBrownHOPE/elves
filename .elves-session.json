@@ -5,46 +5,47 @@
       "acceptance": [
         {
           "criterion": "On Python 3.9, `python3 -m unittest discover -s tests -t .` reports 0 failures and 0 errors, with the sync/bundle modules skipped via an explicit version gate whose message names the 3.10 floor.",
-          "evidence": "",
+          "evidence": "Full 3.9 suite: Ran 1158 tests, 0 failures, 0 errors, 38 skips (exit 0); skip messages and script SystemExit name the 3.10 floor.",
           "id": "B1-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "A worker stdout line `{\"type\": \"log\", \"session_id\": \"<foreign-uuid>\"}` no longer binds or mismatches session identity on any host; a new regression test proves it, and the codex `thread.started` and claude caller-preset paths still bind correctly.",
-          "evidence": "",
+          "evidence": "tests/test_native_worker_hardening.py ProviderIdentityEventTypingTests (10 tests): log-typed foreign session_id neither binds nor mismatches in-phase; codex thread.started and claude preset+system/init still bind.",
           "id": "B1-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "A failing execution phase whose stdout contains the word \"timeout\" is classified terminal (not transient); a stderr/provider-error transport failure is still classified transient; both proven by new tests.",
-          "evidence": "",
+          "evidence": "TransientFailureScopingTests (4 tests): stdout \"timeout\" narration terminal; stderr markers and provider error events transient.",
           "id": "B1-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "A session id literally spelled `continue` (and `most-recent`/`most_recent`) is rejected by the shared validator everywhere it is used, proven by tests exercising the shared set from at least two call sites.",
-          "evidence": "",
+          "evidence": "schema.AMBIGUOUS_SESSION_TOKENS consumed by native_worker/implement/adapters/full_run/openrouter_lens; SharedAmbiguousSessionTokenTests exercise 3 call sites; review-fix extended unification to full_run and openrouter_lens.",
           "id": "B1-A4",
-          "met": false
+          "met": true
         },
         {
           "criterion": "New tests prove a hung-git `TimeoutExpired` produces a terminal failed state (not a raw traceback), a torn follow-log line is skipped by the follower, and `stderr_tail` survives when provider events exist.",
-          "evidence": "",
+          "evidence": "SupervisorRobustnessTests (4 tests): hung-git TimeoutExpired -> terminal failed state (native_worker_git_timeout), torn follow-log lines skipped with seek-back, stderr_tail survives provider events.",
           "id": "B1-A5",
-          "met": false
+          "met": true
         },
         {
           "criterion": "A test asserts every failure reason the supervisor can emit is a member of `PREWALK_FAILURE_CODES`, and the guide-recovery misclassification case now reports `prewalk_post_edit_cold_fallback_forbidden`.",
-          "evidence": "",
+          "evidence": "PrewalkFailureCodeInventoryTests: source-scraped emitted codes (6 emission shapes) subset of PREWALK_FAILURE_CODES; guide-recovery moved-HEAD+retained-edit case asserts prewalk_post_edit_cold_fallback_forbidden.",
           "id": "B1-A6",
-          "met": false
+          "met": true
         }
       ],
-      "commit": null,
+      "commit": "d785112",
+      "completed_at": "2026-07-18T10:55:00-04:00",
       "id": "B1",
       "name": "Runtime correctness and robustness fixes",
-      "rollback_tag": "elves/pre-batch-1",
-      "status": "pending"
+      "rollback_tag": "elves/audit-follow-ups/pre-batch-1",
+      "status": "complete"
     },
     {
       "acceptance": [
@@ -82,7 +83,7 @@
       "commit": null,
       "id": "B2",
       "name": "Host profile registry and feature-gated Grok prewalk arm",
-      "rollback_tag": "elves/pre-batch-2",
+      "rollback_tag": "elves/audit-follow-ups/pre-batch-2",
       "status": "pending"
     },
     {
@@ -109,7 +110,7 @@
       "commit": null,
       "id": "B3",
       "name": "Grok prewalk qualification tooling",
-      "rollback_tag": "elves/pre-batch-3",
+      "rollback_tag": "elves/audit-follow-ups/pre-batch-3",
       "status": "pending"
     },
     {
@@ -136,7 +137,7 @@
       "commit": null,
       "id": "B4",
       "name": "Contracts, glossary, changelog, consistency pins, doc hygiene",
-      "rollback_tag": "elves/pre-batch-4",
+      "rollback_tag": "elves/audit-follow-ups/pre-batch-4",
       "status": "pending"
     }
   ],
@@ -154,11 +155,15 @@
   },
   "continuation_guard": {
     "checkpoint_is_stop": false,
-    "next_required_action": "Commit staging docs, push, open PR on fork main, then launch B1 worker (fable, medium)",
-    "remaining_batches": 4,
+    "next_required_action": "Tag pre-batch-2, launch B2 worker (fable, medium)",
+    "remaining_batches": 3,
     "stop_allowed": false
   },
-  "current_batch": null,
+  "current_batch": {
+    "id": "B2",
+    "name": "Host profile registry and feature-gated Grok prewalk arm",
+    "status": "pending"
+  },
   "execution_log_path": "docs/elves/execution-log.md",
   "landing_remote": "origin (RBrownHOPE/elves fork; upstream aigorahub/elves is READ-only, never merge there)",
   "learnings_path": "docs/elves/learnings.md",
@@ -197,13 +202,26 @@
       "requested_route": "supervised native-worker CLI (claude, model claude-fable-5, effort medium, prewalk auto)"
     }
   ],
+  "plan_hash": "17b4cd0414b769284491f6dee720a16c",
   "plan_path": "docs/plans/audit-follow-ups.md",
-  "pr_number": null,
-  "review_comments": [],
+  "pr_number": 1,
+  "review_comments": [
+    {
+      "batch": 1,
+      "cycle": 1,
+      "disposition": "fixed+deferred",
+      "fix_commit": "d785112",
+      "id": "b1-review-subagent",
+      "source": "native-subagent-lens",
+      "summary": "0 blocking, 6 warnings (W1 per-host identity map deferred to B2 registry; W2 token unification extended to full_run+openrouter_lens as fix; W3 inventory regexes extended as fix; W4 unbounded git helpers pre-existing, deferred scout; W5 authority-timeout reason fixed; W6 dead helper removed + double-parse fixed)",
+      "type": "review_subagent"
+    }
+  ],
+  "rollback_tag_prefix": "elves/audit-follow-ups/",
   "run_id": "audit-follow-ups-2026-07-18",
   "session_id": "elves-2026-07-18-audit-follow-ups",
   "start_head": "f32ce0dd6bc0ce37b605551ad1336526181b1796",
-  "status": "staging",
+  "status": "in_progress",
   "survival_guide_path": "docs/elves/survival-guide.md",
   "test_baseline": {
     "errors_preexisting": 18,
@@ -212,6 +230,13 @@
     "skipped": 14,
     "status": "captured",
     "total": 1134
+  },
+  "test_baseline_current": {
+    "errors": 0,
+    "failures": 0,
+    "passed": 1120,
+    "skipped": 38,
+    "total": 1158
   },
   "version": "2.9.0",
   "work_driver": "host-native",

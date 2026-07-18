@@ -105,17 +105,17 @@ readiness review is green.
 - **User returns:** unspecified (assume ~8 hours)
 - **Checkpoint expectation:** landed PR on fork main with all four batches complete
 - **Time budget:** ~8 hours
-- **Average batch time so far:** n/a
-- **Batches remaining:** 4 of 4
+- **Average batch time so far:** ~55m (B1: worker 13m + driver validate/review/fix 42m)
+- **Batches remaining:** 3 of 4
 
 ---
 
 ## Stop Gate
 
-- **Planned batches remaining:** 4
+- **Planned batches remaining:** 3
 - **Stop allowed right now:** no
-- **Why:** staging just completed; no implementation batch has run.
-- **Next required action:** launch the B1 worker (fable, medium) with the packet.
+- **Why:** B1 complete; B2-B4 remain.
+- **Next required action:** tag pre-batch-2 and launch the B2 worker (fable, medium).
 
 ---
 
@@ -161,7 +161,7 @@ readiness review is green.
 - [x] Execution log initialized with batch breakdown and preflight notes
 - [x] Branch created (`feat/audit-follow-ups` in dedicated worktree)
 - [x] Branch and checkout ownership confirmed; no other agent shares this branch
-- [ ] PR opened (fill number below after creation)
+- [x] PR opened: RBrownHOPE/elves#1
 - [x] Preflight run; critical failures cleared (see execution log: python floor + missing claude
   CLI recorded as environment constraints, not blockers)
 - [x] Run mode, return time, and non-negotiables recorded
@@ -172,14 +172,13 @@ readiness review is green.
 
 ## Current Phase
 
-**Status:** Staging
+**Status:** In progress
 
-**Active batch:** none (B1 next)
+**Active batch:** B2: Host profile registry and feature-gated Grok prewalk arm
 
-**What was just finished:** Staging artifacts written; worktree and branch created.
+**What was just finished:** B1 complete: runtime hardening + floor guards; suite 1158/0/0/38 on 3.9; review clean (0 blocking, 6 warnings triaged).
 
-**Single next action:** Commit staging docs, push, open PR against fork main, then launch B1
-worker (fable, medium).
+**Single next action:** Launch B2 worker (fable, medium).
 
 ---
 
@@ -192,25 +191,20 @@ batch.
 
 ## Next Exact Batch
 
-**Batch:** B1: Runtime correctness and robustness fixes
+**Batch:** B2: Host profile registry and feature-gated Grok prewalk arm
 
 **Scope:**
-- Python >= 3.10 floor guard + version-gated tests (sync_installed_skills, installed_bundle_smoke)
-- Event-typed session identity capture in native_worker
-- Transient-failure markers scoped to stderr/provider errors
-- Shared forbidden-session-token set incl. `continue`
-- Supervisor TimeoutExpired handling, torn-line-tolerant follower, stderr_tail preservation
-- PREWALK_FAILURE_CODES enforcement + guide-recovery misclassification fix
+- Extract host-profile registry (argv builders, effort grammar, transport, identity event types, secret allowlists, probe argv, commit mode) consumed by spec/env/identity/probe/routing code
+- Add feature-gated grok host entry (create/resume argv per verified 0.2.102 grammar; --permission-mode auto; never yolo)
+- Replace categorical external-provider veto with qualification-based gating (honest fallback reasons; actual mode stays off)
+- CLI --host grok for spec and prewalk-capabilities only; launch fails closed
 
 **Acceptance criteria:**
-- [ ] B1-A1 through B1-A6 (see plan)
+- [ ] B2-A1 through B2-A5 (see plan)
 
-**Risk:** identity/transient classification changes touch every native-worker launch; fixture
-tests must pass unchanged.
+**Risk:** highest blast radius of the run (native_worker/prewalk/worker_routing/cobbler_agents shared by every native run); registry extraction must keep codex/claude argv byte-identical (assert in tests). Per-host identity event typing moves into the registry here (B1 review W1).
 
-**Rollback authority:** host rollback tag `elves/pre-batch-1` before the batch.
-
----
+**Rollback authority:** host rollback tag `elves/audit-follow-ups/pre-batch-2` before the batch.
 
 ## Post-Checkpoint Control Loop
 
@@ -292,8 +286,8 @@ Prewalk for this run's worker: requested `auto`, actual `off`
 - **Execution log:** `docs/elves/execution-log.md`
 - **Durable docs manifest:** `.ai-docs/manifest.md`
 - **Branch:** `feat/audit-follow-ups`
-- **PR number:** _(fill in after PR creation)_
-- **Plan hash at session start:** _(fill in after commit)_
+- **PR number:** #1 (RBrownHOPE/elves)
+- **Plan hash at session start:** `17b4cd0414b769284491f6dee720a16c`
 
 ---
 
