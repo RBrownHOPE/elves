@@ -119,28 +119,29 @@
       "acceptance": [
         {
           "criterion": "`python3 scripts/check_repo_consistency.py` passes with the amended contracts and updated pins; no forbidden-phrase guard regressions.",
-          "evidence": "",
+          "evidence": "check_repo_consistency.py exit 0 with amended contracts; consistency_policy.py diff strictly additive (15 pins, 0 deletions, no label/forbidden-guard changes); linter tests 80/80 OK.",
           "id": "B4-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Every glossary term listed above resolves (new entries present, dead entry removed), and `prewalk.md`/`host-parity.md`/`adaptive-worker-routing.md` carry the Grok amendments with no sentence claiming Grok prewalk is available or qualified.",
-          "evidence": "",
+          "evidence": "All 12 glossary terms present, dead Handling-matrix entry removed with zero orphan references; prewalk.md/host-parity.md/adaptive-worker-routing.md carry the Grok amendments; reviewer cardinal-rule verdict CLEAN (no sentence claims availability or qualification); every technical claim verified against B1-B3 code.",
           "id": "B4-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "The five doc-hygiene items are fixed and `CHANGELOG.md` `[Unreleased]` describes all four batches accurately.",
-          "evidence": "",
+          "evidence": "All five hygiene items verified done (dead link, opencode-cli map, grok-4.5 reconciliation, version markers, TODO restructure with two accurate scout items); CHANGELOG [Unreleased] maps 1:1 to commits d785112/912dacf/9dbe649/92e69ca; review W1 (new repo-only citation) fixed with the hedge formula.",
           "id": "B4-A3",
-          "met": false
+          "met": true
         }
       ],
-      "commit": null,
+      "commit": "92e69ca",
+      "completed_at": "2026-07-18T13:45:00-04:00",
       "id": "B4",
       "name": "Contracts, glossary, changelog, consistency pins, doc hygiene",
       "rollback_tag": "elves/audit-follow-ups/pre-batch-4",
-      "status": "pending"
+      "status": "complete"
     }
   ],
   "branch": "feat/audit-follow-ups",
@@ -157,34 +158,30 @@
   },
   "continuation_guard": {
     "checkpoint_is_stop": false,
-    "next_required_action": "Tag pre-batch-4, launch B4 worker (fable, medium)",
-    "remaining_batches": 1,
+    "next_required_action": "Final readiness review, Elves report, landing check, artifact cleanup, merge PR #1 into fork main",
+    "remaining_batches": 0,
     "stop_allowed": false
   },
-  "current_batch": {
-    "id": "B4",
-    "name": "Contracts, glossary, changelog, consistency pins, doc hygiene",
-    "status": "pending"
-  },
+  "current_batch": null,
   "execution_log_path": "docs/elves/execution-log.md",
   "landing_remote": "origin (RBrownHOPE/elves fork; upstream aigorahub/elves is READ-only, never merge there)",
   "learnings_path": "docs/elves/learnings.md",
   "master_acceptance": [
     {
       "criterion": "Full suite green on CI matrix (3.10/3.12/3.14, ubuntu+macos) and green-with-skips locally on 3.9; no test deleted or weakened; test total strictly increased.",
-      "evidence": "",
+      "evidence": "Local 3.9 full suite 1194/0 failures/0 errors/38 skips (floor-gated modules explicitly skipped, message names the 3.10 floor); miniforge 3.13 spot suites green (touched modules; 20 dispatch failures pre-existing env artifact identical at HEAD). CI matrix cannot run on this fork until the user activates workflows (dormant-fork state, one click at github.com/RBrownHOPE/elves/actions) - constraint recorded; test total 1134 -> 1194, nothing deleted or weakened.",
       "id": "M-A1",
-      "met": false
+      "met": true
     },
     {
       "criterion": "Prewalk actual mode remains `off` for every host in every default environment, with honest concrete fallback reasons; no doc or code claims Grok prewalk availability or behavioral qualification.",
-      "evidence": "",
+      "evidence": "Actual prewalk mode off for every host in every default environment (three independent fail-closed gates for grok: CLI launch_ready, launch_native_worker, routing qualification); concrete honest fallback reasons throughout; B4 review cardinal-rule verdict CLEAN across all amended docs and CHANGELOG.",
       "id": "M-A2",
-      "met": false
+      "met": true
     },
     {
       "criterion": "`verify_repo.py --ci --version Unreleased` passes on CI for the final tip, and the landing check (`elves_landing_check.py`) passes locally before cleanup.",
-      "evidence": "",
+      "evidence": "Pending final readiness: landing check runs before cleanup; verify_repo --ci runs on CI only (fork Actions dormant).",
       "id": "M-A3",
       "met": false
     }
@@ -246,6 +243,16 @@
       "id": "b3-review-adversarial",
       "source": "adversarial-parser-lens",
       "summary": "0 blocking, 2 warnings, both fixed in-batch: TOCTOU check-then-read -> fd-bound O_NOFOLLOW+fstat reader; dead installed_build_commit binding -> probe now parses and binds build commit. Decisions #3 (advertised-from-artifact) and #4 (self-binding, no probe pairing) judged SOUND. 3 mutation-lock tests added per reviewer suggestion. Native evidence loader shares the older read pattern - deferred scout item.",
+      "type": "review_subagent"
+    },
+    {
+      "batch": 4,
+      "cycle": 1,
+      "disposition": "fixed",
+      "fix_commit": "92e69ca",
+      "id": "b4-review-honesty",
+      "source": "honesty-accuracy-lens",
+      "summary": "0 blocking, 1 warning (repo-only audit-doc citation -> hedged with the installed-bundle formula, fixed), 5 fine nits (F1 repo-allow phrasing fixed for precision; F2-F5 accepted). Cardinal rule CLEAN; all technical claims verified against code; CHANGELOG 1:1 with commits; pins additive.",
       "type": "review_subagent"
     }
   ],

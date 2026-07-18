@@ -136,3 +136,23 @@ write worker packet, tag `elves/pre-batch-1`, launch B1 worker.
 **Docs impacted:** none this batch (B4 owns all doc surfaces; operator canary procedure documented there per plan).
 
 **Next:** tag pre-batch-4; launch B4 worker (final batch), then final readiness review and landing.
+
+---
+
+## 2026-07-18 ~13:45 — Batch 4: Contracts, glossary, changelog, consistency pins, doc hygiene — COMPLETE
+
+**Timing:** worker implement ~20m (fable/medium, 73 tool calls) · driver validate ~12m · honesty/accuracy review ~11m · review fixes ~6m.
+
+**Contract:** plan Batch 4, B4-A1..B4-A3 — all met (evidence in `.elves-session.json`).
+
+**What changed:** prewalk.md doorway amendment + Grok parity column (feature-gated, unqualified) + qualification-artifact documentation; adaptive-worker-routing/host-parity provider=grok semantics + release-honesty extension; grok-open-source-worker non-yolo prewalk-lane section + operator canary proof obligations; 12 glossary entries added, dead entry removed; five hygiene items closed; CHANGELOG [Unreleased] for all four batches; .ai-docs registry note + pin-coupling gotcha; 15 strictly-additive consistency pins landed with their sentences.
+
+**Validation:** full 3.9 suite **1194 OK / 0 / 0 / 38 skips** (docs batch, no test delta); consistency gate green after every touched file and at close; linter tests 80/80; release_checklist --allow-unreleased exit 0.
+
+**Review (honesty/accuracy lens):** 0 BLOCKING, 1 WARNING fixed (repo-only audit-doc citation hedged with the installed-bundle formula), cardinal-rule verdict **CLEAN** — no sentence claims Grok prewalk availability or qualification; all technical doc claims verified against B1-B3 code; CHANGELOG verified 1:1 against actual commits. F1 precision nit also fixed (allow_grok=false-veto phrasing); F2-F5 accepted as summary-level imprecision. Worker self-flagged one packet deviation (a git stash/pop cycle to baseline release_checklist); driver verified tree integrity (identical diffstat, empty stash list) — recorded, no harm.
+
+**Regression attestation:** docs + additive pins only; no scripts touched except consistency_policy.py (additive); suite unchanged at 1194; confidence HIGH.
+
+**Commits:** 92e69ca (Implement, review fixes folded). Rollback tag: `elves/audit-follow-ups/pre-batch-4`.
+
+**Next:** final cumulative readiness review; Elves report; landing check; operational-artifact cleanup; merge PR #1 into fork main (chat-to-land authorized). M-A1/M-A2 recorded met with evidence; M-A3 pending the landing check. Known constraint for the user: fork Actions are dormant (one-click activation at github.com/RBrownHOPE/elves/actions) — CI matrix will run once activated or when an upstream sibling PR is opened.

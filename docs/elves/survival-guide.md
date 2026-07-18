@@ -106,16 +106,16 @@ readiness review is green.
 - **Checkpoint expectation:** landed PR on fork main with all four batches complete
 - **Time budget:** ~8 hours
 - **Average batch time so far:** ~70m (B1 ~55m; B2 ~85m: worker 42m + driver validate/dual-review/fix ~43m)
-- **Batches remaining:** 1 of 4
+- **Batches remaining:** 0 of 4
 
 ---
 
 ## Stop Gate
 
-- **Planned batches remaining:** 1
+- **Planned batches remaining:** 0
 - **Stop allowed right now:** no
-- **Why:** B1-B3 complete; B4 (docs/contracts) remains, then final readiness and landing.
-- **Next required action:** tag pre-batch-4 and launch the B4 worker (fable, medium).
+- **Why:** all four batches complete; final readiness review, Elves report, cleanup, and authorized landing remain.
+- **Next required action:** run the final cumulative readiness review, then land PR #1 per chat-to-land.
 
 ---
 
@@ -174,11 +174,11 @@ readiness review is green.
 
 **Status:** In progress
 
-**Active batch:** B4: Contracts, glossary, changelog, consistency pins, doc hygiene
+**Active batch:** none (final readiness/landing phase)
 
-**What was just finished:** B3 complete: qualification tooling; suite 1194/0/0/38; adversarial review 0 blocking, 2 warnings fixed in-batch.
+**What was just finished:** B4 complete: contract amendments + glossary + pins; cardinal-rule verdict clean; suite 1194/0/0/38.
 
-**Single next action:** Launch B4 worker (fable, medium).
+**Single next action:** Final readiness review, then land PR #1 (merge commit, fork main).
 
 ---
 
