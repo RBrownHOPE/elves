@@ -51,40 +51,41 @@
       "acceptance": [
         {
           "criterion": "A host-profile registry exists and is consumed by spec construction, child-env secrets, identity readiness, probe argv, and transport naming; the codex/claude `if/elif` chains at the audited sites are gone, and all pre-existing native-worker/prewalk/routing tests pass unchanged.",
-          "evidence": "",
+          "evidence": "host_profiles.py registry consumed by spec construction, child-env secrets, identity readiness, probe argv, transport naming; if/elif chains removed (grep-verified); byte-identity proven by NativeArgvByteIdentityTests written pre-refactor plus an independent 32-case differential harness (review F1); full suite 1180/0/0/38.",
           "id": "B2-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "`native-worker spec --host grok` emits the exact create/resume argv above (proven by test), with `--permission-mode auto`, without any yolo/always-approve/dontAsk token, and with the caller-generated UUID recorded before launch.",
-          "evidence": "",
+          "evidence": "test_host_profiles.py unit + CLI subprocess tests pin exact grok create/resume argv with --permission-mode auto, no yolo/always-approve/dontAsk token, caller UUID on the spec; launch --host grok fails closed (grok_native_worker_launch_unqualified) at CLI and launch_native_worker (registry launch_ready gate).",
           "id": "B2-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "With no qualification artifact, `route-worker` with provider grok and prewalk auto/required reports actual mode `off`/fails before launch respectively, with the new concrete fallback reason; `allow_grok=false` still vetoes regardless of evidence, proven by tests.",
-          "evidence": "",
+          "evidence": "GrokPrewalkQualificationGateTests (8 tests): auto reports concrete unqualified fallback with grok-scoped capability payload; required fails before launch; allow_grok=false vetoes before evidence; fixture-sourced evidence forbidden; positive path only via matching retained_safe grok-bound evidence (B3 seam).",
           "id": "B2-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "The grok child environment passes through only the documented auth names via the registry allowlist, proven by a test that asserts `XAI_API_KEY` survives and arbitrary secrets are stripped.",
-          "evidence": "",
+          "evidence": "Child-env test: XAI_API_KEY survives for grok, GROK_AUTH_PATH stripped (isolation control; provider_auth-validated projection only), arbitrary secrets stripped, native hosts never receive grok auth.",
           "id": "B2-A4",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Public API snapshot gate passes with additions only; no existing exported name changes.",
-          "evidence": "",
+          "evidence": "public_api_snapshot compatibility gate ok=true breaking=[]; suite green; profile-view changes key-additive.",
           "id": "B2-A5",
-          "met": false
+          "met": true
         }
       ],
-      "commit": null,
+      "commit": "912dacf",
+      "completed_at": "2026-07-18T12:20:00-04:00",
       "id": "B2",
       "name": "Host profile registry and feature-gated Grok prewalk arm",
       "rollback_tag": "elves/audit-follow-ups/pre-batch-2",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [
@@ -155,13 +156,13 @@
   },
   "continuation_guard": {
     "checkpoint_is_stop": false,
-    "next_required_action": "Tag pre-batch-2, launch B2 worker (fable, medium)",
-    "remaining_batches": 3,
+    "next_required_action": "Tag pre-batch-3, launch B3 worker (fable, medium)",
+    "remaining_batches": 2,
     "stop_allowed": false
   },
   "current_batch": {
-    "id": "B2",
-    "name": "Host profile registry and feature-gated Grok prewalk arm",
+    "id": "B3",
+    "name": "Grok prewalk qualification tooling",
     "status": "pending"
   },
   "execution_log_path": "docs/elves/execution-log.md",
@@ -215,6 +216,26 @@
       "source": "native-subagent-lens",
       "summary": "0 blocking, 6 warnings (W1 per-host identity map deferred to B2 registry; W2 token unification extended to full_run+openrouter_lens as fix; W3 inventory regexes extended as fix; W4 unbounded git helpers pre-existing, deferred scout; W5 authority-timeout reason fixed; W6 dead helper removed + double-parse fixed)",
       "type": "review_subagent"
+    },
+    {
+      "batch": 2,
+      "cycle": 1,
+      "disposition": "fixed",
+      "fix_commit": "912dacf",
+      "id": "b2-review-standard",
+      "source": "native-subagent-lens",
+      "summary": "0 blocking, 4 warnings: W1 launch gate registry-driven at CLI+API (fixed), W2 GROK_AUTH_PATH removed from allowlist (fixed), W3 grok-scoped capability payload (fixed), W4 fixture-evidence forbidden in gate (fixed). B3 preconditions recorded: loader must never emit fixture-sourced evidence; zero native-caps leakage.",
+      "type": "review_subagent"
+    },
+    {
+      "batch": 2,
+      "cycle": 1,
+      "disposition": "accepted",
+      "fix_commit": null,
+      "id": "b2-review-regression",
+      "source": "regression-only-lens",
+      "summary": "0 confirmed breaks; 3 plausible-risks accepted (error-precedence flip unknown-host-first, required-prewalk message reword pinned nowhere, host-less identity union grew by grok end vocabulary unused by codex/claude streams); found python3.13 (miniforge) with 20 pre-existing dispatch failures identical at HEAD (env artifact).",
+      "type": "review_subagent"
     }
   ],
   "rollback_tag_prefix": "elves/audit-follow-ups/",
@@ -234,9 +255,9 @@
   "test_baseline_current": {
     "errors": 0,
     "failures": 0,
-    "passed": 1120,
+    "passed": 1142,
     "skipped": 38,
-    "total": 1158
+    "total": 1180
   },
   "version": "2.9.0",
   "work_driver": "host-native",

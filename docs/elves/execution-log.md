@@ -78,3 +78,32 @@ write worker packet, tag `elves/pre-batch-1`, launch B1 worker.
 **Docs impacted:** none durable this batch (CHANGELOG + .ai-docs land in B4 per plan). PENDING-DOCS: changelog entry for B1 carried to B4 by design.
 
 **Next:** tag pre-batch-2; launch B2 worker.
+
+---
+
+## 2026-07-18 ~12:20 — Batch 2: Host profile registry and feature-gated Grok prewalk arm — COMPLETE
+
+**Timing:** worker implement ~42m (fable/medium, 79 tool calls) · driver validate ~12m · dual review ~26m (standard + regression-only lenses, parallel) · review fixes ~17m.
+
+**Contract:** plan Batch 2, B2-A1..B2-A5 — all met (evidence in `.elves-session.json`).
+
+**What changed:** new `cobbler_runtime/host_profiles.py` registry (codex/claude/fixture/grok rows) consumed by `build_native_worker_spec`, child-env secret projection, launch identity readiness, prewalk advertised/probe functions, and worker_routing transport naming; per-host identity event typing (resolves B1-review W1); feature-gated grok arm with exact verified argv; qualification-based prewalk gating replacing the categorical veto, with the B3 data-in seam. Worker wrote byte-identity tests against the pre-refactor code before rewiring (as directed).
+
+**Validation:** worker suite 1179 OK; driver re-run 1179 OK; post-review-fix full suite **1180 OK / 0 fail / 0 error / 38 skips (3.9)**; miniforge 3.13: touched suites 86 OK (floor-gated modules actually run), dispatch modules 20 failures pre-existing at HEAD (env artifact; green on 3.9); consistency gate aligned; public API snapshot ok=true, breaking=[].
+
+**Review:** two parallel lenses. Standard: 0 BLOCKING, 4 WARNING — all four fixed in-batch: W1 launch gate now registry-driven (`launch_ready`) at both CLI and `launch_native_worker`; W2 `GROK_AUTH_PATH` removed from the grok allowlist (isolation-control contract; API-key route only until the provider_auth-validated projection is wired); W3 unqualified-grok payload now reports grok-scoped capability facts (native evidence can no longer appear under grok_build transports); W4 `qualification_fixture_evidence_forbidden` in the gate + tests updated to loader-realistic evidence sources. Regression-only: 0 CONFIRMED-BREAK; 3 plausible-risks accepted and recorded (unknown-host error precedence, message reword pinned nowhere, host-less union vocabulary growth); independently re-proved byte-identity via a 32-case differential harness against HEAD.
+
+**Decisions made:** grok resume argv keeps `--permission-mode auto --output-format streaming-json` (conservative; sandbox resume-sticky per verified grammar); commit mode named `permission_gated_worker_commit`; B3 preconditions recorded — loader must never emit fixture-sourced evidence and must bind host=grok/transport=grok_build exactly.
+
+**Regression attestation:**
+1. Cumulative diff: staging docs + B1 files + 7 B2 files; no unexpected deletions; untracked registry/test files staged (regression-lens reminder).
+2. Shared surfaces: spec builder, exact-session validator, identity capture, profiles view, probe functions, route decision — all consumers traced by the regression lens; native behavior byte-identical (differential matrix), grok-only additions fail closed.
+3. Public API surface: additions only (compatibility gate ok).
+4. Test baseline: 1158 → 1180 (+22; nothing deleted/weakened — the two adjusted new-test expectations tightened assertions to honest behavior before ever landing).
+5. Confidence: HIGH for native surfaces (dual-lens + differential proof); grok surfaces are unreachable in production paths (three independent fail-closed gates: CLI, launch API, routing qualification).
+
+**Commits:** 912dacf (Implement, review fixes folded). Rollback tag: `elves/audit-follow-ups/pre-batch-2`.
+
+**Docs impacted:** none durable this batch (B4 owns changelog/.ai-docs/contract amendments). PENDING-DOCS: B2 registry architecture note carried to B4 by design.
+
+**Next:** tag pre-batch-3; launch B3 worker.

@@ -105,17 +105,17 @@ readiness review is green.
 - **User returns:** unspecified (assume ~8 hours)
 - **Checkpoint expectation:** landed PR on fork main with all four batches complete
 - **Time budget:** ~8 hours
-- **Average batch time so far:** ~55m (B1: worker 13m + driver validate/review/fix 42m)
-- **Batches remaining:** 3 of 4
+- **Average batch time so far:** ~70m (B1 ~55m; B2 ~85m: worker 42m + driver validate/dual-review/fix ~43m)
+- **Batches remaining:** 2 of 4
 
 ---
 
 ## Stop Gate
 
-- **Planned batches remaining:** 3
+- **Planned batches remaining:** 2
 - **Stop allowed right now:** no
-- **Why:** B1 complete; B2-B4 remain.
-- **Next required action:** tag pre-batch-2 and launch the B2 worker (fable, medium).
+- **Why:** B1-B2 complete; B3-B4 remain.
+- **Next required action:** tag pre-batch-3 and launch the B3 worker (fable, medium).
 
 ---
 
@@ -174,11 +174,11 @@ readiness review is green.
 
 **Status:** In progress
 
-**Active batch:** B2: Host profile registry and feature-gated Grok prewalk arm
+**Active batch:** B3: Grok prewalk qualification tooling
 
-**What was just finished:** B1 complete: runtime hardening + floor guards; suite 1158/0/0/38 on 3.9; review clean (0 blocking, 6 warnings triaged).
+**What was just finished:** B2 complete: host registry + gated grok arm; suite 1180/0/0/38; two review lenses clean (0 blocking / 0 confirmed breaks; 4 warnings fixed in-batch).
 
-**Single next action:** Launch B2 worker (fable, medium).
+**Single next action:** Launch B3 worker (fable, medium).
 
 ---
 
@@ -191,20 +191,19 @@ batch.
 
 ## Next Exact Batch
 
-**Batch:** B2: Host profile registry and feature-gated Grok prewalk arm
+**Batch:** B3: Grok prewalk qualification tooling
 
 **Scope:**
-- Extract host-profile registry (argv builders, effort grammar, transport, identity event types, secret allowlists, probe argv, commit mode) consumed by spec/env/identity/probe/routing code
-- Add feature-gated grok host entry (create/resume argv per verified 0.2.102 grammar; --permission-mode auto; never yolo)
-- Replace categorical external-provider veto with qualification-based gating (honest fallback reasons; actual mode stays off)
-- CLI --host grok for spec and prewalk-capabilities only; launch fails closed
+- prewalk-capabilities --host grok static probe (advertised grammar, zero model calls, fixture-backed test with current-version recorded help)
+- Bounded grok prewalk qualification artifact schema + fail-closed loader (modeled on goal canary + prewalk evidence loader)
+- retained_safe-only activation; loader must NEVER emit fixture-sourced evidence (B2 review precondition); route-worker integration for provider grok x prewalk auto/required
 
 **Acceptance criteria:**
-- [ ] B2-A1 through B2-A5 (see plan)
+- [ ] B3-A1 through B3-A3 (see plan)
 
-**Risk:** highest blast radius of the run (native_worker/prewalk/worker_routing/cobbler_agents shared by every native run); registry extraction must keep codex/claude argv byte-identical (assert in tests). Per-host identity event typing moves into the registry here (B1 review W1).
+**Risk:** artifact loader is a security-relevant parser (bounded read, symlink refusal, exact binding); B2 preconditions must hold (fixture evidence forbidden, no native-caps leakage).
 
-**Rollback authority:** host rollback tag `elves/audit-follow-ups/pre-batch-2` before the batch.
+**Rollback authority:** host rollback tag `elves/audit-follow-ups/pre-batch-3` before the batch.
 
 ## Post-Checkpoint Control Loop
 
