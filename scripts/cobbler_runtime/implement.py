@@ -30,7 +30,7 @@ from .acceptance import normalize_batch_id
 from .context import collect_secret_env_values, redact_text
 from .executables import resolve_executable_for_launch
 from .isolation import _managed_implement_env
-from .schema import ValidationIssue
+from .schema import AMBIGUOUS_SESSION_TOKENS, ValidationIssue
 from .storage import (
     StorageError,
     atomic_write_json,
@@ -1440,7 +1440,7 @@ def build_launch_argv(
     cwd_path = Path(cwd).expanduser().resolve()
     adapter_name = (adapter or "grok-build").strip().lower()
     sid = (session_id or "").strip()
-    if sid.lower() in {"latest", "last", "continue", "most-recent", "most_recent"}:
+    if sid.lower() in AMBIGUOUS_SESSION_TOKENS:
         raise ValidationIssue(
             "ambiguous_session_id",
             f"Session id `{sid}` is ambiguous and forbidden for implement launch",

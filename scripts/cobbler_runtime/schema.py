@@ -119,6 +119,24 @@ ELVES_SESSION_BASENAME = ".elves-session.json"
 NATIVE_PROFILE_NAME = "host-native"
 NATIVE_ROUTE = "host-native"
 
+# One canonical forbidden set for ambiguous session selectors, imported by the
+# session-id validators in native_worker, implement, adapters, full_run, and
+# openrouter_lens so a token added here is rejected at those call sites at once.
+# Exact ids only; selector words that mean "whatever session was most recent"
+# are forbidden.
+AMBIGUOUS_SESSION_TOKENS: frozenset[str] = frozenset(
+    {
+        "latest",
+        "last",
+        "continue",
+        "most-recent",
+        "most_recent",
+        "recent",
+        "current",
+        "active",
+    }
+)
+
 # Operations that never dispatch model inference.
 NON_MODEL_OPERATIONS: frozenset[str] = frozenset(
     {

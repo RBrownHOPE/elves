@@ -44,7 +44,7 @@ from .prewalk import (
     validate_meaningful_edit,
     write_session_identity,
 )
-from .schema import ValidationIssue
+from .schema import AMBIGUOUS_SESSION_TOKENS, ValidationIssue
 
 
 @dataclass(frozen=True)
@@ -157,7 +157,7 @@ def native_worker_profiles() -> dict[str, dict[str, Any]]:
 
 def _exact_session_id(session_id: str) -> str:
     value = session_id.strip()
-    if not value or value in {"last", "latest", "--last"} or value.startswith("-"):
+    if not value or value.lower() in AMBIGUOUS_SESSION_TOKENS or value.startswith("-"):
         raise ValidationIssue("invalid_exact_session_id", "An exact worker session id is required")
     return value
 
@@ -462,13 +462,25 @@ def _transient_provider_failure(text: str) -> bool:
     return any(marker in normalized for marker in _TRANSIENT_PROVIDER_MARKERS)
 
 
-def _is_provider_event(line: str) -> bool:
-    """Return whether one stdout line is a structured provider event."""
+# Structured stdout event types that report a provider/transport error. Only
+# these stdout events may contribute to transient-failure classification; task
+# narration on stdout (for example a worker discussing a "timeout" bug) never
+# does. Stderr lines remain in scope unconditionally.
+_PROVIDER_ERROR_EVENT_TYPES = frozenset({"error", "turn.failed", "thread.error", "stream_error"})
+
+
+def _parse_provider_event(line: str) -> dict[str, Any] | None:
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
-        return False
-    return isinstance(event, dict) and isinstance(event.get("type"), str)
+        return None
+    if isinstance(event, dict) and isinstance(event.get("type"), str):
+        return event
+    return None
+
+
+def _is_provider_error_event(event: dict[str, Any]) -> bool:
+    return event.get("type") in _PROVIDER_ERROR_EVENT_TYPES
 
 
 def _run_key(run_id: str) -> str:
@@ -669,26 +681,41 @@ def _worktree_clean(worktree: Path) -> bool:
     return result.returncode == 0 and not result.stdout.strip()
 
 
+# Identity is event-typed: only the documented identity/continuity events for
+# each host may bind or challenge session identity. Codex publishes
+# `thread.started.thread_id` at create and `turn.*` continuity events; Claude
+# Code sessions are caller-preset UUIDs whose stream confirms identity via the
+# `system`/`init` event. Arbitrary typed lines (for example a worker log event
+# that merely mentions a `session_id`) must never bind or mismatch identity.
+_IDENTITY_EVENT_KEYS: dict[str, tuple[str, ...]] = {
+    "thread.started": ("thread_id",),
+    "turn.started": ("thread_id", "session_id"),
+    "turn.completed": ("thread_id", "session_id"),
+    "system": ("session_id",),
+}
+
+
 def _provider_session_id(line: str) -> str | None:
-    try:
-        event = json.loads(line)
-    except json.JSONDecodeError:
+    event = _parse_provider_event(line)
+    if event is None:
         return None
-    if not isinstance(event, dict):
+    return _provider_session_id_from_event(event)
+
+
+def _provider_session_id_from_event(event: dict[str, Any]) -> str | None:
+    event_type = str(event["type"])
+    keys = _IDENTITY_EVENT_KEYS.get(event_type)
+    if keys is None:
         return None
-    for key in ("thread_id", "session_id", "sessionId"):
+    if event_type == "system" and event.get("subtype") != "init":
+        return None
+    for key in keys:
         value = event.get(key)
         if isinstance(value, str) and value.strip():
             try:
                 return _exact_session_id(value)
             except ValidationIssue:
                 return None
-    session = event.get("session")
-    if isinstance(session, dict) and isinstance(session.get("id"), str):
-        try:
-            return _exact_session_id(session["id"])
-        except ValidationIssue:
-            return None
     return None
 
 
@@ -814,16 +841,24 @@ def _run_worker_phase(
                     selector.unregister(key.fileobj)
                     continue
                 redacted = redact_text(line.rstrip("\n"))
-                if _transient_provider_failure(redacted.text):
+                # Transient markers classify transport health only: stderr
+                # lines and structured provider error events. Task stdout
+                # content never flips the transient classification.
+                if key.data == "stderr" and _transient_provider_failure(redacted.text):
                     transient_transport_failure = True
                 wrapper = {"stream": key.data, "line": redacted.text}
                 if is_prewalk_run:
                     wrapper["phase"] = phase
                 log.write(json.dumps(wrapper, sort_keys=True) + "\n")
                 log.flush()
-                if key.data == "stdout" and _is_provider_event(line):
+                event = _parse_provider_event(line) if key.data == "stdout" else None
+                if event is not None:
                     provider_event_count += 1
-                    observed = _provider_session_id(line)
+                    if _is_provider_error_event(event) and _transient_provider_failure(
+                        redacted.text
+                    ):
+                        transient_transport_failure = True
+                    observed = _provider_session_id_from_event(event)
                     if observed:
                         if observed not in observed_session_ids:
                             observed_session_ids.append(observed)
@@ -845,6 +880,9 @@ def _run_worker_phase(
                         -_NATIVE_WORKER_STDERR_TAIL_CHARS:
                     ]
         code = child.wait()
+        for stream in (child.stdout, child.stderr):
+            if stream is not None:
+                stream.close()
     runtime_seconds = round(time.monotonic() - child_started, 3)
     if isinstance(phase_state, dict):
         phase_state["ended_at"] = datetime_now()
@@ -861,10 +899,11 @@ def _run_worker_phase(
                 }
             )
     state["provider_event_count"] = int(state.get("provider_event_count") or 0) + provider_event_count
+    # Preserve the bounded stderr tail on any failing exit, including runs
+    # that emitted provider events: transport diagnostics often land on
+    # stderr after the stream started.
     state["stderr_tail"] = (
-        stderr_tail.rstrip("\n")
-        if code != 0 and provider_event_count == 0 and stderr_tail
-        else None
+        stderr_tail.rstrip("\n") if code != 0 and stderr_tail else None
     )
     _write_private_json(state_path, state)
     return _PhaseResult(
@@ -893,14 +932,29 @@ def _terminalize_native_worker(
     failure_reason: str | None = None,
 ) -> int:
     prior_status = str(state.get("status") or "")
-    errors = _authority_errors(worktree, state)
+    # A hung git helper must never prevent the terminal state write.
+    authority_timed_out = False
+    try:
+        errors = _authority_errors(worktree, state)
+    except subprocess.TimeoutExpired:
+        authority_timed_out = True
+        errors = ["git authority verification timed out"]
     state["exit_code"] = exit_code
     state["authority_verified"] = not errors
     state["authority_errors"] = errors
-    state["final_head"] = _final_head(worktree)
+    try:
+        state["final_head"] = _final_head(worktree)
+    except subprocess.TimeoutExpired:
+        state["final_head"] = None
     if errors:
         _set_status(state, "failed")
-        state["failure_reason"] = "native_worker_git_authority_violation"
+        # A timed-out verification is an infrastructure failure, not evidence
+        # of worker misbehavior; only a real check failure is a violation.
+        state["failure_reason"] = (
+            "native_worker_git_timeout"
+            if authority_timed_out and len(errors) == 1
+            else "native_worker_git_authority_violation"
+        )
     elif failure_reason:
         _set_status(state, "failed")
         state["failure_reason"] = failure_reason
@@ -1156,14 +1210,23 @@ def _clean_fallback_allowed(state: dict[str, Any], worktree: Path) -> bool:
 
 def _guide_recovery_failure_reason(state: dict[str, Any], worktree: Path) -> str:
     try:
-        if _final_head(worktree) != str(state["start_head"]):
-            return "prewalk_worktree_continuity_violation"
+        head_moved = _final_head(worktree) != str(state["start_head"])
+        paths = observed_changed_paths(worktree, str(state["start_head"]))
+        task_edited = any(not path.startswith(".elves/") for path in paths)
+        if head_moved:
+            # A moved HEAD that retains task edits means the guide already
+            # committed real work: a cold fresh-session fallback is forbidden.
+            # A moved HEAD with no retained delta is history drift.
+            return (
+                "prewalk_post_edit_cold_fallback_forbidden"
+                if task_edited
+                else "prewalk_worktree_continuity_violation"
+            )
         if _verify_native_git_contract(worktree, state):
             return "prewalk_worktree_continuity_violation"
-        paths = observed_changed_paths(worktree, str(state["start_head"]))
     except ValidationIssue:
         return "prewalk_worktree_continuity_violation"
-    if any(not path.startswith(".elves/") for path in paths):
+    if task_edited:
         return "prewalk_post_edit_cold_fallback_forbidden"
     return "prewalk_guide_exit_before_checkpoint"
 
@@ -1525,8 +1588,13 @@ def supervise_native_worker(*, repo_root: Path, run_id: str, packet: Path) -> in
             packet=packet,
             child_env=child_env,
         )
-    except (OSError, UnicodeError, ValidationIssue) as exc:
-        failure = exc.code if isinstance(exc, ValidationIssue) else "native_worker_supervisor_failure"
+    except (OSError, UnicodeError, ValidationIssue, subprocess.SubprocessError) as exc:
+        if isinstance(exc, ValidationIssue):
+            failure = exc.code
+        elif isinstance(exc, subprocess.TimeoutExpired):
+            failure = "native_worker_git_timeout"
+        else:
+            failure = "native_worker_supervisor_failure"
         return _terminalize_native_worker(
             state_path=state_path,
             state=state,
@@ -1596,8 +1664,23 @@ def follow_native_worker(repo_root: Path, run_id: str, *, wait: bool = True, out
         if log_path.is_file():
             with log_path.open("r", encoding="utf-8", errors="replace") as handle:
                 handle.seek(offset)
-                for line in handle:
-                    event = json.loads(line)
+                while True:
+                    position = handle.tell()
+                    line = handle.readline()
+                    if not line:
+                        break
+                    if not line.endswith("\n"):
+                        # A torn tail is still being written; re-read it on the
+                        # next poll instead of surfacing a partial event.
+                        handle.seek(position)
+                        break
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        # Skip a torn or corrupt log line without dying.
+                        continue
+                    if not isinstance(event, dict) or "stream" not in event or "line" not in event:
+                        continue
                     label = (
                         f"{event['phase']}:{event['stream']}"
                         if event.get("phase")
