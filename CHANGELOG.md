@@ -4,6 +4,17 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.10.4] - 2026-07-19
+
+### Doc precision and guide navigation
+
+- Qualify explicit-route precedence in `SKILL.md` and
+  `references/adaptive-worker-routing.md`: an explicit worker route choice wins for any
+  **catalog-listed, non-retired** model, matching the routing refusal of retired Composer 2.5
+  (`model_retired` fallback instead of silent substitution).
+- The quick-start guide footer now links back to the main Elves page on GitHub alongside the
+  changelog and releases.
+
 ## [2.10.3] - 2026-07-19
 
 ### Grok worker model, host check, and new-user onboarding
