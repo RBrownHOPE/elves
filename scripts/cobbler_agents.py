@@ -1860,6 +1860,11 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 f"batch={payload.get('batch')} head={payload.get('head')} "
                 f"next={payload.get('next_action')}"
             )
+            review_context = payload.get("review_context")
+            if isinstance(review_context, Mapping) and isinstance(
+                review_context.get("review_prompt_block"), str
+            ):
+                print(review_context["review_prompt_block"])
             return 0
 
         if action == "full-run-await":
@@ -1902,6 +1907,11 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 f"material={payload.get('material_transition')} "
                 f"follow={payload.get('follow')}"
             )
+            review_context = payload.get("review_context")
+            if isinstance(review_context, Mapping) and isinstance(
+                review_context.get("review_prompt_block"), str
+            ):
+                print(review_context["review_prompt_block"])
             return 0
 
         if action == "full-run-reconcile":

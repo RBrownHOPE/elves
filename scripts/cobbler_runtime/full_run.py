@@ -209,6 +209,10 @@ MAX_JSON_INTEGER_BITS = 256
 MAX_JSON_NUMBER_CHARS = 128
 MAX_TRANSCRIPT_TAIL_BYTES = 256 * 1024
 MAX_TRANSCRIPT_LINE_CHARS = 1000
+MAX_REVIEW_CONFIDENCE_ROWS = 256
+MAX_REVIEW_CONFIDENCE_PROMPT_CHARS = 128 * 1024
+MAX_REVIEW_CONFIDENCE_LABEL_CHARS = 160
+MAX_REVIEW_CONFIDENCE_RESERVATION_CHARS = 320
 MAX_GROK_STREAM_RECORD_BYTES = 1024 * 1024
 GROK_STREAM_READ_CHUNK_BYTES = 256 * 1024
 MAX_EVENT_FUTURE_SKEW_SECONDS = 300
@@ -268,6 +272,7 @@ STATUS_KEYS = frozenset(
         "transcript_private",
         "adapter",
         "fingerprint_ok",
+        "review_context",
         "merge_authority",
     }
 )
@@ -804,6 +809,314 @@ def _validate_confidence_fields(
     )
     if any(needle in lowered_items for needle in _SUMMARY_SECRET_NEEDLES):
         errors.append(f"{prefix}unsure_about contains secret-shaped content")
+
+
+def _confidence_candidate(
+    container: Mapping[str, Any],
+    *,
+    source: str,
+    hide_free_text: bool,
+) -> dict[str, Any] | None:
+    """Project one already-validated confidence signal for review triage."""
+
+    has_confidence = "confidence" in container
+    has_unsure = "unsure_about" in container or "unsure_about_count" in container
+    if not has_confidence and not has_unsure:
+        return None
+    confidence = container.get("confidence")
+    unsure = container.get("unsure_about")
+    unsure_items = (
+        [str(item) for item in unsure if isinstance(item, str) and item.strip()]
+        if isinstance(unsure, list) and not hide_free_text
+        else None
+    )
+    projected_count = container.get("unsure_about_count")
+    if isinstance(unsure, list):
+        unsure_count: int | None = len(
+            [item for item in unsure if isinstance(item, str) and item.strip()]
+        )
+    elif (
+        isinstance(projected_count, int)
+        and not isinstance(projected_count, bool)
+        and 0 <= projected_count <= MAX_UNSURE_ABOUT_ITEMS
+    ):
+        unsure_count = projected_count
+    else:
+        unsure_count = None
+    return {
+        "source": source,
+        "confidence": confidence if confidence in CONFIDENCE_LEVELS else None,
+        "has_confidence": has_confidence,
+        "has_unsure_answer": has_unsure,
+        "unsure_about": unsure_items,
+        "unsure_about_count": unsure_count,
+        "free_text_hidden": bool(
+            hide_free_text and has_unsure and unsure_count is not None and unsure_count > 0
+        ),
+    }
+
+
+def _batch_number_from_label(label: str) -> int | None:
+    match = re.search(r"(?i)(?:^|[^a-z0-9])batch[-_ ]?(\d+)(?:$|[^0-9])", label)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def build_worker_confidence_review_context(
+    *,
+    session_id: str,
+    branch: str,
+    final_head: str,
+    report: Mapping[str, Any],
+    events: Sequence[Mapping[str, Any]],
+    shared_oauth: bool = False,
+) -> dict[str, Any]:
+    """Build the exact bounded confidence block a final reviewer must receive.
+
+    Inputs must already have passed the full-run report/event validators. The
+    output guides attention only: baseline review remains mandatory, high
+    confidence never suppresses a check, and missing data is called out rather
+    than being conflated with an asserted-clean empty list.
+    """
+
+    candidates: dict[str, list[dict[str, Any]]] = {}
+    ordered_labels: list[str] = []
+    report_label_by_number: dict[int, str] = {}
+
+    def remember(label: str, candidate: dict[str, Any] | None) -> None:
+        if label not in ordered_labels:
+            ordered_labels.append(label)
+        if candidate is not None:
+            candidates.setdefault(label, []).append(candidate)
+
+    batches = report.get("batches")
+    if isinstance(batches, list):
+        for index, item in enumerate(batches, 1):
+            if not isinstance(item, Mapping):
+                continue
+            base_label = (
+                str(item.get("id") or f"batch-{index}").strip() or f"batch-{index}"
+            )
+            label = (
+                base_label
+                if base_label not in ordered_labels
+                else f"{base_label} (report row {index})"
+            )
+            batch_number = _batch_number_from_label(label) or index
+            report_label_by_number.setdefault(batch_number, label)
+            remember(
+                label,
+                _confidence_candidate(
+                    item,
+                    source="report",
+                    hide_free_text=shared_oauth,
+                ),
+            )
+
+    for event in events:
+        if event.get("type") not in {"batch_complete", "run_complete"}:
+            continue
+        batch_value = event.get("batch")
+        if event.get("type") == "run_complete":
+            label = "run-complete"
+        elif isinstance(batch_value, int) and not isinstance(batch_value, bool):
+            label = report_label_by_number.get(batch_value, f"batch-{batch_value}")
+        else:
+            label = "batch-unknown"
+        candidate = _confidence_candidate(
+            event,
+            source="event",
+            # Shared-OAuth events have already projected the list to a count,
+            # but keep this true so a direct validated caller cannot
+            # accidentally re-expose worker free text on that route.
+            hide_free_text=shared_oauth,
+        )
+        if candidate is not None:
+            remember(label, candidate)
+
+    omitted_signal_rows = max(0, len(ordered_labels) - MAX_REVIEW_CONFIDENCE_ROWS)
+    ordered_labels = ordered_labels[:MAX_REVIEW_CONFIDENCE_ROWS]
+
+    confidence_rank = {"low": 0, "medium": 1, "high": 2}
+    rows: list[dict[str, Any]] = []
+    priority_areas: list[str] = []
+    lowest_confidence: str | None = None
+    for label in ordered_labels:
+        source_rows = candidates.get(label, [])
+        confidence_values = [
+            str(row["confidence"])
+            for row in source_rows
+            if row.get("confidence") in CONFIDENCE_LEVELS
+        ]
+        confidence = (
+            min(confidence_values, key=lambda value: confidence_rank[value])
+            if confidence_values
+            else None
+        )
+        if confidence is not None and (
+            lowest_confidence is None
+            or confidence_rank[confidence] < confidence_rank[lowest_confidence]
+        ):
+            lowest_confidence = confidence
+
+        unsure_items: list[str] = []
+        for source_row in source_rows:
+            for item in source_row.get("unsure_about") or []:
+                if item not in unsure_items:
+                    unsure_items.append(item)
+                if item not in priority_areas:
+                    priority_areas.append(item)
+        unsure_counts = [
+            int(row["unsure_about_count"])
+            for row in source_rows
+            if isinstance(row.get("unsure_about_count"), int)
+            and not isinstance(row.get("unsure_about_count"), bool)
+        ]
+        unsure_count = max(unsure_counts) if unsure_counts else None
+        has_confidence = any(row.get("has_confidence") for row in source_rows)
+        has_unsure_answer = any(row.get("has_unsure_answer") for row in source_rows)
+        if has_confidence and has_unsure_answer:
+            signal_status = "complete"
+        elif has_confidence or has_unsure_answer:
+            signal_status = "partial"
+        else:
+            signal_status = "missing"
+        distinct_counts = set(unsure_counts)
+        distinct_item_sets = {
+            tuple(row.get("unsure_about") or [])
+            for row in source_rows
+            if row.get("unsure_about") is not None
+        }
+        signal_conflict = bool(
+            len(set(confidence_values)) > 1
+            or len(distinct_counts) > 1
+            or len(distinct_item_sets) > 1
+        )
+        if signal_conflict:
+            conflict_area = f"{label}: reconcile conflicting worker confidence signals"
+            if conflict_area not in priority_areas:
+                priority_areas.append(conflict_area)
+
+        if confidence == "low" or (unsure_count or 0) > 0 or signal_conflict:
+            attention = "deep"
+        elif confidence == "medium" or signal_status == "partial":
+            attention = "focused"
+        else:
+            attention = "baseline"
+        rows.append(
+            {
+                "batch": label,
+                "confidence": confidence,
+                "unsure_about": unsure_items if not shared_oauth else None,
+                "unsure_about_count": unsure_count,
+                "signal_status": signal_status,
+                "signal_conflict": signal_conflict,
+                "sources": sorted({str(row["source"]) for row in source_rows}),
+                "free_text_hidden": any(
+                    bool(row.get("free_text_hidden")) for row in source_rows
+                ),
+                "attention": attention,
+            }
+        )
+
+    if not rows or all(row["signal_status"] == "missing" for row in rows):
+        overall_status = "absent"
+    elif omitted_signal_rows or any(
+        row["signal_status"] != "complete" for row in rows
+    ):
+        overall_status = "partial"
+    else:
+        overall_status = "present"
+
+    prompt_lines = [
+        "## Worker confidence triage (machine-produced; attach verbatim)",
+        "Session: "
+        f"{session_id[:MAX_REVIEW_CONFIDENCE_LABEL_CHARS]} | Branch: "
+        f"{branch[:MAX_REVIEW_CONFIDENCE_LABEL_CHARS]} | Final head: "
+        f"{final_head[:MAX_REVIEW_CONFIDENCE_LABEL_CHARS]}",
+    ]
+    if overall_status == "absent":
+        prompt_lines.append(
+            "- No worker confidence signal was reported. Perform the full baseline review; "
+            "absence is not evidence of safety."
+        )
+    if omitted_signal_rows:
+        prompt_lines.append(
+            f"- {omitted_signal_rows} confidence row(s) exceeded the display bound. "
+            "Perform full baseline review for every omitted row; omission is not evidence of safety."
+        )
+    for row in rows:
+        display_label = str(row["batch"])
+        if len(display_label) > MAX_REVIEW_CONFIDENCE_LABEL_CHARS:
+            display_label = (
+                display_label[: MAX_REVIEW_CONFIDENCE_LABEL_CHARS - 3] + "..."
+            )
+        confidence_text = row["confidence"] or "not reported"
+        if row["unsure_about"]:
+            reservation_text = "; ".join(row["unsure_about"])
+        elif row["unsure_about_count"] is None:
+            reservation_text = "unsure_about not reported"
+        elif row["unsure_about_count"] == 0:
+            reservation_text = "worker asserted no reservations"
+        elif row["free_text_hidden"]:
+            reservation_text = (
+                f"{row['unsure_about_count']} reservation(s); text hidden by shared-OAuth safety"
+            )
+        else:
+            reservation_text = f"{row['unsure_about_count']} reservation(s)"
+        if len(reservation_text) > MAX_REVIEW_CONFIDENCE_RESERVATION_CHARS:
+            reservation_text = (
+                reservation_text[: MAX_REVIEW_CONFIDENCE_RESERVATION_CHARS - 3]
+                + "..."
+            )
+        conflict_text = "; CONFLICTING SOURCES" if row["signal_conflict"] else ""
+        prompt_lines.append(
+            f"- [{str(row['attention']).upper()}] {display_label}: confidence "
+            f"{confidence_text}; {reservation_text}{conflict_text}."
+        )
+    prompt_lines.extend(
+        [
+            "Review rules:",
+            "- Perform baseline review for every batch regardless of confidence.",
+            "- Deep-review every low-confidence, flagged, hidden-reservation, or conflicting area.",
+            "- Treat partial or missing signals as absent triage data, never as proof.",
+            "- Confidence cannot skip gates, waive review, or change acceptance requirements.",
+        ]
+    )
+    review_prompt_block = "\n".join(prompt_lines)
+    # The per-row display bounds keep ordinary output well below this ceiling.
+    # If pathological but valid identifiers still reach it, preserve the
+    # mandatory policy and fall back to full baseline review rather than making
+    # optional triage metadata a completion gate.
+    if len(review_prompt_block) > MAX_REVIEW_CONFIDENCE_PROMPT_CHARS:
+        review_prompt_block = "\n".join(
+            [
+                "## Worker confidence triage (machine-produced; bounded fallback)",
+                "Confidence detail exceeded the display bound. Perform full baseline review "
+                "for every batch; absence of displayed detail is not evidence of safety.",
+                "Confidence cannot skip gates, waive review, or change acceptance requirements.",
+            ]
+        )
+    return {
+        "schema": "elves-worker-confidence-review-v1",
+        "session_id": session_id,
+        "branch": branch,
+        "final_head": final_head,
+        "signal_status": overall_status,
+        "lowest_confidence": lowest_confidence,
+        "signals": rows,
+        "omitted_signal_rows": omitted_signal_rows,
+        "priority_areas": priority_areas,
+        "review_policy": {
+            "baseline_review_required": True,
+            "confidence_can_reduce_scope": False,
+            "flagged_areas_require_deeper_pass": True,
+            "missing_signal_falls_back_to_full_review": True,
+        },
+        "review_prompt_block": review_prompt_block,
+        "merge_authority": False,
+    }
 
 
 def validate_event(
@@ -6387,6 +6700,11 @@ def monitor_full_run(
         "transcript_private": True,
         "adapter": state.adapter,
         "fingerprint_ok": fp_ok,
+        "review_context": (
+            reconcile_payload.get("review_context")
+            if reconcile_payload is not None and reconcile_payload.get("ok")
+            else None
+        ),
         "merge_authority": False,
     }
     assert "transcript" not in status
@@ -7233,6 +7551,14 @@ def reconcile_full_run_with_git(
         raise ValidationIssue(
             "full_run_git_evidence_mismatch", "; ".join(evidence_errors[:6])
         )
+    review_context = build_worker_confidence_review_context(
+        session_id=session_id,
+        branch=state.branch,
+        final_head=tip,
+        report=report,
+        events=events,
+        shared_oauth=state.grok_auth_strategy == "oauth_shared_file",
+    )
 
     host_state = {
         "merge_on_green": False,
@@ -7292,6 +7618,7 @@ def reconcile_full_run_with_git(
             k: merged.get(k)
             for k in ("merge_on_green", "stop_allowed", "driver_monitor_mode", "final_head")
         },
+        "review_context": review_context,
         "merge_authority": False,
         "policy_trust_not_os_git_sandbox": True,
     }
