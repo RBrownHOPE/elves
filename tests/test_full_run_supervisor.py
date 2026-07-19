@@ -1373,6 +1373,196 @@ class FullRunReportValidationTests(unittest.TestCase):
         self.assertEqual(context["signal_status"], "partial")
         self.assertIn("Perform full baseline review", context["review_prompt_block"])
 
+    def test_review_context_attributes_canonical_b0_b1_ids_to_their_own_batches(
+        self,
+    ) -> None:
+        report = self._complete()
+        report["batches"] = [
+            {
+                "id": "B0",
+                "status": "complete",
+                "evidence": "gates passed",
+                "confidence": "high",
+                "unsure_about": [],
+            },
+            {
+                "id": "B1",
+                "status": "complete",
+                "evidence": "gates passed",
+                "confidence": "high",
+                "unsure_about": [],
+            },
+        ]
+        events = [
+            {
+                "type": "batch_complete",
+                "batch": 0,
+                "confidence": "low",
+                "unsure_about": ["B0 rollback path untested"],
+            },
+            {
+                "type": "batch_complete",
+                "batch": 1,
+                "confidence": "high",
+                "unsure_about": [],
+            },
+        ]
+        context = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=report,
+            events=events,
+        )
+
+        labels = [row["batch"] for row in context["signals"]]
+        self.assertEqual(labels, ["B0", "B1"])
+        by_label = {row["batch"]: row for row in context["signals"]}
+        # B0's event signal lands on B0 (not an orphan batch-0 row, not B1).
+        self.assertEqual(by_label["B0"]["sources"], ["event", "report"])
+        self.assertEqual(by_label["B0"]["confidence"], "low")
+        self.assertEqual(
+            by_label["B0"]["unsure_about"], ["B0 rollback path untested"]
+        )
+        # Same-batch conflict detection can fire: report high vs event low.
+        self.assertTrue(by_label["B0"]["signal_conflict"])
+        # B1's clean event agrees with its report row: no fabricated conflict,
+        # no corroboration borrowed from another batch's event.
+        self.assertEqual(by_label["B1"]["sources"], ["event", "report"])
+        self.assertFalse(by_label["B1"]["signal_conflict"])
+        self.assertEqual(by_label["B1"]["confidence"], "high")
+
+    def test_confidence_count_without_list_rejected_outside_projection(self) -> None:
+        base = {
+            "timestamp": "2026-07-18T05:14:00Z",
+            "session_id": "session-1",
+            "branch": "feat/x",
+            "head": "a" * 40,
+            "batch": 2,
+            "type": "batch_complete",
+            "summary": "batch 2 complete",
+        }
+        abusive = {**base, "confidence": "high", "unsure_about_count": 9999}
+        errors = validate_event(abusive)
+        self.assertTrue(
+            any("unsure_about_count" in error for error in errors), errors
+        )
+        modest = {**base, "unsure_about_count": 3}
+        self.assertTrue(
+            any(
+                "unsure_about_count" in error
+                for error in validate_event(modest)
+            )
+        )
+        # The shared-OAuth projection of a hidden list stays legitimate.
+        projected_ok = validate_event(
+            {**base, "unsure_about_count": 3},
+            allow_projected_unsure_count=True,
+        )
+        self.assertEqual(projected_ok, [])
+        # Even the projection route rejects an out-of-bounds count.
+        projected_abuse = validate_event(
+            {**base, "unsure_about_count": 9999},
+            allow_projected_unsure_count=True,
+        )
+        self.assertTrue(
+            any("unsure_about_count" in error for error in projected_abuse)
+        )
+        report = self._complete()
+        report["batches"][0]["unsure_about_count"] = 9999
+        report_errors = validate_run_report(
+            report, require_complete_acceptance=True, expected_run_id="run-1"
+        )
+        self.assertTrue(
+            any("unsure_about_count" in error for error in report_errors),
+            report_errors,
+        )
+
+    def test_review_context_overflow_keeps_highest_attention_rows(self) -> None:
+        report = self._complete()
+        report["batches"] = [
+            {
+                "id": f"batch-{index}",
+                "status": "complete",
+                "evidence": "gates passed",
+                "confidence": "high",
+                "unsure_about": [],
+            }
+            for index in range(1, 4)
+        ] + [
+            {
+                "id": "batch-critical",
+                "status": "complete",
+                "evidence": "gates passed",
+                "confidence": "low",
+                "unsure_about": ["rollback path untested"],
+            }
+        ]
+        with mock.patch.object(
+            full_run_module, "MAX_REVIEW_CONFIDENCE_PROMPT_CHARS", 750
+        ):
+            context = build_worker_confidence_review_context(
+                session_id="session-1",
+                branch="feat/x",
+                final_head="b" * 40,
+                report=report,
+                events=[],
+            )
+        block = context["review_prompt_block"]
+        self.assertLessEqual(len(block), 750)
+        # The deep-attention row survives; lower-attention rows are dropped
+        # with an explicit count instead of a generic wipe-out.
+        self.assertIn("batch-critical", block)
+        self.assertIn("rollback path untested", block)
+        self.assertIn("confidence row(s) dropped to fit", block)
+        self.assertIn("Perform baseline review for every batch", block)
+
+    def test_reservation_truncation_states_hidden_item_count(self) -> None:
+        report = self._complete()
+        report["batches"][0].update(
+            {
+                "confidence": "low",
+                "unsure_about": [f"reservation {index} " + "x" * 90 for index in range(8)],
+            }
+        )
+        context = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=report,
+            events=[],
+        )
+        block = context["review_prompt_block"]
+        self.assertIn("of 8 reservation(s) hidden)", block)
+
+    def test_identical_reservations_in_different_order_do_not_conflict(self) -> None:
+        report = self._complete()
+        report["batches"][0].update(
+            {
+                "confidence": "medium",
+                "unsure_about": ["alpha risk", "beta risk"],
+            }
+        )
+        events = [
+            {
+                "type": "batch_complete",
+                "batch": 1,
+                "confidence": "medium",
+                "unsure_about": ["beta risk", "alpha risk"],
+            }
+        ]
+        context = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=report,
+            events=events,
+        )
+        row = context["signals"][0]
+        self.assertEqual(row["sources"], ["event", "report"])
+        self.assertFalse(row["signal_conflict"])
+        self.assertNotIn("CONFLICTING SOURCES", context["review_prompt_block"])
+
     def test_host_reconstruction_returns_the_same_confidence_review_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
