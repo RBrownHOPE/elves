@@ -48,7 +48,7 @@ Fable 5 at `max`/`ultra` → the same Fable 5 model at `low`. A Fable→Opus rou
 cross-model route, never “inheritance,” and means `claude-opus-4-8` at `medium`. Grok Build is
 also cross-family: prefer `grok-4.5` at explicit `high` when the authenticated live catalog returns
 it (Composer 2.5 is retired and is never selected). Unlisted native routes use plan-matched effort,
-and explicit user route choices still win.
+and explicit user route choices still win for any catalog-listed, non-retired model.
 Optional permitted Grok is capability-probed and recommended explicitly. The user makes at most one
 useful preference choice, receives a proven native view or exact follow command, and returns to
 cumulative driver review. Trusted full-run delegation keeps that path
