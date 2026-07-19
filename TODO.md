@@ -8,13 +8,23 @@ Project backlog and deferred tasks. Live items first; completed history under
 - [ ] Investigate host-native UI prompts and arbitrary third-party tools that bypass Elves'
   transport helpers. Those surfaces cannot honestly be described as covered by the built-in
   external-lane filter and may require host or MCP-level interception.
-- [ ] [elves-scout] Bound the remaining git helpers on the default `run_git` path in
-  `cobbler_runtime/git_contract.py` and `cobbler_runtime/leases.py` with an explicit default
-  timeout, matching the supervisor-path TimeoutExpired hardening (2026-07 audit, B1 review W4).
-- [ ] [elves-scout] Apply the fd-bound (O_NOFOLLOW open, fstat identity, mode/size checks on the
-  read descriptor) reader pattern to the native prewalk evidence loader
-  `load_prewalk_capability_evidence` in `cobbler_runtime/prewalk.py`, matching the grok
-  qualification loader (B3 review deferral).
+- [ ] [issue-86 §17, deferred] Decompose `full_run.py` (monitor/await extraction) — structural
+  refactor deserving its own planned run; v2.10.2's shared projection helper removed the worst
+  duplication.
+- [ ] [issue-86 §18, deferred] Confidence-calibration tracking across runs — roadmap feature
+  needing a product decision, not patch-release material.
+- [ ] [issue-86 §19, deferred] Native-lane structured confidence sidecar — roadmap feature
+  needing a product decision, not patch-release material.
+- [ ] [issue-86 §20, deferred] Record live Grok qualification canaries at the new `high`
+  execution-effort default — operator-owned; requires a real authenticated `grok` install and
+  must never be fabricated by an unattended worker.
+- [ ] [v2.10.2 review advisory] Resume-prepare over a terminally-evented session survives the
+  liveness guard but appends `run_started` after a terminal event, so the rebuilt run dies on
+  first monitor ("event appears after terminal event"). Fail-closed today; either refuse
+  terminal sessions at rebuild or cover the interplay with a test.
+- [ ] [v2.10.2 review advisory] Widen the public persona wording guard beyond the six claim
+  shapes (e.g. "Fable-powered", "runs on Fable", "is Fable", and Claude/Anthropic persona
+  phrasings) while keeping model-identifier exemptions false-positive-free.
 - [ ] Complete and independently review the Grok prewalk launch path before opening the
   maintainer-owned `launch_ready` registry gate: materialize the bounded prompt-file input,
   validate the non-yolo auth/permission profile end to end, run an operator-authorized canary,

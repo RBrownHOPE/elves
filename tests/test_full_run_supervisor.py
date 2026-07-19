@@ -11,6 +11,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import io
 import sys
 import tempfile
 import threading
@@ -1372,6 +1373,196 @@ class FullRunReportValidationTests(unittest.TestCase):
         self.assertEqual(context["omitted_signal_rows"], 1)
         self.assertEqual(context["signal_status"], "partial")
         self.assertIn("Perform full baseline review", context["review_prompt_block"])
+
+    def test_review_context_attributes_canonical_b0_b1_ids_to_their_own_batches(
+        self,
+    ) -> None:
+        report = self._complete()
+        report["batches"] = [
+            {
+                "id": "B0",
+                "status": "complete",
+                "evidence": "gates passed",
+                "confidence": "high",
+                "unsure_about": [],
+            },
+            {
+                "id": "B1",
+                "status": "complete",
+                "evidence": "gates passed",
+                "confidence": "high",
+                "unsure_about": [],
+            },
+        ]
+        events = [
+            {
+                "type": "batch_complete",
+                "batch": 0,
+                "confidence": "low",
+                "unsure_about": ["B0 rollback path untested"],
+            },
+            {
+                "type": "batch_complete",
+                "batch": 1,
+                "confidence": "high",
+                "unsure_about": [],
+            },
+        ]
+        context = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=report,
+            events=events,
+        )
+
+        labels = [row["batch"] for row in context["signals"]]
+        self.assertEqual(labels, ["B0", "B1"])
+        by_label = {row["batch"]: row for row in context["signals"]}
+        # B0's event signal lands on B0 (not an orphan batch-0 row, not B1).
+        self.assertEqual(by_label["B0"]["sources"], ["event", "report"])
+        self.assertEqual(by_label["B0"]["confidence"], "low")
+        self.assertEqual(
+            by_label["B0"]["unsure_about"], ["B0 rollback path untested"]
+        )
+        # Same-batch conflict detection can fire: report high vs event low.
+        self.assertTrue(by_label["B0"]["signal_conflict"])
+        # B1's clean event agrees with its report row: no fabricated conflict,
+        # no corroboration borrowed from another batch's event.
+        self.assertEqual(by_label["B1"]["sources"], ["event", "report"])
+        self.assertFalse(by_label["B1"]["signal_conflict"])
+        self.assertEqual(by_label["B1"]["confidence"], "high")
+
+    def test_confidence_count_without_list_rejected_outside_projection(self) -> None:
+        base = {
+            "timestamp": "2026-07-18T05:14:00Z",
+            "session_id": "session-1",
+            "branch": "feat/x",
+            "head": "a" * 40,
+            "batch": 2,
+            "type": "batch_complete",
+            "summary": "batch 2 complete",
+        }
+        abusive = {**base, "confidence": "high", "unsure_about_count": 9999}
+        errors = validate_event(abusive)
+        self.assertTrue(
+            any("unsure_about_count" in error for error in errors), errors
+        )
+        modest = {**base, "unsure_about_count": 3}
+        self.assertTrue(
+            any(
+                "unsure_about_count" in error
+                for error in validate_event(modest)
+            )
+        )
+        # The shared-OAuth projection of a hidden list stays legitimate.
+        projected_ok = validate_event(
+            {**base, "unsure_about_count": 3},
+            allow_projected_unsure_count=True,
+        )
+        self.assertEqual(projected_ok, [])
+        # Even the projection route rejects an out-of-bounds count.
+        projected_abuse = validate_event(
+            {**base, "unsure_about_count": 9999},
+            allow_projected_unsure_count=True,
+        )
+        self.assertTrue(
+            any("unsure_about_count" in error for error in projected_abuse)
+        )
+        report = self._complete()
+        report["batches"][0]["unsure_about_count"] = 9999
+        report_errors = validate_run_report(
+            report, require_complete_acceptance=True, expected_run_id="run-1"
+        )
+        self.assertTrue(
+            any("unsure_about_count" in error for error in report_errors),
+            report_errors,
+        )
+
+    def test_review_context_overflow_keeps_highest_attention_rows(self) -> None:
+        report = self._complete()
+        report["batches"] = [
+            {
+                "id": f"batch-{index}",
+                "status": "complete",
+                "evidence": "gates passed",
+                "confidence": "high",
+                "unsure_about": [],
+            }
+            for index in range(1, 4)
+        ] + [
+            {
+                "id": "batch-critical",
+                "status": "complete",
+                "evidence": "gates passed",
+                "confidence": "low",
+                "unsure_about": ["rollback path untested"],
+            }
+        ]
+        with mock.patch.object(
+            full_run_module, "MAX_REVIEW_CONFIDENCE_PROMPT_CHARS", 750
+        ):
+            context = build_worker_confidence_review_context(
+                session_id="session-1",
+                branch="feat/x",
+                final_head="b" * 40,
+                report=report,
+                events=[],
+            )
+        block = context["review_prompt_block"]
+        self.assertLessEqual(len(block), 750)
+        # The deep-attention row survives; lower-attention rows are dropped
+        # with an explicit count instead of a generic wipe-out.
+        self.assertIn("batch-critical", block)
+        self.assertIn("rollback path untested", block)
+        self.assertIn("confidence row(s) dropped to fit", block)
+        self.assertIn("Perform baseline review for every batch", block)
+
+    def test_reservation_truncation_states_hidden_item_count(self) -> None:
+        report = self._complete()
+        report["batches"][0].update(
+            {
+                "confidence": "low",
+                "unsure_about": [f"reservation {index} " + "x" * 90 for index in range(8)],
+            }
+        )
+        context = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=report,
+            events=[],
+        )
+        block = context["review_prompt_block"]
+        self.assertIn("of 8 reservation(s) hidden)", block)
+
+    def test_identical_reservations_in_different_order_do_not_conflict(self) -> None:
+        report = self._complete()
+        report["batches"][0].update(
+            {
+                "confidence": "medium",
+                "unsure_about": ["alpha risk", "beta risk"],
+            }
+        )
+        events = [
+            {
+                "type": "batch_complete",
+                "batch": 1,
+                "confidence": "medium",
+                "unsure_about": ["beta risk", "alpha risk"],
+            }
+        ]
+        context = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=report,
+            events=events,
+        )
+        row = context["signals"][0]
+        self.assertEqual(row["sources"], ["event", "report"])
+        self.assertFalse(row["signal_conflict"])
+        self.assertNotIn("CONFLICTING SOURCES", context["review_prompt_block"])
 
     def test_host_reconstruction_returns_the_same_confidence_review_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -5168,6 +5359,407 @@ class FullRunGrokArgvTests(unittest.TestCase):
                         adapter="fixture",
                         fixture_script=repo / "fixture.py",
                     )
+
+
+class EventSalvageAndDeliveryTests(unittest.TestCase):
+    """B3: torn-final-line salvage on reconstruction and delivery proof."""
+
+    def test_read_events_keeps_valid_lines_before_a_torn_final_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            events = root / "events.jsonl"
+            valid = {
+                "timestamp": "2026-07-19T05:14:00Z",
+                "session_id": "session-1",
+                "branch": "feat/x",
+                "head": "a" * 40,
+                "batch": 0,
+                "type": "batch_complete",
+                "summary": "batch complete",
+                "confidence": "low",
+                "unsure_about": ["salvaged reservation"],
+            }
+            events.write_text(
+                json.dumps(valid) + "\n" + '{"type": "batch_co',
+                encoding="utf-8",
+            )
+            rows, errors = full_run_module._read_events(
+                events,
+                expected_session_id="session-1",
+                expected_branch="feat/x",
+            )
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["confidence"], "low")
+            self.assertTrue(
+                any("incomplete" in error for error in errors), errors
+            )
+
+    def test_review_context_partial_evidence_wording(self) -> None:
+        report = {
+            "batches": [
+                {"id": "batch-1", "status": "complete", "evidence": "ok"}
+            ]
+        }
+        partial_absent = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=report,
+            events=[],
+            event_evidence_partial=True,
+        )
+        self.assertTrue(partial_absent["event_evidence_partial"])
+        block = partial_absent["review_prompt_block"]
+        self.assertIn("partial or discarded during", block)
+        self.assertNotIn("No worker confidence signal was reported", block)
+
+        partial_present = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=report,
+            events=[
+                {
+                    "type": "batch_complete",
+                    "batch": 1,
+                    "confidence": "low",
+                    "unsure_about": ["salvaged reservation"],
+                }
+            ],
+            event_evidence_partial=True,
+        )
+        self.assertIn(
+            "partial or discarded", partial_present["review_prompt_block"]
+        )
+        self.assertIn(
+            "salvaged reservation", partial_present["review_prompt_block"]
+        )
+
+        intact = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=report,
+            events=[],
+        )
+        self.assertFalse(intact["event_evidence_partial"])
+        self.assertIn(
+            "No worker confidence signal was reported",
+            intact["review_prompt_block"],
+        )
+
+    def test_reconstruction_salvages_confidence_from_torn_event_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            start = "a" * 40
+            tip = "b" * 40
+            state = full_run_module.FullRunState(
+                session_id="session-1",
+                branch="feat/x",
+                start_head=start,
+                worktree=str(repo),
+                packet_path=str(repo / "packet.md"),
+                acceptance_criteria={"B1-A1": "verified behavior"},
+                origin_url="https://github.com/example/repo.git",
+                origin_config_digest="origin-digest",
+                exit_code=0,
+            )
+            confidence_event = {
+                "type": "batch_complete",
+                "batch": 1,
+                "confidence": "low",
+                "unsure_about": ["salvaged retry path"],
+            }
+            with (
+                mock.patch.object(
+                    full_run_module, "_full_run_lock", return_value=nullcontext()
+                ),
+                mock.patch.object(full_run_module, "load_state", return_value=state),
+                mock.patch.object(
+                    full_run_module, "verify_protected_refs_unchanged", return_value=[]
+                ),
+                mock.patch.object(
+                    full_run_module,
+                    "_canonical_origin_url",
+                    return_value=state.origin_url,
+                ),
+                mock.patch.object(
+                    full_run_module,
+                    "_origin_config_digest",
+                    return_value=state.origin_config_digest,
+                ),
+                mock.patch.object(full_run_module, "_assert_clean_worktree"),
+                mock.patch.object(full_run_module, "_git_head", return_value=tip),
+                mock.patch.object(full_run_module, "_is_ancestor", return_value=True),
+                mock.patch.object(
+                    full_run_module, "_git_commit_chain", return_value=[tip]
+                ),
+                mock.patch.object(
+                    full_run_module,
+                    "run_git",
+                    return_value=mock.Mock(returncode=0, stdout="implemented\n", stderr=""),
+                ),
+                mock.patch.object(full_run_module, "write_report"),
+                mock.patch.object(full_run_module, "save_state"),
+                mock.patch.object(
+                    full_run_module,
+                    "_launch_evidence_context",
+                    return_value=(True, frozenset()),
+                ),
+                mock.patch.object(
+                    full_run_module,
+                    "_read_events",
+                    # A torn final line: the valid earlier event survives and
+                    # the recorded error marks the evidence partial.
+                    return_value=(
+                        [confidence_event],
+                        ["final event record is incomplete"],
+                    ),
+                ),
+            ):
+                result = reconstruct_missing_report(
+                    repo,
+                    session_id=state.session_id,
+                    host_tests_pass=True,
+                )
+
+        self.assertTrue(result["ok"], result)
+        review = result["review_context"]
+        self.assertEqual(review["lowest_confidence"], "low")
+        self.assertTrue(review["event_evidence_partial"])
+        self.assertIn("salvaged retry path", review["review_prompt_block"])
+        self.assertIn("partial or discarded", review["review_prompt_block"])
+
+    def test_monitor_and_await_deliver_review_context_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            packet = root / "packet.md"
+            _write_production_packet(packet, "B1-A1")
+            head = _init_feature_repo(repo)
+            _attach_origin(repo, root / "origin.git", "feat/x")
+            session = "review-context-delivery"
+            prepare_full_run(
+                repo,
+                session_id=session,
+                branch="feat/x",
+                start_head=head,
+                worktree=repo,
+                packet_path=packet,
+                session_path=_write_production_acceptance_contract(repo, packet),
+                adapter="grok-build",
+                executable="grok",
+            )
+            state = load_state(repo, session)
+            state.status = "complete"
+            state.next_action = "final_readiness"
+            state.head = head
+            full_run_module.save_state(repo, state)
+            review_context = {
+                "schema": "elves-worker-confidence-review-v1",
+                "review_prompt_block": "## Worker confidence triage (test sentinel)",
+            }
+            reconcile_payload = {
+                "ok": True,
+                "review_context": review_context,
+                "final_head": head,
+            }
+            with mock.patch.object(
+                full_run_module,
+                "reconcile_full_run_with_git",
+                return_value=reconcile_payload,
+            ) as reconcile_mock:
+                observed = monitor_full_run(repo, session_id=session)
+            self.assertTrue(reconcile_mock.called)
+            self.assertEqual(observed["review_context"], review_context)
+
+            with mock.patch.object(
+                full_run_module,
+                "reconcile_full_run_with_git",
+                return_value=reconcile_payload,
+            ):
+                awaited = await_full_run(
+                    repo,
+                    session_id=session,
+                    timeout_seconds=0.0,
+                    quiet=True,
+                )
+            self.assertEqual(awaited["review_context"], review_context)
+
+    def test_cli_print_sites_emit_review_prompt_block(self) -> None:
+        import cobbler_agents as cli_mod
+
+        review_context = {
+            "review_prompt_block": "## Worker confidence triage (cli sentinel)"
+        }
+        cases = (
+            (
+                "monitor_full_run",
+                ["implement", "full-run-monitor", "--session-id", "s1"],
+                {"state": "complete", "review_context": review_context},
+            ),
+            (
+                "await_full_run",
+                ["implement", "full-run-await", "--session-id", "s1", "--quiet"],
+                {"state": "complete", "review_context": review_context},
+            ),
+            (
+                "reconstruct_missing_report",
+                [
+                    "implement",
+                    "full-run-reconcile",
+                    "--session-id",
+                    "s1",
+                    "--host-tests-pass",
+                ],
+                {"ok": True, "review_context": review_context},
+            ),
+        )
+        for target, argv, payload in cases:
+            with self.subTest(target=target):
+                stdout = io.StringIO()
+                with (
+                    mock.patch.object(
+                        cli_mod, target, return_value=payload
+                    ),
+                    mock.patch.object(sys, "stdout", stdout),
+                ):
+                    code = cli_mod.main(argv)
+                self.assertEqual(code, 0)
+                self.assertIn(
+                    "## Worker confidence triage (cli sentinel)",
+                    stdout.getvalue(),
+                )
+
+
+class WorkerEffortAuthorityTests(unittest.TestCase):
+    """B2: one normalized default authority plus persisted explicitness."""
+
+    def test_cli_rejects_abbreviated_long_options(self) -> None:
+        import cobbler_agents as cli_mod
+
+        base = [
+            "implement",
+            "full-run-prepare",
+            "--session-id",
+            "abbrev-guard",
+            "--branch",
+            "feat/x",
+            "--start-head",
+            "a" * 40,
+            "--packet",
+            "/tmp/packet.md",
+        ]
+        parser = cli_mod.build_parser()
+        for abbreviation in (["--effor", "low"], ["--eff", "low"]):
+            with self.subTest(abbreviation=abbreviation[0]):
+                stderr = io.StringIO()
+                with (
+                    mock.patch.object(sys, "stderr", stderr),
+                    self.assertRaises(SystemExit) as ctx,
+                ):
+                    parser.parse_args(base + abbreviation)
+                self.assertNotEqual(ctx.exception.code, 0)
+                self.assertIn(abbreviation[0], stderr.getvalue())
+        # The exact spelling still parses, and omission passes None so
+        # prepare_full_run stays the single default authority.
+        parsed = parser.parse_args(base + ["--effort", "low"])
+        self.assertEqual(parsed.effort, "low")
+        self.assertIsNone(parser.parse_args(base).effort)
+
+    def test_resolution_normalizes_adapter_and_effort(self) -> None:
+        resolve = full_run_module.resolve_worker_effort
+        self.assertEqual(resolve("grok-build", None), ("high", False))
+        self.assertEqual(resolve("Grok-Build", None), ("high", False))
+        self.assertEqual(resolve("  GROK-BUILD  ", None), ("high", False))
+        self.assertEqual(
+            resolve("fixture", None), (full_run_module.DEFAULT_EFFORT, False)
+        )
+        self.assertEqual(resolve("Grok-Build", " Medium "), ("medium", True))
+        self.assertEqual(resolve(None, None), ("high", False))
+
+    def _fixture_prepare(self, repo: Path, *, effort: str | None, create: bool = True):
+        packet = repo / "packet.md"
+        if not packet.exists():
+            packet.write_text("fixture packet\n", encoding="utf-8")
+        worker = repo / "worker.py"
+        if not worker.exists():
+            worker.write_text("print('ok')\n", encoding="utf-8")
+        head = _init_feature_repo(repo) if not (repo / ".git").exists() else None
+        return prepare_full_run(
+            repo,
+            session_id="effort-explicitness",
+            branch="feat/x",
+            start_head=head or full_run_module._git_head(repo),
+            worktree=repo,
+            packet_path=packet,
+            adapter="fixture",
+            fixture_script=worker,
+            effort=effort,
+            create=create,
+        )
+
+    def test_flagless_resume_prepare_keeps_originally_explicit_effort(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._fixture_prepare(repo, effort="low")
+            state = load_state(repo, "effort-explicitness")
+            self.assertEqual(state.effort, "low")
+            self.assertTrue(state.effort_explicit)
+
+            # A second create prepare still fails closed.
+            with self.assertRaises(full_run_module.ValidationIssue) as ctx:
+                self._fixture_prepare(repo, effort=None, create=True)
+            self.assertEqual(ctx.exception.code, "full_run_already_prepared")
+
+            # A flagless resume prepare keeps the explicit value instead of
+            # flipping to the adapter default.
+            self._fixture_prepare(repo, effort=None, create=False)
+            resumed = load_state(repo, "effort-explicitness")
+            self.assertEqual(resumed.effort, "low")
+            self.assertTrue(resumed.effort_explicit)
+            self.assertFalse(resumed.create_session)
+
+    def test_flagless_resume_prepare_over_default_stays_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._fixture_prepare(repo, effort=None)
+            state = load_state(repo, "effort-explicitness")
+            self.assertEqual(state.effort, full_run_module.DEFAULT_EFFORT)
+            self.assertFalse(state.effort_explicit)
+            self._fixture_prepare(repo, effort=None, create=False)
+            resumed = load_state(repo, "effort-explicitness")
+            self.assertEqual(resumed.effort, full_run_module.DEFAULT_EFFORT)
+            self.assertFalse(resumed.effort_explicit)
+
+    def test_resume_prepare_refuses_possibly_live_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._fixture_prepare(repo, effort="low")
+            state = load_state(repo, "effort-explicitness")
+            state.pid = 4242
+            full_run_module.save_state(repo, state)
+            with self.assertRaises(full_run_module.ValidationIssue) as ctx:
+                self._fixture_prepare(repo, effort=None, create=False)
+            self.assertEqual(
+                ctx.exception.code, "full_run_resume_prepare_live"
+            )
+
+    def test_prepare_full_run_keeps_the_serialization_lock(self) -> None:
+        # v2.10.2 terminal-review blocker: inserting resolve_worker_effort
+        # between @_locked_full_run and prepare_full_run silently moved the
+        # per-session lock onto the pure helper, leaving prepare unserialized
+        # against concurrent launch/stop/monitor. The lock must wrap the
+        # state-mutating entry point, and the pure helper must stay bare.
+        self.assertTrue(
+            hasattr(full_run_module.prepare_full_run, "__wrapped__"),
+            "prepare_full_run must carry the _locked_full_run wrapper",
+        )
+        self.assertFalse(
+            hasattr(full_run_module.resolve_worker_effort, "__wrapped__"),
+            "resolve_worker_effort is a pure helper and must stay undecorated",
+        )
 
 
 class FullRunLifecycleTests(unittest.TestCase):

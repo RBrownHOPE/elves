@@ -583,6 +583,16 @@ def main() -> int:
             "public wording",
         )
     )
+    errors.extend(
+        find_forbidden_patterns(
+            public_texts,
+            {label: PUBLIC_WORDING_FORBIDDEN_PATTERNS for label in public_texts},
+            "public persona wording",
+        )
+    )
+    # A one-sided bump of the Grok upstream commit (doc pin vs the runtime
+    # constant) fails here instead of shipping silently divergent.
+    errors.extend(grok_upstream_commit_pin_errors())
 
     alias_texts = {label: read_text(REPO_ROOT / label) for label in CLAUDE_ALIAS_SKILL_PHRASES}
     errors.extend(

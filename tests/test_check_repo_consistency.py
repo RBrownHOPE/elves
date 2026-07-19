@@ -262,6 +262,60 @@ class ConsistencyPhraseTests(unittest.TestCase):
         self.assertTrue(any("terminal state" in error for error in errors))
         self.assertTrue(any("one-packet fallback" in error for error in errors))
 
+    def test_public_persona_wording_flags_claims_but_passes_model_identifiers(
+        self,
+    ) -> None:
+        patterns = {
+            "README.md": self.consistency.PUBLIC_WORDING_FORBIDDEN_PATTERNS
+        }
+        for claim in (
+            "Cobbler is powered by Fable.",
+            "The workflow is Powered By FABLE under new branding.",
+            "built on Fable technology",
+            "the run is backed by Fable",
+            "with Fable under the hood",
+            "adopts a Fable persona",
+        ):
+            with self.subTest(claim=claim):
+                errors = self.consistency.find_forbidden_patterns(
+                    {"README.md": claim}, patterns, "public persona wording"
+                )
+                self.assertTrue(errors, claim)
+        for legitimate in (
+            "Fable 5 at `max`/`ultra` routes to the same Fable 5 model at `low`.",
+            "the exact model id is `claude-fable-5`",
+            "Claude Fable 5 is the observed route identity",
+        ):
+            with self.subTest(legitimate=legitimate):
+                errors = self.consistency.find_forbidden_patterns(
+                    {"README.md": legitimate},
+                    patterns,
+                    "public persona wording",
+                )
+                self.assertEqual(errors, [], legitimate)
+
+    def test_grok_upstream_commit_pin_cross_check_agrees_and_disagrees(self) -> None:
+        agreeing = self.consistency.grok_upstream_commit_pin_errors()
+        self.assertEqual(agreeing, [])
+        # A one-sided bump of the runtime constant fails.
+        disagreeing = self.consistency.grok_upstream_commit_pin_errors(
+            "deadbeef" + "0" * 32
+        )
+        self.assertTrue(disagreeing)
+        self.assertTrue(
+            any("not a prefix" in error for error in disagreeing), disagreeing
+        )
+        # The pinned short SHA is a genuine prefix of the runtime constant, so
+        # a one-sided doc-pin bump fails the same cross-check symmetrically.
+        pins = [
+            phrase
+            for phrase in self.consistency.GROK_OPEN_SOURCE_WORKER_PHRASES[
+                "references/grok-open-source-worker.md"
+            ]
+            if "source commit `" in phrase
+        ]
+        self.assertTrue(pins)
+
     def test_single_kickoff_forbidden_corpus_catches_legacy_default_drift(self) -> None:
         label = "README.md"
         stale = "**Two-step operator flow**"

@@ -311,3 +311,32 @@ emits `sessionId` only on the terminal `end` event; non-yolo `--permission-mode 
 closed on unapproved tools; sandbox profile is resume-sticky; `todo_write`'s `plan.json`
 persistence is vestigial (the private JSON mirror must be the durable prewalk artifact). Source
 of truth: `docs/reviews/2026-07-repo-audit-grok-prewalk.md`.
+
+## Native Claude worker launch semantics (2026-07-19, issue-86 run)
+
+Verified live on the v2.10.2 run (claude CLI 2.1.207, native-worker supervisor v2):
+
+- The launcher's `--session-id` flag means **exact-session resume** (it builds `claude --resume
+  <uuid>`), not create-with-id; passing it on a fresh launch dies pre-model with "No conversation
+  found". Omit it and the supervisor mints the create-mode UUID itself (argv then carries
+  `--session-id <minted>` on the claude side).
+- The native lane runs workers with **network push disabled** (`git_network_push: disabled`,
+  scoped git write roots, nulled gh config): worker commits stay local and the host pushes at
+  reconcile. Worker packets must say local-commits-only; a push instruction sends the worker into
+  guaranteed failures.
+- The exit authority verifier compares protected refs against the **launch-time snapshot**: any
+  host-minted ref created after launch (e.g. an exact-session `b0` rollback ref that needed the
+  minted UUID) is flagged `native_worker_git_authority_violation` at exit. Mint every host ref
+  before launch, or expect to attribute a false positive at wake. The run-scoped pre-launch `b0`
+  ref is sufficient rollback authority; the exact-session duplicate is not worth the flag.
+- Watchdog shape that worked: poll the local branch tip + follow-log size + `native-worker
+  status` every ~150s; emit commit subjects, terminal transitions, and a 30-minute quiet
+  heartbeat.
+
+## Decorator-placement regression class (2026-07-19, terminal review blocker)
+
+Inserting a new helper between a decorator and its function silently moves the decorator onto
+the helper (`@_locked_full_run` ended up wrapping pure `resolve_worker_effort`, leaving
+`prepare_full_run` unserialized). Reviewers: when a diff adds a function directly above a
+decorated definition, check `hasattr(fn, "__wrapped__")` on both. Pin the invariant with a
+structure test asserting the wrapper is present on the entry point and absent on the helper.

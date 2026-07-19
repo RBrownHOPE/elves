@@ -18,6 +18,7 @@ from typing import Any, Mapping
 from .config import load_json_file, load_toml_file
 from .host_profiles import resolve_host_profile, transport_for_host
 from .prewalk import PrewalkCapabilities
+from .storage import read_bounded_artifact_bytes
 from .schema import (
     NativeWorkerPhaseRole,
     NativeWorkerPhaseRoute,
@@ -190,29 +191,10 @@ def _goal_canary_unavailable(reason: str) -> tuple[GrokCapabilityEvidence, None]
 
 def _read_goal_canary_artifact(path_value: str) -> bytes:
     """Read one bounded regular artifact without following a symlink."""
-    path = Path(path_value).expanduser()
-    before = path.lstat()
-    if not stat.S_ISREG(before.st_mode):
-        raise ValueError("artifact_not_regular")
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags)
-    try:
-        metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or (metadata.st_dev, metadata.st_ino) != (before.st_dev, before.st_ino)
-        ):
-            raise ValueError("artifact_not_regular")
-        if stat.S_IMODE(metadata.st_mode) & 0o022:
-            raise ValueError("artifact_writable_by_others")
-        if metadata.st_size > MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES:
-            raise ValueError("artifact_too_large")
-        raw = os.read(descriptor, MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES + 1)
-        if len(raw) > MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES:
-            raise ValueError("artifact_too_large")
-        return raw
-    finally:
-        os.close(descriptor)
+    return read_bounded_artifact_bytes(
+        Path(path_value).expanduser(),
+        max_bytes=MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES,
+    )
 
 
 def validate_grok_goal_canary_artifact(

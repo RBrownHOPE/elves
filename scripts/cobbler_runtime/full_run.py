@@ -40,6 +40,7 @@ from urllib.parse import urlsplit
 
 from .acceptance import (
     STABLE_ACCEPTANCE_ID_RE,
+    normalize_batch_id,
     parse_plan_acceptance_contract,
     parse_markdown_acceptance_rows,
     validate_contract_mapping,
@@ -773,18 +774,40 @@ def _validate_confidence_fields(
     errors: list[str],
     *,
     prefix: str = "",
+    allow_projected_unsure_count: bool = False,
 ) -> None:
     """Validate the optional worker confidence signal when present.
 
     Absent fields are always valid (backward compatible), and an empty
     `unsure_about` list is a valid, complete answer. The signal is review
     triage only, never authority: it does not skip gates or waive review.
+    `unsure_about_count` without the list is legitimate only as the host-side
+    shared-OAuth projection of a hidden list; a worker-supplied bare count is
+    rejected unless the caller is validating that projection.
     """
     if (
         "confidence" in container
         and container.get("confidence") not in CONFIDENCE_LEVELS
     ):
         errors.append(f"{prefix}confidence must be one of high, medium, low")
+    if "unsure_about_count" in container:
+        projected_count = container.get("unsure_about_count")
+        if not allow_projected_unsure_count and not isinstance(
+            container.get("unsure_about"), list
+        ):
+            errors.append(
+                f"{prefix}unsure_about_count without unsure_about is only valid "
+                "on the shared-OAuth projection"
+            )
+        elif (
+            not isinstance(projected_count, int)
+            or isinstance(projected_count, bool)
+            or not 0 <= projected_count <= MAX_UNSURE_ABOUT_ITEMS
+        ):
+            errors.append(
+                f"{prefix}unsure_about_count must be an integer between 0 and "
+                f"{MAX_UNSURE_ABOUT_ITEMS}"
+            )
     if "unsure_about" not in container:
         return
     unsure = container.get("unsure_about")
@@ -811,6 +834,54 @@ def _validate_confidence_fields(
         errors.append(f"{prefix}unsure_about contains secret-shaped content")
 
 
+def _project_confidence_signal(
+    container: Mapping[str, Any],
+    *,
+    transform=None,
+) -> dict[str, Any]:
+    """Project a confidence signal's fields under the one shared bound set.
+
+    Returns ``confidence`` (enum member or None), ``unsure_about`` (bounded
+    list when a list was supplied, else None) and ``unsure_about_count``
+    (list length, else a bounded projected count, else None). Every consumer
+    of the worker confidence signal must route through this helper so the
+    routes cannot diverge. ``transform`` (e.g. redaction) applies to each
+    retained item.
+    """
+
+    confidence_value = container.get("confidence")
+    confidence = (
+        str(confidence_value) if confidence_value in CONFIDENCE_LEVELS else None
+    )
+    unsure = container.get("unsure_about")
+    if isinstance(unsure, list):
+        items = [
+            transform(item[:MAX_UNSURE_ABOUT_ITEM_CHARS])
+            if transform is not None
+            else str(item)[:MAX_UNSURE_ABOUT_ITEM_CHARS]
+            for item in unsure[:MAX_UNSURE_ABOUT_ITEMS]
+            if isinstance(item, str) and item.strip()
+        ]
+        return {
+            "confidence": confidence,
+            "unsure_about": items,
+            "unsure_about_count": len(items),
+        }
+    projected_count = container.get("unsure_about_count")
+    count = (
+        projected_count
+        if isinstance(projected_count, int)
+        and not isinstance(projected_count, bool)
+        and 0 <= projected_count <= MAX_UNSURE_ABOUT_ITEMS
+        else None
+    )
+    return {
+        "confidence": confidence,
+        "unsure_about": None,
+        "unsure_about_count": count,
+    }
+
+
 def _confidence_candidate(
     container: Mapping[str, Any],
     *,
@@ -823,29 +894,12 @@ def _confidence_candidate(
     has_unsure = "unsure_about" in container or "unsure_about_count" in container
     if not has_confidence and not has_unsure:
         return None
-    confidence = container.get("confidence")
-    unsure = container.get("unsure_about")
-    unsure_items = (
-        [str(item) for item in unsure if isinstance(item, str) and item.strip()]
-        if isinstance(unsure, list) and not hide_free_text
-        else None
-    )
-    projected_count = container.get("unsure_about_count")
-    if isinstance(unsure, list):
-        unsure_count: int | None = len(
-            [item for item in unsure if isinstance(item, str) and item.strip()]
-        )
-    elif (
-        isinstance(projected_count, int)
-        and not isinstance(projected_count, bool)
-        and 0 <= projected_count <= MAX_UNSURE_ABOUT_ITEMS
-    ):
-        unsure_count = projected_count
-    else:
-        unsure_count = None
+    signal = _project_confidence_signal(container)
+    unsure_items = None if hide_free_text else signal["unsure_about"]
+    unsure_count = signal["unsure_about_count"]
     return {
         "source": source,
-        "confidence": confidence if confidence in CONFIDENCE_LEVELS else None,
+        "confidence": signal["confidence"],
         "has_confidence": has_confidence,
         "has_unsure_answer": has_unsure,
         "unsure_about": unsure_items,
@@ -871,6 +925,7 @@ def build_worker_confidence_review_context(
     report: Mapping[str, Any],
     events: Sequence[Mapping[str, Any]],
     shared_oauth: bool = False,
+    event_evidence_partial: bool = False,
 ) -> dict[str, Any]:
     """Build the exact bounded confidence block a final reviewer must receive.
 
@@ -895,15 +950,23 @@ def build_worker_confidence_review_context(
         for index, item in enumerate(batches, 1):
             if not isinstance(item, Mapping):
                 continue
+            raw_id = item.get("id")
             base_label = (
-                str(item.get("id") or f"batch-{index}").strip() or f"batch-{index}"
+                str(raw_id or f"batch-{index}").strip() or f"batch-{index}"
             )
             label = (
                 base_label
                 if base_label not in ordered_labels
                 else f"{base_label} (report row {index})"
             )
-            batch_number = _batch_number_from_label(label) or index
+            # Canonical parser first (handles B0/B1 and honors a parsed 0);
+            # regex spelling fallback second; positional row number last, and
+            # only when nothing parsed — `or` would swallow a legitimate 0.
+            batch_number = normalize_batch_id(base_label)
+            if batch_number is None:
+                batch_number = _batch_number_from_label(base_label)
+            if batch_number is None:
+                batch_number = index
             report_label_by_number.setdefault(batch_number, label)
             remember(
                 label,
@@ -983,8 +1046,10 @@ def build_worker_confidence_review_context(
         else:
             signal_status = "missing"
         distinct_counts = set(unsure_counts)
+        # Order-insensitive: identical reservation sets reported in a
+        # different order are agreement, not a conflict.
         distinct_item_sets = {
-            tuple(row.get("unsure_about") or [])
+            frozenset(row.get("unsure_about") or [])
             for row in source_rows
             if row.get("unsure_about") is not None
         }
@@ -1029,23 +1094,36 @@ def build_worker_confidence_review_context(
     else:
         overall_status = "present"
 
-    prompt_lines = [
+    header_lines = [
         "## Worker confidence triage (machine-produced; attach verbatim)",
         "Session: "
         f"{session_id[:MAX_REVIEW_CONFIDENCE_LABEL_CHARS]} | Branch: "
         f"{branch[:MAX_REVIEW_CONFIDENCE_LABEL_CHARS]} | Final head: "
         f"{final_head[:MAX_REVIEW_CONFIDENCE_LABEL_CHARS]}",
     ]
-    if overall_status == "absent":
-        prompt_lines.append(
+    if overall_status == "absent" and event_evidence_partial:
+        header_lines.append(
+            "- Worker confidence event evidence was partial or discarded during "
+            "salvage; treat signals as unknown rather than unreported. Perform "
+            "the full baseline review."
+        )
+    elif overall_status == "absent":
+        header_lines.append(
             "- No worker confidence signal was reported. Perform the full baseline review; "
             "absence is not evidence of safety."
         )
+    elif event_evidence_partial:
+        header_lines.append(
+            "- Some worker confidence event evidence was partial or discarded "
+            "during salvage; the rows below may be incomplete. Missing signals "
+            "are unknown, never asserted-clean."
+        )
     if omitted_signal_rows:
-        prompt_lines.append(
+        header_lines.append(
             f"- {omitted_signal_rows} confidence row(s) exceeded the display bound. "
             "Perform full baseline review for every omitted row; omission is not evidence of safety."
         )
+    row_lines: list[str] = []
     for row in rows:
         display_label = str(row["batch"])
         if len(display_label) > MAX_REVIEW_CONFIDENCE_LABEL_CHARS:
@@ -1066,37 +1144,88 @@ def build_worker_confidence_review_context(
         else:
             reservation_text = f"{row['unsure_about_count']} reservation(s)"
         if len(reservation_text) > MAX_REVIEW_CONFIDENCE_RESERVATION_CHARS:
+            items = row["unsure_about"] or []
+            hidden_items = 0
+            if items:
+                # Count the reservations that will not appear in full so the
+                # truncation states what it hid instead of a bare ellipsis.
+                consumed = 0
+                shown = 0
+                for position, item in enumerate(items):
+                    consumed += (2 if position else 0) + len(item)
+                    if consumed > MAX_REVIEW_CONFIDENCE_RESERVATION_CHARS - 40:
+                        break
+                    shown = position + 1
+                hidden_items = len(items) - shown
+            suffix = (
+                f"... (+{hidden_items} of {len(items)} reservation(s) hidden)"
+                if hidden_items
+                else "..."
+            )
             reservation_text = (
-                reservation_text[: MAX_REVIEW_CONFIDENCE_RESERVATION_CHARS - 3]
-                + "..."
+                reservation_text[
+                    : MAX_REVIEW_CONFIDENCE_RESERVATION_CHARS - len(suffix)
+                ]
+                + suffix
             )
         conflict_text = "; CONFLICTING SOURCES" if row["signal_conflict"] else ""
-        prompt_lines.append(
+        row_lines.append(
             f"- [{str(row['attention']).upper()}] {display_label}: confidence "
             f"{confidence_text}; {reservation_text}{conflict_text}."
         )
-    prompt_lines.extend(
-        [
-            "Review rules:",
-            "- Perform baseline review for every batch regardless of confidence.",
-            "- Deep-review every low-confidence, flagged, hidden-reservation, or conflicting area.",
-            "- Treat partial or missing signals as absent triage data, never as proof.",
-            "- Confidence cannot skip gates, waive review, or change acceptance requirements.",
-        ]
-    )
-    review_prompt_block = "\n".join(prompt_lines)
+    footer_lines = [
+        "Review rules:",
+        "- Perform baseline review for every batch regardless of confidence.",
+        "- Deep-review every low-confidence, flagged, hidden-reservation, or conflicting area.",
+        "- Treat partial or missing signals as absent triage data, never as proof.",
+        "- Confidence cannot skip gates, waive review, or change acceptance requirements.",
+    ]
+    review_prompt_block = "\n".join(header_lines + row_lines + footer_lines)
     # The per-row display bounds keep ordinary output well below this ceiling.
-    # If pathological but valid identifiers still reach it, preserve the
-    # mandatory policy and fall back to full baseline review rather than making
-    # optional triage metadata a completion gate.
+    # If pathological but valid identifiers still reach it, keep the
+    # highest-attention rows that fit, say how many rows were dropped, and
+    # preserve the mandatory policy — optional triage metadata never becomes a
+    # completion gate.
     if len(review_prompt_block) > MAX_REVIEW_CONFIDENCE_PROMPT_CHARS:
+        attention_rank = {"deep": 0, "focused": 1, "baseline": 2}
+        prioritized = sorted(
+            range(len(row_lines)),
+            key=lambda position: (
+                attention_rank.get(str(rows[position]["attention"]), 3),
+                position,
+            ),
+        )
+        dropped_line_bound = len(
+            f"- {len(row_lines)} lower-attention confidence row(s) dropped to fit "
+            "the display bound. Perform full baseline review for every dropped row; "
+            "omission is not evidence of safety."
+        )
+        budget = (
+            MAX_REVIEW_CONFIDENCE_PROMPT_CHARS
+            - len("\n".join(header_lines + footer_lines))
+            - dropped_line_bound
+            - 2
+        )
+        kept: set[int] = set()
+        for position in prioritized:
+            cost = len(row_lines[position]) + 1
+            if cost > budget:
+                continue
+            budget -= cost
+            kept.add(position)
+        dropped_rows = len(row_lines) - len(kept)
+        kept_lines = [
+            line
+            for position, line in enumerate(row_lines)
+            if position in kept
+        ]
+        dropped_line = (
+            f"- {dropped_rows} lower-attention confidence row(s) dropped to fit "
+            "the display bound. Perform full baseline review for every dropped row; "
+            "omission is not evidence of safety."
+        )
         review_prompt_block = "\n".join(
-            [
-                "## Worker confidence triage (machine-produced; bounded fallback)",
-                "Confidence detail exceeded the display bound. Perform full baseline review "
-                "for every batch; absence of displayed detail is not evidence of safety.",
-                "Confidence cannot skip gates, waive review, or change acceptance requirements.",
-            ]
+            header_lines + kept_lines + [dropped_line] + footer_lines
         )
     return {
         "schema": "elves-worker-confidence-review-v1",
@@ -1104,6 +1233,7 @@ def build_worker_confidence_review_context(
         "branch": branch,
         "final_head": final_head,
         "signal_status": overall_status,
+        "event_evidence_partial": bool(event_evidence_partial),
         "lowest_confidence": lowest_confidence,
         "signals": rows,
         "omitted_signal_rows": omitted_signal_rows,
@@ -1130,6 +1260,7 @@ def validate_event(
     seen_high_risk_checkpoints: Sequence[str] | None = None,
     exact_secret_values: frozenset[str] | set[str] | tuple[str, ...] | None = None,
     credential_grant_state: "FullRunState | None" = None,
+    allow_projected_unsure_count: bool = False,
 ) -> list[str]:
     errors: list[str] = []
     try:
@@ -1215,7 +1346,11 @@ def validate_event(
         needle in lowered for needle in _SUMMARY_SECRET_NEEDLES
     ):
         errors.append("event contains secret-shaped content")
-    _validate_confidence_fields(event, errors)
+    _validate_confidence_fields(
+        event,
+        errors,
+        allow_projected_unsure_count=allow_projected_unsure_count,
+    )
     if expected_session_id and event.get("session_id") != expected_session_id:
         errors.append("event session_id mismatch")
     if expected_branch and event.get("branch") != expected_branch:
@@ -1491,6 +1626,9 @@ class FullRunState:
     model: str = "auto"
     permission_mode: str = DEFAULT_PERMISSION_MODE
     effort: str = GROK_DEFAULT_EFFORT
+    # Whether the persisted effort was explicitly requested by the operator;
+    # a flagless resume prepare preserves an explicit value.
+    effort_explicit: bool = False
     executable: str = DEFAULT_EXECUTABLE
     create_session: bool = True
     check: bool = False
@@ -1640,7 +1778,8 @@ class FullRunState:
             if field_name in data and (not isinstance(value, str) or not value):
                 raise TypeError(f"{field_name} must be a non-empty string")
         for field_name in (
-            "create_session", "check", "yolo", "supervision_canary_passed",
+            "create_session", "check", "yolo", "effort_explicit",
+            "supervision_canary_passed",
             "goal_entrypoint_advertised", "goal_mode_behaviorally_verified",
         ):
             value = data.get(field_name)
@@ -3480,6 +3619,28 @@ def _validate_full_run_git_contract(
     return metadata
 
 
+def resolve_worker_effort(
+    adapter: str | None,
+    effort: str | None,
+) -> tuple[str, bool]:
+    """Resolve the worker effort under the one normalized default authority.
+
+    Returns ``(resolved_effort, effort_explicit)``. The adapter name is
+    normalized before default selection so a mixed-case ``Grok-Build`` still
+    resolves the grok default; callers must pass ``effort=None`` whenever the
+    operator did not explicitly request a value.
+    """
+
+    adapter_name = (adapter or "grok-build").strip().lower()
+    explicit_effort = (effort or "").strip().lower() or None
+    if explicit_effort is not None:
+        return explicit_effort, True
+    return (
+        GROK_DEFAULT_EFFORT if adapter_name == "grok-build" else DEFAULT_EFFORT,
+        False,
+    )
+
+
 @_locked_full_run
 def prepare_full_run(
     repo_root: Path,
@@ -3521,11 +3682,11 @@ def prepare_full_run(
         pass
 
     adapter_name = (adapter or "grok-build").strip().lower()
-    resolved_effort = (effort or "").strip() or (
-        GROK_DEFAULT_EFFORT
-        if adapter_name == "grok-build"
-        else DEFAULT_EFFORT
-    )
+    # Single default authority for worker effort: an explicit request wins,
+    # otherwise the normalized adapter name picks the default. Explicitness is
+    # persisted so a flagless resume keeps the originally requested value.
+    explicit_effort = (effort or "").strip().lower() or None
+    del effort
     if adapter_name == "fixture" and not fixture_script:
         raise ValidationIssue(
             "fixture_script_required",
@@ -3623,6 +3784,7 @@ def prepare_full_run(
 
     root = full_run_root(repo_root, sid)
     state_path = root / "state.json"
+    prior_state_data: Mapping[str, Any] | None = None
     if repo_regular_file_exists(Path(repo_root), state_path) and not allow_overwrite:
         existing = read_json(state_path, repo_root=Path(repo_root))
         if existing.get("session_id") != sid:
@@ -3631,12 +3793,32 @@ def prepare_full_run(
                 "Digest path occupied by a different session_id",
                 path=str(state_path),
             )
-        raise ValidationIssue(
-            "full_run_already_prepared",
-            f"Full-run state already exists for session `{sid}`",
-            path=str(state_path),
-            hint="Pass a new session or stop the existing run first",
-        )
+        if create:
+            raise ValidationIssue(
+                "full_run_already_prepared",
+                f"Full-run state already exists for session `{sid}`",
+                path=str(state_path),
+                hint="Pass a new session or stop the existing run first",
+            )
+        # Resume prepare over the same session rebuilds the state tree; it is
+        # only safe once the prior supervised process is provably closed.
+        if existing.get("pid") is not None or existing.get("status") == "healthy":
+            raise ValidationIssue(
+                "full_run_resume_prepare_live",
+                "Refusing resume prepare while the existing run may be live",
+                path=str(state_path),
+                hint="Stop the existing run first",
+            )
+        prior_state_data = existing
+    if not create and explicit_effort is None and prior_state_data is not None:
+        prior_effort = str(prior_state_data.get("effort") or "").strip().lower()
+        if prior_effort and bool(prior_state_data.get("effort_explicit")):
+            # A flagless resume keeps an originally-explicit effort instead of
+            # silently flipping to the current adapter default.
+            explicit_effort = prior_effort
+    resolved_effort, effort_explicit = resolve_worker_effort(
+        adapter_name, explicit_effort
+    )
 
     ensure_private_dir(root, repo_root=Path(repo_root))
     ensure_private_dir(root / "worker-home", repo_root=Path(repo_root))
@@ -3712,6 +3894,7 @@ def prepare_full_run(
         model=model,
         permission_mode=permission_mode,
         effort=resolved_effort,
+        effort_explicit=effort_explicit,
         executable=exe,
         create_session=bool(create),
         check=bool(check),
@@ -4962,17 +5145,13 @@ def _read_events(
             # suppression must never read as the worker's asserted-clean empty
             # list: project a bounded derived count so consumers can tell
             # "reservations existed" apart from "asserted none".
-            unsure = event.get("unsure_about")
-            if isinstance(unsure, list):
-                validation_event["unsure_about_count"] = len(
-                    [
-                        item
-                        for item in unsure[:MAX_UNSURE_ABOUT_ITEMS]
-                        if isinstance(item, str) and item.strip()
-                    ]
-                )
+            if isinstance(event.get("unsure_about"), list):
+                validation_event["unsure_about_count"] = _project_confidence_signal(
+                    event
+                )["unsure_about_count"]
         verrs = validate_event(
             validation_event,
+            allow_projected_unsure_count=shared_oauth_safe_projection,
             expected_session_id=expected_session_id,
             expected_branch=expected_branch,
             seen_terminal=seen_terminal,
@@ -6172,43 +6351,33 @@ def monitor_full_run(
         if events_reused and isinstance(cached_event_summary, Mapping)
         else len(events)
     )
-    cached_confidence = (
-        cached_event_summary.get("last_batch_confidence")
-        if events_reused and isinstance(cached_event_summary, Mapping)
-        else None
-    )
-    last_batch_confidence: str | None = (
-        str(cached_confidence) if cached_confidence in CONFIDENCE_LEVELS else None
-    )
     # Three distinct states, and they must never conflate: None = no signal
     # captured, [] = the worker's positive asserted-clean answer, items = the
     # worker's reservations. A shared-OAuth run carries only the derived count.
-    cached_unsure = (
-        cached_event_summary.get("last_batch_unsure_about")
+    cached_signal = _project_confidence_signal(
+        {
+            "confidence": cached_event_summary.get("last_batch_confidence"),
+            **(
+                {
+                    "unsure_about": cached_event_summary.get(
+                        "last_batch_unsure_about"
+                    )
+                }
+                if isinstance(
+                    cached_event_summary.get("last_batch_unsure_about"), list
+                )
+                else {}
+            ),
+            "unsure_about_count": cached_event_summary.get(
+                "last_batch_unsure_about_count"
+            ),
+        }
         if events_reused and isinstance(cached_event_summary, Mapping)
-        else None
+        else {}
     )
-    last_batch_unsure_about: list[str] | None = (
-        [
-            str(item)[:MAX_UNSURE_ABOUT_ITEM_CHARS]
-            for item in cached_unsure[:MAX_UNSURE_ABOUT_ITEMS]
-            if isinstance(item, str)
-        ]
-        if isinstance(cached_unsure, list)
-        else None
-    )
-    cached_unsure_count = (
-        cached_event_summary.get("last_batch_unsure_about_count")
-        if events_reused and isinstance(cached_event_summary, Mapping)
-        else None
-    )
-    last_batch_unsure_about_count: int | None = (
-        cached_unsure_count
-        if isinstance(cached_unsure_count, int)
-        and not isinstance(cached_unsure_count, bool)
-        and 0 <= cached_unsure_count <= MAX_UNSURE_ABOUT_ITEMS
-        else None
-    )
+    last_batch_confidence: str | None = cached_signal["confidence"]
+    last_batch_unsure_about: list[str] | None = cached_signal["unsure_about"]
+    last_batch_unsure_about_count: int | None = cached_signal["unsure_about_count"]
     for ev in events:
         last_type = ev.get("type") or last_type
         if ev.get("type") == "batch_started":
@@ -6242,31 +6411,15 @@ def monitor_full_run(
             # signal must not inherit an earlier batch's reservations. Under
             # shared OAuth the projection already replaced the free-text list
             # with a derived count; the enum survives the projection.
-            confidence = ev.get("confidence")
-            last_batch_confidence = (
-                str(confidence) if confidence in CONFIDENCE_LEVELS else None
+            event_signal = _project_confidence_signal(
+                ev,
+                transform=lambda item: _redact_full_run_text(
+                    item, exact_values=exact_secret_values
+                ),
             )
-            unsure = ev.get("unsure_about")
-            if isinstance(unsure, list):
-                last_batch_unsure_about = [
-                    _redact_full_run_text(
-                        item[:MAX_UNSURE_ABOUT_ITEM_CHARS],
-                        exact_values=exact_secret_values,
-                    )
-                    for item in unsure[:MAX_UNSURE_ABOUT_ITEMS]
-                    if isinstance(item, str) and item.strip()
-                ]
-                last_batch_unsure_about_count = len(last_batch_unsure_about)
-            else:
-                projected_count = ev.get("unsure_about_count")
-                last_batch_unsure_about = None
-                last_batch_unsure_about_count = (
-                    projected_count
-                    if isinstance(projected_count, int)
-                    and not isinstance(projected_count, bool)
-                    and 0 <= projected_count <= MAX_UNSURE_ABOUT_ITEMS
-                    else None
-                )
+            last_batch_confidence = event_signal["confidence"]
+            last_batch_unsure_about = event_signal["unsure_about"]
+            last_batch_unsure_about_count = event_signal["unsure_about_count"]
 
     if not event_errors and not events_reused and event_signature is not None:
         cache["event_signature"] = event_signature
@@ -7412,14 +7565,23 @@ def reconstruct_missing_report(
             shared_oauth_safe_projection=(
                 state.grok_auth_strategy == "oauth_shared_file"
             ),
+            # Strict per-line validation still runs (allow_partial_final=False
+            # records the torn-final-line error), but reconstruction runs after
+            # a crash where a torn final line is the expected state: the valid
+            # earlier events are salvaged below instead of being discarded
+            # wholesale, and the recorded errors mark the evidence as partial.
+            # The live monitor and reconcile paths keep their strict handling.
             allow_partial_final=False,
             repo_root=Path(repo_root),
         )
         # Optional triage metadata cannot turn an otherwise permitted host
-        # reconstruction into a completion failure. Invalid event evidence is
-        # excluded, which the generated block reports honestly as absent.
-        if not confidence_event_errors:
-            review_events = candidate_events
+        # reconstruction into a completion failure. Per-line salvage keeps the
+        # valid events; any invalid lines are reported honestly as partial
+        # evidence instead of claiming no signal was reported.
+        review_events = candidate_events
+        review_events_partial = bool(confidence_event_errors)
+    else:
+        review_events_partial = False
     review_context = build_worker_confidence_review_context(
         session_id=session_id,
         branch=state.branch,
@@ -7427,6 +7589,7 @@ def reconstruct_missing_report(
         report=report,
         events=review_events,
         shared_oauth=state.grok_auth_strategy == "oauth_shared_file",
+        event_evidence_partial=review_events_partial,
     )
     if launch_grants_verified:
         _redact_full_run_mapping_in_place(

@@ -163,9 +163,14 @@ After qualification, the phase-explicit CLI shape is:
 python3 scripts/cobbler_agents.py native-worker launch --json \
   --host codex --worktree <registered-worktree> --run-id <run-id> --packet <packet> \
   --prewalk required --guide-model <guide-model> --guide-effort high \
-  --execution-model <execution-model> --execution-effort medium \
+  --execution-model <execution-model> --execution-effort <route-default-or-override> \
   --prewalk-capability-evidence <qualification.json>
 ```
+
+The execution effort is route-dependent, not a fixed `medium`: the grok route defaults to
+`high`, and other routes keep their own defaults. Pass an explicit value only to override the
+route default. A Grok qualification canary recorded at execution effort `medium` before the
+`high` default fails `qualification_route_mismatch` and must be re-recorded at `high`.
 
 Use the same shape with `--host claude`. Existing `--model`/`--effort` keep their single-phase
 meaning when prewalk is off; ambiguous mixed phase flags are rejected.

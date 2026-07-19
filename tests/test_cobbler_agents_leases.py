@@ -188,6 +188,46 @@ def _prove_worker_handoff(
     return lease, patches, checked
 
 
+class RunGitTimeoutTests(unittest.TestCase):
+    """B5: run_git enforces a bounded default so a hung git cannot stall."""
+
+    def test_default_timeout_matches_supervisor_hardening(self) -> None:
+        from cobbler_runtime import leases as leases_module
+
+        self.assertEqual(leases_module.DEFAULT_GIT_TIMEOUT_SECONDS, 30.0)
+        with mock.patch.object(
+            leases_module.subprocess,
+            "run",
+            return_value=mock.Mock(returncode=0, stdout="", stderr=""),
+        ) as run_mock:
+            leases_module.run_git(Path("/tmp"), ["status"], check=False)
+        self.assertEqual(
+            run_mock.call_args.kwargs["timeout"],
+            leases_module.DEFAULT_GIT_TIMEOUT_SECONDS,
+        )
+        # An explicit override still wins.
+        with mock.patch.object(
+            leases_module.subprocess,
+            "run",
+            return_value=mock.Mock(returncode=0, stdout="", stderr=""),
+        ) as run_mock:
+            leases_module.run_git(
+                Path("/tmp"), ["ls-remote"], check=False, timeout=15
+            )
+        self.assertEqual(run_mock.call_args.kwargs["timeout"], 15)
+
+    def test_hung_git_surfaces_timeout_expired(self) -> None:
+        from cobbler_runtime import leases as leases_module
+
+        with mock.patch.object(
+            leases_module.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(cmd=["git"], timeout=30.0),
+        ):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                leases_module.run_git(Path("/tmp"), ["fetch"], check=False)
+
+
 class PathScopeTests(unittest.TestCase):
     def test_forbidden_and_allowed_paths(self) -> None:
         from cobbler_runtime.leases import WriterLease, normalize_repo_rel_path

@@ -508,6 +508,47 @@ def _read_unanchored_bounded_bytes(path: Path, *, max_bytes: int) -> bytes:
     return payload
 
 
+def read_bounded_artifact_bytes(path: Path, *, max_bytes: int) -> bytes:
+    """fd-bound bounded read of one regular, non-group/other-writable artifact.
+
+    The one shared implementation of the hardened artifact-read pattern:
+    O_NOFOLLOW open, fstat identity matched against the pre-open lstat, and
+    mode/size checks on the descriptor actually read, so a check-to-read swap
+    cannot bypass the symlink, writability, or size bounds.
+
+    Raises ``ValueError`` with a stable reason — ``artifact_not_regular``,
+    ``artifact_writable_by_others``, ``artifact_too_large`` — for policy
+    failures; a missing path propagates the ``lstat`` ``OSError`` so callers
+    can distinguish absent from unsafe.
+    """
+    limit = _validate_size_limit(max_bytes)
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError("artifact_not_regular")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError("artifact_not_regular") from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or (
+            metadata.st_dev,
+            metadata.st_ino,
+        ) != (before.st_dev, before.st_ino):
+            raise ValueError("artifact_not_regular")
+        if stat.S_IMODE(metadata.st_mode) & 0o022:
+            raise ValueError("artifact_writable_by_others")
+        if metadata.st_size > limit:
+            raise ValueError("artifact_too_large")
+        raw = os.read(descriptor, limit + 1)
+    finally:
+        os.close(descriptor)
+    if len(raw) > limit:
+        raise ValueError("artifact_too_large")
+    return raw
+
+
 def read_json(
     path: Path,
     *,
