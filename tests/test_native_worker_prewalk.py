@@ -525,6 +525,97 @@ class CapabilityEvidenceTests(unittest.TestCase):
         self.assertFalse(capabilities.qualified())
 
 
+class FdBoundEvidenceLoaderTests(unittest.TestCase):
+    """B5: load_prewalk_capability_evidence uses the shared fd-bound reader."""
+
+    def _payload(self) -> dict:
+        return {
+            "artifact_type": "native_prewalk_behavioral_qualification",
+            "schema_version": 1,
+            "host": "codex",
+            "transport": "codex_exec",
+            "installed_version": "0.144.1",
+            "session_id": "exact-session-1",
+            "create_exit_code": 0,
+            "resume_exit_code": 0,
+            "same_session_id": True,
+            "same_worktree": True,
+            "unique_guide_fact_observed": True,
+            "packet_replayed": False,
+            "stream_identity_verified": True,
+            "instruction_fidelity": "retained_safe",
+            "guide_route": {"model": "guide-model", "effort": "high"},
+            "execution_route": {"model": "execution-model", "effort": "low"},
+            "model_calls_made": True,
+            "guide_prompt_sha256": hashlib.sha256(b"guide").hexdigest(),
+            "continuation_sha256": hashlib.sha256(b"Continue.").hexdigest(),
+        }
+
+    def _advertised(self):
+        return advertised_prewalk_capabilities(
+            host="codex",
+            version="0.144.1",
+            create_help="--model -c model_reasoning_effort resume",
+            resume_help="Usage: resume SESSION_ID --model -c model_reasoning_effort",
+        )
+
+    def test_symlinked_and_irregular_evidence_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real = root / "qualification.json"
+            real.write_text(json.dumps(self._payload()), encoding="utf-8")
+            real.chmod(0o600)
+            # The regular file itself still loads.
+            loaded = load_prewalk_capability_evidence(
+                real,
+                host="codex",
+                installed_version="0.144.1",
+                advertised=self._advertised(),
+            )
+            self.assertTrue(loaded.qualified())
+
+            link = root / "qualification-link.json"
+            link.symlink_to(real)
+            with self.assertRaises(ValidationIssue) as caught:
+                load_prewalk_capability_evidence(
+                    link,
+                    host="codex",
+                    installed_version="0.144.1",
+                    advertised=self._advertised(),
+                )
+            self.assertEqual(
+                caught.exception.code, "prewalk_capability_unavailable"
+            )
+            self.assertIn("non-symlink", caught.exception.message)
+
+            writable = root / "writable.json"
+            writable.write_text(json.dumps(self._payload()), encoding="utf-8")
+            writable.chmod(0o666)
+            with self.assertRaises(ValidationIssue) as caught:
+                load_prewalk_capability_evidence(
+                    writable,
+                    host="codex",
+                    installed_version="0.144.1",
+                    advertised=self._advertised(),
+                )
+            self.assertEqual(
+                caught.exception.code, "prewalk_capability_unavailable"
+            )
+            self.assertIn("writable", caught.exception.message)
+
+            missing = root / "absent.json"
+            with self.assertRaises(ValidationIssue) as caught:
+                load_prewalk_capability_evidence(
+                    missing,
+                    host="codex",
+                    installed_version="0.144.1",
+                    advertised=self._advertised(),
+                )
+            self.assertEqual(
+                caught.exception.code, "prewalk_capability_unavailable"
+            )
+
+
 class GrokPrewalkStaticProbeTests(unittest.TestCase):
     """B3-A1: fixture-backed grok advertised grammar with zero model calls."""
 

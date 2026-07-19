@@ -278,6 +278,15 @@ def hardened_git_env(
     return env
 
 
+# Default bound for supervisor-path git subprocesses. Matches the existing
+# 30-second native-worker git hardening (native_worker.py terminalizes a hung
+# git as `native_worker_git_timeout`): a wedged git must surface as
+# subprocess.TimeoutExpired the caller can handle instead of stalling a
+# supervisor forever. Callers may still pass an explicit override, e.g.
+# git_contract's 15-second remote-refs probe.
+DEFAULT_GIT_TIMEOUT_SECONDS: float = 30.0
+
+
 def run_git(
     cwd: Path,
     args: Sequence[str],
@@ -285,9 +294,9 @@ def run_git(
     check: bool = True,
     text: bool = True,
     env: Mapping[str, str] | None = None,
-    timeout: float | None = None,
+    timeout: float | None = DEFAULT_GIT_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
-    """Run git with argv only (shell=False), stdin closed, optionally bounded."""
+    """Run git with argv only (shell=False), stdin closed, bounded by default."""
     cmd = [_GIT_EXECUTABLE, *args]
     result = subprocess.run(
         cmd,

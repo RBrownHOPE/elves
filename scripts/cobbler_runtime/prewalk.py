@@ -24,7 +24,12 @@ from typing import Any, Mapping, Sequence
 
 from .host_profiles import host_profile_or_none
 from .schema import ValidationIssue
-from .storage import StorageError, atomic_write_json, guard_repo_path
+from .storage import (
+    StorageError,
+    atomic_write_json,
+    guard_repo_path,
+    read_bounded_artifact_bytes,
+)
 
 
 PREWALK_SCHEMA_VERSION = 1
@@ -860,13 +865,44 @@ def load_prewalk_capability_evidence(
             path="installed_version",
         )
     installed_version = installed_version.strip()
-    data = _read_bounded_regular_json(
-        path,
-        runtime_root=None,
-        missing_code="prewalk_capability_unavailable",
-        invalid_code="prewalk_capability_unavailable",
-        limit=PREWALK_CAPABILITY_ARTIFACT_MAX_BYTES,
-    )
+    # fd-bound read (shared with the goal-canary and qualification loaders):
+    # a symlinked, irregular, group/other-writable, or oversized evidence
+    # artifact is rejected on the descriptor actually read.
+    target = Path(path).expanduser()
+    try:
+        raw = read_bounded_artifact_bytes(
+            target, max_bytes=PREWALK_CAPABILITY_ARTIFACT_MAX_BYTES
+        )
+    except OSError as exc:
+        raise ValidationIssue(
+            "prewalk_capability_unavailable",
+            "Required prewalk artifact is missing",
+            path=str(target),
+        ) from exc
+    except ValueError as exc:
+        message = {
+            "artifact_writable_by_others": (
+                "Prewalk artifact must not be group/other-writable"
+            ),
+            "artifact_too_large": "Prewalk artifact exceeds its bounded size",
+        }.get(str(exc), "Prewalk artifact must be a regular non-symlink file")
+        raise ValidationIssue(
+            "prewalk_capability_unavailable", message, path=str(target)
+        ) from exc
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ValidationIssue(
+            "prewalk_capability_unavailable",
+            "Prewalk artifact is not valid bounded JSON",
+            path=str(target),
+        ) from exc
+    if not isinstance(data, dict):
+        raise ValidationIssue(
+            "prewalk_capability_unavailable",
+            "Prewalk artifact must be a JSON object",
+            path=str(target),
+        )
     expected_host = host.strip().lower().replace("-code", "")
     required = {
         "artifact_type": "native_prewalk_behavioral_qualification",
@@ -970,56 +1006,24 @@ def _read_qualification_artifact_json(
     writability, or size bounds.
     """
     try:
-        before = target.lstat()
+        raw = read_bounded_artifact_bytes(target, max_bytes=limit)
     except OSError as exc:
         raise ValidationIssue(
             code, "Grok prewalk qualification artifact is missing", path=str(target)
         ) from exc
-    if not stat.S_ISREG(before.st_mode):
-        raise ValidationIssue(
-            code,
+    except ValueError as exc:
+        message = {
+            "artifact_writable_by_others": (
+                "Grok prewalk qualification must not be group/other-writable"
+            ),
+            "artifact_too_large": (
+                "Grok prewalk qualification artifact is too large"
+            ),
+        }.get(
+            str(exc),
             "Grok prewalk qualification must be a regular non-symlink file",
-            path=str(target),
         )
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(target, flags)
-    except OSError as exc:
-        raise ValidationIssue(
-            code,
-            "Grok prewalk qualification must be a regular non-symlink file",
-            path=str(target),
-        ) from exc
-    try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode) or (
-            metadata.st_dev,
-            metadata.st_ino,
-        ) != (before.st_dev, before.st_ino):
-            raise ValidationIssue(
-                code,
-                "Grok prewalk qualification must be a regular non-symlink file",
-                path=str(target),
-            )
-        if stat.S_IMODE(metadata.st_mode) & 0o022:
-            raise ValidationIssue(
-                code,
-                "Grok prewalk qualification must not be group/other-writable",
-                path=str(target),
-            )
-        if metadata.st_size > limit:
-            raise ValidationIssue(
-                code,
-                "Grok prewalk qualification artifact is too large",
-                path=str(target),
-            )
-        raw = os.read(descriptor, limit + 1)
-    finally:
-        os.close(descriptor)
-    if len(raw) > limit:
-        raise ValidationIssue(
-            code, "Grok prewalk qualification artifact is too large", path=str(target)
-        )
+        raise ValidationIssue(code, message, path=str(target)) from exc
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:

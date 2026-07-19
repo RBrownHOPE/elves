@@ -8,13 +8,6 @@ Project backlog and deferred tasks. Live items first; completed history under
 - [ ] Investigate host-native UI prompts and arbitrary third-party tools that bypass Elves'
   transport helpers. Those surfaces cannot honestly be described as covered by the built-in
   external-lane filter and may require host or MCP-level interception.
-- [ ] [elves-scout] Bound the remaining git helpers on the default `run_git` path in
-  `cobbler_runtime/git_contract.py` and `cobbler_runtime/leases.py` with an explicit default
-  timeout, matching the supervisor-path TimeoutExpired hardening (2026-07 audit, B1 review W4).
-- [ ] [elves-scout] Apply the fd-bound (O_NOFOLLOW open, fstat identity, mode/size checks on the
-  read descriptor) reader pattern to the native prewalk evidence loader
-  `load_prewalk_capability_evidence` in `cobbler_runtime/prewalk.py`, matching the grok
-  qualification loader (B3 review deferral).
 - [ ] Complete and independently review the Grok prewalk launch path before opening the
   maintainer-owned `launch_ready` registry gate: materialize the bounded prompt-file input,
   validate the non-yolo auth/permission profile end to end, run an operator-authorized canary,
