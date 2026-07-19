@@ -76,10 +76,11 @@ stores only a digest-derived evidence ID in safe state. Missing, unsafe, malform
 incomplete evidence leaves goal mode disabled and uses the one-packet fallback.
 
 Model selection uses only the authenticated live catalog. Omitting `--model` (or using the CLI's
-`auto` preparation value) resolves to the parsed live default at launch. An explicit model is
-accepted only if the catalog returns that exact identifier. Elves passes `--effort high` by
-default—the highest Grok Build effort—and never hardcodes Composer or another model remembered
-from an older catalog. The operator can still make an explicit lower-effort tradeoff.
+`auto` preparation value) prefers **`grok-4.5`** when the live catalog returns it, then a
+non-retired live default. Composer 2.5 (`grok-composer-2.5-fast`) is retired and is never selected.
+An explicit model is accepted only if the catalog returns that exact identifier. Elves passes
+`--effort high` by default—the highest Grok Build effort. The operator can still make an explicit
+lower-effort tradeoff.
 
 ## Feature-gated prewalk lane (distinct from trusted full-run)
 

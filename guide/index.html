@@ -512,7 +512,7 @@
     <div class="masthead-inner">
       <div class="brand-row">
         <a class="wordmark" href="https://github.com/aigorahub/elves">Elves</a>
-        <a class="repo-link" href="https://github.com/aigorahub/elves">v2.10.1 source and releases on GitHub</a>
+        <a class="repo-link" href="https://github.com/aigorahub/elves">v2.10.3 source and releases on GitHub</a>
       </div>
       <h1>Using Elves</h1>
       <p class="intro">Plan with the main agent, hand implementation to a separate worker, then
@@ -524,6 +524,7 @@
     <nav class="contents" aria-label="Guide contents">
       <strong>On this page</strong>
       <ul>
+        <li><a href="#agent-onboarding">Paste this to your agent</a></li>
         <li><a href="#how-it-works">How it works</a></li>
         <li><a href="#install">Install Elves</a></li>
         <li><a href="#first-run">Start a run</a></li>
@@ -536,6 +537,50 @@
     </nav>
 
     <main id="main">
+      <section id="agent-onboarding">
+        <h2>New here? Paste this to your agent</h2>
+        <p class="lede">Open Claude Code or Codex in any directory, paste the block below, and let
+          the agent install Elves and explain how it works. Shell install steps are optional if
+          you prefer them: see <a href="#install">Install Elves</a>.</p>
+
+        <div class="code-block">
+          <button class="copy" type="button" data-copy="agent-onboard">Copy</button>
+          <pre><code id="agent-onboard">Install Elves for whichever coding agents I have on this machine (Claude Code and/or Codex), then explain how Elves works. Do not start an implementation run unless I ask.
+
+1. Detect availability:
+   - Claude Code: `claude` on PATH and/or `~/.claude`
+   - Codex: `codex` on PATH and/or `~/.codex`
+   Install only for hosts that are actually present. If both exist, install both.
+
+2. Install from a temporary clone of https://github.com/aigorahub/elves.git:
+   ELVES_TMP="$(mktemp -d)"
+   git clone https://github.com/aigorahub/elves.git "$ELVES_TMP/elves"
+   python3 "$ELVES_TMP/elves/scripts/sync_installed_skills.py" --apply --target &lt;claude|codex|all&gt;
+   rm -rf "$ELVES_TMP"
+   Use target `claude`, `codex`, or `all` to match what you detected.
+
+3. Validate each install you performed:
+   python3 ~/.claude/skills/elves/scripts/install_doctor.py --startup
+   python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup
+
+4. In plain language, explain:
+   - Elves is a skill for Claude Code or Codex (those are the supported main drivers).
+   - I own the plan and whether to merge. The driver plans/reviews/lands; a separate worker implements.
+   - Default: same subscription, lower-effort native worker. Outcome is usually a landable PR; merge only if I authorize it.
+   - Optional workers (Grok Build, Devin, OpenCode, …) are not required. Native works with no extra keys.
+   - Grok Build is an optional *worker*, not a supported main driver for the Elves skill itself.
+
+5. Stop after install + orientation. Offer one short first-run starter prompt I can paste later (chat-to-work: landable PR, do not merge).</code></pre>
+        </div>
+
+        <div class="note">
+          <strong>Hosts.</strong> Supported main drivers are <strong>Claude Code</strong> and
+          <strong>Codex</strong> only. Grok Build, Devin, and OpenCode can be optional workers
+          after Elves is installed on a supported host — they are not where you install the Elves
+          skill.
+        </div>
+      </section>
+
       <section id="how-it-works">
         <h2>How a run works</h2>
         <p class="lede">Elves keeps the agent that understands your intent available for planning
@@ -659,15 +704,15 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup</code></pre>
             </tr>
             <tr>
               <td data-label="Situation">Grok Build is available and allowed</td>
-              <td data-label="Usual choice">Authenticated live default at <code>high</code></td>
-              <td data-label="Why">Elves selects only a model returned by the installed CLI's live
-                catalog and requests Grok's highest supported effort.</td>
+              <td data-label="Usual choice"><code>grok-4.5</code> at <code>high</code></td>
+              <td data-label="Why">Composer 2.5 is retired. Elves prefers <code>grok-4.5</code> when
+                the live catalog returns it and requests Grok's highest supported effort.</td>
             </tr>
             <tr>
               <td data-label="Situation">The implementation is genuinely complex</td>
               <td data-label="Usual choice">Explicit live-catalog model</td>
-              <td data-label="Why">Pin a stronger model only when the authenticated catalog returns
-                that exact identifier.</td>
+              <td data-label="Why">Pin another catalog member only when the authenticated catalog
+                returns that exact identifier (not retired Composer).</td>
             </tr>
             <tr>
               <td data-label="Situation">Devin CLI is installed and configured</td>
@@ -688,8 +733,8 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup</code></pre>
           downgraded. Devin CLI and other configured adapters remain optional routes, not required setup.
           Grok provider availability is independent from goal support: proven headless
           <code>/goal</code> is an enhancement, and a compatible one-packet prompt is the recorded
-          fallback. Grok uses the authenticated live default at explicit <code>high</code>, not a
-          remembered Composer model that may be absent from the current catalog.</p>
+          fallback. Permitted Grok workers use <code>grok-4.5</code> at explicit <code>high</code>
+          when the live catalog offers it. Composer 2.5 is retired and is never selected.</p>
 
         <h3>Machine-check a cold handoff when needed</h3>
         <p>Elves v2.9 adds optional explicit handoff v1 for coordinators that need deterministic
@@ -919,6 +964,18 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" preferences reset</code></
             authenticated live model catalog. A failed core check falls back to the native route
             and records why. Missing goal support alone uses the one-packet fallback without
             disabling an otherwise valid Grok provider.</p>
+        </details>
+
+        <details>
+          <summary>I opened Grok Build and tried <code>/elves</code> (or Elves appeared in skills).</summary>
+          <p><strong>Unsupported host.</strong> Grok Build can discover the Elves skill when Claude
+            skill compatibility is on (for example after install into
+            <code>~/.claude/skills/elves</code>), but Grok is <strong>not</strong> a supported main
+            driver. Do not stage or run Elves from inside Grok as the orchestrator. Open
+            <strong>Claude Code</strong> or <strong>Codex</strong>, install Elves there if needed,
+            and start the run from that host. Use Grok as an optional <em>worker</em> only after
+            the supported host permits it. The skill should refuse Grok-as-host orchestration and
+            redirect you.</p>
         </details>
 
         <details>

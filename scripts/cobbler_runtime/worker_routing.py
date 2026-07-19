@@ -32,8 +32,12 @@ from .schema import (
 
 REASONING_LEVELS = ("low", "medium", "high")
 REVIEW_RISKS = ("low", "standard", "high")
-GROK_COMPOSER_MODEL = "grok-composer-2.5-fast"
-GROK_COMPLEX_MODEL = "grok-4.5"
+# xAI retired Composer 2.5; permitted Grok workers use Grok 4.5 when the live
+# catalog offers it. There is no separate "heavy" model id in current Grok Build
+# catalogs — strength is model `grok-4.5` plus default effort `high`.
+GROK_WORKER_MODEL = "grok-4.5"
+GROK_COMPLEX_MODEL = GROK_WORKER_MODEL  # historical alias for the strong worker
+GROK_RETIRED_COMPOSER_MODEL = "grok-composer-2.5-fast"  # never select; tests only
 GROK_UPSTREAM_SOURCE_URL = "https://github.com/xai-org/grok-build"
 GROK_UPSTREAM_SEMANTIC_COMMIT = "7cfcb20d2b50b0d18801a6c0af2e401c0e060894"
 MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES = 64 * 1024
@@ -155,6 +159,32 @@ _DEFAULT_MODEL_RE = re.compile(
     rf"(?im)^\s*Default model:\s*(?P<model>{_MODEL_ID_RE})\s*$"
 )
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def select_preferred_grok_worker_model(
+    capabilities: GrokCapabilities,
+    *,
+    requested: str | None = None,
+) -> str | None:
+    """Choose a launchable Grok model from live capabilities.
+
+    Preference order:
+    1. Explicit requested id (when present in the live catalog and not retired)
+    2. ``GROK_WORKER_MODEL`` (``grok-4.5``) when present
+    3. Non-retired live default
+    4. ``None`` when only retired/unavailable options remain
+    """
+    req = (requested or "").strip()
+    if req and req not in {"", "auto"}:
+        if req == GROK_RETIRED_COMPOSER_MODEL:
+            return None
+        return req if capabilities.supports(req) else None
+    if capabilities.supports(GROK_WORKER_MODEL):
+        return GROK_WORKER_MODEL
+    default = capabilities.default_model
+    if default and default != GROK_RETIRED_COMPOSER_MODEL and capabilities.supports(default):
+        return default
+    return None
 
 
 def _parse_live_model_catalog(stdout: str) -> tuple[tuple[str, ...], str | None]:
@@ -938,24 +968,33 @@ def decide_worker_route(
         elif not permitted:
             fallback = {"requested": "grok", "actual": "native", "reason": "grok_not_explicitly_permitted"}
         else:
-            candidate = (
-                str(requested_grok_model)
+            requested_for_select = (
+                str(requested_grok_model).strip()
                 if requested_grok_model is not None
-                else grok_info.default_model
+                else None
             )
+            # "auto" is a prepare-time placeholder, not a live model id. An
+            # explicit worker.grok_model pin of "auto" is never a catalog member.
+            if requested_for_select == "auto":
+                candidate = None
+            else:
+                candidate = select_preferred_grok_worker_model(
+                    grok_info, requested=requested_for_select
+                )
             goal_qualified = bool(
                 grok_info.goal_mode_behaviorally_verified
                 and grok_info.goal_behavioral_evidence
             )
             core_unavailable = grok_info.core_launch_unavailable_reason()
-            if candidate and grok_info.supports(candidate) and not core_unavailable:
+            if candidate and not core_unavailable:
                 selected_provider = "grok"
                 selected_model = candidate
-                model_policy = (
-                    "explicit_catalog_model_pin"
-                    if requested_grok_model is not None
-                    else "authenticated_live_catalog_default"
-                )
+                if requested_grok_model is not None:
+                    model_policy = "explicit_catalog_model_pin"
+                elif candidate == GROK_WORKER_MODEL:
+                    model_policy = "preferred_grok_worker_model"
+                else:
+                    model_policy = "authenticated_live_catalog_default"
                 goal_mode = goal_qualified
                 reasons.append("permitted_grok_capability_matches_plan")
                 if not goal_qualified:
@@ -968,10 +1007,19 @@ def decide_worker_route(
             else:
                 if not (grok_info.installed and grok_info.authenticated):
                     missing = "unavailable_or_unauthenticated"
+                elif (
+                    requested_for_select == GROK_RETIRED_COMPOSER_MODEL
+                    or (
+                        not requested_for_select
+                        and grok_info.default_model == GROK_RETIRED_COMPOSER_MODEL
+                        and not grok_info.supports(GROK_WORKER_MODEL)
+                    )
+                ):
+                    missing = f"model_retired:{GROK_RETIRED_COMPOSER_MODEL}"
+                elif requested_for_select and not candidate:
+                    missing = f"model_unavailable:{requested_for_select}"
                 elif not candidate:
                     missing = "live_default_model_unavailable"
-                elif not grok_info.supports(candidate):
-                    missing = f"model_unavailable:{candidate}"
                 elif core_unavailable:
                     missing = core_unavailable
                 else:

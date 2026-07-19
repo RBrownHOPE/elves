@@ -1212,8 +1212,8 @@ def humanize_grok_failure(
 
     if re.search(r"model .+ not found|unknown model|invalid model", blob, re.I):
         return (
-            "Grok rejected the model id. Use a valid model (e.g. `grok-composer-2.5-fast`) "
-            "or an implement alias (`fast` / `deep`)."
+            "Grok rejected the model id. Use a valid live-catalog model "
+            "(e.g. `grok-4.5`) or omit --model for the preferred worker default."
         )
 
     first_useful = None
@@ -1904,7 +1904,11 @@ def launch_payload(
         GROK_LIVE_DEFAULT
     )
     if not is_opencode and not is_devin:
-        from .worker_routing import probe_grok_capabilities  # noqa: PLC0415
+        from .worker_routing import (  # noqa: PLC0415
+            GROK_RETIRED_COMPOSER_MODEL,
+            probe_grok_capabilities,
+            select_preferred_grok_worker_model,
+        )
 
         probe_executable = (
             executable
@@ -1930,9 +1934,26 @@ def launch_payload(
                 hint=(catalog.reason if catalog else "model_catalog_not_probed"),
             )
         requested = str(raw_model).strip()
-        if requested == GROK_LIVE_DEFAULT:
-            requested = str(capabilities.default_model or "")
-        if not requested or requested not in capabilities.models:
+        if requested in {"", GROK_LIVE_DEFAULT, "auto"}:
+            selected = select_preferred_grok_worker_model(capabilities)
+            if not selected:
+                if capabilities.default_model == GROK_RETIRED_COMPOSER_MODEL:
+                    raise ValidationIssue(
+                        "grok_model_retired",
+                        f"Grok model `{GROK_RETIRED_COMPOSER_MODEL}` is retired; "
+                        "use grok-4.5 when the live catalog offers it",
+                    )
+                raise ValidationIssue(
+                    "grok_model_not_in_live_catalog",
+                    "No usable Grok worker model in the authenticated live catalog",
+                )
+            requested = selected
+        elif requested == GROK_RETIRED_COMPOSER_MODEL:
+            raise ValidationIssue(
+                "grok_model_retired",
+                f"Grok model `{requested}` is retired; use grok-4.5",
+            )
+        elif requested not in capabilities.models:
             raise ValidationIssue(
                 "grok_model_not_in_live_catalog",
                 f"Requested Grok model `{requested or raw_model}` is absent from the authenticated live catalog",

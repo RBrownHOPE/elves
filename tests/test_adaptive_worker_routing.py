@@ -45,7 +45,8 @@ from cobbler_runtime.preferences import (  # noqa: E402
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.worker_routing import (  # noqa: E402
     GROK_COMPLEX_MODEL,
-    GROK_COMPOSER_MODEL,
+    GROK_RETIRED_COMPOSER_MODEL,
+    GROK_WORKER_MODEL,
     GrokCapabilityEvidence,
     GrokCapabilities,
     decide_worker_route,
@@ -210,13 +211,13 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         capabilities = GrokCapabilities(
             installed=True,
             authenticated=True,
-            models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL),
-            default_model=GROK_COMPOSER_MODEL,
+            models=(GROK_WORKER_MODEL, GROK_RETIRED_COMPOSER_MODEL),
+            default_model=GROK_WORKER_MODEL,
             goal_entrypoint_advertised=True,
             goal_mode_behaviorally_verified=True,
             goal_behavioral_evidence="fixture:headless-goal-contract-v1",
         )
-        for reasoning, expected in (("low", GROK_COMPOSER_MODEL), ("medium", GROK_COMPOSER_MODEL), ("high", GROK_COMPOSER_MODEL)):
+        for reasoning, expected in (("low", GROK_WORKER_MODEL), ("medium", GROK_WORKER_MODEL), ("high", GROK_WORKER_MODEL)):
             decision = self.decide(
                 execution_reasoning=reasoning,
                 explicit_intent={"worker": {"provider": "grok"}},
@@ -224,6 +225,7 @@ class RouteDecisionMatrixTests(unittest.TestCase):
             )
             self.assertEqual(decision.provider, "grok")
             self.assertEqual(decision.worker_model, expected)
+            self.assertEqual(decision.worker_model_policy, "preferred_grok_worker_model")
             self.assertEqual(decision.worker_effort, "high")
             self.assertEqual(
                 decision.provenance["worker_effort"],
@@ -258,7 +260,7 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         prohibited = self.decide(
             explicit_intent=requested,
             repo_policy={"worker": {"allow_grok": False}},
-            grok=GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), default_model=GROK_COMPOSER_MODEL, goal_entrypoint_advertised=True, goal_mode_behaviorally_verified=True, goal_behavioral_evidence="fixture:verified"),
+            grok=GrokCapabilities(installed=True, authenticated=True, models=(GROK_WORKER_MODEL,), default_model=GROK_WORKER_MODEL, goal_entrypoint_advertised=True, goal_mode_behaviorally_verified=True, goal_behavioral_evidence="fixture:verified"),
         )
         self.assertEqual(prohibited.provider, "native")
         self.assertEqual(prohibited.fallback["reason"], "repository_policy_prohibits_grok")
@@ -288,7 +290,7 @@ class RouteDecisionMatrixTests(unittest.TestCase):
 
     def test_global_grok_is_remembered_consent_but_repository_veto_wins(self) -> None:
         caps = GrokCapabilities(
-            installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), default_model=GROK_COMPOSER_MODEL,
+            installed=True, authenticated=True, models=(GROK_WORKER_MODEL,), default_model=GROK_WORKER_MODEL,
             goal_mode_behaviorally_verified=True, goal_behavioral_evidence="fixture:verified",
         )
         selected = self.decide(global_preferences={"worker": {"provider": "grok"}}, grok=caps)
@@ -305,7 +307,7 @@ class RouteDecisionMatrixTests(unittest.TestCase):
             policy, source = discover_repository_worker_policy(root)
             self.assertEqual(policy["worker"]["provider"], "auto")
             self.assertEqual(source, str((root / "config.json").resolve()))
-            decision = self.decide(repo_policy=policy, grok=GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,)))
+            decision = self.decide(repo_policy=policy, grok=GrokCapabilities(installed=True, authenticated=True, models=(GROK_WORKER_MODEL,)))
             self.assertEqual(decision.provider, "native")
 
     @mock.patch("cobbler_runtime.worker_routing.shutil.which", return_value="/usr/bin/grok")
@@ -319,10 +321,10 @@ class RouteDecisionMatrixTests(unittest.TestCase):
                 return subprocess.CompletedProcess(
                     argv,
                     0,
-                    f"Default model: {GROK_COMPOSER_MODEL}\n"
+                    f"Default model: {GROK_WORKER_MODEL}\n"
                     "Available models:\n"
-                    f"  * {GROK_COMPOSER_MODEL} (default)\n"
-                    f"  - {GROK_COMPLEX_MODEL}\n",
+                    f"  * {GROK_WORKER_MODEL} (default)\n"
+                    f"  - {GROK_RETIRED_COMPOSER_MODEL}\n",
                     "",
                 )
             if argv[1:4] == ["agent", "stdio", "--help"]:
@@ -368,9 +370,9 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         self.assertTrue(result.authenticated)
         self.assertEqual(result.version, "0.2.101")
         self.assertEqual(result.installed_build_commit, "5bc4b5dfadcf")
-        self.assertEqual(result.default_model, GROK_COMPOSER_MODEL)
-        self.assertIn(GROK_COMPOSER_MODEL, result.models)
-        self.assertIn(GROK_COMPLEX_MODEL, result.models)
+        self.assertEqual(result.default_model, GROK_WORKER_MODEL)
+        self.assertIn(GROK_WORKER_MODEL, result.models)
+        self.assertIn(GROK_RETIRED_COMPOSER_MODEL, result.models)
         self.assertFalse(result.goal_entrypoint_advertised)
         self.assertFalse(result.goal_mode_behaviorally_verified)
         snapshot = result.safe_snapshot()
@@ -428,10 +430,10 @@ class RouteDecisionMatrixTests(unittest.TestCase):
                 return subprocess.CompletedProcess(
                     argv,
                     0,
-                    f"Default model: {GROK_COMPOSER_MODEL}\n"
+                    f"Default model: {GROK_WORKER_MODEL}\n"
                     "Available models:\n"
-                    f"  - {GROK_COMPLEX_MODEL}\n"
-                    f"  * {GROK_COMPOSER_MODEL} (default)\n",
+                    f"  - {GROK_RETIRED_COMPOSER_MODEL}\n"
+                    f"  * {GROK_WORKER_MODEL} (default)\n",
                     "",
                 )
             if argv[1:4] == ["agent", "stdio", "--help"]:
@@ -555,14 +557,14 @@ class RouteDecisionMatrixTests(unittest.TestCase):
                 self.assertIsNone(caps.default_model)
 
     def test_advertised_goal_is_not_behaviorally_verified(self) -> None:
-        caps = GrokCapabilities(installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), default_model=GROK_COMPOSER_MODEL, goal_entrypoint_advertised=True)
+        caps = GrokCapabilities(installed=True, authenticated=True, models=(GROK_WORKER_MODEL,), default_model=GROK_WORKER_MODEL, goal_entrypoint_advertised=True)
         decision = self.decide(explicit_intent={"worker": {"provider": "grok"}}, grok=caps)
         self.assertEqual(decision.provider, "grok")
         self.assertEqual(decision.fallback["reason"], "goal_mode_not_behaviorally_verified")
         self.assertEqual(decision.fallback["actual"], "grok_packet_prompt")
         self.assertFalse(decision.goal_mode)
         unrecorded = GrokCapabilities(
-            installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL,), default_model=GROK_COMPOSER_MODEL,
+            installed=True, authenticated=True, models=(GROK_WORKER_MODEL,), default_model=GROK_WORKER_MODEL,
             goal_entrypoint_advertised=True, goal_mode_behaviorally_verified=True,
         )
         self.assertFalse(self.decide(explicit_intent={"worker": {"provider": "grok"}}, grok=unrecorded).goal_mode)
@@ -571,8 +573,8 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         caps = GrokCapabilities(
             installed=True,
             authenticated=True,
-            models=(GROK_COMPOSER_MODEL,),
-            default_model=GROK_COMPOSER_MODEL,
+            models=(GROK_WORKER_MODEL,),
+            default_model=GROK_WORKER_MODEL,
             capability_ledger=(
                 ("prompt_file", GrokCapabilityEvidence("proven", "fixture", "ok")),
                 ("cwd", GrokCapabilityEvidence("proven", "fixture", "ok")),
@@ -600,10 +602,15 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         caps = GrokCapabilities(
             installed=True,
             authenticated=True,
-            models=(GROK_COMPOSER_MODEL,),
-            default_model=GROK_COMPOSER_MODEL,
+            models=(GROK_WORKER_MODEL,),
+            default_model=GROK_WORKER_MODEL,
         )
-        for unavailable in ("auto", "grok-code-fast-1", GROK_COMPLEX_MODEL):
+        cases = (
+            ("auto", "model_unavailable:auto"),
+            ("grok-code-fast-1", "model_unavailable:grok-code-fast-1"),
+            (GROK_RETIRED_COMPOSER_MODEL, f"model_retired:{GROK_RETIRED_COMPOSER_MODEL}"),
+        )
+        for unavailable, reason in cases:
             with self.subTest(unavailable=unavailable):
                 decision = self.decide(
                     explicit_intent={
@@ -615,29 +622,40 @@ class RouteDecisionMatrixTests(unittest.TestCase):
                     grok=caps,
                 )
                 self.assertEqual(decision.provider, "native")
-                self.assertEqual(
-                    decision.fallback["reason"],
-                    f"model_unavailable:{unavailable}",
-                )
+                self.assertEqual(decision.fallback["reason"], reason)
 
     def test_route_model_reaches_production_full_run_argv(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             packet = Path(tmp) / "packet.md"
             packet.write_text("fixture\n", encoding="utf-8")
             caps = GrokCapabilities(
-                installed=True, authenticated=True, models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL),
-                default_model=GROK_COMPOSER_MODEL,
-                goal_mode_behaviorally_verified=True, goal_behavioral_evidence="fixture:verified",
+                installed=True,
+                authenticated=True,
+                models=(GROK_WORKER_MODEL, GROK_RETIRED_COMPOSER_MODEL),
+                default_model=GROK_WORKER_MODEL,
+                goal_mode_behaviorally_verified=True,
+                goal_behavioral_evidence="fixture:verified",
             )
-            for reasoning, expected in (("medium", GROK_COMPOSER_MODEL), ("high", GROK_COMPLEX_MODEL)):
+            for reasoning in ("medium", "high"):
                 intent = {"worker": {"provider": "grok"}}
-                if reasoning == "high":
-                    intent["worker"]["grok_model"] = GROK_COMPLEX_MODEL
-                decision = self.decide(execution_reasoning=reasoning, explicit_intent=intent, grok=caps)
-                state = FullRunState(session_id="11111111-1111-1111-1111-111111111111", branch="feature", start_head="a" * 40, worktree=tmp, packet_path=str(packet), model=decision.worker_model or "", effort=decision.worker_effort)
-                with mock.patch("cobbler_runtime.implement.detect_native_grok_goal", return_value={"mode": "headless_compatible_fallback"}):
+                decision = self.decide(
+                    execution_reasoning=reasoning, explicit_intent=intent, grok=caps
+                )
+                state = FullRunState(
+                    session_id="11111111-1111-1111-1111-111111111111",
+                    branch="feature",
+                    start_head="a" * 40,
+                    worktree=tmp,
+                    packet_path=str(packet),
+                    model=decision.worker_model or "",
+                    effort=decision.worker_effort,
+                )
+                with mock.patch(
+                    "cobbler_runtime.implement.detect_native_grok_goal",
+                    return_value={"mode": "headless_compatible_fallback"},
+                ):
                     argv = build_full_run_argv(state)
-                self.assertEqual(argv[argv.index("--model") + 1], expected)
+                self.assertEqual(argv[argv.index("--model") + 1], GROK_WORKER_MODEL)
                 self.assertEqual(argv[argv.index("--effort") + 1], "high")
 
     def test_full_run_state_grok_default_defers_to_live_catalog(self) -> None:
@@ -1127,8 +1145,8 @@ class GrokPrewalkQualificationGateTests(unittest.TestCase):
     LAUNCHABLE_GROK = GrokCapabilities(
         installed=True,
         authenticated=True,
-        models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL),
-        default_model=GROK_COMPOSER_MODEL,
+        models=(GROK_WORKER_MODEL, GROK_RETIRED_COMPOSER_MODEL),
+        default_model=GROK_WORKER_MODEL,
     )
 
     def decide(self, **overrides):
@@ -1156,7 +1174,7 @@ class GrokPrewalkQualificationGateTests(unittest.TestCase):
             model_calls_made=False,
             qualified_guide_model="guide-model",
             qualified_guide_effort="high",
-            qualified_execution_model=GROK_COMPOSER_MODEL,
+            qualified_execution_model=GROK_WORKER_MODEL,
             qualified_execution_effort="high",
         )
         params.update(overrides)
@@ -1334,8 +1352,8 @@ class GrokPrewalkQualificationArtifactGateTests(unittest.TestCase):
     LAUNCHABLE_GROK = GrokCapabilities(
         installed=True,
         authenticated=True,
-        models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL),
-        default_model=GROK_COMPOSER_MODEL,
+        models=(GROK_WORKER_MODEL, GROK_RETIRED_COMPOSER_MODEL),
+        default_model=GROK_WORKER_MODEL,
     )
 
     def _decide_with_artifact(self, path, **overrides):
@@ -1436,8 +1454,8 @@ class GrokPrewalkQualificationArtifactGateTests(unittest.TestCase):
             "if args == ['version', '--json']:\n"
             "    print(json.dumps({'currentVersion': version + ' (c1b5909ec707)'}))\n"
             "elif args == ['models']:\n"
-            f"    print('Default model: {GROK_COMPOSER_MODEL}\\nAvailable models:\\n"
-            f"  * {GROK_COMPOSER_MODEL} (default)\\n  - {GROK_COMPLEX_MODEL}')\n"
+            f"    print('Default model: {GROK_WORKER_MODEL}\\nAvailable models:\\n"
+            f"  * {GROK_WORKER_MODEL} (default)\\n  - {GROK_RETIRED_COMPOSER_MODEL}')\n"
             "elif args == ['--help']:\n"
             "    print('--prompt-file --cwd --model --permission-mode --always-approve '\n"
             "          '--reasoning-effort --max-turns --output-format streaming-json '\n"

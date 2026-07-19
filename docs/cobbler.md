@@ -182,9 +182,11 @@ and `/elves-council`. Codex supports `$elves council: <task>` and natural Counci
 Setup is optional. Native-only Elves needs no external tools or keys. **Supported main drivers are
 Claude Code and Codex** — they run Elves. Other CLIs and services (Antigravity, Gemini, OpenCode,
 Grok Build, OpenRouter, Muse, AlphaEvolve, etc.) are optional multi-agent routes only; running Elves
-with those as the primary host is not our focus. Exotic interfaces are **not heavily tested**
-(including without maintainer subscriptions to dogfood them). **Prefer PRs** (or issues) when
-something breaks. **Claude Code and Codex** share one onboarding protocol
+with those as the primary host is not our focus. **Grok Build as main driver is unsupported** even
+when the skill appears via Claude skill compatibility — the skill refuses orchestration and
+redirects to Claude Code or Codex; Grok remains an optional **worker**. Exotic interfaces are
+**not heavily tested** (including without maintainer subscriptions to dogfood them). **Prefer PRs**
+(or issues) when something breaks. **Claude Code and Codex** share one onboarding protocol
 (`references/model-onboarding.md`):
 
 ```bash

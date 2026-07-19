@@ -216,14 +216,14 @@ class GrokHostArmTests(unittest.TestCase):
                 host="grok",
                 worktree=repo,
                 effort="low",
-                requested_model="grok-composer-2.5-fast",
+                requested_model="grok-4.5",
                 session_id=sid,
             )
             self.assertEqual(
                 spec.argv,
                 (
                     "grok", "--resume", sid,
-                    "--model", "grok-composer-2.5-fast", "--effort", "low",
+                    "--model", "grok-4.5", "--effort", "low",
                     "--permission-mode", "auto",
                     "--output-format", "streaming-json",
                 ),

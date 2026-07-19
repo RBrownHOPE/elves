@@ -1,5 +1,5 @@
 ---
-version: "2.10.2"
+version: "2.10.3"
 ---
 
 # Elves: Codex repository adapter
@@ -82,6 +82,13 @@ authenticated live catalog (`references/adaptive-worker-routing.md`).
   explicit survival-guide opt-in (SKILL.md)
 - **Preferences:** safe worker convenience at `${XDG_CONFIG_HOME:-~/.config}/elves/config.json`;
   repository safety vetoes outrank everything
+
+## Host check (Grok Build)
+
+Supported main drivers are Claude Code and Codex only. If this skill is loaded inside **Grok Build**
+as the orchestrator (Claude skill compat often surfaces it), **do not stage or run Elves** — refuse
+and redirect to Claude Code or Codex. Grok remains an optional **worker** under a supported host.
+Full wording: SKILL.md `## Supported main drivers (host check)`.
 
 ## Recovery (same as SKILL)
 
