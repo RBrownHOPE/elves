@@ -196,6 +196,11 @@ python3 scripts/cobbler_agents.py implement full-run-reconcile --json \
   --session-id <uuid> --host-tests-pass
 ```
 
+A successful host reconstruction also returns the same `review_context`; attach its prompt block
+before Final Readiness just as on the ordinary terminal monitor/await path. Invalid optional
+confidence evidence falls back to an explicit no-signal baseline review and cannot make an
+otherwise permitted reconstruction fail.
+
 Goal-enhanced recovery uses `/goal resume`; it never resends `/goal <packet>`. Use `full-run-logs`
 only for bounded diagnosis and `full-run-stop` only for explicit cancellation or recovery of a
 live/wedged process. The host still owns cumulative review, acceptance proof, protected refs, PR

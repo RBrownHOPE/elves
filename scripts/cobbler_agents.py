@@ -1927,6 +1927,11 @@ def cmd_implement(args: argparse.Namespace) -> int:
                 f"next={payload.get('next_action')} "
                 f"provenance={payload.get('provenance')}"
             )
+            review_context = payload.get("review_context")
+            if isinstance(review_context, Mapping) and isinstance(
+                review_context.get("review_prompt_block"), str
+            ):
+                print(review_context["review_prompt_block"])
             return 0 if payload.get("ok") else 1
 
         if action == "full-run-logs":

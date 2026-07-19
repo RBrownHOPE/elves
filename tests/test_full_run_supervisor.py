@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -48,6 +49,7 @@ from cobbler_runtime.full_run import (  # noqa: E402
     monitor_full_run,
     prepare_full_run,
     reconcile_full_run_with_git,
+    reconstruct_missing_report,
     stop_full_run,
     validate_event,
     validate_run_report,
@@ -1370,6 +1372,84 @@ class FullRunReportValidationTests(unittest.TestCase):
         self.assertEqual(context["omitted_signal_rows"], 1)
         self.assertEqual(context["signal_status"], "partial")
         self.assertIn("Perform full baseline review", context["review_prompt_block"])
+
+    def test_host_reconstruction_returns_the_same_confidence_review_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            start = "a" * 40
+            tip = "b" * 40
+            state = full_run_module.FullRunState(
+                session_id="session-1",
+                branch="feat/x",
+                start_head=start,
+                worktree=str(repo),
+                packet_path=str(repo / "packet.md"),
+                acceptance_criteria={"B1-A1": "verified behavior"},
+                origin_url="https://github.com/example/repo.git",
+                origin_config_digest="origin-digest",
+                exit_code=0,
+            )
+            confidence_event = {
+                "type": "batch_complete",
+                "batch": 1,
+                "confidence": "low",
+                "unsure_about": ["reconstructed retry path"],
+            }
+            with (
+                mock.patch.object(
+                    full_run_module, "_full_run_lock", return_value=nullcontext()
+                ),
+                mock.patch.object(full_run_module, "load_state", return_value=state),
+                mock.patch.object(
+                    full_run_module, "verify_protected_refs_unchanged", return_value=[]
+                ),
+                mock.patch.object(
+                    full_run_module,
+                    "_canonical_origin_url",
+                    return_value=state.origin_url,
+                ),
+                mock.patch.object(
+                    full_run_module,
+                    "_origin_config_digest",
+                    return_value=state.origin_config_digest,
+                ),
+                mock.patch.object(full_run_module, "_assert_clean_worktree"),
+                mock.patch.object(full_run_module, "_git_head", return_value=tip),
+                mock.patch.object(full_run_module, "_is_ancestor", return_value=True),
+                mock.patch.object(
+                    full_run_module, "_git_commit_chain", return_value=[tip]
+                ),
+                mock.patch.object(
+                    full_run_module,
+                    "run_git",
+                    return_value=mock.Mock(returncode=0, stdout="implemented\n", stderr=""),
+                ),
+                mock.patch.object(full_run_module, "write_report"),
+                mock.patch.object(full_run_module, "save_state"),
+                mock.patch.object(
+                    full_run_module,
+                    "_launch_evidence_context",
+                    return_value=(True, frozenset()),
+                ),
+                mock.patch.object(
+                    full_run_module,
+                    "_read_events",
+                    return_value=([confidence_event], []),
+                ),
+            ):
+                result = reconstruct_missing_report(
+                    repo,
+                    session_id=state.session_id,
+                    host_tests_pass=True,
+                )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["next_action"], "final_readiness")
+        self.assertEqual(result["review_context"]["lowest_confidence"], "low")
+        self.assertIn(
+            "reconstructed retry path",
+            result["review_context"]["review_prompt_block"],
+        )
 
     def test_material_change_event_has_concrete_typed_schema(self) -> None:
         event = {

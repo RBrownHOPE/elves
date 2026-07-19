@@ -7399,6 +7399,39 @@ def reconstruct_missing_report(
     report["provenance"] = "host_reconstructed"
     report["merge_authority"] = False
     write_report(repo_root, session_id, report)
+    launch_grants_verified, exact_secret_values = _launch_evidence_context(state)
+    review_events: list[dict[str, Any]] = []
+    if launch_grants_verified:
+        candidate_events, confidence_event_errors = _read_events(
+            full_run_root(repo_root, session_id) / "events.jsonl",
+            expected_session_id=session_id,
+            expected_branch=state.branch,
+            expected_high_risk_checkpoints=state.planned_high_risk_checkpoints,
+            exact_secret_values=exact_secret_values,
+            credential_grant_state=state,
+            shared_oauth_safe_projection=(
+                state.grok_auth_strategy == "oauth_shared_file"
+            ),
+            allow_partial_final=False,
+            repo_root=Path(repo_root),
+        )
+        # Optional triage metadata cannot turn an otherwise permitted host
+        # reconstruction into a completion failure. Invalid event evidence is
+        # excluded, which the generated block reports honestly as absent.
+        if not confidence_event_errors:
+            review_events = candidate_events
+    review_context = build_worker_confidence_review_context(
+        session_id=session_id,
+        branch=state.branch,
+        final_head=tip,
+        report=report,
+        events=review_events,
+        shared_oauth=state.grok_auth_strategy == "oauth_shared_file",
+    )
+    if launch_grants_verified:
+        _redact_full_run_mapping_in_place(
+            review_context, exact_values=exact_secret_values
+        )
     state.report_provenance = "host_reconstructed"
     state.status = "complete"
     state.next_action = "final_readiness"
@@ -7412,6 +7445,7 @@ def reconstruct_missing_report(
         "next_action": "final_readiness",
         "provenance": "host_reconstructed",
         "report": report,
+        "review_context": review_context,
         "unknown_fields": list(plan.unknown_fields),
     }
 

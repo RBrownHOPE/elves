@@ -8,7 +8,8 @@ All notable changes to the Elves skill are documented here.
 
 - Turn validated full-run `confidence` / `unsure_about` evidence into a bounded
   `elves-worker-confidence-review-v1` context on successful terminal reconciliation, carried by
-  the monitor/await response with an exact `review_prompt_block` for the primary reviewer.
+  the monitor/await or host-reconstruction response with an exact `review_prompt_block` for the
+  primary reviewer.
 - Conservatively combine report and event signals: low confidence, reservations, hidden
   shared-OAuth reservation counts, and conflicting sources require a deeper pass; partial or
   missing signals explicitly retain full baseline review, and high confidence can never reduce
