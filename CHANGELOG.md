@@ -4,6 +4,12 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Operator note (staged for v2.10.2)
+
+- Any pre-upgrade Grok qualification canary recorded at execution effort `medium` fails
+  `qualification_route_mismatch` under the new grok-route `high` default and must be
+  re-recorded at `high`.
+
 ## [2.10.1] - 2026-07-19
 
 ### Confidence-guided reviewer handoff

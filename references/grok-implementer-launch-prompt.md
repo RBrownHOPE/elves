@@ -238,7 +238,7 @@ grok --model <live-model-id> \
 | Recipe | Result |
 |--------|--------|
 | Nested host loop (Codex drives every tool call) | Hours of ceremony tax |
-| `--reasoning-effort high` on volume implement | ~2× tiny-task latency; long thought streams |
+| `--reasoning-effort high` on volume implement | ~2× tiny-task latency; long thought streams — an accepted tradeoff of the `--effort high` default above (quality over latency for cross-family delegation); do not "fix" the default, only an explicit operator override changes it |
 | `--permission-mode auto`, alone or combined with `--yolo` | Does not provide the trusted unattended path; the combined flags conflict in 0.2.101 |
 | `--tools` allowlist for read-only/media on 0.2.93 | Session-create `RequirementError` — use denylist instead |
 | Host re-audits / full suite between every amend | Recreates nested-driver slowness |

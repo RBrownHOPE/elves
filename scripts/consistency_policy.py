@@ -1810,6 +1810,19 @@ PUBLIC_WORDING_FORBIDDEN_PHRASES = [
     "cobbled-together",
 ]
 
+# Persona claims that describe Cobbler as *being* Fable, matched
+# case-insensitively by the pattern engine. Bare model identifiers
+# (`Fable 5`, `claude-fable-5`) remain legitimate route-identity wording and
+# never match these patterns.
+PUBLIC_WORDING_FORBIDDEN_PATTERNS = [
+    r"powered\s+by\s+fable",
+    r"built\s+on\s+fable",
+    r"backed\s+by\s+fable",
+    r"driven\s+by\s+fable",
+    r"fable\s+under\s+the\s+hood",
+    r"fable\s+persona",
+]
+
 # --- Elves 2.3: thin AGENTS adapter + compact SKILL pins ---
 _AGENTS_THIN_POINTER = [
     'thin Codex adapter',
@@ -2219,6 +2232,56 @@ GROK_OPEN_SOURCE_WORKER_PHRASES = {
         "live driver's transport",
     ],
 }
+
+_GROK_UPSTREAM_PIN_RE = None  # lazily compiled in grok_upstream_commit_pin_errors
+
+
+def grok_upstream_commit_pin_errors(semantic_commit: str | None = None) -> list[str]:
+    """Cross-check the doc-pinned Grok upstream short SHA against runtime.
+
+    The reference doc pin ("source commit `<short>`" over
+    references/grok-open-source-worker.md) and
+    worker_routing.GROK_UPSTREAM_SEMANTIC_COMMIT describe the same upstream
+    commit; a one-sided bump of either must fail consistency. Tests may inject
+    a semantic_commit to exercise the disagreeing state.
+    """
+    import re
+    import sys
+
+    global _GROK_UPSTREAM_PIN_RE
+    if _GROK_UPSTREAM_PIN_RE is None:
+        _GROK_UPSTREAM_PIN_RE = re.compile(r"source commit `([0-9a-f]{7,40})`")
+    if semantic_commit is None:
+        scripts_dir = str(REPO_ROOT / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        from cobbler_runtime.worker_routing import (  # noqa: PLC0415
+            GROK_UPSTREAM_SEMANTIC_COMMIT,
+        )
+
+        semantic_commit = GROK_UPSTREAM_SEMANTIC_COMMIT
+    pins = [
+        match
+        for phrase in GROK_OPEN_SOURCE_WORKER_PHRASES.get(
+            "references/grok-open-source-worker.md", []
+        )
+        for match in _GROK_UPSTREAM_PIN_RE.findall(phrase)
+    ]
+    errors: list[str] = []
+    if not pins:
+        errors.append(
+            "consistency policy no longer pins the Grok upstream `source commit` "
+            "phrase over references/grok-open-source-worker.md"
+        )
+    for pin in pins:
+        if not str(semantic_commit or "").startswith(pin):
+            errors.append(
+                f"doc-pinned Grok upstream source commit `{pin}` is not a prefix "
+                "of worker_routing.GROK_UPSTREAM_SEMANTIC_COMMIT "
+                f"`{semantic_commit}`; bump both sides together"
+            )
+    return errors
+
 
 GROK_OPEN_SOURCE_WORKER_FORBIDDEN_PHRASES = {
     "docs/elves/learnings.md": [
