@@ -80,14 +80,15 @@ the same provider label. The worker route is always described as a `(model, effo
 | GPT-4.8 Max/UltraCode | same observed GPT-4.8 model ID at `medium` | effort only |
 | Claude Fable 5 at `max`/`ultra` | same observed `claude-fable-5` model ID at `low` | effort only |
 | explicit or availability-driven Fable→Opus route | `claude-opus-4-8` at `medium` | model and effort; never call this inheritance |
-| permitted Grok Build handoff | authenticated live-catalog default at `high` | cross-family; highest supported Grok effort |
+| permitted Grok Build handoff | `grok-4.5` at `high` when present in the live catalog | cross-family; Composer 2.5 is retired |
 
 These named defaults apply to a separate worker and to the execution phase of an exact-session
 prewalk. An explicit user route still wins. Unlisted native routes use the plan's low/medium/high
-execution classification. Grok never hardcodes Composer (or any other remembered identifier): the
-installed authenticated catalog decides the model, and Elves passes `high` explicitly. The live
-driver itself is never downgraded. High review risk may advise a stronger terminal-review driver
-without changing it in place.
+execution classification. Permitted Grok workers prefer **`grok-4.5`** when the authenticated live
+catalog returns it, at effort **`high`**. xAI retired Composer 2.5 (`grok-composer-2.5-fast`);
+Elves never selects that identifier. An explicit catalog pin still wins when that exact id is
+returned live. The live driver itself is never downgraded. High review risk may advise a stronger
+terminal-review driver without changing it in place.
 
 ## Optional exact-session prewalk route
 
@@ -132,8 +133,8 @@ the probe makes zero model calls. See the normative [`prewalk.md`](prewalk.md) c
 
 When Grok Build is explicitly permitted and silently qualifies:
 
-- choose the parsed default from the authenticated live `grok models` catalog unless the operator
-  explicitly requests another catalog member;
+- prefer `grok-4.5` when the authenticated live `grok models` catalog returns it; otherwise use a
+  non-retired live default (never `grok-composer-2.5-fast`);
 - pass `--effort high` by default because `high` is Grok Build's highest supported effort; an
   explicit operator effort override remains authoritative;
 - never invent an unavailable model: an explicit identifier (including `grok-4.5` or

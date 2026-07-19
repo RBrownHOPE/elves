@@ -8,17 +8,29 @@ plans and reviews; a subscription-native (or optional external) worker implement
 files let the work survive context compaction. You write the plan and own the merge decision. The
 agent does the middle.
 
-**Current release: v2.10.2** — see [`CHANGELOG.md`](CHANGELOG.md) for version history. Coined terms
+**Current release: v2.10.3** — see [`CHANGELOG.md`](CHANGELOG.md) for version history. Coined terms
 are defined once in [`references/glossary.md`](references/glossary.md).
 
-**New to Elves? Start with the [practical user guide](https://aigorahub.github.io/elves/).** It
-covers installation, the first run, worker choice, live progress, review, and landing for both
-Claude Code and Codex. This README is the repository reference: install, safety model, operations,
-and an index into the detailed contracts under [`references/`](references/).
+**New to Elves?** Use the [practical user guide](https://aigorahub.github.io/elves/) — especially
+**[Paste this to your agent](https://aigorahub.github.io/elves/#agent-onboarding)** at the top.
+That copy-ready block installs Elves for Claude Code and/or Codex (whichever is available) and
+orients you. The guide also covers the first run, worker choice, live progress, review, and
+landing. This README is the repository reference: shell install, safety model, operations, and an
+index into the detailed contracts under [`references/`](references/).
+
+**Supported main drivers:** Claude Code and Codex only. Grok Build is an optional *worker* once
+Elves is installed on a supported host — not a place to install the Elves skill, and not a
+supported main driver out of the box. Grok may still *discover* Elves via Claude skill
+compatibility; the skill and guide tell the agent to **refuse orchestration from Grok as host**
+and redirect to Claude Code or Codex. See the guide FAQ
+[I opened Grok Build and tried /elves](https://aigorahub.github.io/elves/#troubleshooting).
 
 ---
 
 ## Quick start
+
+Prefer the agent paste in the guide if you already have Claude Code or Codex open. Otherwise use
+the shell installs below.
 
 ### Install (Claude Code)
 
@@ -100,9 +112,9 @@ Trusted Grok implementation launches use `--always-approve` alone: Grok Build tr
 Native delegation names both model and effort. GPT-5.6 `xhigh`/extra-high/`ultra` hands off to the
 same GPT-5.6 model at `medium`; GPT-4.8 Max/UltraCode to the same GPT-4.8 model at `medium`; Fable 5
 `max`/`ultra` to the same Fable 5 model at `low`. A Fable→Opus exception means
-`claude-opus-4-8` at `medium`, not “the same model.” A permitted Grok handoff uses the
-authenticated live-catalog default at explicit `high`—never a hardcoded Composer identifier that
-the current catalog may not offer.
+`claude-opus-4-8` at `medium`, not “the same model.” A permitted Grok handoff prefers
+`grok-4.5` at explicit `high` when the live catalog returns it. Composer 2.5
+(`grok-composer-2.5-fast`) is retired and is never selected.
 
 ### Optional exact-session prewalk
 
@@ -317,12 +329,12 @@ exactly one file below; other docs link instead of restating.
 
 ```bash
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.10.2
+python3 scripts/verify_repo.py --version 2.10.3
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.10.2 --final-readiness \
+python3 scripts/verify_repo.py --version 2.10.3 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.10.2 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.10.3 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 

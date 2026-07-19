@@ -4615,7 +4615,11 @@ def launch_full_run(
             )
 
         if state.adapter == "grok-build":
-            from .worker_routing import probe_grok_capabilities  # noqa: PLC0415
+            from .worker_routing import (  # noqa: PLC0415
+                GROK_RETIRED_COMPOSER_MODEL,
+                probe_grok_capabilities,
+                select_preferred_grok_worker_model,
+            )
 
             grok_capabilities = probe_grok_capabilities(
                 state.executable,
@@ -4646,13 +4650,25 @@ def launch_full_run(
                     hint=(catalog.reason if catalog is not None else "model_catalog_not_probed"),
                 )
             requested_model = str(state.model or "").strip()
-            if requested_model == "auto":
-                if not grok_capabilities.default_model:
+            if requested_model in {"", "auto"}:
+                selected = select_preferred_grok_worker_model(grok_capabilities)
+                if not selected:
+                    if grok_capabilities.default_model == GROK_RETIRED_COMPOSER_MODEL:
+                        raise ValidationIssue(
+                            "grok_model_retired",
+                            f"Grok model `{GROK_RETIRED_COMPOSER_MODEL}` is retired; "
+                            "use grok-4.5 when the live catalog offers it",
+                        )
                     raise ValidationIssue(
                         "grok_live_default_model_unavailable",
-                        "Grok live catalog did not identify a default model",
+                        "Grok live catalog did not identify a usable worker model",
                     )
-                state.model = grok_capabilities.default_model
+                state.model = selected
+            elif requested_model == GROK_RETIRED_COMPOSER_MODEL:
+                raise ValidationIssue(
+                    "grok_model_retired",
+                    f"Grok model `{requested_model}` is retired; use grok-4.5",
+                )
             elif requested_model not in grok_capabilities.models:
                 raise ValidationIssue(
                     "grok_model_not_in_live_catalog",

@@ -146,8 +146,8 @@ def _proven_test_grok_capabilities() -> GrokCapabilities:
     return GrokCapabilities(
         installed=True,
         authenticated=True,
-        models=("grok-composer-2.5-fast",),
-        default_model="grok-composer-2.5-fast",
+        models=("grok-4.5",),
+        default_model="grok-4.5",
         capability_ledger=tuple(
             (name, proven)
             for name in (

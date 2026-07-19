@@ -4,6 +4,23 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.10.3] - 2026-07-19
+
+### Grok worker model, host check, and new-user onboarding
+
+- Prefer **`grok-4.5` at `high`** for permitted Grok Build workers when the authenticated live
+  catalog returns it. **Composer 2.5** (`grok-composer-2.5-fast`) is retired and is never selected
+  (explicit pin or live default); launch-time `auto` uses the same preferred-model helper in
+  routing, full-run prepare, and legacy implement launch.
+- Add a **supported main drivers host check** in `SKILL.md` / `AGENTS.md`: if Grok Build (or another
+  non–Claude/Codex host) is the orchestrator, refuse to stage or run Elves and redirect to Claude
+  Code or Codex. Grok remains an optional worker under those hosts.
+- User guide: **[Paste this to your agent](https://aigorahub.github.io/elves/#agent-onboarding)**
+  install/orient block; FAQ for “I opened Grok and tried `/elves`”; worker table and README updated
+  for Grok 4.5 / host policy. `references/model-onboarding.md`, `host-parity.md`, `docs/cobbler.md`,
+  and Grok worker docs aligned.
+- Track follow-ups: native `~/.grok/skills` install (#88) and full Grok main-driver parity (#89).
+
 ## [2.10.2] - 2026-07-19
 
 ### Confidence-review attribution and effort-authority fixes (issue #86)

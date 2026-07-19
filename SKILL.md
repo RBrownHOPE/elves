@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "2.10.2"
+  version: "2.10.3"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -14,6 +14,26 @@ metadata:
 You are the night shift for **efficient, intelligent agentic workflows** — development and research
 runs that stay productive without locking the user into one model ecosystem. Plan clearly, delegate
 confidently, review intelligently, and ship.
+
+## Supported main drivers (host check)
+
+**Supported main drivers are Claude Code and Codex only.** They load this skill, stage the run,
+own canonical memory, protected refs, PR actions, final gates, terminal review, and merge.
+
+**Grok Build is not a supported main driver.** Grok may still *discover* this skill (for example
+via Claude skill compatibility when `~/.claude/skills/elves` is installed). If the current session
+is Grok Build (or another non–Claude/Codex host) acting as the **orchestrator** — not as a worker
+already launched by Claude Code or Codex — **do not stage or run an Elves workflow**. Instead:
+
+1. Say clearly that Elves is unsupported as a Grok Build (or exotic) main driver.
+2. Tell the user to open **Claude Code** or **Codex**, install Elves there if needed, and kick off
+   from that host.
+3. Note that Grok Build remains an **optional worker** under Claude/Codex when permitted
+   (`grok-4.5` at `high` when the live catalog offers it).
+4. Stop after that orientation unless the user is only asking for a short explanation.
+
+Do not invent a Grok-native install path or pretend host parity exists. Install targets remain
+`~/.claude/skills/elves` and `~/.codex/skills/elves` only.
 
 **The user owns whether Elves may merge.** You never merge by default — the user merges when they
 return. Exceptions: explicit merge-on-green in Run Control, chat-to-land, or the Reviewed PR Landing
@@ -26,9 +46,9 @@ only its effort. The named delegation defaults are: GPT-5.6 at `xhigh`/extra-hig
 same GPT-5.6 model at `medium`; GPT-4.8 Max/UltraCode → the same GPT-4.8 model at `medium`; Claude
 Fable 5 at `max`/`ultra` → the same Fable 5 model at `low`. A Fable→Opus route is an explicit
 cross-model route, never “inheritance,” and means `claude-opus-4-8` at `medium`. Grok Build is
-also cross-family: use the authenticated live-catalog default at explicit `high` (the highest
-supported Grok effort), never a hardcoded stale model such as Composer when it is absent from the
-catalog. Unlisted native routes use plan-matched effort, and explicit user route choices still win.
+also cross-family: prefer `grok-4.5` at explicit `high` when the authenticated live catalog returns
+it (Composer 2.5 is retired and is never selected). Unlisted native routes use plan-matched effort,
+and explicit user route choices still win.
 Optional permitted Grok is capability-probed and recommended explicitly. The user makes at most one
 useful preference choice, receives a proven native view or exact follow command, and returns to
 cumulative driver review. Trusted full-run delegation keeps that path
@@ -42,7 +62,7 @@ handoff remains valid for huge/unstable plans.
 `references/joyful-runs-contract.md`, `landing-authority.md`, `follow-mode.md`,
 `proof-and-review.md`, `host-parity.md`, `schema-and-acceptance.md`, `prewalk.md`.
 
-**User guide (v2.10):** `https://aigorahub.github.io/elves/` is the short task-first path for
+**User guide (v2.10.3):** `https://aigorahub.github.io/elves/` is the short task-first path for
 installation, kickoff, worker choice, live progress, review, and landing. The references above
 remain the detailed workflow contracts.
 
@@ -157,12 +177,13 @@ worker lifecycle is unavailable.
 Optional Grok Build is selected only when available **and permitted**. An explicit current-run or
 global `provider=grok` is remembered consent; repository `allow_grok=true` is not. Repository
 `allow_grok=false` remains an absolute veto. Model selection comes from the authenticated live
-catalog and its parsed default; an explicit model (including `grok-4.5`) is valid only when that
-catalog returns it. Installed-binary capability evidence is launch authority. Provider
-qualification is independent from `/goal`: behaviorally proven headless goal mode is an
-enhancement, while an unavailable goal capability uses the recorded one-packet fallback. Missing
-core/auth/catalog capability or repository prohibition falls back honestly to native. See
-`references/adaptive-worker-routing.md` and `references/grok-open-source-worker.md`.
+catalog; prefer `grok-4.5` when present. An explicit model is valid only when that catalog returns
+it. Composer 2.5 (`grok-composer-2.5-fast`) is retired and is never selected. Installed-binary
+capability evidence is launch authority. Provider qualification is independent from `/goal`:
+behaviorally proven headless goal mode is an enhancement, while an unavailable goal capability uses
+the recorded one-packet fallback. Missing core/auth/catalog capability or repository prohibition
+falls back honestly to native. See `references/adaptive-worker-routing.md` and
+`references/grok-open-source-worker.md`.
 
 **Optional work drivers:** trusted Grok Build full-run
 (`implement full-run-prepare|full-run-launch|full-run-monitor|full-run-await|full-run-reconcile|full-run-logs`;
@@ -557,5 +578,7 @@ authority semantics on both hosts; supervised transport syntax may differ.
 
 - Missing optional provider access never blocks a native run.
 - Record `implementation_lane: fast | untrusted` when using external work drivers.
-- Supported main drivers are Claude Code and Codex only.
+- Supported main drivers are Claude Code and Codex only. Grok Build as host is unsupported: warn
+  and redirect (see **Supported main drivers** above). Grok as optional worker is supported when
+  permitted and capability-qualified.
 - Compatibility: `$elves setup-council` remains supported.

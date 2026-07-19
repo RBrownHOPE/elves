@@ -2,6 +2,12 @@
 
 Workflow semantics are identical. Invocation surfaces differ.
 
+**Supported main drivers are Claude Code and Codex only.** Grok Build is not a host-parity peer:
+it may discover the skill (for example via Claude skill compatibility) but must refuse to stage or
+run as orchestrator and redirect to a supported host. Grok’s supported role is optional worker
+labor under Claude/Codex. Native Grok skill install and full Grok host parity are tracked as future
+work (issues #88 and #89).
+
 | Concern | Claude Code | Codex |
 |---------|-------------|-------|
 | Skill load | Project/global Agent Skill | Project/global Agent Skill |

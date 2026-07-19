@@ -8,7 +8,12 @@ keeping the planning agent busy, and return to the main agent for review and lan
 ## Users
 
 The primary user already works in Claude Code or Codex. They may also have Grok Build, Devin CLI,
-or another supported worker, but Elves must remain useful with one host subscription.
+or another supported worker, but Elves must remain useful with one host subscription. Supported
+main drivers are Claude Code and Codex only. Grok Build is an optional worker, not a supported
+orchestrator host, even when the skill is discoverable there.
+
+The public guide should lead with a copy-ready agent install/orient prompt, then shell install and
+first-run kickoffs.
 
 ## Platform
 
