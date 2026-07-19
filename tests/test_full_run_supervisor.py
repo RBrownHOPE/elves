@@ -5746,6 +5746,21 @@ class WorkerEffortAuthorityTests(unittest.TestCase):
                 ctx.exception.code, "full_run_resume_prepare_live"
             )
 
+    def test_prepare_full_run_keeps_the_serialization_lock(self) -> None:
+        # v2.10.2 terminal-review blocker: inserting resolve_worker_effort
+        # between @_locked_full_run and prepare_full_run silently moved the
+        # per-session lock onto the pure helper, leaving prepare unserialized
+        # against concurrent launch/stop/monitor. The lock must wrap the
+        # state-mutating entry point, and the pure helper must stay bare.
+        self.assertTrue(
+            hasattr(full_run_module.prepare_full_run, "__wrapped__"),
+            "prepare_full_run must carry the _locked_full_run wrapper",
+        )
+        self.assertFalse(
+            hasattr(full_run_module.resolve_worker_effort, "__wrapped__"),
+            "resolve_worker_effort is a pure helper and must stay undecorated",
+        )
+
 
 class FullRunLifecycleTests(unittest.TestCase):
     def setUp(self) -> None:

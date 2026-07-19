@@ -3619,7 +3619,6 @@ def _validate_full_run_git_contract(
     return metadata
 
 
-@_locked_full_run
 def resolve_worker_effort(
     adapter: str | None,
     effort: str | None,
@@ -3642,6 +3641,7 @@ def resolve_worker_effort(
     )
 
 
+@_locked_full_run
 def prepare_full_run(
     repo_root: Path,
     *,

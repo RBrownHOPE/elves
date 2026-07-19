@@ -18,6 +18,13 @@ Project backlog and deferred tasks. Live items first; completed history under
 - [ ] [issue-86 §20, deferred] Record live Grok qualification canaries at the new `high`
   execution-effort default — operator-owned; requires a real authenticated `grok` install and
   must never be fabricated by an unattended worker.
+- [ ] [v2.10.2 review advisory] Resume-prepare over a terminally-evented session survives the
+  liveness guard but appends `run_started` after a terminal event, so the rebuilt run dies on
+  first monitor ("event appears after terminal event"). Fail-closed today; either refuse
+  terminal sessions at rebuild or cover the interplay with a test.
+- [ ] [v2.10.2 review advisory] Widen the public persona wording guard beyond the six claim
+  shapes (e.g. "Fable-powered", "runs on Fable", "is Fable", and Claude/Anthropic persona
+  phrasings) while keeping model-identifier exemptions false-positive-free.
 - [ ] Complete and independently review the Grok prewalk launch path before opening the
   maintainer-owned `launch_ready` registry gate: materialize the bounded prompt-file input,
   validate the non-yolo auth/permission profile end to end, run an operator-authorized canary,
