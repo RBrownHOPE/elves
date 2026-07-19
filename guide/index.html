@@ -512,7 +512,7 @@
     <div class="masthead-inner">
       <div class="brand-row">
         <a class="wordmark" href="https://github.com/aigorahub/elves">Elves</a>
-        <a class="repo-link" href="https://github.com/aigorahub/elves">v2.10.0 source and releases on GitHub</a>
+        <a class="repo-link" href="https://github.com/aigorahub/elves">v2.10.1 source and releases on GitHub</a>
       </div>
       <h1>Using Elves</h1>
       <p class="intro">Plan with the main agent, hand implementation to a separate worker, then
@@ -845,6 +845,12 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
         <p>At the end, the driver reviews the complete branch rather than repeatedly reviewing each
           batch. It checks the plan's acceptance criteria, the risky surfaces, relevant tests, and
           unresolved GitHub feedback.</p>
+
+        <p>Worker confidence actively guides that review on both Claude Code and Codex. A trusted
+          full-run returns a bounded review block at terminal; a native worker records the same
+          signal in <code>Confidence:</code> commit trailers. The reviewer deep-checks every
+          reservation, low-confidence or conflicting area and reports the evidence. Missing signals
+          keep the full baseline review, while high confidence never removes a gate or review step.</p>
 
         <p>Revisions get narrower checks. The driver should not rerun an unrelated full test suite
           after every small fix. It reruns the tests that the revision could reasonably affect,

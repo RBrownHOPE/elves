@@ -109,6 +109,14 @@ default. The signal is triage only, never authority: it does not skip gates, wai
 change completion requirements in either direction. Uniform `high` confidence with empty lists
 across many batches is a calibration observation to note in the report, not a violation.
 
+For a trusted full-run, the successful terminal `full-run-monitor --json` or
+`full-run-await --json` response carries `review_context.review_prompt_block`. The coordinator **must attach that
+block verbatim** to the primary Final Readiness prompt. It is bounded, validated, conflict-aware,
+and safe-projected for shared OAuth. For a native Claude Code or Codex worker, the coordinator
+constructs the same table from every `Confidence:` trailer in the cumulative commit history. If
+signals are missing or partial, say so and perform the ordinary full baseline review. Never infer
+an asserted-clean answer from absence. Claude Code and Codex follow the same rule and prompt shape.
+
 ## For each NEW or UNRESOLVED comment or finding:
 - Categorize as: BLOCKING (must fix), WARNING (should fix), INFO (note only), or PENDING-DOCS (implementation is acceptable but supporting docs are stale)
 - Identify the source: human reviewer, bot (name which bot), CI check
@@ -348,6 +356,11 @@ Read:
 8. Every PR review comment — resolved and unresolved, from humans, bots, and CI — plus issue comments and current check runs
 9. TODO.md and relevant docs touched by the run
 
+Worker confidence review context (required before reading the diff):
+[PASTE review_context.review_prompt_block VERBATIM for a trusted full-run. For a native worker,
+paste the equivalent table extracted from every Confidence: trailer. If none were reported, write
+"No worker confidence signal was reported; full baseline review required."]
+
 Use the coordinator's exact-tip evidence map. Request only tests whose inputs changed or whose
 consumers are reasonably affected. At terminal readiness, require the project's one broad gate;
 request E2E or browser proof only when the changed surface can affect it. Reuse unchanged evidence.
@@ -360,6 +373,10 @@ Assess:
 - Is the memory workspace clean enough to resume from concise docs instead of this chat?
 
 Return:
+### Confidence-Guided Review
+- [each low-confidence, unsure_about, hidden-reservation, conflicting, partial, or missing area;
+  what received a deeper/focused pass; and the resulting evidence]
+
 ### Blocking
 - [must fix before readiness]
 

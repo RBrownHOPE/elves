@@ -8,7 +8,7 @@ plans and reviews; a subscription-native (or optional external) worker implement
 files let the work survive context compaction. You write the plan and own the merge decision. The
 agent does the middle.
 
-**Current release: v2.10.0** — see [`CHANGELOG.md`](CHANGELOG.md) for version history. Coined terms
+**Current release: v2.10.1** — see [`CHANGELOG.md`](CHANGELOG.md) for version history. Coined terms
 are defined once in [`references/glossary.md`](references/glossary.md).
 
 **New to Elves? Start with the [practical user guide](https://aigorahub.github.io/elves/).** It
@@ -235,6 +235,13 @@ Override in your plan or survival guide:
 The agent uses the highest tier you have configured. Persistent false positives (3+ cycles) are
 dismissed with a written explanation in the execution log.
 
+Worker confidence now actively guides the primary review on both Claude Code and Codex. Trusted
+full-runs return a bounded machine-produced review block at terminal; native workers supply the
+same information through `Confidence:` commit trailers. The reviewer starts with that triage,
+deep-checks every reservation, low-confidence or conflicting area, and reports what it verified.
+Missing signals fall back to the full baseline review, and high confidence never reduces gates or
+review scope. See [`references/review-subagent.md`](references/review-subagent.md).
+
 ### Memory hygiene
 
 Long runs clean up as they go: keep live docs concise, archive old execution-log entries, promote
@@ -310,12 +317,12 @@ exactly one file below; other docs link instead of restating.
 
 ```bash
 # Elves source checkout:
-python3 scripts/verify_repo.py --version 2.10.0
+python3 scripts/verify_repo.py --version 2.10.1
 # before operational-artifact cleanup, from a clean worktree:
-python3 scripts/verify_repo.py --version 2.10.0 --final-readiness \
+python3 scripts/verify_repo.py --version 2.10.1 --final-readiness \
   --session .elves-session.json
 # after the narrow operational-artifact cleanup commit, on its clean current tip:
-python3 scripts/verify_repo.py --ci --version 2.10.0 --base-ref origin/main
+python3 scripts/verify_repo.py --ci --version 2.10.1 --base-ref origin/main
 test -z "$(git status --porcelain)"
 ```
 

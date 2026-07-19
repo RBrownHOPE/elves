@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -37,6 +38,7 @@ from cobbler_runtime.behavior_policy import (  # noqa: E402
 )
 from cobbler_runtime.full_run import (  # noqa: E402
     await_full_run,
+    build_worker_confidence_review_context,
     build_full_run_argv,
     build_full_run_env,
     capture_fingerprint,
@@ -47,6 +49,7 @@ from cobbler_runtime.full_run import (  # noqa: E402
     monitor_full_run,
     prepare_full_run,
     reconcile_full_run_with_git,
+    reconstruct_missing_report,
     stop_full_run,
     validate_event,
     validate_run_report,
@@ -1242,6 +1245,211 @@ class FullRunReportValidationTests(unittest.TestCase):
                     expected_run_id="run-1",
                 )
                 self.assertIn(expected, errors)
+
+    def test_review_context_turns_confidence_into_required_attention(self) -> None:
+        report = self._complete()
+        report["batches"][0].update(
+            {
+                "confidence": "low",
+                "unsure_about": ["retry backoff bounds"],
+            }
+        )
+        events = [
+            {
+                "type": "batch_complete",
+                "batch": 1,
+                "confidence": "medium",
+                "unsure_about": ["legacy CSV validator path"],
+            },
+            {
+                "type": "run_complete",
+                "batch": 1,
+                "confidence": "high",
+                "unsure_about": [],
+            },
+        ]
+        context = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=report,
+            events=events,
+        )
+
+        batch = context["signals"][0]
+        self.assertEqual(batch["attention"], "deep")
+        self.assertEqual(batch["confidence"], "low")
+        self.assertTrue(batch["signal_conflict"])
+        self.assertEqual(batch["sources"], ["event", "report"])
+        self.assertEqual(
+            batch["unsure_about"],
+            ["retry backoff bounds", "legacy CSV validator path"],
+        )
+        self.assertEqual(context["lowest_confidence"], "low")
+        self.assertFalse(context["review_policy"]["confidence_can_reduce_scope"])
+        prompt = context["review_prompt_block"]
+        self.assertIn("[DEEP] batch-1", prompt)
+        self.assertIn("CONFLICTING SOURCES", prompt)
+        self.assertIn("Perform baseline review for every batch", prompt)
+
+    def test_review_context_distinguishes_absent_from_asserted_clean(self) -> None:
+        absent = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=self._complete(),
+            events=[],
+        )
+        self.assertEqual(absent["signal_status"], "absent")
+        self.assertEqual(absent["signals"][0]["signal_status"], "missing")
+        self.assertIn("absence is not evidence of safety", absent["review_prompt_block"])
+
+        clean_report = self._complete()
+        clean_report["batches"][0].update(
+            {"confidence": "high", "unsure_about": []}
+        )
+        clean = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=clean_report,
+            events=[],
+        )
+        self.assertEqual(clean["signal_status"], "present")
+        self.assertEqual(clean["signals"][0]["unsure_about_count"], 0)
+        self.assertIn("worker asserted no reservations", clean["review_prompt_block"])
+
+    def test_review_context_hides_shared_oauth_reservation_text(self) -> None:
+        report = self._complete()
+        report["batches"][0].update(
+            {
+                "confidence": "medium",
+                "unsure_about": ["private worker reservation"],
+            }
+        )
+        context = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=report,
+            events=[
+                {
+                    "type": "batch_complete",
+                    "batch": 1,
+                    "confidence": "medium",
+                    "unsure_about_count": 1,
+                }
+            ],
+            shared_oauth=True,
+        )
+        encoded = json.dumps(context, sort_keys=True)
+        self.assertNotIn("private worker reservation", encoded)
+        self.assertEqual(context["signals"][0]["unsure_about_count"], 1)
+        self.assertTrue(context["signals"][0]["free_text_hidden"])
+        self.assertIn("text hidden by shared-OAuth safety", context["review_prompt_block"])
+
+    def test_review_context_bounds_never_make_optional_triage_a_gate(self) -> None:
+        report = self._complete()
+        report["batches"] = [
+            {
+                "id": f"batch-{index}",
+                "status": "complete",
+                "evidence": "gates passed",
+                "confidence": "high" if index < 257 else "low",
+                "unsure_about": [],
+            }
+            for index in range(1, 258)
+        ]
+        context = build_worker_confidence_review_context(
+            session_id="session-1",
+            branch="feat/x",
+            final_head="b" * 40,
+            report=report,
+            events=[],
+        )
+
+        self.assertEqual(len(context["signals"]), 256)
+        self.assertEqual(context["omitted_signal_rows"], 1)
+        self.assertEqual(context["signal_status"], "partial")
+        self.assertIn("Perform full baseline review", context["review_prompt_block"])
+
+    def test_host_reconstruction_returns_the_same_confidence_review_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            start = "a" * 40
+            tip = "b" * 40
+            state = full_run_module.FullRunState(
+                session_id="session-1",
+                branch="feat/x",
+                start_head=start,
+                worktree=str(repo),
+                packet_path=str(repo / "packet.md"),
+                acceptance_criteria={"B1-A1": "verified behavior"},
+                origin_url="https://github.com/example/repo.git",
+                origin_config_digest="origin-digest",
+                exit_code=0,
+            )
+            confidence_event = {
+                "type": "batch_complete",
+                "batch": 1,
+                "confidence": "low",
+                "unsure_about": ["reconstructed retry path"],
+            }
+            with (
+                mock.patch.object(
+                    full_run_module, "_full_run_lock", return_value=nullcontext()
+                ),
+                mock.patch.object(full_run_module, "load_state", return_value=state),
+                mock.patch.object(
+                    full_run_module, "verify_protected_refs_unchanged", return_value=[]
+                ),
+                mock.patch.object(
+                    full_run_module,
+                    "_canonical_origin_url",
+                    return_value=state.origin_url,
+                ),
+                mock.patch.object(
+                    full_run_module,
+                    "_origin_config_digest",
+                    return_value=state.origin_config_digest,
+                ),
+                mock.patch.object(full_run_module, "_assert_clean_worktree"),
+                mock.patch.object(full_run_module, "_git_head", return_value=tip),
+                mock.patch.object(full_run_module, "_is_ancestor", return_value=True),
+                mock.patch.object(
+                    full_run_module, "_git_commit_chain", return_value=[tip]
+                ),
+                mock.patch.object(
+                    full_run_module,
+                    "run_git",
+                    return_value=mock.Mock(returncode=0, stdout="implemented\n", stderr=""),
+                ),
+                mock.patch.object(full_run_module, "write_report"),
+                mock.patch.object(full_run_module, "save_state"),
+                mock.patch.object(
+                    full_run_module,
+                    "_launch_evidence_context",
+                    return_value=(True, frozenset()),
+                ),
+                mock.patch.object(
+                    full_run_module,
+                    "_read_events",
+                    return_value=([confidence_event], []),
+                ),
+            ):
+                result = reconstruct_missing_report(
+                    repo,
+                    session_id=state.session_id,
+                    host_tests_pass=True,
+                )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["next_action"], "final_readiness")
+        self.assertEqual(result["review_context"]["lowest_confidence"], "low")
+        self.assertIn(
+            "reconstructed retry path",
+            result["review_context"]["review_prompt_block"],
+        )
 
     def test_material_change_event_has_concrete_typed_schema(self) -> None:
         event = {
@@ -4852,6 +5060,15 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertNotIn(old_secret, encoded)
             self.assertNotIn(current_secret, encoded)
             self.assertEqual(reconciled["final_head"], tip)
+            self.assertEqual(
+                reconciled["review_context"]["schema"],
+                "elves-worker-confidence-review-v1",
+            )
+            self.assertTrue(
+                reconciled["review_context"]["review_policy"][
+                    "baseline_review_required"
+                ]
+            )
 
     def test_grok_auth_selection_requires_one_explicit_strategy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

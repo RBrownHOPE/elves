@@ -4,6 +4,22 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.10.1] - 2026-07-19
+
+### Confidence-guided reviewer handoff
+
+- Turn validated full-run `confidence` / `unsure_about` evidence into a bounded
+  `elves-worker-confidence-review-v1` context on successful terminal reconciliation, carried by
+  the monitor/await or host-reconstruction response with an exact `review_prompt_block` for the
+  primary reviewer.
+- Conservatively combine report and event signals: low confidence, reservations, hidden
+  shared-OAuth reservation counts, and conflicting sources require a deeper pass; partial or
+  missing signals explicitly retain full baseline review, and high confidence can never reduce
+  gates or review scope.
+- Give Claude Code and Codex the same Final Readiness prompt contract and required
+  `Confidence-Guided Review` output; native worker runs derive the identical triage table from
+  cumulative `Confidence:` commit trailers.
+
 ## [2.10.0] - 2026-07-19
 
 ### Runtime hardening and Python 3.10 floor guards (audit B1)

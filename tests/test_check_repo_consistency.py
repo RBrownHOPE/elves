@@ -166,6 +166,33 @@ class ConsistencyPhraseTests(unittest.TestCase):
         self.assertIn("fresh session", joined.casefold())
         self.assertIn("post-edit cold fallback", joined)
 
+    def test_worker_confidence_corpus_pins_runtime_and_host_parity(self) -> None:
+        required = {
+            "SKILL.md",
+            "README.md",
+            "guide/index.html",
+            "references/review-subagent.md",
+            "references/host-parity.md",
+            "scripts/cobbler_agents.py",
+            "scripts/cobbler_runtime/full_run.py",
+        }
+        self.assertTrue(
+            required.issubset(self.consistency.WORKER_CONFIDENCE_SIGNAL_PHRASES)
+        )
+        runtime = " ".join(
+            self.consistency.WORKER_CONFIDENCE_SIGNAL_PHRASES[
+                "scripts/cobbler_runtime/full_run.py"
+            ]
+        )
+        parity = " ".join(
+            self.consistency.WORKER_CONFIDENCE_SIGNAL_PHRASES[
+                "references/host-parity.md"
+            ]
+        )
+        self.assertIn("confidence_can_reduce_scope", runtime)
+        self.assertIn("missing_signal_falls_back_to_full_review", runtime)
+        self.assertIn("review_prompt_block", parity)
+
     def test_prewalk_corpus_rejects_summary_only_approximation(self) -> None:
         errors = self.consistency.find_missing_phrases(
             {"SKILL.md": "Prewalk starts a new worker from a summary."},

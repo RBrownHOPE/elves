@@ -1,5 +1,5 @@
 ---
-version: "2.10.0"
+version: "2.10.1"
 ---
 
 # Elves: Codex repository adapter
@@ -67,6 +67,10 @@ authenticated live catalog (`references/adaptive-worker-routing.md`).
 - **Worker failure recovery:** transient provider errors back off and resume without consuming
   the re-drive budget; workers keep an untracked progress ledger under `.elves/runtime/`
   (SKILL.md Worker failure recovery)
+- **Confidence-guided review:** attach the terminal full-run
+  `review_context.review_prompt_block` verbatim, or derive the identical table from native
+  `Confidence:` trailers; Claude Code/Codex semantics are identical
+  (`references/review-subagent.md`; `references/host-parity.md`)
 - **Prewalk:** exact-session guide→execution continuity only; a cold packet handoff is not prewalk,
   and post-edit cold fallback is forbidden (`references/prewalk.md`; SKILL.md Exact-session prewalk)
 - **Worktree lifecycle:** One run owns one branch and one checkout; staging records

@@ -438,7 +438,7 @@ described above. Host still owns protected refs, merge, and final readiness.
 | Safety wake | handle blocked/stale/failed state or a safety tripwire |
 | Planned high-risk checkpoint | wake only for an exact staged ID; acknowledge that event after review, then re-park if healthy or continue final readiness if the worker already exited |
 | Worker exit | verify report, feature-branch ancestry, actual exit, and protected refs |
-| Final | independent cumulative readiness; merge only if authorized |
+| Final | attach terminal `review_context.review_prompt_block` verbatim; independent confidence-guided cumulative readiness; merge only if authorized |
 
 ## Launch text (paste into Grok)
 
