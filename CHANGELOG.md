@@ -4,6 +4,8 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.10.1] - 2026-07-19
+
 ### Confidence-guided reviewer handoff
 
 - Turn validated full-run `confidence` / `unsure_about` evidence into a bounded
