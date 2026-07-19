@@ -8,6 +8,16 @@ Project backlog and deferred tasks. Live items first; completed history under
 - [ ] Investigate host-native UI prompts and arbitrary third-party tools that bypass Elves'
   transport helpers. Those surfaces cannot honestly be described as covered by the built-in
   external-lane filter and may require host or MCP-level interception.
+- [ ] [issue-86 §17, deferred] Decompose `full_run.py` (monitor/await extraction) — structural
+  refactor deserving its own planned run; v2.10.2's shared projection helper removed the worst
+  duplication.
+- [ ] [issue-86 §18, deferred] Confidence-calibration tracking across runs — roadmap feature
+  needing a product decision, not patch-release material.
+- [ ] [issue-86 §19, deferred] Native-lane structured confidence sidecar — roadmap feature
+  needing a product decision, not patch-release material.
+- [ ] [issue-86 §20, deferred] Record live Grok qualification canaries at the new `high`
+  execution-effort default — operator-owned; requires a real authenticated `grok` install and
+  must never be fabricated by an unattended worker.
 - [ ] Complete and independently review the Grok prewalk launch path before opening the
   maintainer-owned `launch_ready` registry gate: materialize the bounded prompt-file input,
   validate the non-yolo auth/permission profile end to end, run an operator-authorized canary,

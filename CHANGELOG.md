@@ -4,11 +4,42 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
-### Operator note (staged for v2.10.2)
+## [2.10.2] - 2026-07-19
 
-- Any pre-upgrade Grok qualification canary recorded at execution effort `medium` fails
-  `qualification_route_mismatch` under the new grok-route `high` default and must be
-  re-recorded at `high`.
+### Confidence-review attribution and effort-authority fixes (issue #86)
+
+- Fix confidence-review batch attribution: canonical `B0`/`B1` report ids now parse through the
+  shared batch-id normalizer (honoring a parsed `0`) and event↔report merging keys on the
+  normalized number, so event signals land on their own batch, corroboration is never
+  fabricated across batches, and same-batch conflict detection can fire.
+- Unify the four confidence-projection copies in `full_run.py` behind one shared helper;
+  reject a worker-supplied `unsure_about_count` without its `unsure_about` list outside the
+  shared-OAuth projection; keep the highest-attention rows (with an explicit dropped count)
+  when the review prompt block overflows; state the hidden-item count on reservation
+  truncation; and compare reservation sets order-insensitively in conflict detection.
+- Make effort explicitness one normalized authority: the operator parser rejects abbreviated
+  long options (`--effor low` fails loudly), the CLI passes `effort=None` unless explicit,
+  `prepare_full_run` resolves the adapter default from the normalized adapter name (mixed-case
+  `Grok-Build` gets the grok `high` default), and the resolved effort plus its explicit origin
+  persist in run state so a flagless resume prepare keeps an originally-explicit value.
+- Salvage torn event logs on host reconstruction: valid earlier events survive a torn final
+  line and the review block reports partial or discarded evidence instead of claiming no
+  signal was reported. Monitor/await delivery of `review_context` is proven end-to-end, and a
+  latent missing `typing.Mapping` import that crashed every text-mode CLI print of the review
+  block is fixed.
+- Guard docs and policy: a one-sided bump of the doc-pinned Grok upstream short SHA or
+  `GROK_UPSTREAM_SEMANTIC_COMMIT` now fails the consistency checker; the public-wording guard
+  flags persona claims (powered-by/built-on/backed-by phrasings naming the model) while
+  passing `Fable 5` / `claude-fable` model identifiers; the Grok launch prompt no longer contradicts its own
+  `--effort high` default; and the prewalk launch example marks execution effort
+  route-dependent.
+- Harden the supervisor: `leases.run_git` enforces a 30-second default timeout matching the
+  native-worker git hardening (explicit overrides remain), and the prewalk capability-evidence
+  loader reads through the one shared fd-bound artifact reader, rejecting symlinked,
+  irregular, group/other-writable, or oversized artifacts.
+- Operator note: any pre-upgrade Grok qualification canary recorded at execution effort
+  `medium` fails `qualification_route_mismatch` under the new grok-route `high` default and
+  must be re-recorded at `high`.
 
 ## [2.10.1] - 2026-07-19
 
