@@ -21,7 +21,14 @@ Command (`/land-pr` / `\land-pr`). Land only with a regular merge commit after f
 never a squash.
 
 **Default user path: one kickoff.** Ask naturally; the capable live driver plans and reviews,
-a separate subscription-native worker inherits the current model by default at plan-matched effort.
+a separate subscription-native worker normally keeps the exact observed model identity and lowers
+only its effort. The named delegation defaults are: GPT-5.6 at `xhigh`/extra-high/`ultra` → the
+same GPT-5.6 model at `medium`; GPT-4.8 Max/UltraCode → the same GPT-4.8 model at `medium`; Claude
+Fable 5 at `max`/`ultra` → the same Fable 5 model at `low`. A Fable→Opus route is an explicit
+cross-model route, never “inheritance,” and means `claude-opus-4-8` at `medium`. Grok Build is
+also cross-family: use the authenticated live-catalog default at explicit `high` (the highest
+supported Grok effort), never a hardcoded stale model such as Composer when it is absent from the
+catalog. Unlisted native routes use plan-matched effort, and explicit user route choices still win.
 Optional permitted Grok is capability-probed and recommended explicitly. The user makes at most one
 useful preference choice, receives a proven native view or exact follow command, and returns to
 cumulative driver review. Trusted full-run delegation keeps that path
@@ -142,9 +149,10 @@ Invocation:
 
 **Default: subscription-native worker** (Claude Code or Codex). It receives one packet in a
 separate exact session, inherits the live driver's model unless explicitly routed otherwise, and
-uses the plan-matched effort without changing the live driver. No Grok, OpenRouter, or external
-implement CLI is required. Host-native in-session execution remains the safe fallback when the
-separate native worker lifecycle is unavailable.
+uses the named same-model/lower-effort delegation defaults above (plan-matched effort for unlisted
+routes) without changing the live driver. No Grok, OpenRouter, or external implement CLI is
+required. Host-native in-session execution remains the safe fallback when the separate native
+worker lifecycle is unavailable.
 
 Optional Grok Build is selected only when available **and permitted**. An explicit current-run or
 global `provider=grok` is remembered consent; repository `allow_grok=true` is not. Repository
@@ -236,10 +244,11 @@ version-bound behavioral proof of exact session/worktree/stream continuity, rout
 replay, and honest instruction fidelity. The evidence schema can report `pruned`, `turn_scoped`,
 `retained_safe`, or `unsupported`; because the current transport persists the cooperative guide
 instruction, this implementation activates only for proven `retained_safe`. Static help proves only
-advertised grammar. Until both Codex and Claude transports are behaviorally qualified, the safe
-`auto` preference records actual mode `off`; `required` fails before launch. The driver still owns
-canonical memory, terminal review, PR, landing, and merge. Full contract and host grammar:
-`references/prewalk.md`.
+advertised grammar. A separately qualified external transport must also have its maintainer-owned
+registry launch gate open; behavioral evidence never grants launch authority. Until both Codex and
+Claude transports are behaviorally qualified, the safe `auto` preference records actual mode
+`off`; `required` fails before launch. The driver still owns canonical memory, terminal review, PR,
+landing, and merge. Full contract and host grammar: `references/prewalk.md`.
 
 ## Git History as Operator UI
 
@@ -257,6 +266,13 @@ Preferred subject schema:
 Trusted `branch_progress` workers may commit/push only the assigned feature branch. Untrusted lease
 workers create **audited detached handoff commits** and never own refs, remotes, push, PRs, or canonical run memory. Reserve the `Close` phase for acceptance-backed batch completion.
 **Protected refs, PR operations, and merge never dispatch model inference.**
+
+Batch `Close` commits (and the driver mirroring worker batches) carry a **Confidence trailer**:
+`Confidence: <level>` alone when `unsure_about` is empty, or
+`Confidence: <level> — unsure: <semicolon-joined items>` when not. An empty unsure list is a valid,
+complete answer — a positive assertion, never a lazy default; the trailer is review triage only,
+never authority. Example:
+`Confidence: medium — unsure: retry backoff bounds in queue.py; whether the legacy CSV importer still hits the new validator`.
 
 ## Effort Standard
 
@@ -364,6 +380,9 @@ broad at high-risk checkpoints and terminal. Bug-fix protocol: category → cate
 
 ### 7. Review
 
+Reviewers read worker confidence trailers/report fields **first** and allocate attention
+accordingly: flagged `unsure_about` areas get a deeper pass. The signal is triage, never
+authority — it does not skip gates or waive review in either direction.
 Independent feedback. Walk contract. Enforce code quality. Medium/high blast radius: regression
 pass. Fix blocking; advisory does not delay readiness. Resolve PR threads. **PENDING-DOCS** is not
 clean. **Public API surface snapshots are optional regression evidence.** Use existing structured sources before inventing scanners. If no credible source exists, record `unavailable` with the reason instead of fabricating a snapshot. A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide. `required: true` is valid only when explicitly set by the user or project survival guide. Do not infer required mode from project type, provider config, framework choice, or the presence of API files. Snapshot artifacts are run artifacts, not product docs. Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly asks. Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data. A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution. Record the public API surface delta when configured.

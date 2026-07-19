@@ -85,14 +85,37 @@ sanitized progress and terminal facts without passing raw provider output throug
 Detached worker commits belong to the separate untrusted lease path: the host creates branch
 commits and pushes only after binary patch audit/import.
 
+Delegation routes are explicit `(model, effort)` pairs. “Inherited model” means the exact observed
+model identity with only effort lowered: GPT-5.6 strong routes and GPT-4.8 Max/UltraCode use the
+same family member at `medium`, while Fable 5 `max`/`ultra` uses the same Fable model at `low`.
+Fable→`claude-opus-4-8` at `medium` is a named cross-model exception. Grok is also cross-family and
+uses the authenticated live-catalog default at explicit `high`; neither runtime nor docs hardcode a
+remembered Composer identifier.
+
 Acceptance staging has two compatible handoff layers. The v2.8 default keeps a missing delegated
 packet path advisory, while a session that declares top-level `handoff` opts into strict handoff v1:
 exact fresh/resume state, pending-acceptance ownership, current branch/HEAD, and a matching bounded
 leading Markdown or JSON packet capsule. Full-run prepare still owns immutable launch-time
 plan/session/packet binding. The capsule is cold-handoff evidence and never proves prewalk.
 
-Exact-session prewalk is a lifecycle inside one subscription-native worker, not a cross-worker
-context transfer. The packet appears once on the guide turn; private model-free policy verifies a
+Host differences live in one host-profile registry (`cobbler_runtime/host_profiles.py`): per host
+it carries create/resume argv builders, effort grammar, transport name, identity event typing,
+provider-secret allowlist, help-probe argv, commit mode, and `launch_ready`. Spec construction,
+child-env secret projection, launch identity readiness, prewalk probes, and routing transport
+naming all consume the registry instead of per-site `if/elif` chains; `native_worker_profiles()`
+is a view of it. The `grok` row is feature-gated (`launch_ready` false, non-yolo
+`--permission-mode auto`, `XAI_API_KEY`-only): grok prewalk routing requires the absence of the repository allow_grok=false veto, explicit
+consent, and a valid operator-recorded `grok_prewalk_qualification_canary` artifact
+(`retained_safe`, bound to the exact version/build from a live installed-binary probe). The
+artifact can qualify behavioral evidence but cannot open the separate registry launch gate;
+while `launch_ready` is false, routing records
+`grok_prewalk_unqualified:launch_feature_gate_closed` with actual mode `off`, and `required` fails
+before launch. Other invalid or missing evidence records its concrete
+`grok_prewalk_unqualified:<reason>`. No environment is qualified for launch; nothing may claim
+Grok prewalk availability.
+
+Exact-session prewalk is a lifecycle inside one subscription-native (or separately qualified)
+worker, not a cross-worker context transfer. The packet appears once on the guide turn; private model-free policy verifies a
 bounded TODO, first meaningful edit, session/worktree/Git continuity, and checkpoint before the
 supervisor resumes that same ID on a separately pinned execution route with `Continue.`. Static
 host help is advertised capability only; version-bound behavioral evidence gates actual prewalk and

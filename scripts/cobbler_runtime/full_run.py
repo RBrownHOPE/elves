@@ -57,13 +57,17 @@ from .implement import (
     DEFAULT_EXECUTABLE,
     DEFAULT_MODEL,
     DEFAULT_PERMISSION_MODE,
+    GROK_DEFAULT_EFFORT,
     build_launch_argv,
     detect_native_grok_goal,
 )
 from .leases import run_git, worktree_is_registered
 from .provider_auth import (
     _MATERIAL_CHANGE_KINDS,
+    CONFIDENCE_LEVELS,
     EVENT_TYPES,
+    MAX_UNSURE_ABOUT_ITEM_CHARS,
+    MAX_UNSURE_ABOUT_ITEMS,
     DEVIN_CONFIG_FILE_NAME,
     DEVIN_CREDENTIALS_FILE_NAME,
     GROK_AUTH_FILE_NAME,
@@ -146,7 +150,7 @@ from .git_contract import (
     snapshot_protected_refs,
     verify_protected_refs_unchanged,
 )
-from .schema import ELVES_SESSION_BASENAME, ValidationIssue
+from .schema import AMBIGUOUS_SESSION_TOKENS, ELVES_SESSION_BASENAME, ValidationIssue
 from .toml_compat import loads as _load_toml
 from .storage import (
     StorageError,
@@ -756,6 +760,52 @@ def _latest_utc_iso8601(current: str | None, candidate: Any) -> str | None:
     return candidate_text if candidate_dt > current_dt else current
 
 
+_SUMMARY_SECRET_NEEDLES = ("api_key=", "bearer ", "authorization:", "-----begin")
+
+
+def _validate_confidence_fields(
+    container: Mapping[str, Any],
+    errors: list[str],
+    *,
+    prefix: str = "",
+) -> None:
+    """Validate the optional worker confidence signal when present.
+
+    Absent fields are always valid (backward compatible), and an empty
+    `unsure_about` list is a valid, complete answer. The signal is review
+    triage only, never authority: it does not skip gates or waive review.
+    """
+    if (
+        "confidence" in container
+        and container.get("confidence") not in CONFIDENCE_LEVELS
+    ):
+        errors.append(f"{prefix}confidence must be one of high, medium, low")
+    if "unsure_about" not in container:
+        return
+    unsure = container.get("unsure_about")
+    if not isinstance(unsure, list):
+        errors.append(f"{prefix}unsure_about must be a list")
+        return
+    if len(unsure) > MAX_UNSURE_ABOUT_ITEMS:
+        errors.append(
+            f"{prefix}unsure_about exceeds {MAX_UNSURE_ABOUT_ITEMS} items"
+        )
+    if any(not isinstance(item, str) or not item.strip() for item in unsure):
+        errors.append(f"{prefix}unsure_about items must be non-empty strings")
+    if any(
+        isinstance(item, str) and len(item) > MAX_UNSURE_ABOUT_ITEM_CHARS
+        for item in unsure
+    ):
+        errors.append(
+            f"{prefix}unsure_about item exceeds {MAX_UNSURE_ABOUT_ITEM_CHARS} chars"
+        )
+    lowered_items = " ".join(
+        item.lower() for item in unsure if isinstance(item, str)
+    )
+    if any(needle in lowered_items for needle in _SUMMARY_SECRET_NEEDLES):
+        errors.append(f"{prefix}unsure_about contains secret-shaped content")
+
+
 def validate_event(
     event: Mapping[str, Any],
     *,
@@ -849,10 +899,10 @@ def validate_event(
         errors.append("summary exceeds 500 chars")
     lowered = summary.lower()
     if not secret_detected and any(
-        needle in lowered
-        for needle in ("api_key=", "bearer ", "authorization:", "-----begin")
+        needle in lowered for needle in _SUMMARY_SECRET_NEEDLES
     ):
         errors.append("event contains secret-shaped content")
+    _validate_confidence_fields(event, errors)
     if expected_session_id and event.get("session_id") != expected_session_id:
         errors.append("event session_id mismatch")
     if expected_branch and event.get("branch") != expected_branch:
@@ -974,6 +1024,7 @@ def validate_run_report(
                 errors.append(f"batches[{i}].status must be a nonempty string")
             if "evidence" in item and not isinstance(batch_evidence, str):
                 errors.append(f"batches[{i}].evidence must be a string")
+            _validate_confidence_fields(item, errors, prefix=f"batches[{i}].")
             if status == "complete":
                 if batch_status != "complete":
                     errors.append(f"batches[{i}].status must be complete")
@@ -1126,7 +1177,7 @@ class FullRunState:
     adapter: str = "grok-build"
     model: str = "auto"
     permission_mode: str = DEFAULT_PERMISSION_MODE
-    effort: str = DEFAULT_EFFORT
+    effort: str = GROK_DEFAULT_EFFORT
     executable: str = DEFAULT_EXECUTABLE
     create_session: bool = True
     check: bool = False
@@ -3130,7 +3181,7 @@ def prepare_full_run(
     adapter: str = "grok-build",
     model: str | None = None,
     permission_mode: str = DEFAULT_PERMISSION_MODE,
-    effort: str = DEFAULT_EFFORT,
+    effort: str | None = None,
     executable: str | None = None,
     create: bool = True,
     check: bool = False,
@@ -3145,7 +3196,7 @@ def prepare_full_run(
     normalized_grant_names = _normalize_credential_grant_names(
         credential_grant_names
     )
-    if not sid or sid.lower() in {"latest", "continue", "last", "most-recent"}:
+    if not sid or sid.lower() in AMBIGUOUS_SESSION_TOKENS:
         raise ValidationIssue(
             "full_run_session_required",
             "Exact session_id is required for full-run prepare",
@@ -3157,6 +3208,11 @@ def prepare_full_run(
         pass
 
     adapter_name = (adapter or "grok-build").strip().lower()
+    resolved_effort = (effort or "").strip() or (
+        GROK_DEFAULT_EFFORT
+        if adapter_name == "grok-build"
+        else DEFAULT_EFFORT
+    )
     if adapter_name == "fixture" and not fixture_script:
         raise ValidationIssue(
             "fixture_script_required",
@@ -3342,7 +3398,7 @@ def prepare_full_run(
         adapter=adapter_name,
         model=model,
         permission_mode=permission_mode,
-        effort=effort,
+        effort=resolved_effort,
         executable=exe,
         create_session=bool(create),
         check=bool(check),
@@ -4557,6 +4613,27 @@ def _read_events(
         ):
             errors.append(f"line {line_no}: event contains secret-shaped content")
             continue
+        if shared_oauth_safe_projection:
+            # Validate the original confidence fields before removing OAuth
+            # worker free text. Projecting first would let malformed or
+            # secret-shaped unsure_about values bypass the fail-closed event
+            # contract and could conflate an invalid list with asserted-clean.
+            confidence_errors: list[str] = []
+            _validate_confidence_fields(event, confidence_errors)
+            if "unsure_about" in event and _contains_full_run_secret(
+                {"unsure_about": event.get("unsure_about")},
+                exact_values=exact_secret_values,
+                credential_grant_state=credential_grant_state,
+            ):
+                if not any("secret-shaped" in item for item in confidence_errors):
+                    confidence_errors.append(
+                        "unsure_about contains secret-shaped content"
+                    )
+            if confidence_errors:
+                errors.extend(
+                    f"line {line_no}: {error}" for error in confidence_errors
+                )
+                continue
         validation_event = event
         if shared_oauth_safe_projection:
             validation_event = {
@@ -4568,6 +4645,19 @@ def _read_events(
             # is neither trusted nor retained after token rotation.
             if "summary" in event:
                 validation_event["summary"] = "shared OAuth event"
+            # unsure_about free text is likewise hidden on this route, but
+            # suppression must never read as the worker's asserted-clean empty
+            # list: project a bounded derived count so consumers can tell
+            # "reservations existed" apart from "asserted none".
+            unsure = event.get("unsure_about")
+            if isinstance(unsure, list):
+                validation_event["unsure_about_count"] = len(
+                    [
+                        item
+                        for item in unsure[:MAX_UNSURE_ABOUT_ITEMS]
+                        if isinstance(item, str) and item.strip()
+                    ]
+                )
         verrs = validate_event(
             validation_event,
             expected_session_id=expected_session_id,
@@ -4587,9 +4677,9 @@ def _read_events(
             seen_high_risk_checkpoints.add(str(event.get("checkpoint_id")))
         rows.append(
             {
-                key: event[key]
-                for key in _SHARED_OAUTH_PUBLIC_EVENT_FIELDS
-                if key in event
+                key: value
+                for key, value in validation_event.items()
+                if key != "summary"
             }
             if shared_oauth_safe_projection
             else event
@@ -4644,6 +4734,9 @@ _SHARED_OAUTH_PUBLIC_EVENT_FIELDS: tuple[str, ...] = (
     "checkpoint_id",
     "change_id",
     "change_kind",
+    # Closed three-value enum, no free text: safe to project and lets
+    # malformed confidence fail closed on the shared-OAuth route too.
+    "confidence",
 )
 
 
@@ -5766,6 +5859,43 @@ def monitor_full_run(
         if events_reused and isinstance(cached_event_summary, Mapping)
         else len(events)
     )
+    cached_confidence = (
+        cached_event_summary.get("last_batch_confidence")
+        if events_reused and isinstance(cached_event_summary, Mapping)
+        else None
+    )
+    last_batch_confidence: str | None = (
+        str(cached_confidence) if cached_confidence in CONFIDENCE_LEVELS else None
+    )
+    # Three distinct states, and they must never conflate: None = no signal
+    # captured, [] = the worker's positive asserted-clean answer, items = the
+    # worker's reservations. A shared-OAuth run carries only the derived count.
+    cached_unsure = (
+        cached_event_summary.get("last_batch_unsure_about")
+        if events_reused and isinstance(cached_event_summary, Mapping)
+        else None
+    )
+    last_batch_unsure_about: list[str] | None = (
+        [
+            str(item)[:MAX_UNSURE_ABOUT_ITEM_CHARS]
+            for item in cached_unsure[:MAX_UNSURE_ABOUT_ITEMS]
+            if isinstance(item, str)
+        ]
+        if isinstance(cached_unsure, list)
+        else None
+    )
+    cached_unsure_count = (
+        cached_event_summary.get("last_batch_unsure_about_count")
+        if events_reused and isinstance(cached_event_summary, Mapping)
+        else None
+    )
+    last_batch_unsure_about_count: int | None = (
+        cached_unsure_count
+        if isinstance(cached_unsure_count, int)
+        and not isinstance(cached_unsure_count, bool)
+        and 0 <= cached_unsure_count <= MAX_UNSURE_ABOUT_ITEMS
+        else None
+    )
     for ev in events:
         last_type = ev.get("type") or last_type
         if ev.get("type") == "batch_started":
@@ -5792,6 +5922,38 @@ def monitor_full_run(
             observed_high_risk_checkpoints.append(str(ev.get("checkpoint_id")))
         if ev.get("type") == "material_scope_or_assumption_change":
             observed_material_change = True
+        if ev.get("type") == "batch_complete":
+            # Optional worker confidence signal: bounded review-triage metadata
+            # only, never authority. Reset from every batch_complete so
+            # "last_batch_*" is true to its name — a later batch without the
+            # signal must not inherit an earlier batch's reservations. Under
+            # shared OAuth the projection already replaced the free-text list
+            # with a derived count; the enum survives the projection.
+            confidence = ev.get("confidence")
+            last_batch_confidence = (
+                str(confidence) if confidence in CONFIDENCE_LEVELS else None
+            )
+            unsure = ev.get("unsure_about")
+            if isinstance(unsure, list):
+                last_batch_unsure_about = [
+                    _redact_full_run_text(
+                        item[:MAX_UNSURE_ABOUT_ITEM_CHARS],
+                        exact_values=exact_secret_values,
+                    )
+                    for item in unsure[:MAX_UNSURE_ABOUT_ITEMS]
+                    if isinstance(item, str) and item.strip()
+                ]
+                last_batch_unsure_about_count = len(last_batch_unsure_about)
+            else:
+                projected_count = ev.get("unsure_about_count")
+                last_batch_unsure_about = None
+                last_batch_unsure_about_count = (
+                    projected_count
+                    if isinstance(projected_count, int)
+                    and not isinstance(projected_count, bool)
+                    and 0 <= projected_count <= MAX_UNSURE_ABOUT_ITEMS
+                    else None
+                )
 
     if not event_errors and not events_reused and event_signature is not None:
         cache["event_signature"] = event_signature
@@ -5801,6 +5963,13 @@ def monitor_full_run(
             "saw_run_complete": saw_run_complete_event,
             "high_risk_checkpoints": list(observed_high_risk_checkpoints),
             "material_scope_or_assumption_change": observed_material_change,
+            "last_batch_confidence": last_batch_confidence,
+            "last_batch_unsure_about": (
+                list(last_batch_unsure_about)
+                if last_batch_unsure_about is not None
+                else None
+            ),
+            "last_batch_unsure_about_count": last_batch_unsure_about_count,
         }
 
     if acknowledge_high_risk_checkpoint is not None:
@@ -6202,6 +6371,13 @@ def monitor_full_run(
             "high_risk_checkpoints_observed": len(
                 observed_high_risk_checkpoints
             ),
+            "last_batch_confidence": last_batch_confidence,
+            "last_batch_unsure_about": (
+                list(last_batch_unsure_about)
+                if last_batch_unsure_about is not None
+                else None
+            ),
+            "last_batch_unsure_about_count": last_batch_unsure_about_count,
             "reconcile_ok": (
                 None if reconcile_payload is None else bool(reconcile_payload.get("ok"))
             ),

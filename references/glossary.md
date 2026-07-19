@@ -45,9 +45,40 @@ in this file, it is not project vocabulary — plain English wins.
 - **Scout mode** — post-plan spare-time work: adjacent bugs, tests, docs.
 - **Ride-along** — a user message prefixed `ra:`/`ride-along:` answered in 1–3 sentences without
   breaking the run.
-- **Handling matrix** — how a task routes: direct edit, bounded batch, or full-run.
 - **Worktree gc** — the reclaim helper (`preflight.sh --gc-worktrees`) that removes only clean,
   fully merged, fully pushed worktrees; separate from the create helper.
 - **Elves report** — the static HTML end-of-run report under `/tmp`.
 - **Domain workflow** — a specialized Cobbler-managed pack (math is the first).
 - **Codex Goals** — optional Codex continuation plumbing; distinct from Grok Build goal mode.
+- **Prewalk** — a trajectory property: one worker session receives the packet once on a guide
+  route, makes the first meaningful edit, and is resumed exactly on the execution route with only
+  `Continue.`; a cold packet handoff is never prewalk (`references/prewalk.md`).
+- **Guide route** — the explicitly pinned model/effort a prewalk worker uses to orient, build the
+  bounded TODO, and make the first meaningful edit.
+- **Execution route** — the explicitly pinned model/effort the supervisor resumes that same
+  session on after the transition checkpoint.
+- **Instruction fidelity** — the honest behavioral result of a qualification: `retained_safe`
+  (exact trajectory proven, cooperative guide instruction safe to retain — the only state that
+  activates the current transport), `pruned` (instruction proven absent after transition),
+  `turn_scoped` (instruction proven guide-process-only), or `unsupported` (no usable evidence).
+- **Behavioral qualification artifact** — bounded, operator-recorded JSON binding a live canary to
+  the exact host, transport, installed version/build, session, routes, continuity facts, and an
+  instruction-fidelity result; validated fail-closed by tooling, never fabricated by it.
+- **Canary** — an operator-authorized live probe run that exists only to record behavioral
+  evidence (e.g. goal terminal canary, prewalk qualification canary); never implicit, never paid
+  for silently.
+- **Lane A** — the trusted external-implementer lane: worker owns feature-branch progress in a
+  host-created worktree under explicit credential grants; host keeps protected refs, review, PR,
+  and merge.
+- **Mode A1** — Lane A's `branch_progress` Git mode: the worker commits and pushes progress
+  slices on its assigned feature branch only.
+- **Main driver** — the live host session (Claude Code or Codex) that stages, coordinates,
+  reviews, and lands; synonymous with Driver when contrasted with a work driver.
+- **Work driver** — the adapter that performs implementation work for a run: `host-native`,
+  `grok-build`, `devin-cli`, `opencode-cli`, or `untrusted-writer`
+  (`references/schema-and-acceptance.md` owns the spelling map).
+- **Implementation lane** — the survival-guide selector for external implementers
+  (`implementation_lane: fast | untrusted`); omitted entirely for host-native runs.
+- **State capsule** — the bounded explicit handoff v1 declaration (leading Markdown
+  `elves-handoff-v1` comment or JSON `elves_handoff`) binding fresh/resume state, ownership, and
+  acceptance to branch/HEAD; cold-handoff evidence, never prewalk continuity.

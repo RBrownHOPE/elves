@@ -433,7 +433,16 @@ def apply_target(name: str) -> list[str]:
     return problems
 
 
+def _require_python_floor() -> None:
+    if sys.version_info < (3, 10):
+        raise SystemExit(
+            "sync_installed_skills requires Python >= 3.10 (repo floor); "
+            f"found {sys.version_info.major}.{sys.version_info.minor}"
+        )
+
+
 def main() -> int:
+    _require_python_floor()
     args = parse_args()
     # Do not rebuild TARGETS here: tests (and operators) may monkeypatch REPO_ROOT
     # and TARGETS roots. Managed paths are already directory-recursive for the package.

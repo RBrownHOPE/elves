@@ -97,6 +97,13 @@ refs, final gates, PR, and merge — always. Details:
 Trusted Grok implementation launches use `--always-approve` alone: Grok Build treats an explicit
 `--permission-mode auto` as an override, so the two flags must not be combined.
 
+Native delegation names both model and effort. GPT-5.6 `xhigh`/extra-high/`ultra` hands off to the
+same GPT-5.6 model at `medium`; GPT-4.8 Max/UltraCode to the same GPT-4.8 model at `medium`; Fable 5
+`max`/`ultra` to the same Fable 5 model at `low`. A Fable→Opus exception means
+`claude-opus-4-8` at `medium`, not “the same model.” A permitted Grok handoff uses the
+authenticated live-catalog default at explicit `high`—never a hardcoded Composer identifier that
+the current catalog may not offer.
+
 ### Optional exact-session prewalk
 
 Prewalk lets one qualified native worker orient on a guide model/effort, create a bounded TODO, make
@@ -110,7 +117,9 @@ version has behaviorally qualified session/worktree/stream continuity, route cha
 replay, and honest instruction fidelity. The current persisted-instruction transport activates only
 for proven `retained_safe`; `pruned` and `turn_scoped` remain future delivery states.
 Static help probes make no model calls and prove only that flags are advertised; `required` fails
-before launch when proof is absent. See the
+before launch when proof is absent. Grok can additionally load a recorded canary only with a live
+installed-version/build probe; behavioral qualification never opens its separate, currently closed
+`launch_ready` registry gate. See the
 [normative prewalk contract](references/prewalk.md) and
 [host parity matrix](references/host-parity.md).
 

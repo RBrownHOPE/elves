@@ -24,6 +24,10 @@ def load_sync_module():
     return module
 
 
+@unittest.skipIf(
+    sys.version_info < (3, 10),
+    "sync_installed_skills requires Python >= 3.10 (repo floor); skipping on older interpreter",
+)
 class SyncInstalledSkillsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.sync = load_sync_module()

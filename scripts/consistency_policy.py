@@ -1801,7 +1801,8 @@ PUBLIC_WORDING_FILES = [
 ]
 
 PUBLIC_WORDING_FORBIDDEN_PHRASES = [
-    "Fable",
+    # Exact model names are valid in the route-identity contract. Keep
+    # prohibiting branding/persona claims that describe Cobbler as Fable-like.
     "Fable-like",
     "Fable-style",
     "inspired by Fable",
@@ -1963,16 +1964,47 @@ ADAPTIVE_WORKER_ROUTING_PHRASES = {
     "SKILL.md": [
         "subscription-native worker",
         "authenticated live",
+        "same GPT-5.6 model at `medium`",
+        "same Fable 5 model at `low`",
+        "`claude-opus-4-8` at `medium`",
+        "authenticated live-catalog default at explicit `high`",
         "${XDG_CONFIG_HOME:-~/.config}/elves/config.json",
         "approval-bypass authority",
+    ],
+    "AGENTS.md": [
+        "exact same-model/lower-effort route map",
+        "references/adaptive-worker-routing.md",
+    ],
+    "README.md": [
+        "Native delegation names both model and effort",
+        "same GPT-5.6 model at `medium`",
+        "same Fable 5 model at `low`",
+        "`claude-opus-4-8` at `medium`",
+        "authenticated live-catalog default at explicit `high`",
     ],
     "references/adaptive-worker-routing.md": [
         "repository safety veto > explicit run intent > repository defaults > global convenience",
         "authenticated live",
+        "exact observed model identity",
+        "same observed GPT-5.6 model ID at `medium`",
+        "same observed `claude-fable-5` model ID at `low`",
+        "`claude-opus-4-8` at `medium`",
+        "authenticated live-catalog default at `high`",
         "codex exec resume <thread-id>",
         "a session ID is not such an object",
     ],
+    "guide/index.html": [
+        "Same model, lower effort",
+        "GPT-5.6 <code>medium</code>",
+        "Fable 5 <code>low</code>",
+        "claude-opus-4-8",
+        "authenticated live default at explicit <code>high</code>",
+    ],
     "CHANGELOG.md": [
+        "Explicit delegation route identity and Grok highest-effort default",
+        "same GPT-5.6 identity at `medium`",
+        "`claude-opus-4-8` at `medium`",
+        "authenticated live-catalog default at explicit",
         "Adaptive subscription-native workers",
         "authenticated live-catalog models",
         "prompt/KV cache",
@@ -1986,6 +2018,7 @@ PREWALK_PHRASES = {
         "with a copied packet or summary is not prewalk",
         "post-edit cold fallback is forbidden",
         "Static help proves",
+        "behavioral evidence never grants launch authority",
         "references/prewalk.md",
     ],
     "AGENTS.md": [
@@ -1997,37 +2030,53 @@ PREWALK_PHRASES = {
         "Optional exact-session prewalk",
         "same session in the same worktree",
         "Static help probes make no model calls",
+        "behavioral qualification never opens",
         "references/prewalk.md",
     ],
     "references/prewalk.md": [
         "Elves **prewalk** is a trajectory property",
+        "separately qualified worker session",
         "execution route with only",
         "retained_safe",
         "post-edit cold fallback",
         "normally reports actual mode `off`",
+        "External providers remain off unless their trajectory semantics are separately qualified",
+        "grok_prewalk_qualification_canary",
+        "qualification does not itself open the separate registry launch gate",
+        "never fabricates them",
     ],
     "references/host-parity.md": [
         "Exact-session prewalk parity",
         "one redacted logical follow stream",
         "no post-edit cold fallback",
         "prewalk.md",
+        "no release may claim Grok prewalk availability or behavioral qualification",
+        "grok_prewalk_unqualified",
+        "cannot open the separate",
     ],
     "references/adaptive-worker-routing.md": [
         "Optional exact-session prewalk route",
         "requested/actual prewalk mode",
         "help probes always report false",
         "actual mode `off`",
+        "prewalk_capability_unavailable:grok_prewalk_unqualified:",
+        "does not open the separate registry launch gate",
+        "no release may claim Grok prewalk availability or behavioral qualification",
     ],
     "guide/index.html": [
         "Use exact-session prewalk when qualified",
         "same session in the same",
         "no paid canary runs implicitly",
+        "cannot open",
         "references/prewalk.md",
     ],
     "CHANGELOG.md": [
         "True exact-session native-worker prewalk",
         "execution-route resume with only",
         "no paid canary ran",
+        "remains feature-gated off",
+        "Qualification never opens the separate registry launch feature gate",
+        "claims Grok prewalk availability or behavioral qualification",
     ],
 }
 
@@ -2130,6 +2179,13 @@ GROK_OPEN_SOURCE_WORKER_PHRASES = {
         "--host-tests-pass",
         "--resume --grant-grok-auth",
         "/goal resume",
+        "## Feature-gated prewalk lane (distinct from trusted full-run)",
+        "--permission-mode auto",
+        "grok_prewalk_qualification_canary",
+        "operator-authorized live canary",
+        "cannot grant launch authority",
+        "commit `98c3b24`",
+        "source commit `7cfcb20`",
     ],
     "guide/index.html": [
         "https://github.com/xai-org/grok-build",
@@ -2168,5 +2224,36 @@ GROK_OPEN_SOURCE_WORKER_FORBIDDEN_PHRASES = {
     "docs/elves/learnings.md": [
         "use permitted Grok Composer 2.5 Fast for regular clear work",
         "resume, `/goal`, streaming JSON",
+    ],
+}
+
+WORKER_CONFIDENCE_SIGNAL_PHRASES = {
+    "SKILL.md": [
+        "**Confidence trailer**",
+        "`Confidence: <level>` alone when `unsure_about` is empty",
+        "never a lazy default",
+        "flagged `unsure_about` areas get a deeper pass",
+        "it does not skip gates or waive review in either direction",
+    ],
+    "references/review-subagent.md": [
+        "## Worker confidence triage (read before the diff):",
+        "An empty `unsure_about` list is a valid, complete answer",
+        "The signal is triage only, never authority",
+        "calibration observation to note in the report, not a violation",
+    ],
+    "references/grok-implementer-launch-prompt.md": [
+        "**worker confidence signal**",
+        "an empty list means \"I verified everything I touched and have no reservations,\"",
+        "review triage only, never authority",
+        "include your confidence (high | medium | low) and any areas you were unsure about, if any",
+    ],
+    "references/survival-guide-template.md": [
+        "The packet also carries the confidence-reporting requirement:",
+        "empty list is a valid, complete answer; triage signal only, never authority.",
+    ],
+    "CHANGELOG.md": [
+        "Worker confidence signal (audit B5)",
+        "never a lazy default",
+        "review triage only, never authority",
     ],
 }

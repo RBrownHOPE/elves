@@ -1125,6 +1125,124 @@ class FullRunReportValidationTests(unittest.TestCase):
             validate_event({**event, "type": "heartbeat"})
         )
 
+    def test_confidence_signal_optional_fields_valid_on_events(self) -> None:
+        base = {
+            "timestamp": "2026-07-18T05:14:00Z",
+            "session_id": "session-1",
+            "branch": "feat/x",
+            "head": "a" * 40,
+            "batch": 2,
+            "type": "batch_complete",
+            "summary": "batch 2 complete",
+        }
+        with_signal = {
+            **base,
+            "confidence": "low",
+            "unsure_about": [
+                "retry backoff bounds in queue.py",
+                "whether the legacy CSV importer hits the new validator",
+            ],
+        }
+        self.assertEqual(validate_event(with_signal), [])
+        # An empty unsure_about list is a valid, complete answer.
+        empty_list = {**base, "confidence": "high", "unsure_about": []}
+        self.assertEqual(validate_event(empty_list), [])
+        # Absent fields stay valid (backward compatible).
+        self.assertEqual(validate_event(base), [])
+        run_complete = {
+            **base,
+            "type": "run_complete",
+            "confidence": "medium",
+            "unsure_about": [],
+        }
+        self.assertEqual(validate_event(run_complete), [])
+
+    def test_confidence_signal_rejects_malformed_fields_with_stable_codes(self) -> None:
+        base = {
+            "timestamp": "2026-07-18T05:14:00Z",
+            "session_id": "session-1",
+            "branch": "feat/x",
+            "head": "a" * 40,
+            "batch": 2,
+            "type": "batch_complete",
+            "summary": "batch 2 complete",
+        }
+        cases = (
+            (
+                {"confidence": "certain"},
+                "confidence must be one of high, medium, low",
+            ),
+            ({"unsure_about": "oops"}, "unsure_about must be a list"),
+            (
+                {"unsure_about": [7]},
+                "unsure_about items must be non-empty strings",
+            ),
+            (
+                {"unsure_about": ["   "]},
+                "unsure_about items must be non-empty strings",
+            ),
+            (
+                {"unsure_about": ["x" * 501]},
+                "unsure_about item exceeds 500 chars",
+            ),
+            (
+                {"unsure_about": [f"item {index}" for index in range(17)]},
+                "unsure_about exceeds 16 items",
+            ),
+            (
+                {"unsure_about": ["uses bearer abc123token for the API call"]},
+                "unsure_about contains secret-shaped content",
+            ),
+        )
+        for mutation, expected in cases:
+            with self.subTest(expected=expected):
+                errors = validate_event({**base, **mutation})
+                self.assertIn(expected, errors)
+
+    def test_report_batch_rows_accept_and_reject_confidence_signal(self) -> None:
+        valid = self._complete()
+        valid["batches"][0]["confidence"] = "high"
+        valid["batches"][0]["unsure_about"] = []
+        self.assertEqual(
+            validate_run_report(
+                valid, require_complete_acceptance=True, expected_run_id="run-1"
+            ),
+            [],
+        )
+        flagged = self._complete()
+        flagged["batches"][0]["confidence"] = "low"
+        flagged["batches"][0]["unsure_about"] = ["retry backoff bounds"]
+        self.assertEqual(
+            validate_run_report(
+                flagged, require_complete_acceptance=True, expected_run_id="run-1"
+            ),
+            [],
+        )
+        for mutation, expected in (
+            (
+                {"confidence": "certain"},
+                "batches[0].confidence must be one of high, medium, low",
+            ),
+            ({"unsure_about": "oops"}, "batches[0].unsure_about must be a list"),
+            (
+                {"unsure_about": [""]},
+                "batches[0].unsure_about items must be non-empty strings",
+            ),
+            (
+                {"unsure_about": ["uses bearer abc123token for the API call"]},
+                "batches[0].unsure_about contains secret-shaped content",
+            ),
+        ):
+            with self.subTest(expected=expected):
+                report = self._complete()
+                report["batches"][0].update(mutation)
+                errors = validate_run_report(
+                    report,
+                    require_complete_acceptance=True,
+                    expected_run_id="run-1",
+                )
+                self.assertIn(expected, errors)
+
     def test_material_change_event_has_concrete_typed_schema(self) -> None:
         event = {
             "timestamp": "2026-07-13T05:14:00Z",
@@ -2596,7 +2714,6 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 adapter="grok-build",
                 model="grok-4.5",
                 permission_mode="auto",
-                effort="medium",
                 executable="grok",
                 create=True,
                 check=True,
@@ -2617,6 +2734,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertIn("--always-approve", argv)
             self.assertNotIn("--yolo", argv)
             self.assertIn("--effort", argv)
+            self.assertEqual(argv[argv.index("--effort") + 1], "high")
             self.assertIn("--max-turns", argv)
             self.assertIn("--output-format", argv)
             self.assertIn("streaming-json", argv)
@@ -4928,6 +5046,118 @@ class FullRunLifecycleTests(unittest.TestCase):
         self.assertLessEqual(len(bounded["transcript_tail"]), 100)
         self.assertTrue(all(len(line) <= 1000 for line in bounded["transcript_tail"]))
 
+    def test_monitor_surfaces_batch_complete_confidence_signal(self) -> None:
+        confident = FAKE_WORKER.replace(
+            'emit("batch_complete", batch, f"batch {batch} complete", head=head)',
+            'emit("batch_complete", batch, f"batch {batch} complete", head=head, '
+            'confidence="medium", unsure_about=[f"retry bounds in batch {batch}"])',
+        )
+        self.assertNotEqual(confident, FAKE_WORKER)
+        worker = Path(self.tmp.name) / "confident_worker.py"
+        worker.write_text(confident, encoding="utf-8")
+        worker.chmod(worker.stat().st_mode | stat.S_IXUSR)
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=worker,
+        )
+        launch_full_run(self.repo, session_id=self.session)
+        deadline = time.time() + 10
+        status = monitor_full_run(
+            self.repo, session_id=self.session, stale_after_seconds=60
+        )
+        while (
+            status.get("state") not in {"complete", "failed", "blocked"}
+            and time.time() < deadline
+        ):
+            time.sleep(0.05)
+            status = monitor_full_run(
+                self.repo, session_id=self.session, stale_after_seconds=60
+            )
+        self.assertEqual(status["state"], "complete", status)
+        self.assertEqual(
+            status["check_summary"]["last_batch_confidence"], "medium"
+        )
+        self.assertEqual(
+            status["check_summary"]["last_batch_unsure_about"],
+            ["retry bounds in batch 3"],
+        )
+        self.assertEqual(
+            status["check_summary"]["last_batch_unsure_about_count"], 1
+        )
+        # A second monitor pass (terminal state re-reads the full log) keeps
+        # surfacing the signal, and the persisted event-summary cache carries
+        # all three fields for later cache-reusing polls.
+        repeated = monitor_full_run(
+            self.repo, session_id=self.session, stale_after_seconds=60
+        )
+        self.assertEqual(
+            repeated["check_summary"]["last_batch_confidence"], "medium"
+        )
+        self.assertEqual(
+            repeated["check_summary"]["last_batch_unsure_about"],
+            ["retry bounds in batch 3"],
+        )
+        cache_path = (
+            self.repo / ".elves" / "runtime" / "implement" / "full-run" / self.session / "monitor-cache.json"
+        )
+        if cache_path.is_file():
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            summary = cached.get("event_summary") or {}
+            self.assertEqual(summary.get("last_batch_confidence"), "medium")
+            self.assertEqual(
+                summary.get("last_batch_unsure_about"),
+                ["retry bounds in batch 3"],
+            )
+            self.assertEqual(summary.get("last_batch_unsure_about_count"), 1)
+
+    def test_monitor_resets_signal_when_a_later_batch_omits_it(self) -> None:
+        # Batch signals must not leak forward: a later batch_complete without
+        # the fields resets last_batch_* to the no-signal state (null).
+        confident_then_silent = FAKE_WORKER.replace(
+            'emit("batch_complete", batch, f"batch {batch} complete", head=head)',
+            'emit("batch_complete", batch, f"batch {batch} complete", head=head, '
+            '**({"confidence": "low", "unsure_about": ["early wiring"]} if batch == 1 else {}))',
+        )
+        self.assertNotEqual(confident_then_silent, FAKE_WORKER)
+        worker = Path(self.tmp.name) / "confident_then_silent_worker.py"
+        worker.write_text(confident_then_silent, encoding="utf-8")
+        worker.chmod(worker.stat().st_mode | stat.S_IXUSR)
+        prepare_full_run(
+            self.repo,
+            session_id=self.session,
+            branch=self.branch,
+            start_head=self.start_head,
+            worktree=self.repo,
+            packet_path=self.packet,
+            adapter="fixture",
+            fixture_script=worker,
+        )
+        launch_full_run(self.repo, session_id=self.session)
+        deadline = time.time() + 10
+        status = monitor_full_run(
+            self.repo, session_id=self.session, stale_after_seconds=60
+        )
+        while (
+            status.get("state") not in {"complete", "failed", "blocked"}
+            and time.time() < deadline
+        ):
+            time.sleep(0.05)
+            status = monitor_full_run(
+                self.repo, session_id=self.session, stale_after_seconds=60
+            )
+        self.assertEqual(status["state"], "complete", status)
+        self.assertIsNone(status["check_summary"]["last_batch_confidence"])
+        self.assertIsNone(status["check_summary"]["last_batch_unsure_about"])
+        self.assertIsNone(
+            status["check_summary"]["last_batch_unsure_about_count"]
+        )
+
     def test_json_await_streams_sanitized_follow_to_stderr_and_terminal_json_to_stdout(self) -> None:
         prepare_full_run(
             self.repo,
@@ -5522,6 +5752,95 @@ class FullRunLifecycleTests(unittest.TestCase):
             expected_branch=self.branch,
         )
         self.assertTrue(any("line limit" in error for error in errors), errors)
+
+    def test_shared_oauth_projection_carries_confidence_and_derived_unsure_count(self) -> None:
+        # Under shared OAuth the free-text unsure_about list is hidden, but
+        # suppression must never read as the asserted-clean empty list: the
+        # projection carries the confidence enum (validated fail-closed) plus
+        # a bounded derived unsure_about_count instead of the text.
+        def event(batch, **extra):
+            return {
+                "timestamp": datetime.now(timezone.utc)
+                .replace(microsecond=0)
+                .isoformat(),
+                "session_id": self.session,
+                "branch": self.branch,
+                "head": self.start_head,
+                "batch": batch,
+                "type": "batch_complete",
+                "summary": f"batch {batch} complete",
+                **extra,
+            }
+
+        root = Path(self.tmp.name)
+        events_path = root / "oauth-confidence.jsonl"
+        events_path.write_text(
+            json.dumps(
+                event(1, confidence="medium", unsure_about=["retry bounds", "cache path"])
+            )
+            + "\n"
+            + json.dumps(event(2, confidence="high", unsure_about=[]))
+            + "\n",
+            encoding="utf-8",
+        )
+        rows, errors = full_run_module._read_events(
+            events_path,
+            expected_session_id=self.session,
+            expected_branch=self.branch,
+            shared_oauth_safe_projection=True,
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(rows[0]["confidence"], "medium")
+        self.assertNotIn("unsure_about", rows[0])
+        self.assertEqual(rows[0]["unsure_about_count"], 2)
+        self.assertEqual(rows[1]["confidence"], "high")
+        self.assertEqual(rows[1]["unsure_about_count"], 0)
+
+        malformed = root / "oauth-bad-confidence.jsonl"
+        malformed.write_text(
+            json.dumps(event(1, confidence="certain")) + "\n", encoding="utf-8"
+        )
+        _rows, errors = full_run_module._read_events(
+            malformed,
+            expected_session_id=self.session,
+            expected_branch=self.branch,
+            shared_oauth_safe_projection=True,
+        )
+        self.assertTrue(
+            any("confidence" in error for error in errors), errors
+        )
+
+        malformed_unsure_cases = {
+            "wrong-type": "not-a-list",
+            "too-many": [f"item-{index}" for index in range(17)],
+            "empty-item": [""],
+            "too-long": ["x" * 501],
+            "secret-shaped": ["api_key=supersecretvalue"],
+        }
+        for name, unsure_about in malformed_unsure_cases.items():
+            with self.subTest(name=name):
+                malformed_unsure = root / f"oauth-bad-unsure-{name}.jsonl"
+                malformed_unsure.write_text(
+                    json.dumps(
+                        event(
+                            1,
+                            confidence="high",
+                            unsure_about=unsure_about,
+                        )
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                rows, errors = full_run_module._read_events(
+                    malformed_unsure,
+                    expected_session_id=self.session,
+                    expected_branch=self.branch,
+                    shared_oauth_safe_projection=True,
+                )
+                self.assertEqual(rows, [])
+                self.assertTrue(
+                    any("unsure_about" in error for error in errors), errors
+                )
 
         too_large = root / "too-large.jsonl"
         too_large.write_bytes(b"x" * (full_run_module.MAX_EVENT_FILE_BYTES + 1))
@@ -6898,6 +7217,7 @@ class FullRunLifecycleTests(unittest.TestCase):
             state = load_state(self.repo, self.session)
             self.assertEqual(state.adapter, "devin-cli")
             self.assertEqual(state.model, "swe-1-7-lightning")
+            self.assertEqual(state.effort, "medium")
             self.assertEqual(state.executable, str(devin))
             self.assertIsNone(state.provider_session_id)
 

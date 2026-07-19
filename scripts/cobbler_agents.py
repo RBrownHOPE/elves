@@ -82,9 +82,12 @@ from cobbler_runtime.leases import (  # noqa: E402
     LeaseStore,
     build_write_task_packet,
 )
+from cobbler_runtime.host_profiles import resolve_host_profile  # noqa: E402
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.sessions import SessionRegistry  # noqa: E402
 from cobbler_runtime.implement import (  # noqa: E402
+    DEFAULT_EFFORT,
+    GROK_DEFAULT_EFFORT,
     launch_payload,
     prepare_implement,
     resume_batch_payload,
@@ -131,6 +134,7 @@ from cobbler_runtime.worker_routing import (  # noqa: E402
 )
 from cobbler_runtime.prewalk import (  # noqa: E402
     fixture_prewalk_capabilities,
+    load_grok_prewalk_qualification,
     probe_installed_prewalk_capabilities,
 )
 from cobbler_runtime.native_worker import (  # noqa: E402
@@ -444,6 +448,33 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         )
     except ValidationIssue as issue:
         return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+    grok_prewalk_qualification = None
+    if args.grok_prewalk_qualification:
+        # Qualification is meaningful only when the artifact is bound to the
+        # exact installed binary observed in this routing decision. Facts
+        # asserted by the artifact itself are not an installed-version proof.
+        if not args.probe_grok:
+            issue = ValidationIssue(
+                "prewalk_capability_unavailable",
+                "Grok prewalk qualification requires --probe-grok to bind the artifact to the installed binary",
+                path="grok_prewalk_qualification",
+            )
+            return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+        if not grok.version or not grok.installed_build_commit:
+            issue = ValidationIssue(
+                "prewalk_capability_unavailable",
+                "Installed Grok version and build commit are required to validate prewalk qualification",
+                path="grok_prewalk_qualification",
+            )
+            return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+        try:
+            grok_prewalk_qualification = load_grok_prewalk_qualification(
+                Path(args.grok_prewalk_qualification),
+                installed_version=grok.version,
+                installed_build_commit=grok.installed_build_commit,
+            )
+        except ValidationIssue as issue:
+            return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
     try:
         decision = decide_worker_route(
             host=args.host,
@@ -455,6 +486,7 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
             grok=grok,
             driver_effort=args.driver_effort,
             prewalk_capabilities=prewalk_caps,
+            grok_prewalk_qualification=grok_prewalk_qualification,
         )
     except ValidationIssue as issue:
         return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
@@ -465,6 +497,11 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         "repository_policy_source": repo_policy_source,
         "grok_capabilities": grok.safe_snapshot(),
         "prewalk_capabilities": prewalk_caps.to_dict() if prewalk_caps else None,
+        "grok_prewalk_qualification": (
+            grok_prewalk_qualification.to_dict()
+            if grok_prewalk_qualification
+            else None
+        ),
     }
     if args.json:
         return _emit_json(payload, exit_code=0)
@@ -508,7 +545,7 @@ def cmd_native_worker(args: argparse.Namespace) -> int:
         if not args.host or args.host == "fixture":
             issue = ValidationIssue(
                 "native_worker_arguments_required",
-                "prewalk-capabilities requires --host codex or claude",
+                "prewalk-capabilities requires --host codex, claude, or grok",
             )
             return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
         try:
@@ -536,6 +573,18 @@ def cmd_native_worker(args: argparse.Namespace) -> int:
         return 0
     if action == "_supervise":
         return supervise_native_worker(repo_root=repo_root, run_id=args.run_id, packet=Path(args.packet))
+    if action == "launch" and args.host:
+        # Feature-gated hosts (registry launch_ready=False) exist for spec and
+        # prewalk-capabilities only. Qualification evidence describes transport
+        # behavior but does not itself open a launch gate. A missing --host
+        # falls through to the required-arguments envelope below.
+        launch_profile = resolve_host_profile(args.host)
+        if not launch_profile.launch_ready:
+            issue = ValidationIssue(
+                f"{launch_profile.capability_host}_native_worker_launch_unqualified",
+                f"{launch_profile.capability_host} native-worker launch is feature-gated off; qualification evidence alone does not authorize launch",
+            )
+            return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
     prewalk_requested = (args.prewalk or "off") != "off"
     execution_effort = args.execution_effort or args.effort
     execution_model = args.execution_model or args.model
@@ -1713,6 +1762,9 @@ def cmd_implement(args: argparse.Namespace) -> int:
 
         if action == "full-run-prepare":
             adapter_name = getattr(args, "adapter", None) or "grok-build"
+            effort_was_explicit = bool(
+                getattr(args, "_effort_option_was_explicit", False)
+            )
             acceptance_session = getattr(args, "session", None)
             if adapter_name != "fixture" and not acceptance_session:
                 default_session = repo_root / ".elves-session.json"
@@ -1742,7 +1794,15 @@ def cmd_implement(args: argparse.Namespace) -> int:
                     )
                 ),
                 permission_mode=getattr(args, "permission_mode", None) or "auto",
-                effort=getattr(args, "effort", None) or "medium",
+                effort=(
+                    getattr(args, "effort", None)
+                    if effort_was_explicit
+                    else (
+                        GROK_DEFAULT_EFFORT
+                        if adapter_name == "grok-build"
+                        else DEFAULT_EFFORT
+                    )
+                ),
                 executable=getattr(args, "executable", None),
                 create=not bool(getattr(args, "resume", False)),
                 check=bool(getattr(args, "check", False)),
@@ -2204,6 +2264,15 @@ def build_parser() -> argparse.ArgumentParser:
             "and must match the installed version/build"
         ),
     )
+    route_worker.add_argument(
+        "--grok-prewalk-qualification",
+        help=(
+            "Path to a bounded JSON grok prewalk qualification artifact "
+            "(artifact_type grok_prewalk_qualification_canary); validated "
+            "fail-closed against the installed version/build from --probe-grok, "
+            "never fabricated"
+        ),
+    )
     route_worker.add_argument("--grok-version")
     route_worker.add_argument("--probe-grok", action="store_true", help="Safely probe installed Grok flags, live catalog/default, ACP, and optional isolated goal evidence")
     route_worker.add_argument("--grok-executable", default="grok")
@@ -2220,7 +2289,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("spec", "launch", "follow", "status", "prewalk-capabilities", "_supervise"),
         default="spec",
     )
-    native_worker.add_argument("--host", choices=("codex", "claude", "fixture"))
+    native_worker.add_argument("--host", choices=("codex", "claude", "fixture", "grok"))
     native_worker.add_argument("--worktree")
     native_worker.add_argument("--effort", choices=("low", "medium", "high"))
     native_worker.add_argument("--model", help="Current driver model observed by the host, or an explicit routed model")
@@ -2627,7 +2696,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Catalog-returned model id, or auto for the authenticated live default",
     )
     i_fr_prepare.add_argument("--permission-mode", default="auto")
-    i_fr_prepare.add_argument("--effort", default="medium")
+    i_fr_prepare.add_argument(
+        "--effort",
+        # Retain the public argparse default for compatibility; main() records
+        # whether the option was actually present so an omitted Grok effort can
+        # resolve to the new high-quality default without conflating an
+        # explicit `--effort medium` override with omission.
+        default="medium",
+        help=(
+            "Worker effort (Grok Build defaults to high, its highest supported "
+            "level; other adapters keep their own balanced default)"
+        ),
+    )
     i_fr_prepare.add_argument(
         "--grok-goal-behavioral-evidence",
         default=None,
@@ -2902,7 +2982,7 @@ def build_parser() -> argparse.ArgumentParser:
     i_launch.add_argument(
         "--effort",
         default=None,
-        help="Grok --effort/--reasoning-effort (default: medium)",
+        help="Grok --effort/--reasoning-effort (default: high)",
     )
     i_launch.add_argument(
         "--check",
@@ -3025,7 +3105,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(argv) if argv is not None else list(sys.argv[1:])
+    args = parser.parse_args(raw_argv)
+    args._effort_option_was_explicit = any(
+        token == "--effort" or token.startswith("--effort=")
+        for token in raw_argv
+    )
     try:
         return int(args.func(args))
     except StorageError as error:

@@ -30,7 +30,11 @@ from cobbler_runtime.native_worker import (  # noqa: E402
     native_worker_status,
     parse_codex_thread_id,
 )
-from cobbler_runtime.prewalk import fixture_prewalk_capabilities  # noqa: E402
+from cobbler_runtime.prewalk import (  # noqa: E402
+    PrewalkCapabilities,
+    fixture_prewalk_capabilities,
+    load_grok_prewalk_qualification,
+)
 from cobbler_runtime.full_run import FullRunState, build_full_run_argv  # noqa: E402
 from cobbler_runtime.preferences import (  # noqa: E402
     global_preferences_path,
@@ -47,6 +51,9 @@ from cobbler_runtime.worker_routing import (  # noqa: E402
     decide_worker_route,
     probe_grok_capabilities,
     discover_repository_worker_policy,
+)
+from tests.test_native_worker_prewalk import (  # noqa: E402
+    write_grok_qualification_artifact,
 )
 
 
@@ -217,6 +224,11 @@ class RouteDecisionMatrixTests(unittest.TestCase):
             )
             self.assertEqual(decision.provider, "grok")
             self.assertEqual(decision.worker_model, expected)
+            self.assertEqual(decision.worker_effort, "high")
+            self.assertEqual(
+                decision.provenance["worker_effort"],
+                "grok_highest_supported_default",
+            )
             self.assertTrue(decision.goal_mode)
         explicit_complex = self.decide(
             execution_reasoning="high",
@@ -225,6 +237,18 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         )
         self.assertEqual(explicit_complex.worker_model, GROK_COMPLEX_MODEL)
         self.assertEqual(explicit_complex.worker_model_policy, "explicit_catalog_model_pin")
+        explicit_effort = self.decide(
+            execution_reasoning="medium",
+            explicit_intent={
+                "worker": {"provider": "grok", "native_effort": "low"}
+            },
+            grok=capabilities,
+        )
+        self.assertEqual(explicit_effort.worker_effort, "low")
+        self.assertEqual(
+            explicit_effort.provenance["worker_effort"],
+            "explicit_run_intent",
+        )
 
     def test_unavailable_and_repo_prohibited_fall_back_honestly(self) -> None:
         requested = {"worker": {"provider": "grok"}}
@@ -610,10 +634,11 @@ class RouteDecisionMatrixTests(unittest.TestCase):
                 if reasoning == "high":
                     intent["worker"]["grok_model"] = GROK_COMPLEX_MODEL
                 decision = self.decide(execution_reasoning=reasoning, explicit_intent=intent, grok=caps)
-                state = FullRunState(session_id="11111111-1111-1111-1111-111111111111", branch="feature", start_head="a" * 40, worktree=tmp, packet_path=str(packet), model=decision.worker_model or "")
+                state = FullRunState(session_id="11111111-1111-1111-1111-111111111111", branch="feature", start_head="a" * 40, worktree=tmp, packet_path=str(packet), model=decision.worker_model or "", effort=decision.worker_effort)
                 with mock.patch("cobbler_runtime.implement.detect_native_grok_goal", return_value={"mode": "headless_compatible_fallback"}):
                     argv = build_full_run_argv(state)
                 self.assertEqual(argv[argv.index("--model") + 1], expected)
+                self.assertEqual(argv[argv.index("--effort") + 1], "high")
 
     def test_full_run_state_grok_default_defers_to_live_catalog(self) -> None:
         state = FullRunState(
@@ -621,6 +646,7 @@ class RouteDecisionMatrixTests(unittest.TestCase):
             worktree=str(REPO_ROOT), packet_path=str(REPO_ROOT / "README.md"),
         )
         self.assertEqual(state.model, "auto")
+        self.assertEqual(state.effort, "high")
 
 
 class NativeWorkerGrammarTests(unittest.TestCase):
@@ -1093,6 +1119,450 @@ class NativeWorkerGrammarTests(unittest.TestCase):
             self.assertIn("[REDACTED:secret_assignment]", state["stderr_tail"])
             self.assertNotIn("redaction-marker-1234567890", state["stderr_tail"])
             self.assertLessEqual(len(state["stderr_tail"]), 2000)
+
+
+class GrokPrewalkQualificationGateTests(unittest.TestCase):
+    """B2-A3: qualification-based gating replaces the categorical grok veto."""
+
+    LAUNCHABLE_GROK = GrokCapabilities(
+        installed=True,
+        authenticated=True,
+        models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL),
+        default_model=GROK_COMPOSER_MODEL,
+    )
+
+    def decide(self, **overrides):
+        params = {
+            "host": "codex",
+            "execution_reasoning": "medium",
+            "review_risk": "standard",
+            "grok": self.LAUNCHABLE_GROK,
+        }
+        params.update(overrides)
+        return decide_worker_route(**params)
+
+    def _grok_qualification(self, **overrides) -> PrewalkCapabilities:
+        params = dict(
+            host="grok",
+            transport="grok_build",
+            installed_version="0.2.102",
+            advertised_exact_resume=True,
+            advertised_route_override_on_resume=True,
+            behaviorally_verified_session_continuity=True,
+            worktree_binding_verified=True,
+            stream_identity_verified=True,
+            instruction_fidelity="retained_safe",
+            evidence_source="artifact:/fixture/grok-qualification.json",
+            model_calls_made=False,
+            qualified_guide_model="guide-model",
+            qualified_guide_effort="high",
+            qualified_execution_model=GROK_COMPOSER_MODEL,
+            qualified_execution_effort="high",
+        )
+        params.update(overrides)
+        return PrewalkCapabilities(**params)
+
+    def test_auto_prewalk_without_artifact_reports_concrete_unqualified_fallback(self) -> None:
+        decision = self.decide(
+            explicit_intent={"worker": {"provider": "grok", "prewalk": "auto"}},
+            # Native-host evidence must never leak into the grok payload: even
+            # with a fully qualified codex artifact supplied, the grok route
+            # reports grok capability facts (unavailable), not native ones.
+            prewalk_capabilities=fixture_prewalk_capabilities("codex"),
+        )
+        self.assertEqual(decision.provider, "grok")
+        self.assertEqual(decision.prewalk.actual_mode, "off")
+        self.assertEqual(
+            decision.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "qualification_artifact_missing",
+        )
+        self.assertEqual(decision.prewalk.guide.transport, "grok_build")
+        self.assertEqual(decision.prewalk.capability_state.value, "unavailable")
+        self.assertFalse(decision.prewalk.advertised_exact_resume)
+        self.assertEqual(decision.prewalk.instruction_fidelity.value, "unsupported")
+        self.assertFalse(decision.model_calls_made)
+
+    def test_fixture_sourced_grok_qualification_is_forbidden(self) -> None:
+        fixture_evidence = self._grok_qualification(
+            evidence_source="deterministic_fixture"
+        )
+        decision = self.decide(
+            explicit_intent={
+                "worker": {
+                    "provider": "grok",
+                    "prewalk": "auto",
+                    "prewalk_guide_model": "guide-model",
+                }
+            },
+            grok_prewalk_qualification=fixture_evidence,
+        )
+        self.assertEqual(decision.prewalk.actual_mode, "off")
+        self.assertEqual(
+            decision.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "qualification_fixture_evidence_forbidden",
+        )
+
+    def test_required_prewalk_without_artifact_fails_before_launch(self) -> None:
+        with self.assertRaises(ValidationIssue) as caught:
+            self.decide(
+                explicit_intent={"worker": {"provider": "grok", "prewalk": "required"}},
+            )
+        self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
+        self.assertEqual(
+            caught.exception.hint,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "qualification_artifact_missing",
+        )
+
+    def test_incomplete_qualification_reports_its_concrete_reason(self) -> None:
+        pruned = self._grok_qualification(instruction_fidelity="pruned")
+        decision = self.decide(
+            explicit_intent={"worker": {"provider": "grok", "prewalk": "auto"}},
+            grok_prewalk_qualification=pruned,
+        )
+        self.assertEqual(decision.prewalk.actual_mode, "off")
+        self.assertEqual(
+            decision.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "prewalk_instruction_pruning_unqualified",
+        )
+        wrong_host = self._grok_qualification(host="claude", transport="claude_code")
+        mismatch = self.decide(
+            explicit_intent={"worker": {"provider": "grok", "prewalk": "auto"}},
+            grok_prewalk_qualification=wrong_host,
+        )
+        self.assertEqual(
+            mismatch.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "qualification_host_mismatch",
+        )
+
+    def test_allow_grok_false_vetoes_before_any_evidence(self) -> None:
+        decision = self.decide(
+            explicit_intent={
+                "worker": {
+                    "provider": "grok",
+                    "prewalk": "required",
+                    "prewalk_guide_model": "guide-model",
+                }
+            },
+            repo_policy={"worker": {"allow_grok": False}},
+            grok_prewalk_qualification=self._grok_qualification(),
+            prewalk_capabilities=fixture_prewalk_capabilities("codex"),
+        )
+        self.assertEqual(decision.provider, "native")
+        self.assertEqual(decision.fallback["reason"], "repository_policy_prohibits_grok")
+        self.assertEqual(decision.provenance["grok_safety_veto"], "repository_policy")
+        # The vetoed request never reaches the grok qualification arm; the
+        # native transport carries the (fixture-qualified) prewalk instead.
+        self.assertEqual(decision.prewalk.guide.transport, "codex_exec")
+
+    def test_b3_loader_seam_activates_only_on_matching_retained_safe_evidence(self) -> None:
+        decision = self.decide(
+            explicit_intent={
+                "worker": {
+                    "provider": "grok",
+                    "prewalk": "auto",
+                    "prewalk_guide_model": "guide-model",
+                }
+            },
+            grok_prewalk_qualification=self._grok_qualification(),
+        )
+        self.assertEqual(decision.provider, "grok")
+        self.assertEqual(decision.prewalk.actual_mode, "off")
+        self.assertEqual(decision.prewalk.guide.transport, "grok_build")
+        self.assertEqual(decision.prewalk.instruction_fidelity.value, "retained_safe")
+        self.assertEqual(decision.prewalk.capability_state.value, "qualified")
+        self.assertEqual(
+            decision.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "launch_feature_gate_closed",
+        )
+
+        # Preserve the route-matching contract behind the explicit launch
+        # feature gate so a future activation cannot bypass it.
+        with mock.patch(
+            "cobbler_runtime.worker_routing.resolve_host_profile",
+            return_value=mock.Mock(launch_ready=True),
+        ):
+            activated = self.decide(
+                explicit_intent={
+                    "worker": {
+                        "provider": "grok",
+                        "prewalk": "required",
+                        "prewalk_guide_model": "guide-model",
+                    }
+                },
+                grok_prewalk_qualification=self._grok_qualification(),
+            )
+            route_changed = self.decide(
+                explicit_intent={
+                    "worker": {
+                        "provider": "grok",
+                        "prewalk": "auto",
+                        "prewalk_guide_model": "other-guide-model",
+                    }
+                },
+                grok_prewalk_qualification=self._grok_qualification(
+                    evidence_source="artifact:/fixture/grok-qualification.json"
+                ),
+            )
+        self.assertEqual(activated.prewalk.actual_mode, "exact_session")
+        self.assertEqual(route_changed.prewalk.actual_mode, "off")
+        self.assertEqual(
+            route_changed.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "qualification_route_mismatch",
+        )
+
+    def test_default_environments_keep_actual_mode_off_for_every_host(self) -> None:
+        for host in ("codex", "claude"):
+            for prewalk in ("off", "auto"):
+                decision = self.decide(
+                    host=host,
+                    explicit_intent={"worker": {"prewalk": prewalk}},
+                    grok=GrokCapabilities(),
+                )
+                self.assertEqual(decision.prewalk.actual_mode, "off", (host, prewalk))
+
+
+class GrokPrewalkQualificationArtifactGateTests(unittest.TestCase):
+    """B3-A3: loader-produced evidence drives the routing gate, no live grok."""
+
+    LAUNCHABLE_GROK = GrokCapabilities(
+        installed=True,
+        authenticated=True,
+        models=(GROK_COMPOSER_MODEL, GROK_COMPLEX_MODEL),
+        default_model=GROK_COMPOSER_MODEL,
+    )
+
+    def _decide_with_artifact(self, path, **overrides):
+        params = {
+            "host": "codex",
+            "execution_reasoning": "medium",
+            "review_risk": "standard",
+            "grok": self.LAUNCHABLE_GROK,
+            "explicit_intent": {
+                "worker": {
+                    "provider": "grok",
+                    "prewalk": "required",
+                    "prewalk_guide_model": "guide-model",
+                }
+            },
+            "grok_prewalk_qualification": load_grok_prewalk_qualification(path),
+        }
+        params.update(overrides)
+        return decide_worker_route(**params)
+
+    def test_retained_safe_artifact_is_qualified_but_cannot_open_launch_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_grok_qualification_artifact(Path(tmp))
+            decision = self._decide_with_artifact(
+                path,
+                explicit_intent={
+                    "worker": {
+                        "provider": "grok",
+                        "prewalk": "auto",
+                        "prewalk_guide_model": "guide-model",
+                    }
+                },
+            )
+            with self.assertRaises(ValidationIssue) as caught:
+                self._decide_with_artifact(path)
+        self.assertEqual(decision.provider, "grok")
+        self.assertEqual(decision.prewalk.actual_mode, "off")
+        self.assertEqual(decision.prewalk.guide.transport, "grok_build")
+        self.assertEqual(decision.prewalk.execution.transport, "grok_build")
+        self.assertEqual(decision.prewalk.instruction_fidelity.value, "retained_safe")
+        self.assertEqual(
+            decision.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "launch_feature_gate_closed",
+        )
+        self.assertEqual(decision.prewalk.capability_state.value, "qualified")
+        self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
+        self.assertEqual(
+            caught.exception.hint,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "launch_feature_gate_closed",
+        )
+
+    def test_pruned_artifact_fails_required_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_grok_qualification_artifact(
+                Path(tmp), mutation={"instruction_fidelity": "pruned"}
+            )
+            with self.assertRaises(ValidationIssue) as caught:
+                self._decide_with_artifact(path)
+        self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
+        self.assertEqual(
+            caught.exception.hint,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "prewalk_instruction_pruning_unqualified",
+        )
+
+    def test_pruned_artifact_reports_honest_fallback_in_auto_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_grok_qualification_artifact(
+                Path(tmp), mutation={"instruction_fidelity": "pruned"}
+            )
+            decision = self._decide_with_artifact(
+                path,
+                explicit_intent={
+                    "worker": {
+                        "provider": "grok",
+                        "prewalk": "auto",
+                        "prewalk_guide_model": "guide-model",
+                    }
+                },
+            )
+        self.assertEqual(decision.prewalk.actual_mode, "off")
+        self.assertEqual(
+            decision.prewalk.fallback_reason,
+            "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+            "prewalk_instruction_pruning_unqualified",
+        )
+
+    def _fake_grok(self, root: Path, *, version: str = "0.2.102") -> Path:
+        executable = root / f"fake-grok-{version}"
+        executable.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json\n"
+            "import sys\n"
+            "args = sys.argv[1:]\n"
+            f"version = {version!r}\n"
+            "if args == ['version', '--json']:\n"
+            "    print(json.dumps({'currentVersion': version + ' (c1b5909ec707)'}))\n"
+            "elif args == ['models']:\n"
+            f"    print('Default model: {GROK_COMPOSER_MODEL}\\nAvailable models:\\n"
+            f"  * {GROK_COMPOSER_MODEL} (default)\\n  - {GROK_COMPLEX_MODEL}')\n"
+            "elif args == ['--help']:\n"
+            "    print('--prompt-file --cwd --model --permission-mode --always-approve '\n"
+            "          '--reasoning-effort --max-turns --output-format streaming-json '\n"
+            "          '--no-subagents --no-memory --disable-web-search --check '\n"
+            "          '--session-id --resume --new-session --json-schema')\n"
+            "elif args == ['agent', 'stdio', '--help']:\n"
+            "    print('Run agent over stdio')\n"
+            "else:\n"
+            "    raise SystemExit(2)\n",
+            encoding="utf-8",
+        )
+        executable.chmod(0o700)
+        return executable
+
+    def _cli_route(
+        self,
+        tmp: Path,
+        artifact: Path,
+        *,
+        executable: Path | None = None,
+        probe: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env["XDG_CONFIG_HOME"] = str(tmp)
+        env["HOME"] = str(tmp / "home")
+        env.pop("GROK_AUTH_PATH", None)
+        env.pop("XAI_API_KEY", None)
+        cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
+        argv = [
+            sys.executable,
+            str(cli),
+            "route-worker",
+            "--host",
+            "codex",
+            "--execution-reasoning",
+            "medium",
+            "--review-risk",
+            "standard",
+            "--provider",
+            "grok",
+            "--prewalk",
+            "auto",
+            "--guide-model",
+            "guide-model",
+            "--guide-effort",
+            "high",
+            "--grok-prewalk-qualification",
+            str(artifact),
+            "--json",
+        ]
+        if probe:
+            argv.extend(
+                [
+                    "--probe-grok",
+                    "--grok-executable",
+                    str(executable or self._fake_grok(tmp)),
+                ]
+            )
+        return subprocess.run(
+            argv,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def test_cli_flag_feeds_the_loader_into_the_routing_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            golden = write_grok_qualification_artifact(root)
+            passed = self._cli_route(root, golden)
+            self.assertEqual(passed.returncode, 0, passed.stderr)
+            payload = json.loads(passed.stdout)
+            self.assertEqual(payload["decision"]["provider"], "grok")
+            self.assertEqual(
+                payload["decision"]["prewalk"]["actual_mode"], "off"
+            )
+            self.assertEqual(
+                payload["decision"]["prewalk"]["fallback_reason"],
+                "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+                "launch_feature_gate_closed",
+            )
+            self.assertEqual(
+                payload["grok_prewalk_qualification"]["evidence_source"],
+                str(golden.resolve()),
+            )
+            unprobed = self._cli_route(root, golden, probe=False)
+            self.assertEqual(unprobed.returncode, 1, unprobed.stderr)
+            unprobed_failure = json.loads(unprobed.stdout)
+            self.assertEqual(
+                unprobed_failure["issues"][0]["path"],
+                "grok_prewalk_qualification",
+            )
+            self.assertIn("--probe-grok", unprobed_failure["issues"][0]["message"])
+            stale = self._cli_route(
+                root,
+                golden,
+                executable=self._fake_grok(root, version="0.2.103"),
+            )
+            self.assertEqual(stale.returncode, 1, stale.stderr)
+            stale_failure = json.loads(stale.stdout)
+            self.assertEqual(stale_failure["issues"][0]["path"], "installed_version")
+            pruned = write_grok_qualification_artifact(
+                root,
+                mutation={"instruction_fidelity": "pruned"},
+                name="pruned.json",
+            )
+            failed = self._cli_route(root, pruned)
+            self.assertEqual(failed.returncode, 0, failed.stderr)
+            failure = json.loads(failed.stdout)
+            self.assertEqual(
+                failure["decision"]["prewalk"]["fallback_reason"],
+                "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+                "prewalk_instruction_pruning_unqualified",
+            )
+            invalid = write_grok_qualification_artifact(
+                root, mutation={"host": "claude"}, name="invalid.json"
+            )
+            rejected = self._cli_route(root, invalid)
+            self.assertEqual(rejected.returncode, 1, rejected.stderr)
+            rejection = json.loads(rejected.stdout)
+            self.assertEqual(
+                rejection["issues"][0]["code"], "prewalk_capability_unavailable"
+            )
+            self.assertEqual(rejection["issues"][0]["path"], "host")
 
 
 if __name__ == "__main__":

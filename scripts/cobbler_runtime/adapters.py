@@ -16,7 +16,13 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from .context import ROLE_REPORT_SCHEMA_FIELDS
 from .executables import resolve_executable, resolve_executable_for_launch
-from .schema import BUILTIN_ADAPTER_NAMES, HarnessProfile, NATIVE_PROFILE_NAME, ValidationIssue
+from .schema import (
+    AMBIGUOUS_SESSION_TOKENS,
+    BUILTIN_ADAPTER_NAMES,
+    HarnessProfile,
+    NATIVE_PROFILE_NAME,
+    ValidationIssue,
+)
 
 
 class Adapter(Protocol):
@@ -563,18 +569,9 @@ def validate_adapter_contract_pair(
     return ic, oc
 
 
-_AMBIGUOUS_SESSION_TOKENS: frozenset[str] = frozenset(
-    {
-        "latest",
-        "last",
-        "continue",
-        "most-recent",
-        "most_recent",
-        "recent",
-        "current",
-        "active",
-    }
-)
+# Canonical set lives in schema.AMBIGUOUS_SESSION_TOKENS; keep the historical
+# module-level alias for existing importers.
+_AMBIGUOUS_SESSION_TOKENS: frozenset[str] = AMBIGUOUS_SESSION_TOKENS
 
 
 def assert_exact_session_id(session_id: str, *, adapter: str = "") -> str:

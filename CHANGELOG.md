@@ -4,6 +4,117 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+### Runtime hardening and Python 3.10 floor guards (audit B1)
+
+- Add explicit Python >= 3.10 entry-point guards to `sync_installed_skills.py` and
+  `installed_bundle_smoke.py`, and version-gate their test modules so a local 3.9 run reports
+  skips instead of errors; CI (3.10/3.12/3.14) behavior is unchanged.
+- Narrow native-worker identity capture to host-known identity event types, so a foreign
+  `session_id` in ordinary worker stdout can no longer bind or mismatch session identity.
+- Scope transient-failure markers to stderr lines and provider error events (task stdout that
+  merely mentions "timeout" is terminal, not transient); unify one canonical
+  `schema.AMBIGUOUS_SESSION_TOKENS` set (`continue`, `most-recent`, `most_recent`, leading-dash
+  guard) across every consumer site.
+- Terminalize hung-git `TimeoutExpired` on the supervise/status paths with an honest
+  `native_worker_git_timeout` state, tolerate torn follow-log JSON lines, preserve a bounded
+  `stderr_tail` alongside provider events, report the post-edit code when guide recovery moved
+  HEAD, and enforce at test time that every emitted failure reason is a member of
+  `PREWALK_FAILURE_CODES`.
+- Keep the public-API compatibility gate strict while classifying recursively additive,
+  non-required JSON Schema properties as compatible; removals, changed definitions, and new
+  required properties still fail closed.
+
+### Explicit delegation route identity and Grok highest-effort default
+
+- Define native worker handoffs as explicit `(model, effort)` routes: GPT-5.6 strong-driver routes
+  keep the same GPT-5.6 identity at `medium`, GPT-4.8 Max/UltraCode keeps the same GPT-4.8 identity
+  at `medium`, and Fable 5 `max`/`ultra` keeps Fable 5 at `low`. The Fable→Opus exception is named
+  honestly as `claude-opus-4-8` at `medium`, not described as same-model inheritance.
+- Make permitted Grok Build delegation use the authenticated live-catalog default at explicit
+  `high`, Grok's highest supported effort. Full-run and legacy launch defaults now agree; Devin
+  retains its existing `medium` default, explicit effort overrides still win, and Elves never
+  hardcodes a stale Composer model absent from the live catalog (rechecked with Grok Build 0.2.103
+  and upstream source commit `7cfcb20`).
+
+### Host-profile registry and feature-gated Grok prewalk arm (audit B2)
+
+- Extract a single host-profile registry (`cobbler_runtime/host_profiles.py`) consumed by spec
+  construction, child-env secret projection, launch identity readiness, prewalk probe functions,
+  and routing transport naming; codex/claude argv stays byte-identical (proven by differential
+  tests) and `native_worker_profiles()` becomes a view of the registry.
+- Add a feature-gated `grok` host row: create `--session-id <uuid> --cwd <worktree> --model
+  --effort --permission-mode auto --output-format streaming-json`, exact `--resume <uuid>` with
+  execution route flags, `XAI_API_KEY`-only secret allowlist, and never
+  yolo/always-approve/dontAsk on this lane. `launch_ready` is false: `native-worker launch --host
+  grok` fails closed, and the arm remains feature-gated off.
+- Replace the categorical external-provider prewalk veto with qualification-based gating:
+  provider=grok prewalk requires the absence of the repository `allow_grok=false` veto, explicit consent, and a valid qualification
+  artifact; otherwise routing records the honest concrete fallback
+  `prewalk_capability_unavailable:grok_prewalk_unqualified:<reason>`. Default outcome in every
+  current environment is unchanged: actual prewalk mode `off` for every host.
+
+### Grok prewalk qualification tooling (audit B3)
+
+- Add the read-only static probe `native-worker prewalk-capabilities --host grok --json`
+  (installed help/version grammar only, zero model calls, concrete unavailable reason without an
+  installed binary) backed by a recorded help fixture.
+- Add the `grok_prewalk_qualification_canary` schema v1 and `load_grok_prewalk_qualification`:
+  a bounded (<= 64 KiB) fd-bound (O_NOFOLLOW, fstat-identity) loader requiring the exact
+  18-field set, canonical session UUID, and installed version plus parsed build-commit binding;
+  every single-field mutation fails closed with a stable diagnostic. `route-worker` gains
+  `--grok-prewalk-qualification <artifact.json>` and requires `--probe-grok`, so the artifact is
+  checked against the version and build commit reported by the installed binary rather than
+  trusting its self-asserted identity.
+- `qualified()` semantics mirror the native rule: only operator-recorded `retained_safe`
+  evidence can satisfy the behavioral gate; `pruned`/`turn_scoped` load as recorded,
+  non-activating states. Qualification never opens the separate registry launch feature gate,
+  so actual Grok prewalk remains off and `required` fails closed while `launch_ready` is false.
+  The tooling validates artifacts and never fabricates them; no live artifact exists and no
+  canary ran.
+
+### Contract amendments, glossary, and doc hygiene (audit B4)
+
+- `references/prewalk.md`: the separately-qualified external-provider doorway is now the
+  governing sentence, the Promise admits a separately qualified worker session, the host-parity
+  table gains a Grok Build column (marked feature-gated, unqualified), and the qualification
+  artifact plus `--host grok` probe are documented.
+- `references/adaptive-worker-routing.md` and `references/host-parity.md`: document the grok
+  probe, the qualification flag, provider=grok x `worker.prewalk` semantics (auto falls back
+  honestly; required fails before launch), and extend the release-honesty rule to external
+  providers. `references/grok-open-source-worker.md` gains the non-yolo prewalk-lane section and
+  the operator live-canary procedure (verification basis: grok-build 0.2.102 source, commit
+  `98c3b24`).
+- `references/glossary.md`: add prewalk, guide/execution route, instruction fidelity,
+  behavioral qualification artifact, canary, Lane A, Mode A1, main/work driver, implementation
+  lane, and state capsule; remove the dead "Handling matrix" entry.
+- Doc hygiene: fix the installed-bundle dead link in `councilelves-launch-prompt.md`, add
+  `opencode-cli` to the canonical work-driver spelling map, align the `grok-4.5`
+  catalog-membership framing between SKILL.md and the routing doc, add 0.2.93 vs >= 0.2.101
+  version-applicability markers to `grok-implementer-launch-prompt.md`, and restructure
+  `TODO.md` into a live backlog plus `## Completed Archive`.
+- Grok prewalk remains feature-gated off for every host and environment; nothing in this release
+  claims Grok prewalk availability or behavioral qualification.
+
+### Worker confidence signal (audit B5)
+
+- Add optional additive `confidence` (`high`/`medium`/`low`) and `unsure_about` (bounded list of
+  non-empty strings, at most 16 items of 500 chars, no secret-like text) fields to trusted
+  full-run `batch_complete`/`run_complete` events, report `batches[]` rows, and the legacy done
+  report schema. Absent fields stay valid; present fields are validated fail-closed with stable
+  diagnostics, and the legacy gate reports malformed fields as non-fatal warnings.
+- An empty `unsure_about` list is a valid, complete answer everywhere — a positive assertion
+  ("I verified everything I touched and have no reservations"), never a lazy default. The signal
+  is review triage only, never authority: it does not skip gates, waive review, or change
+  completion requirements in either direction.
+- The parked supervisor surfaces the latest `batch_complete` confidence signal in its bounded
+  monitor `check_summary` (redacted; under shared OAuth the free-text list is replaced by a
+  bounded derived count and the confidence enum still surfaces, so suppression never conflates
+  with the asserted-clean empty list; null means no signal). Shared-OAuth projection validates
+  and secret-scans the original confidence fields before removing free text, preventing malformed
+  `unsure_about` data from being normalized into an apparently valid count. SKILL.md adds
+  the batch-Close `Confidence:` commit trailer format, and the review subagent reads the signal
+  first to allocate attention to flagged areas.
+
 ## [2.9.0] - 2026-07-17
 
 ### Grok Build unattended-launch compatibility

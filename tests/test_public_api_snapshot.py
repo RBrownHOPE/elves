@@ -1051,6 +1051,58 @@ def build_parser():
                 result["breaking"],
             )
 
+    def test_json_schema_optional_property_addition_is_compatible(self) -> None:
+        schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "required": ["status"],
+            "properties": {"status": {"type": "string"}},
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            path = root / "references" / "implement-done-report.schema.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(schema), encoding="utf-8")
+            self._commit_all_baseline(root)
+
+            schema["properties"]["confidence"] = {
+                "type": "string",
+                "enum": ["high", "medium", "low"],
+            }
+            path.write_text(json.dumps(schema), encoding="utf-8")
+            result = compatibility_gate(root, required=True, base_ref="origin/main")
+
+            self.assertTrue(result["ok"], result)
+            self.assertIn(
+                "schema:references/implement-done-report.schema.json",
+                result["diff"]["compatible_changes"],
+            )
+
+    def test_json_schema_new_required_property_remains_breaking(self) -> None:
+        schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "required": ["status"],
+            "properties": {"status": {"type": "string"}},
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            path = root / "references" / "implement-done-report.schema.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(schema), encoding="utf-8")
+            self._commit_all_baseline(root)
+
+            schema["properties"]["confidence"] = {"type": "string"}
+            schema["required"].append("confidence")
+            path.write_text(json.dumps(schema), encoding="utf-8")
+            result = compatibility_gate(root, required=True, base_ref="origin/main")
+
+            self.assertFalse(result["ok"], result)
+            self.assertIn(
+                "schema:references/implement-done-report.schema.json",
+                result["breaking"],
+            )
+
     def test_schema_property_named_description_is_structural_and_required_order_is_not(self) -> None:
         schema = {
             "$schema": "https://json-schema.org/draft/2020-12/schema",

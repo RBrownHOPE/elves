@@ -21,11 +21,13 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from cobbler_runtime.prewalk import (  # noqa: E402
+    GROK_PREWALK_QUALIFICATION_ARTIFACT_TYPE,
     PREWALK_CONTINUATION_INPUT,
     advertised_prewalk_capabilities,
     fixture_prewalk_capabilities,
     guide_prompt,
     load_and_validate_transition_artifacts,
+    load_grok_prewalk_qualification,
     load_prewalk_capability_evidence,
     prewalk_paths,
     probe_installed_prewalk_capabilities,
@@ -521,6 +523,386 @@ class CapabilityEvidenceTests(unittest.TestCase):
         self.assertFalse(capabilities.advertised_exact_resume)
         self.assertFalse(capabilities.advertised_route_override_on_resume)
         self.assertFalse(capabilities.qualified())
+
+
+class GrokPrewalkStaticProbeTests(unittest.TestCase):
+    """B3-A1: fixture-backed grok advertised grammar with zero model calls."""
+
+    def _help_text(self) -> str:
+        return (
+            REPO_ROOT / "tests" / "fixtures" / "grok-0.2.102-help.txt"
+        ).read_text(encoding="utf-8")
+
+    def test_current_version_fixture_advertises_exact_resume_and_route_override(self) -> None:
+        help_text = self._help_text()
+        capabilities = advertised_prewalk_capabilities(
+            host="grok",
+            version="0.2.102",
+            create_help=help_text,
+            resume_help=help_text,
+        )
+        self.assertEqual(capabilities.host, "grok")
+        self.assertEqual(capabilities.transport, "grok_build")
+        self.assertTrue(capabilities.advertised_exact_resume)
+        self.assertTrue(capabilities.advertised_route_override_on_resume)
+        self.assertFalse(capabilities.behaviorally_verified_session_continuity)
+        self.assertFalse(capabilities.qualified())
+        self.assertEqual(capabilities.instruction_fidelity, "unsupported")
+        self.assertEqual(capabilities.evidence_source, "installed_help_only")
+        self.assertFalse(capabilities.model_calls_made)
+
+    def test_installed_probe_reads_help_and_version_only(self) -> None:
+        help_text = self._help_text()
+        calls: list[tuple[str, ...]] = []
+
+        def runner(argv, **_kwargs):
+            calls.append(tuple(argv))
+            if "--version" in argv:
+                return subprocess.CompletedProcess(argv, 0, "grok 0.2.102", "")
+            return subprocess.CompletedProcess(argv, 0, help_text, "")
+
+        with mock.patch(
+            "cobbler_runtime.prewalk.shutil.which", return_value="/usr/bin/grok"
+        ):
+            capabilities = probe_installed_prewalk_capabilities("grok", runner=runner)
+        self.assertEqual(capabilities.installed_version, "0.2.102")
+        self.assertTrue(capabilities.advertised_exact_resume)
+        self.assertTrue(capabilities.advertised_route_override_on_resume)
+        self.assertFalse(capabilities.qualified())
+        self.assertFalse(capabilities.model_calls_made)
+        # Zero model calls: the probe may only read `--version` and `--help`.
+        self.assertTrue(calls)
+        for argv in calls:
+            self.assertIn(argv[1:], {("--version",), ("--help",)}, argv)
+
+    def test_missing_grok_binary_reports_concrete_reason_not_a_traceback(self) -> None:
+        with mock.patch("cobbler_runtime.prewalk.shutil.which", return_value=None):
+            capabilities = probe_installed_prewalk_capabilities("grok")
+        self.assertEqual(capabilities.host, "grok")
+        self.assertEqual(capabilities.transport, "grok_build")
+        self.assertEqual(capabilities.evidence_source, "installed_binary_missing")
+        self.assertFalse(capabilities.qualified())
+        self.assertIsNotNone(capabilities.unavailable_reason())
+
+    def test_cli_prewalk_capabilities_host_grok_is_end_to_end_and_model_free(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            # An empty PATH entry guarantees no installed grok is discovered:
+            # the CLI must report a concrete unavailable reason, never error.
+            env["PATH"] = str(Path(tmp) / "empty-path")
+            (Path(tmp) / "empty-path").mkdir()
+            env["XDG_CONFIG_HOME"] = tmp
+            cli = REPO_ROOT / "scripts" / "cobbler_agents.py"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(cli),
+                    "native-worker",
+                    "prewalk-capabilities",
+                    "--host",
+                    "grok",
+                    "--json",
+                ],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertFalse(payload["model_calls_made"])
+            capabilities = payload["prewalk_capabilities"]
+            self.assertEqual(capabilities["host"], "grok")
+            self.assertEqual(capabilities["transport"], "grok_build")
+            self.assertEqual(
+                capabilities["evidence_source"], "installed_binary_missing"
+            )
+            self.assertFalse(capabilities["qualified"])
+            self.assertIsNotNone(capabilities["unavailable_reason"])
+
+
+GOLDEN_GROK_SESSION = "3f2b9a54-6a1d-4a8e-9c7b-2d5e8f1a0b4c"
+
+
+def write_grok_qualification_artifact(
+    root: Path,
+    *,
+    mutation: dict[str, object] | None = None,
+    remove: tuple[str, ...] = (),
+    name: str = "grok-prewalk-qualification.json",
+    mode: int = 0o600,
+) -> Path:
+    payload: dict[str, object] = {
+        "artifact_type": GROK_PREWALK_QUALIFICATION_ARTIFACT_TYPE,
+        "schema_version": 1,
+        "host": "grok",
+        "transport": "grok_build",
+        "installed_version": "0.2.102",
+        "installed_build_commit": "c1b5909ec707",
+        "session_id": GOLDEN_GROK_SESSION,
+        "guide_route": {"model": "guide-model", "effort": "high"},
+        "execution_route": {"model": "grok-composer-2.5-fast", "effort": "high"},
+        "create_exit_code": 0,
+        "resume_exit_code": 0,
+        "same_session_id": True,
+        "same_worktree": True,
+        "stream_identity_verified": True,
+        "unique_guide_fact_observed": True,
+        "packet_replayed": False,
+        "model_calls_made": True,
+        "instruction_fidelity": "retained_safe",
+    }
+    payload.update(mutation or {})
+    for key in remove:
+        payload.pop(key, None)
+    path = root / name
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.chmod(mode)
+    return path
+
+
+class GrokPrewalkQualificationLoaderTests(unittest.TestCase):
+    """B3-A2: golden artifact accepted; every single-field mutation rejected."""
+
+    def test_golden_artifact_loads_qualified_retained_safe_capabilities(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_grok_qualification_artifact(Path(tmp))
+            capabilities = load_grok_prewalk_qualification(
+                path,
+                installed_version="0.2.102",
+                installed_build_commit="C1B5909EC707",
+            )
+        self.assertEqual(capabilities.host, "grok")
+        self.assertEqual(capabilities.transport, "grok_build")
+        self.assertEqual(capabilities.installed_version, "0.2.102")
+        self.assertTrue(capabilities.qualified())
+        self.assertEqual(capabilities.instruction_fidelity, "retained_safe")
+        self.assertFalse(capabilities.behaviorally_verified_instruction_pruning)
+        self.assertTrue(capabilities.model_calls_made)
+        # The loader must never emit a fixture token: the evidence source is
+        # always the resolved artifact path (the routing gate rejects
+        # deterministic_fixture with qualification_fixture_evidence_forbidden).
+        self.assertEqual(capabilities.evidence_source, str(path.resolve()))
+        self.assertNotEqual(capabilities.evidence_source, "deterministic_fixture")
+        self.assertEqual(capabilities.qualified_guide_model, "guide-model")
+        self.assertEqual(capabilities.qualified_guide_effort, "high")
+        self.assertEqual(
+            capabilities.qualified_execution_model, "grok-composer-2.5-fast"
+        )
+        self.assertEqual(capabilities.qualified_execution_effort, "high")
+        self.assertTrue(
+            capabilities.route_matches(
+                guide_model="guide-model",
+                guide_effort="high",
+                execution_model="grok-composer-2.5-fast",
+                execution_effort="high",
+            )
+        )
+        self.assertFalse(
+            capabilities.route_matches(
+                guide_model="other-guide",
+                guide_effort="high",
+                execution_model="grok-composer-2.5-fast",
+                execution_effort="high",
+            )
+        )
+
+    def test_non_activating_fidelities_load_as_recorded_but_unqualified(self) -> None:
+        for fidelity in ("pruned", "turn_scoped"):
+            with self.subTest(fidelity=fidelity), tempfile.TemporaryDirectory() as tmp:
+                path = write_grok_qualification_artifact(
+                    Path(tmp), mutation={"instruction_fidelity": fidelity}
+                )
+                capabilities = load_grok_prewalk_qualification(path)
+                self.assertEqual(capabilities.instruction_fidelity, fidelity)
+                self.assertFalse(capabilities.qualified())
+                self.assertEqual(
+                    capabilities.unavailable_reason(),
+                    "prewalk_instruction_pruning_unqualified",
+                )
+                self.assertEqual(
+                    capabilities.behaviorally_verified_instruction_pruning,
+                    fidelity == "pruned",
+                )
+
+    def test_each_single_field_mutation_is_rejected_with_a_stable_code(self) -> None:
+        cases: list[tuple[dict[str, object] | None, tuple[str, ...], str]] = [
+            ({"host": "claude"}, (), "prewalk_capability_unavailable"),
+            ({"transport": "claude_code"}, (), "prewalk_capability_unavailable"),
+            (
+                {"artifact_type": "native_prewalk_behavioral_qualification"},
+                (),
+                "prewalk_capability_unavailable",
+            ),
+            ({"schema_version": 2}, (), "prewalk_capability_unavailable"),
+            ({"schema_version": True}, (), "prewalk_capability_unavailable"),
+            ({"schema_version": "1"}, (), "prewalk_capability_unavailable"),
+            (
+                {"artifact_type": "GROK_PREWALK_QUALIFICATION_CANARY"},
+                (),
+                "prewalk_capability_unavailable",
+            ),
+            (
+                {"session_id": f"urn:uuid:{GOLDEN_GROK_SESSION}"},
+                (),
+                "prewalk_session_id_missing",
+            ),
+            ({"installed_version": "0.2.101"}, (), "prewalk_capability_unavailable"),
+            (
+                {"installed_build_commit": "not-a-commit"},
+                (),
+                "prewalk_capability_unavailable",
+            ),
+            ({"session_id": "not-a-uuid"}, (), "prewalk_session_id_missing"),
+            (
+                {"session_id": GOLDEN_GROK_SESSION.upper()},
+                (),
+                "prewalk_session_id_missing",
+            ),
+            (None, ("guide_route",), "prewalk_capability_unavailable"),
+            (None, ("execution_route",), "prewalk_capability_unavailable"),
+            (
+                {"guide_route": {"model": "guide-model", "effort": "extreme"}},
+                (),
+                "prewalk_route_change_unqualified",
+            ),
+            ({"create_exit_code": 1}, (), "prewalk_capability_unavailable"),
+            ({"create_exit_code": False}, (), "prewalk_capability_unavailable"),
+            ({"resume_exit_code": 1}, (), "prewalk_capability_unavailable"),
+            ({"same_session_id": False}, (), "prewalk_capability_unavailable"),
+            ({"same_worktree": False}, (), "prewalk_capability_unavailable"),
+            (
+                {"stream_identity_verified": False},
+                (),
+                "prewalk_capability_unavailable",
+            ),
+            (
+                {"unique_guide_fact_observed": False},
+                (),
+                "prewalk_capability_unavailable",
+            ),
+            ({"packet_replayed": True}, (), "prewalk_capability_unavailable"),
+            ({"model_calls_made": False}, (), "prewalk_capability_unavailable"),
+            (
+                {"instruction_fidelity": "unsupported"},
+                (),
+                "prewalk_instruction_pruning_unqualified",
+            ),
+            (
+                {"unexpected_extra_field": True},
+                (),
+                "prewalk_capability_unavailable",
+            ),
+        ]
+        for mutation, remove, expected_code in cases:
+            with self.subTest(mutation=mutation, remove=remove):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = write_grok_qualification_artifact(
+                        Path(tmp), mutation=mutation, remove=remove
+                    )
+                    with self.assertRaises(ValidationIssue) as caught:
+                        load_grok_prewalk_qualification(
+                            path,
+                            installed_version="0.2.102",
+                            installed_build_commit="c1b5909ec707",
+                        )
+                self.assertEqual(caught.exception.code, expected_code)
+
+    def test_unsafe_files_are_rejected_before_any_field_is_trusted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            golden = write_grok_qualification_artifact(root)
+            symlink = root / "qualification-symlink.json"
+            symlink.symlink_to(golden)
+            with self.assertRaises(ValidationIssue) as caught:
+                load_grok_prewalk_qualification(symlink)
+            self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
+            writable = write_grok_qualification_artifact(
+                root, name="group-writable.json", mode=0o664
+            )
+            with self.assertRaises(ValidationIssue) as caught:
+                load_grok_prewalk_qualification(writable)
+            self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
+            oversized = root / "oversized.json"
+            oversized.write_text(
+                golden.read_text(encoding="utf-8") + " " * (64 * 1024),
+                encoding="utf-8",
+            )
+            oversized.chmod(0o600)
+            with self.assertRaises(ValidationIssue) as caught:
+                load_grok_prewalk_qualification(oversized)
+            self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
+            with self.assertRaises(ValidationIssue) as caught:
+                load_grok_prewalk_qualification(root / "absent.json")
+            self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
+
+    def test_probe_binds_the_artifact_to_the_installed_version(self) -> None:
+        help_text = (
+            REPO_ROOT / "tests" / "fixtures" / "grok-0.2.102-help.txt"
+        ).read_text(encoding="utf-8")
+
+        def runner_for(version: str):
+            def runner(argv, **_kwargs):
+                if "--version" in argv:
+                    return subprocess.CompletedProcess(argv, 0, f"grok {version}", "")
+                return subprocess.CompletedProcess(argv, 0, help_text, "")
+
+            return runner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_grok_qualification_artifact(Path(tmp))
+            with mock.patch(
+                "cobbler_runtime.prewalk.shutil.which", return_value="/usr/bin/grok"
+            ):
+                qualified = probe_installed_prewalk_capabilities(
+                    "grok",
+                    behavioral_evidence=path,
+                    runner=runner_for("0.2.102"),
+                )
+                self.assertTrue(qualified.qualified())
+                self.assertEqual(qualified.evidence_source, str(path.resolve()))
+                with self.assertRaises(ValidationIssue) as caught:
+                    probe_installed_prewalk_capabilities(
+                        "grok",
+                        behavioral_evidence=path,
+                        runner=runner_for("0.2.101"),
+                    )
+        self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
+        self.assertEqual(caught.exception.path, "installed_version")
+
+    def test_probe_binds_the_artifact_to_the_installed_build_commit(self) -> None:
+        help_text = (
+            REPO_ROOT / "tests" / "fixtures" / "grok-0.2.102-help.txt"
+        ).read_text(encoding="utf-8")
+
+        def runner_for(version_line: str):
+            def runner(argv, **_kwargs):
+                if "--version" in argv:
+                    return subprocess.CompletedProcess(argv, 0, version_line, "")
+                return subprocess.CompletedProcess(argv, 0, help_text, "")
+
+            return runner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_grok_qualification_artifact(Path(tmp))
+            with mock.patch(
+                "cobbler_runtime.prewalk.shutil.which", return_value="/usr/bin/grok"
+            ):
+                bound = probe_installed_prewalk_capabilities(
+                    "grok",
+                    behavioral_evidence=path,
+                    runner=runner_for("grok 0.2.102 (c1b5909ec707)"),
+                )
+                self.assertTrue(bound.qualified())
+                with self.assertRaises(ValidationIssue) as caught:
+                    probe_installed_prewalk_capabilities(
+                        "grok",
+                        behavioral_evidence=path,
+                        runner=runner_for("grok 0.2.102 (deadbeef1234)"),
+                    )
+        self.assertEqual(caught.exception.code, "prewalk_capability_unavailable")
+        self.assertEqual(caught.exception.path, "installed_build_commit")
 
 
 class NativeTransportParityTests(unittest.TestCase):

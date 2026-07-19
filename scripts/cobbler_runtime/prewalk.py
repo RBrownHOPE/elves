@@ -13,13 +13,16 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
 import stat
 import subprocess
+import uuid
 from typing import Any, Mapping, Sequence
 
+from .host_profiles import host_profile_or_none
 from .schema import ValidationIssue
 from .storage import StorageError, atomic_write_json, guard_repo_path
 
@@ -41,6 +44,7 @@ PREWALK_INSTRUCTION_FIDELITIES = (
     "retained_safe",
     "unsupported",
 )
+GROK_PREWALK_QUALIFICATION_ARTIFACT_TYPE = "grok_prewalk_qualification_canary"
 PREWALK_FAILURE_CODES = frozenset(
     {
         "prewalk_capability_unavailable",
@@ -66,6 +70,7 @@ PREWALK_FAILURE_CODES = frozenset(
 
 _TODO_ID_RE = re.compile(r"PW-(\d{2})\Z")
 _SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
+_BUILD_COMMIT_RE = re.compile(r"[0-9a-f]{7,40}\Z")
 _SAFE_RUN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _STAGING_ONLY_PREFIXES = (
     ".elves/",
@@ -702,24 +707,13 @@ def fixture_prewalk_capabilities(host: str = "fixture") -> PrewalkCapabilities:
 def advertised_prewalk_capabilities(
     *, host: str, version: str | None, create_help: str, resume_help: str
 ) -> PrewalkCapabilities:
-    host_name = host.strip().lower().replace("_", "-")
-    if host_name == "codex":
-        exact = "resume" in create_help and "SESSION_ID" in resume_help.upper()
-        config_override = ("--config" in create_help or "-c" in create_help) and (
-            "--config" in resume_help or "-c" in resume_help
-        )
-        route = "--model" in create_help and "--model" in resume_help and config_override
-        transport = "codex_exec"
-    elif host_name in {"claude", "claude-code"}:
-        exact = "--session-id" in create_help and "--resume" in resume_help
-        route = "--model" in resume_help and "--effort" in resume_help
-        transport = "claude_code"
-        host_name = "claude"
-    else:
+    profile = host_profile_or_none(host)
+    if profile is None or profile.help_grammar is None:
         raise ValidationIssue("prewalk_capability_unavailable", f"Unsupported prewalk host `{host}`")
+    exact, route = profile.help_grammar(create_help, resume_help)
     return PrewalkCapabilities(
-        host=host_name,
-        transport=transport,
+        host=profile.capability_host,
+        transport=profile.transport,
         installed_version=version,
         advertised_exact_resume=exact,
         advertised_route_override_on_resume=route,
@@ -736,15 +730,14 @@ def probe_installed_prewalk_capabilities(
     runner: Any = subprocess.run,
 ) -> PrewalkCapabilities:
     """Read installed help/version only; never launch an inference turn."""
-    token = host.strip().lower().replace("_", "-")
-    executable = "codex" if token == "codex" else "claude" if token in {"claude", "claude-code"} else None
-    if executable is None:
+    profile = host_profile_or_none(host)
+    if profile is None or profile.executable is None or profile.help_grammar is None:
         raise ValidationIssue("prewalk_capability_unavailable", f"Unsupported prewalk host `{host}`")
-    located = shutil.which(executable)
+    located = shutil.which(profile.executable)
     if not located:
         return PrewalkCapabilities(
-            host="claude" if token.startswith("claude") else token,
-            transport="claude_code" if token.startswith("claude") else "codex_exec",
+            host=profile.capability_host,
+            transport=profile.transport,
             evidence_source="installed_binary_missing",
         )
 
@@ -761,7 +754,7 @@ def probe_installed_prewalk_capabilities(
         except (OSError, subprocess.TimeoutExpired) as exc:
             return subprocess.CompletedProcess(argv, 1, "", type(exc).__name__)
 
-    version_result = invoke([located, "--version"])
+    version_result = invoke([located, *profile.version_argv])
     version_text = (
         version_result.stdout + version_result.stderr
         if version_result.returncode == 0
@@ -769,14 +762,14 @@ def probe_installed_prewalk_capabilities(
     )
     version_match = re.search(r"\d+\.\d+(?:\.\d+)?", version_text)
     version = version_match.group(0) if version_match else None
-    if token == "codex":
-        create_result = invoke([located, "exec", "--help"])
-        resume_result = invoke([located, "exec", "resume", "--help"])
-    else:
-        create_result = invoke([located, "--help"])
-        resume_result = create_result
+    create_result = invoke([located, *profile.create_help_argv])
+    resume_result = (
+        create_result
+        if profile.resume_help_argv == profile.create_help_argv
+        else invoke([located, *profile.resume_help_argv])
+    )
     advertised = advertised_prewalk_capabilities(
-        host=token,
+        host=profile.capability_host,
         version=version,
         create_help=(
             (create_result.stdout + create_result.stderr)[:PREWALK_RUNTIME_ARTIFACT_MAX_BYTES]
@@ -791,12 +784,62 @@ def probe_installed_prewalk_capabilities(
     )
     if behavioral_evidence is None:
         return advertised
+    if profile.capability_host == "grok":
+        if version is None:
+            raise ValidationIssue(
+                "prewalk_capability_unavailable",
+                "Behavioral qualification requires an exact bounded installed version",
+                path="installed_version",
+            )
+        # Bind the artifact to the installed build commit when the version
+        # output publishes one (same `(hex)` grammar the goal canary binds).
+        build_match = re.search(r"\(([0-9a-f]{7,40})\)", version_text, re.I)
+        return load_grok_prewalk_qualification(
+            behavioral_evidence,
+            installed_version=version,
+            installed_build_commit=(
+                build_match.group(1).lower() if build_match else None
+            ),
+            advertised=advertised,
+        )
     return load_prewalk_capability_evidence(
         behavioral_evidence,
-        host=token,
+        host=profile.capability_host,
         installed_version=version,
         advertised=advertised,
     )
+
+
+def _qualification_phase_routes(
+    data: Mapping[str, Any],
+) -> dict[str, tuple[str | None, str]]:
+    """Validate the guide/execution route bindings shared by evidence loaders."""
+    routes: dict[str, tuple[str | None, str]] = {}
+    for role in ("guide", "execution"):
+        route = data.get(f"{role}_route")
+        if not isinstance(route, Mapping):
+            raise ValidationIssue(
+                "prewalk_route_change_unqualified",
+                "Qualification must bind both requested phase routes",
+                path=f"{role}_route",
+            )
+        model = route.get("model")
+        if model is not None:
+            model = _required_text(
+                model,
+                path=f"{role}_route.model",
+                code="prewalk_route_change_unqualified",
+                max_chars=200,
+            )
+        effort = route.get("effort")
+        if effort not in {"low", "medium", "high"}:
+            raise ValidationIssue(
+                "prewalk_route_change_unqualified",
+                "Qualification phase effort must be low, medium, or high",
+                path=f"{role}_route.effort",
+            )
+        routes[role] = (model, str(effort))
+    return routes
 
 
 def load_prewalk_capability_evidence(
@@ -864,31 +907,7 @@ def load_prewalk_capability_evidence(
             "Qualification did not prove the canonical minimal continuation input",
             path="continuation_sha256",
         )
-    routes: dict[str, tuple[str | None, str]] = {}
-    for role in ("guide", "execution"):
-        route = data.get(f"{role}_route")
-        if not isinstance(route, Mapping):
-            raise ValidationIssue(
-                "prewalk_route_change_unqualified",
-                "Qualification must bind both requested phase routes",
-                path=f"{role}_route",
-            )
-        model = route.get("model")
-        if model is not None:
-            model = _required_text(
-                model,
-                path=f"{role}_route.model",
-                code="prewalk_route_change_unqualified",
-                max_chars=200,
-            )
-        effort = route.get("effort")
-        if effort not in {"low", "medium", "high"}:
-            raise ValidationIssue(
-                "prewalk_route_change_unqualified",
-                "Qualification phase effort must be low, medium, or high",
-                path=f"{role}_route.effort",
-            )
-        routes[role] = (model, str(effort))
+    routes = _qualification_phase_routes(data)
     model_calls_made = data.get("model_calls_made")
     if model_calls_made is not True:
         raise ValidationIssue(
@@ -909,6 +928,256 @@ def load_prewalk_capability_evidence(
         instruction_fidelity=str(fidelity),
         evidence_source=str(path.resolve()),
         model_calls_made=model_calls_made,
+        qualified_guide_model=routes["guide"][0],
+        qualified_guide_effort=routes["guide"][1],
+        qualified_execution_model=routes["execution"][0],
+        qualified_execution_effort=routes["execution"][1],
+    )
+
+
+_GROK_QUALIFICATION_REQUIRED_FIELDS = frozenset(
+    {
+        "artifact_type",
+        "schema_version",
+        "host",
+        "transport",
+        "installed_version",
+        "installed_build_commit",
+        "session_id",
+        "guide_route",
+        "execution_route",
+        "create_exit_code",
+        "resume_exit_code",
+        "same_session_id",
+        "same_worktree",
+        "stream_identity_verified",
+        "unique_guide_fact_observed",
+        "packet_replayed",
+        "model_calls_made",
+        "instruction_fidelity",
+    }
+)
+
+
+def _read_qualification_artifact_json(
+    target: Path, *, limit: int, code: str
+) -> dict[str, Any]:
+    """Read one bounded regular JSON artifact with checks bound to the read fd.
+
+    Mirrors the goal-canary reader: O_NOFOLLOW open, fstat identity match
+    against the pre-open lstat, and mode/size checks on the descriptor
+    actually read, so a check-to-read swap cannot bypass the symlink,
+    writability, or size bounds.
+    """
+    try:
+        before = target.lstat()
+    except OSError as exc:
+        raise ValidationIssue(
+            code, "Grok prewalk qualification artifact is missing", path=str(target)
+        ) from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise ValidationIssue(
+            code,
+            "Grok prewalk qualification must be a regular non-symlink file",
+            path=str(target),
+        )
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(target, flags)
+    except OSError as exc:
+        raise ValidationIssue(
+            code,
+            "Grok prewalk qualification must be a regular non-symlink file",
+            path=str(target),
+        ) from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or (
+            metadata.st_dev,
+            metadata.st_ino,
+        ) != (before.st_dev, before.st_ino):
+            raise ValidationIssue(
+                code,
+                "Grok prewalk qualification must be a regular non-symlink file",
+                path=str(target),
+            )
+        if stat.S_IMODE(metadata.st_mode) & 0o022:
+            raise ValidationIssue(
+                code,
+                "Grok prewalk qualification must not be group/other-writable",
+                path=str(target),
+            )
+        if metadata.st_size > limit:
+            raise ValidationIssue(
+                code,
+                "Grok prewalk qualification artifact is too large",
+                path=str(target),
+            )
+        raw = os.read(descriptor, limit + 1)
+    finally:
+        os.close(descriptor)
+    if len(raw) > limit:
+        raise ValidationIssue(
+            code, "Grok prewalk qualification artifact is too large", path=str(target)
+        )
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValidationIssue(
+            code,
+            "Grok prewalk qualification artifact must be valid JSON",
+            path=str(target),
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ValidationIssue(
+            code,
+            "Grok prewalk qualification artifact must be one JSON object",
+            path=str(target),
+        )
+    return payload
+
+
+def load_grok_prewalk_qualification(
+    path: Path,
+    *,
+    installed_version: str | None = None,
+    installed_build_commit: str | None = None,
+    advertised: PrewalkCapabilities | None = None,
+) -> PrewalkCapabilities:
+    """Validate one bounded grok prewalk qualification artifact, fail closed.
+
+    The artifact is operator-recorded live-canary evidence (this loader never
+    fabricates or launches anything). It must be a bounded (<= 64 KiB) regular
+    non-symlink file that is not group/other-writable, carry exactly the
+    required fields, and bind host ``grok`` and transport ``grok_build`` with
+    the exact installed version and build commit, one canonical session UUID,
+    both phase routes, successful create/resume exits, the same-worktree/
+    session/stream continuity facts, guide-only fact retention, no packet
+    replay, model-call provenance, and an explicit instruction fidelity.
+    ``retained_safe`` is the only activating fidelity: ``pruned`` and
+    ``turn_scoped`` load as recorded, non-activating evidence (mirroring
+    ``PrewalkCapabilities.qualified()``). ``evidence_source`` is always the
+    resolved artifact path — never a fixture token.
+
+    ``installed_version``/``installed_build_commit`` bind the artifact to a
+    probed installed binary when supplied; standalone loads (no installed
+    grok) still require both facts inside the artifact itself.
+    """
+    code = "prewalk_capability_unavailable"
+    target = Path(path)
+    data = _read_qualification_artifact_json(
+        target, limit=PREWALK_CAPABILITY_ARTIFACT_MAX_BYTES, code=code
+    )
+    if set(data) != _GROK_QUALIFICATION_REQUIRED_FIELDS:
+        raise ValidationIssue(
+            code,
+            "Grok prewalk qualification must carry exactly the required fields",
+            path="fields",
+        )
+    exact: dict[str, Any] = {
+        "artifact_type": GROK_PREWALK_QUALIFICATION_ARTIFACT_TYPE,
+        "schema_version": 1,
+        "host": "grok",
+        "transport": "grok_build",
+        "create_exit_code": 0,
+        "resume_exit_code": 0,
+        "same_session_id": True,
+        "same_worktree": True,
+        "stream_identity_verified": True,
+        "unique_guide_fact_observed": True,
+        "packet_replayed": False,
+        "model_calls_made": True,
+    }
+    for key, expected in exact.items():
+        value = data.get(key)
+        if isinstance(expected, bool):
+            matched = value is expected
+        elif isinstance(expected, int):
+            matched = (
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and value == expected
+            )
+        else:
+            matched = value == expected
+        if not matched:
+            raise ValidationIssue(
+                code,
+                "Grok prewalk qualification does not bind the grok transport facts",
+                path=key,
+            )
+    version = _required_text(
+        data.get("installed_version"), path="installed_version", code=code, max_chars=128
+    )
+    if installed_version is not None and version != installed_version.strip():
+        raise ValidationIssue(
+            code,
+            "Grok prewalk qualification does not match the installed grok version",
+            path="installed_version",
+        )
+    build = _required_text(
+        data.get("installed_build_commit"),
+        path="installed_build_commit",
+        code=code,
+        max_chars=64,
+    ).lower()
+    if not _BUILD_COMMIT_RE.fullmatch(build):
+        raise ValidationIssue(
+            code,
+            "Grok prewalk qualification build commit is malformed",
+            path="installed_build_commit",
+        )
+    if (
+        installed_build_commit is not None
+        and build != installed_build_commit.strip().lower()
+    ):
+        raise ValidationIssue(
+            code,
+            "Grok prewalk qualification does not match the installed grok build",
+            path="installed_build_commit",
+        )
+    session_value = data.get("session_id")
+    try:
+        canonical_session = str(uuid.UUID(str(session_value)))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValidationIssue(
+            "prewalk_session_id_missing",
+            "Grok prewalk qualification requires one canonical session UUID",
+            path="session_id",
+        ) from exc
+    if canonical_session != session_value:
+        raise ValidationIssue(
+            "prewalk_session_id_missing",
+            "Grok prewalk qualification session id must be the canonical UUID form",
+            path="session_id",
+        )
+    fidelity = data.get("instruction_fidelity")
+    if fidelity not in PREWALK_INSTRUCTION_FIDELITIES or fidelity == "unsupported":
+        raise ValidationIssue(
+            "prewalk_instruction_pruning_unqualified",
+            "Grok prewalk qualification must report an observed instruction fidelity",
+            path="instruction_fidelity",
+        )
+    routes = _qualification_phase_routes(data)
+    return PrewalkCapabilities(
+        host="grok",
+        transport="grok_build",
+        installed_version=version,
+        advertised_exact_resume=(
+            advertised.advertised_exact_resume if advertised is not None else True
+        ),
+        advertised_route_override_on_resume=(
+            advertised.advertised_route_override_on_resume
+            if advertised is not None
+            else True
+        ),
+        behaviorally_verified_session_continuity=True,
+        behaviorally_verified_instruction_pruning=fidelity == "pruned",
+        worktree_binding_verified=True,
+        stream_identity_verified=True,
+        instruction_fidelity=str(fidelity),
+        evidence_source=str(target.resolve()),
+        model_calls_made=True,
         qualified_guide_model=routes["guide"][0],
         qualified_guide_effort=routes["guide"][1],
         qualified_execution_model=routes["execution"][0],

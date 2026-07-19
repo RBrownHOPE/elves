@@ -596,7 +596,16 @@ def _clip(text: str, limit: int = 240) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
+def _require_python_floor() -> None:
+    if sys.version_info < (3, 10):
+        raise SystemExit(
+            "installed_bundle_smoke requires Python >= 3.10 (repo floor); "
+            f"found {sys.version_info.major}.{sys.version_info.minor}"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
+    _require_python_floor()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--host",

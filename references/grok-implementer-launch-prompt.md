@@ -56,7 +56,7 @@ python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --packet <absolute-full-run-packet> --worktree <absolute-worktree> \
   --session <canonical-.elves-session.json> \
   --adapter grok-build --model auto \
-  --effort medium --max-turns 80
+  --effort high --max-turns 80
 
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
   --session-id <exact-uuid> --grant-grok-auth --grant-github-push
@@ -159,7 +159,7 @@ for `prepare` / `status` / argv emission.
 |---------|-------|-----|
 | Session | caller UUID via `--session-id` create once; exact `--resume` after interruption | installed grammar; never emit unsupported `--new-session` |
 | Unattended tools | **`--yolo`** (alias `--always-approve`) without `--permission-mode auto` | required for headless edits; in Grok Build 0.2.101 an explicit permission mode overrides yolo, so combining the flags can cancel the first tool turn |
-| Effort | **`medium`** default (`--effort medium`) | `high` roughly doubles tiny-task latency; reserve high for hard batches |
+| Effort | **`high`** default (`--effort high`) | highest supported Grok effort; prefer implementation quality for cross-family delegation unless the operator explicitly overrides it |
 | Subagents | enabled | never pass `--no-subagents` |
 | Unit of work | whole delegated run per full-run packet | avoid per-batch host tax |
 | Prompt | `--prompt-file` packet **or** `-p` text — never both | CLI rejects combining them |
@@ -169,7 +169,21 @@ for `prepare` / `status` / argv emission.
 | Git default | `branch_progress` (Mode A1) | Grok commits/pushes progress slices on the feature branch |
 | Failure UX | `error_human` on failed `--exec` | short mapped messages for auth / tool-config / rate-limit dumps |
 
-### Grok CLI 0.2.93 tool-gating note
+### Version applicability
+
+Grok Build behavior differs across installed versions; treat these markers as scoping, not
+availability claims:
+
+- **~0.2.93 battle-scars** — the tool-gating note and the legacy bounded-batch recipe below were
+  observed on ~0.2.93 and are not re-verified on newer builds; keep them only for that vintage.
+- **>= 0.2.101 behavior** — explicit `--permission-mode` takes precedence over `--always-approve`
+  (never combine them), and 0.2.102 source verification adds: `--session-id` is create-only,
+  `--resume` is exact, model/effort apply on resume, sandbox is resume-sticky, streaming JSON
+  emits no tool-call events, and `plan.json` persistence is vestigial.
+
+The installed executable's probed behavior is always launch authority.
+
+### Grok CLI 0.2.93 tool-gating note (~0.2.93 battle-scar)
 
 For **read-only review / media-style** Grok invocations (not Lane A implement), prefer the
 **default toolset + `--disallowed-tools` denylist** over a `--tools` allowlist. On Grok Build
@@ -182,7 +196,7 @@ This denylist guidance is informed by community companion battle-scars in
 [stdevMac/grok-in-codex](https://github.com/stdevMac/grok-in-codex) (Apache-2.0). Elves does not
 vendor those plugins; host-owned implement leases and run memory remain Elves-native.
 
-### Legacy bounded-batch headless recipe (Grok Build 0.2.93)
+### Legacy bounded-batch headless recipe (Grok Build 0.2.93 battle-scar; not re-verified on >= 0.2.101)
 
 Whole-batch implement (~3 minutes for docs+CLI+tests on this repo):
 
@@ -191,7 +205,7 @@ grok --prompt-file .elves/runtime/packets/batch-1.md \
   --cwd <worktree> \
   --model <live-model-id> \
   --yolo \
-  --effort medium \
+  --effort high \
   --max-turns 80 \
   --output-format json
 ```
@@ -204,7 +218,7 @@ grok --resume <sessionId> \
   --cwd <worktree> \
   --model <live-model-id> \
   --yolo \
-  --effort medium \
+  --effort high \
   --max-turns 80 \
   --output-format json
 ```
@@ -256,6 +270,15 @@ A full-run packet must stand alone after compaction and include:
     machine-equivalent schema); shorthand such as “write valid events/report” is not sufficient for
     unattended completion and can force an otherwise healthy parked driver to wake on malformed
     evidence.
+11. **worker confidence signal** — the packet's worker-facing instruction: with each batch
+    completion, report your confidence (high | medium | low) and flag any areas you were unsure
+    about, if any. It is entirely acceptable — and expected for straightforward batches — to
+    report none: an empty list means "I verified everything I touched and have no reservations,"
+    and that is a valid, complete answer. When you do have reservations, name them concretely
+    (file or behavior, and why). Neither answer is penalized: an honest "all good" is worth more
+    than invented caveats, and an honest "I'm not sure about X" is worth more than inflated
+    confidence. This is triage signal for the reviewer, never authority — it does not skip gates
+    or waive review in either direction.
 
 Store packets under `.elves/runtime/packets/` (ignored runtime tree). Prefer absolute `--prompt-file`
 paths when the process CWD is not the host runtime directory.
@@ -290,6 +313,8 @@ may be ignored by the supervisor):
 | `type` | string enum | `run_started`, `heartbeat`, `batch_started`, `commit_pushed`, `gate_result`, `batch_complete`, `high_risk_checkpoint`, `blocked`, or `run_complete` |
 | `summary` | string | at most 500 characters; no secret-like text such as API keys, bearer tokens, authorization headers, or private-key material |
 | `checkpoint_id` | string, conditional | required only when `type` is `high_risk_checkpoint`; exact packet-staged ID of 1–64 characters, beginning alphanumeric and continuing with alphanumerics, dot, underscore, or hyphen; forbidden on every other event type |
+| `confidence` | string enum, optional | worker confidence signal, reported with `batch_complete` and `run_complete`: `high`, `medium`, or `low`; absent stays valid; validated fail-closed when present; review triage only, never authority |
+| `unsure_about` | array of strings, optional | areas the worker was unsure about, if any: at most 16 non-empty strings of at most 500 characters each, no secret-like text; an empty list is a valid, complete answer ("I verified everything I touched and have no reservations"), never a lazy default. The supervisor surfaces the latest `batch_complete` signal in its bounded status summary; a `run_complete` signal reaches only the final report rows. Under shared OAuth the free-text list is replaced by a bounded derived `unsure_about_count`, so suppression never reads as the asserted-clean empty list |
 
 The exact `session_id` and `branch` must match supervisor state. Emit at most one terminal event:
 either `blocked` or `run_complete`. A terminal event is a wake signal, not completion authority.
@@ -315,7 +340,7 @@ The report is one JSON object with these required fields:
 | `start_head` | string | exact launch head from the baseline report |
 | `final_head` | string | observed final feature-branch SHA; non-empty when `status` is `complete` |
 | `status` | string enum | `running`, `complete`, `blocked`, `failed`, or `stopped` |
-| `batches` | array | internal batch summaries; each complete row has non-empty `id`, `status: "complete"`, and non-empty string `evidence` |
+| `batches` | array | internal batch summaries; each complete row has non-empty `id`, `status: "complete"`, and non-empty string `evidence`; rows may optionally carry `confidence` (`high`/`medium`/`low`) and `unsure_about` (at most 16 non-empty strings of at most 500 characters, empty list valid), validated fail-closed when present — review triage only, never authority |
 | `acceptance` | array of objects | exact staged `B#-A#` and `M-A#` rows described below |
 | `commits` | array | exact 40-character worker SHAs, or `{sha, subject}` records with an exact SHA and non-empty subject |
 
@@ -422,7 +447,9 @@ Read the launch packet at the path given via --prompt-file. Restate the contract
 surfaces, acceptance, validation) in one short block, then implement the whole run end-to-end.
 Do not wait for per-batch host prompts. Commit and push progress with the packet's subject schema.
 Run the packet's validation commands before claiming done. Write bounded events and the final run
-report to the paths supplied in the environment. Do not
+report to the paths supplied in the environment. On each batch_complete and in the final report,
+include your confidence (high | medium | low) and any areas you were unsure about, if any — an
+empty list is a valid, complete answer. Do not
 merge, tag, or open a second PR. Do not review your own work as independent review. If blocked,
 write status=blocked, populate blockers with concrete bounded and redacted reasons, and stop.
 ```

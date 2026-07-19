@@ -26,6 +26,10 @@ def load_module(name: str, path: Path):
     return module
 
 
+@unittest.skipIf(
+    sys.version_info < (3, 10),
+    "installed_bundle_smoke requires Python >= 3.10 (repo floor); skipping on older interpreter",
+)
 class InstalledBundleSmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

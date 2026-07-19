@@ -71,9 +71,23 @@ artifact must validate against the exact installed version/build, canonical sess
 successful exit, and matching terminal event. The help probe alone never sets goal mode, and an
 invalid or incomplete artifact keeps the one-packet fallback.
 
-Native workers inherit the current driver model unless an explicit model is routed. Effort follows
-the plan's low/medium/high execution classification; the driver itself is never downgraded. High
-review risk may advise a stronger terminal-review driver without changing it in place.
+“Inherit the driver model” means the exact observed model identity, not a cheaper sibling carrying
+the same provider label. The worker route is always described as a `(model, effort)` pair:
+
+| Live driver route | Default implementation-worker route | What changed |
+|---|---|---|
+| GPT-5.6 at `xhigh`/extra-high/`ultra` | same observed GPT-5.6 model ID at `medium` | effort only |
+| GPT-4.8 Max/UltraCode | same observed GPT-4.8 model ID at `medium` | effort only |
+| Claude Fable 5 at `max`/`ultra` | same observed `claude-fable-5` model ID at `low` | effort only |
+| explicit or availability-driven Fable→Opus route | `claude-opus-4-8` at `medium` | model and effort; never call this inheritance |
+| permitted Grok Build handoff | authenticated live-catalog default at `high` | cross-family; highest supported Grok effort |
+
+These named defaults apply to a separate worker and to the execution phase of an exact-session
+prewalk. An explicit user route still wins. Unlisted native routes use the plan's low/medium/high
+execution classification. Grok never hardcodes Composer (or any other remembered identifier): the
+installed authenticated catalog decides the model, and Elves passes `high` explicitly. The live
+driver itself is never downgraded. High review risk may advise a stronger terminal-review driver
+without changing it in place.
 
 ## Optional exact-session prewalk route
 
@@ -88,11 +102,25 @@ multi-step work; atomic low-reasoning work records a skip. External providers re
 their trajectory semantics are separately qualified. `required` fails before launch rather than
 silently becoming a packet handoff.
 
+For `provider=grok` that separate qualification is a valid `grok_prewalk_qualification_canary`
+artifact, passed with `--probe-grok --grok-prewalk-qualification <artifact.json>`. The live probe
+binds the artifact to the exact installed version/build; the artifact's own identity fields are
+never accepted as proof of what is installed. A valid artifact qualifies behavioral evidence but
+does not open the separate registry launch gate. While `launch_ready` is false, `prewalk auto`
+falls back with
+`prewalk_capability_unavailable:grok_prewalk_unqualified:launch_feature_gate_closed` and actual
+mode `off`, and `prewalk required` fails before launch with the same reason. Missing, mismatched,
+or non-`retained_safe` evidence uses its own concrete reason. `allow_grok=false` remains an
+absolute veto regardless of any evidence. The release-honesty rule extends to external providers:
+no release may claim Grok prewalk availability or behavioral qualification while the arm is
+feature-gated and unqualified for launch.
+
 Inspect the installed grammar without inference:
 
 ```bash
 python3 scripts/cobbler_agents.py native-worker prewalk-capabilities --host codex --json
 python3 scripts/cobbler_agents.py native-worker prewalk-capabilities --host claude --json
+python3 scripts/cobbler_agents.py native-worker prewalk-capabilities --host grok --json
 ```
 
 Static help establishes advertised flags only. Actual prewalk additionally requires exact-version
@@ -106,7 +134,11 @@ When Grok Build is explicitly permitted and silently qualifies:
 
 - choose the parsed default from the authenticated live `grok models` catalog unless the operator
   explicitly requests another catalog member;
-- never invent `auto`, `grok-code-fast-1`, `grok-4.5`, or any other unavailable model;
+- pass `--effort high` by default because `high` is Grok Build's highest supported effort; an
+  explicit operator effort override remains authoritative;
+- never invent an unavailable model: an explicit identifier (including `grok-4.5` or
+  `grok-code-fast-1`) is valid only when the authenticated live catalog returns that exact
+  identifier;
 - missing install, auth, live catalog, supported session grammar, consent, or another core launch
   capability records an honest native fallback with a concrete reason;
 - goal support is separate: behaviorally verified headless `/goal` enhances the launch, while an

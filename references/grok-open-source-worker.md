@@ -77,7 +77,58 @@ incomplete evidence leaves goal mode disabled and uses the one-packet fallback.
 
 Model selection uses only the authenticated live catalog. Omitting `--model` (or using the CLI's
 `auto` preparation value) resolves to the parsed live default at launch. An explicit model is
-accepted only if the catalog returns that exact identifier.
+accepted only if the catalog returns that exact identifier. Elves passes `--effort high` by
+default—the highest Grok Build effort—and never hardcodes Composer or another model remembered
+from an older catalog. The operator can still make an explicit lower-effort tradeoff.
+
+## Feature-gated prewalk lane (distinct from trusted full-run)
+
+Everything below this section describes the **trusted full-run lane**: yolo-approved
+(`--always-approve`), optionally `--grant-github-push`, worker-owned feature-branch progress. The
+**prewalk lane** is a separate, narrower authority profile in the host-profile registry and is
+currently **feature-gated off** (`launch_ready` false; no live qualification artifact exists):
+
+- non-yolo: `--permission-mode auto` only — this lane never emits `--always-approve`, `--yolo`,
+  or `dontAsk`;
+- no `--grant-github-push` and no push authority; narrow Git roots and the existing
+  protected-ref/no-push checks apply;
+- caller-generated UUID via `--session-id` (create-only), exact `--resume`, supervisor `--cwd`
+  (sandbox is resume-sticky), streaming JSON without tool-call events;
+- the private JSON TODO mirror is authoritative because the installed build's `plan.json`
+  persistence is vestigial.
+
+Behavioral qualification requires an **operator-authorized live canary**, recorded as a
+`grok_prewalk_qualification_canary` (schema version 1) artifact. A live canary must prove, on the
+exact installed version and build commit: the same session and worktree across both phases, the
+route change actually applied on resume, guide-only fact retention after transition, no packet
+replay, stream identity, honest `retained_safe` instruction fidelity under the persisted-
+instruction transport, and — because unattended commits are an open question under
+`--permission-mode auto` — whether the lane can complete an unattended commit at all. The artifact
+is written by the operator from observed canary facts; Elves tooling only validates it and never
+fabricates one. An artifact reporting `pruned` or `turn_scoped` loads as recorded, non-activating
+evidence.
+
+Validate a recorded artifact only against the installed binary:
+
+```bash
+python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" route-worker --json \
+  --host codex --execution-reasoning medium --review-risk high \
+  --provider grok --allow-grok --probe-grok \
+  --prewalk auto --grok-prewalk-qualification /path/to/grok-prewalk-canary.json
+```
+
+The artifact can qualify the observed behavior, but it cannot grant launch authority. While the
+registry keeps `launch_ready` false, `auto` reports
+`grok_prewalk_unqualified:launch_feature_gate_closed` with actual mode `off`, and `required` fails
+before launch. Opening that gate is a separate maintainer change after the launch path itself is
+complete and regression-tested.
+
+Verification basis: grok-build 0.2.102 source (commit `98c3b24`) plus the 2026-07 repository audit
+(repo-only `docs/reviews/2026-07-repo-audit-grok-prewalk.md` in a source checkout via PR #82;
+installed bundles must not depend on that file). Advertised grammar and registry rows follow that
+verified source. The cross-family delegation default was rechecked against Grok Build 0.2.103 and
+source commit `7cfcb20`: the live/default model is catalog-owned, and `high` is the advertised
+highest implementation-quality effort. No statement here claims behavioral qualification.
 
 ## Launch, follow, and recover
 

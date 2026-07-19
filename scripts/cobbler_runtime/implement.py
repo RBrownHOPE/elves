@@ -30,7 +30,7 @@ from .acceptance import normalize_batch_id
 from .context import collect_secret_env_values, redact_text
 from .executables import resolve_executable_for_launch
 from .isolation import _managed_implement_env
-from .schema import ValidationIssue
+from .schema import AMBIGUOUS_SESSION_TOKENS, ValidationIssue
 from .storage import (
     StorageError,
     atomic_write_json,
@@ -44,7 +44,10 @@ DEFAULT_PERMISSION_MODE = "auto"
 DEFAULT_LANE = "fast"
 DEFAULT_GIT_MODE = "branch_progress"
 DEFAULT_EXECUTABLE = "grok"
+# Generic/non-Grok adapters retain their existing balanced default. Grok Build
+# delegation explicitly uses its highest supported effort by default.
 DEFAULT_EFFORT = "medium"
+GROK_DEFAULT_EFFORT = "high"
 FORBIDDEN_DEFAULT_PERMISSION = "dontAsk"
 # Required for unattended headless tool use. Grok Build 0.2.101 gives an explicit
 # --permission-mode precedence over yolo, so trusted launches emit --always-approve alone.
@@ -1083,7 +1086,7 @@ def resolve_implement_model(
             return "swe-1-7-lightning", explicit_effort or DEFAULT_EFFORT, notes
         if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
             return "openrouter/qwen/qwen3-max", explicit_effort, notes
-        return GROK_LIVE_DEFAULT, explicit_effort or DEFAULT_EFFORT, notes
+        return GROK_LIVE_DEFAULT, explicit_effort or GROK_DEFAULT_EFFORT, notes
 
     if adapter_name == "devin-cli":
         return raw, explicit_effort or DEFAULT_EFFORT, notes
@@ -1091,7 +1094,7 @@ def resolve_implement_model(
     if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
         return raw, explicit_effort, notes
 
-    return raw, explicit_effort or DEFAULT_EFFORT, notes
+    return raw, explicit_effort or GROK_DEFAULT_EFFORT, notes
 
 
 def _build_devin_launch_argv(
@@ -1440,7 +1443,7 @@ def build_launch_argv(
     cwd_path = Path(cwd).expanduser().resolve()
     adapter_name = (adapter or "grok-build").strip().lower()
     sid = (session_id or "").strip()
-    if sid.lower() in {"latest", "last", "continue", "most-recent", "most_recent"}:
+    if sid.lower() in AMBIGUOUS_SESSION_TOKENS:
         raise ValidationIssue(
             "ambiguous_session_id",
             f"Session id `{sid}` is ambiguous and forbidden for implement launch",
@@ -1502,7 +1505,9 @@ def build_launch_argv(
     model_name, effort_name, _alias_notes = resolve_implement_model(
         model, effort=effort, adapter="grok-build"
     )
-    effort_name = (effort_name or DEFAULT_EFFORT).strip() or DEFAULT_EFFORT
+    effort_name = (
+        effort_name or GROK_DEFAULT_EFFORT
+    ).strip() or GROK_DEFAULT_EFFORT
 
     argv = [exe]
     if create:
@@ -2208,6 +2213,48 @@ def _read_done_report(
     return True, payload, None
 
 
+def _done_report_confidence_warnings(report: Mapping[str, Any]) -> list[str]:
+    """Validate the optional worker confidence signal on a legacy done report.
+
+    Absent fields are valid; an empty `unsure_about` list is a valid, complete
+    answer. Warnings match the legacy gate's non-fatal dogfood posture; the
+    signal is review triage only, never authority.
+    """
+    from .provider_auth import (  # noqa: PLC0415 - keep gate import surface lazy
+        CONFIDENCE_LEVELS,
+        MAX_UNSURE_ABOUT_ITEM_CHARS,
+        MAX_UNSURE_ABOUT_ITEMS,
+    )
+
+    warnings: list[str] = []
+    if "confidence" in report and report.get("confidence") not in CONFIDENCE_LEVELS:
+        warnings.append(
+            "done report confidence must be one of high, medium, low"
+        )
+    if "unsure_about" not in report:
+        return warnings
+    unsure = report.get("unsure_about")
+    if not isinstance(unsure, list):
+        warnings.append("done report unsure_about must be a list")
+        return warnings
+    if len(unsure) > MAX_UNSURE_ABOUT_ITEMS:
+        warnings.append(
+            f"done report unsure_about exceeds {MAX_UNSURE_ABOUT_ITEMS} items"
+        )
+    if any(not isinstance(item, str) or not item.strip() for item in unsure):
+        warnings.append(
+            "done report unsure_about items must be non-empty strings"
+        )
+    if any(
+        isinstance(item, str) and len(item) > MAX_UNSURE_ABOUT_ITEM_CHARS
+        for item in unsure
+    ):
+        warnings.append(
+            f"done report unsure_about item exceeds {MAX_UNSURE_ABOUT_ITEM_CHARS} chars"
+        )
+    return warnings
+
+
 def _redact_gate_record_in_place(
     record: dict[str, Any],
     *,
@@ -2338,6 +2385,8 @@ def run_gate(
     )
     if done_warning:
         warnings.append(done_warning)
+    if done_report is not None:
+        warnings.extend(_done_report_confidence_warnings(done_report))
     if not done_present:
         warnings.append(
             f"done report missing (non-fatal for dogfood): {done_path}"
