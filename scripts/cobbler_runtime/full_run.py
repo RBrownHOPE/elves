@@ -1612,6 +1612,9 @@ class FullRunState:
     model: str = "auto"
     permission_mode: str = DEFAULT_PERMISSION_MODE
     effort: str = GROK_DEFAULT_EFFORT
+    # Whether the persisted effort was explicitly requested by the operator;
+    # a flagless resume prepare preserves an explicit value.
+    effort_explicit: bool = False
     executable: str = DEFAULT_EXECUTABLE
     create_session: bool = True
     check: bool = False
@@ -1761,7 +1764,8 @@ class FullRunState:
             if field_name in data and (not isinstance(value, str) or not value):
                 raise TypeError(f"{field_name} must be a non-empty string")
         for field_name in (
-            "create_session", "check", "yolo", "supervision_canary_passed",
+            "create_session", "check", "yolo", "effort_explicit",
+            "supervision_canary_passed",
             "goal_entrypoint_advertised", "goal_mode_behaviorally_verified",
         ):
             value = data.get(field_name)
@@ -3602,6 +3606,28 @@ def _validate_full_run_git_contract(
 
 
 @_locked_full_run
+def resolve_worker_effort(
+    adapter: str | None,
+    effort: str | None,
+) -> tuple[str, bool]:
+    """Resolve the worker effort under the one normalized default authority.
+
+    Returns ``(resolved_effort, effort_explicit)``. The adapter name is
+    normalized before default selection so a mixed-case ``Grok-Build`` still
+    resolves the grok default; callers must pass ``effort=None`` whenever the
+    operator did not explicitly request a value.
+    """
+
+    adapter_name = (adapter or "grok-build").strip().lower()
+    explicit_effort = (effort or "").strip().lower() or None
+    if explicit_effort is not None:
+        return explicit_effort, True
+    return (
+        GROK_DEFAULT_EFFORT if adapter_name == "grok-build" else DEFAULT_EFFORT,
+        False,
+    )
+
+
 def prepare_full_run(
     repo_root: Path,
     *,
@@ -3642,11 +3668,11 @@ def prepare_full_run(
         pass
 
     adapter_name = (adapter or "grok-build").strip().lower()
-    resolved_effort = (effort or "").strip() or (
-        GROK_DEFAULT_EFFORT
-        if adapter_name == "grok-build"
-        else DEFAULT_EFFORT
-    )
+    # Single default authority for worker effort: an explicit request wins,
+    # otherwise the normalized adapter name picks the default. Explicitness is
+    # persisted so a flagless resume keeps the originally requested value.
+    explicit_effort = (effort or "").strip().lower() or None
+    del effort
     if adapter_name == "fixture" and not fixture_script:
         raise ValidationIssue(
             "fixture_script_required",
@@ -3744,6 +3770,7 @@ def prepare_full_run(
 
     root = full_run_root(repo_root, sid)
     state_path = root / "state.json"
+    prior_state_data: Mapping[str, Any] | None = None
     if repo_regular_file_exists(Path(repo_root), state_path) and not allow_overwrite:
         existing = read_json(state_path, repo_root=Path(repo_root))
         if existing.get("session_id") != sid:
@@ -3752,12 +3779,32 @@ def prepare_full_run(
                 "Digest path occupied by a different session_id",
                 path=str(state_path),
             )
-        raise ValidationIssue(
-            "full_run_already_prepared",
-            f"Full-run state already exists for session `{sid}`",
-            path=str(state_path),
-            hint="Pass a new session or stop the existing run first",
-        )
+        if create:
+            raise ValidationIssue(
+                "full_run_already_prepared",
+                f"Full-run state already exists for session `{sid}`",
+                path=str(state_path),
+                hint="Pass a new session or stop the existing run first",
+            )
+        # Resume prepare over the same session rebuilds the state tree; it is
+        # only safe once the prior supervised process is provably closed.
+        if existing.get("pid") is not None or existing.get("status") == "healthy":
+            raise ValidationIssue(
+                "full_run_resume_prepare_live",
+                "Refusing resume prepare while the existing run may be live",
+                path=str(state_path),
+                hint="Stop the existing run first",
+            )
+        prior_state_data = existing
+    if not create and explicit_effort is None and prior_state_data is not None:
+        prior_effort = str(prior_state_data.get("effort") or "").strip().lower()
+        if prior_effort and bool(prior_state_data.get("effort_explicit")):
+            # A flagless resume keeps an originally-explicit effort instead of
+            # silently flipping to the current adapter default.
+            explicit_effort = prior_effort
+    resolved_effort, effort_explicit = resolve_worker_effort(
+        adapter_name, explicit_effort
+    )
 
     ensure_private_dir(root, repo_root=Path(repo_root))
     ensure_private_dir(root / "worker-home", repo_root=Path(repo_root))
@@ -3833,6 +3880,7 @@ def prepare_full_run(
         model=model,
         permission_mode=permission_mode,
         effort=resolved_effort,
+        effort_explicit=effort_explicit,
         executable=exe,
         create_session=bool(create),
         check=bool(check),

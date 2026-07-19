@@ -86,8 +86,6 @@ from cobbler_runtime.host_profiles import resolve_host_profile  # noqa: E402
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.sessions import SessionRegistry  # noqa: E402
 from cobbler_runtime.implement import (  # noqa: E402
-    DEFAULT_EFFORT,
-    GROK_DEFAULT_EFFORT,
     launch_payload,
     prepare_implement,
     resume_batch_payload,
@@ -1762,9 +1760,6 @@ def cmd_implement(args: argparse.Namespace) -> int:
 
         if action == "full-run-prepare":
             adapter_name = getattr(args, "adapter", None) or "grok-build"
-            effort_was_explicit = bool(
-                getattr(args, "_effort_option_was_explicit", False)
-            )
             acceptance_session = getattr(args, "session", None)
             if adapter_name != "fixture" and not acceptance_session:
                 default_session = repo_root / ".elves-session.json"
@@ -1794,15 +1789,9 @@ def cmd_implement(args: argparse.Namespace) -> int:
                     )
                 ),
                 permission_mode=getattr(args, "permission_mode", None) or "auto",
-                effort=(
-                    getattr(args, "effort", None)
-                    if effort_was_explicit
-                    else (
-                        GROK_DEFAULT_EFFORT
-                        if adapter_name == "grok-build"
-                        else DEFAULT_EFFORT
-                    )
-                ),
+                # None means "not explicitly requested": prepare_full_run's
+                # normalized resolution is the single default authority.
+                effort=getattr(args, "effort", None),
                 executable=getattr(args, "executable", None),
                 create=not bool(getattr(args, "resume", False)),
                 check=bool(getattr(args, "check", False)),
@@ -2209,8 +2198,23 @@ def cmd_lightweight_review(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
+class _NoAbbrevArgumentParser(argparse.ArgumentParser):
+    """Operator parser that rejects abbreviated long options.
+
+    Abbreviations like ``--effor low`` would parse silently while
+    presence-based explicitness checks scan for the literal spelling,
+    inverting an explicitly requested value. Subparsers inherit this class
+    through argparse's parser_class default, so every subcommand rejects
+    abbreviations too.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _NoAbbrevArgumentParser(
         prog="cobbler_agents.py",
         description=(
             "Cobbler external-agent operator CLI "
@@ -2713,11 +2717,10 @@ def build_parser() -> argparse.ArgumentParser:
     i_fr_prepare.add_argument("--permission-mode", default="auto")
     i_fr_prepare.add_argument(
         "--effort",
-        # Retain the public argparse default for compatibility; main() records
-        # whether the option was actually present so an omitted Grok effort can
-        # resolve to the new high-quality default without conflating an
-        # explicit `--effort medium` override with omission.
-        default="medium",
+        # None means "not explicitly requested": prepare_full_run resolves the
+        # adapter default, and a resume without --effort keeps the originally
+        # persisted value instead of flipping to the current default.
+        default=None,
         help=(
             "Worker effort (Grok Build defaults to high, its highest supported "
             "level; other adapters keep their own balanced default)"
@@ -3122,10 +3125,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     raw_argv = list(argv) if argv is not None else list(sys.argv[1:])
     args = parser.parse_args(raw_argv)
-    args._effort_option_was_explicit = any(
-        token == "--effort" or token.startswith("--effort=")
-        for token in raw_argv
-    )
     try:
         return int(args.func(args))
     except StorageError as error:

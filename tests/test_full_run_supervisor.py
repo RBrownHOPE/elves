@@ -11,6 +11,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import io
 import sys
 import tempfile
 import threading
@@ -5358,6 +5359,120 @@ class FullRunGrokArgvTests(unittest.TestCase):
                         adapter="fixture",
                         fixture_script=repo / "fixture.py",
                     )
+
+
+class WorkerEffortAuthorityTests(unittest.TestCase):
+    """B2: one normalized default authority plus persisted explicitness."""
+
+    def test_cli_rejects_abbreviated_long_options(self) -> None:
+        import cobbler_agents as cli_mod
+
+        base = [
+            "implement",
+            "full-run-prepare",
+            "--session-id",
+            "abbrev-guard",
+            "--branch",
+            "feat/x",
+            "--start-head",
+            "a" * 40,
+            "--packet",
+            "/tmp/packet.md",
+        ]
+        parser = cli_mod.build_parser()
+        for abbreviation in (["--effor", "low"], ["--eff", "low"]):
+            with self.subTest(abbreviation=abbreviation[0]):
+                stderr = io.StringIO()
+                with (
+                    mock.patch.object(sys, "stderr", stderr),
+                    self.assertRaises(SystemExit) as ctx,
+                ):
+                    parser.parse_args(base + abbreviation)
+                self.assertNotEqual(ctx.exception.code, 0)
+                self.assertIn(abbreviation[0], stderr.getvalue())
+        # The exact spelling still parses, and omission passes None so
+        # prepare_full_run stays the single default authority.
+        parsed = parser.parse_args(base + ["--effort", "low"])
+        self.assertEqual(parsed.effort, "low")
+        self.assertIsNone(parser.parse_args(base).effort)
+
+    def test_resolution_normalizes_adapter_and_effort(self) -> None:
+        resolve = full_run_module.resolve_worker_effort
+        self.assertEqual(resolve("grok-build", None), ("high", False))
+        self.assertEqual(resolve("Grok-Build", None), ("high", False))
+        self.assertEqual(resolve("  GROK-BUILD  ", None), ("high", False))
+        self.assertEqual(
+            resolve("fixture", None), (full_run_module.DEFAULT_EFFORT, False)
+        )
+        self.assertEqual(resolve("Grok-Build", " Medium "), ("medium", True))
+        self.assertEqual(resolve(None, None), ("high", False))
+
+    def _fixture_prepare(self, repo: Path, *, effort: str | None, create: bool = True):
+        packet = repo / "packet.md"
+        if not packet.exists():
+            packet.write_text("fixture packet\n", encoding="utf-8")
+        worker = repo / "worker.py"
+        if not worker.exists():
+            worker.write_text("print('ok')\n", encoding="utf-8")
+        head = _init_feature_repo(repo) if not (repo / ".git").exists() else None
+        return prepare_full_run(
+            repo,
+            session_id="effort-explicitness",
+            branch="feat/x",
+            start_head=head or full_run_module._git_head(repo),
+            worktree=repo,
+            packet_path=packet,
+            adapter="fixture",
+            fixture_script=worker,
+            effort=effort,
+            create=create,
+        )
+
+    def test_flagless_resume_prepare_keeps_originally_explicit_effort(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._fixture_prepare(repo, effort="low")
+            state = load_state(repo, "effort-explicitness")
+            self.assertEqual(state.effort, "low")
+            self.assertTrue(state.effort_explicit)
+
+            # A second create prepare still fails closed.
+            with self.assertRaises(full_run_module.ValidationIssue) as ctx:
+                self._fixture_prepare(repo, effort=None, create=True)
+            self.assertEqual(ctx.exception.code, "full_run_already_prepared")
+
+            # A flagless resume prepare keeps the explicit value instead of
+            # flipping to the adapter default.
+            self._fixture_prepare(repo, effort=None, create=False)
+            resumed = load_state(repo, "effort-explicitness")
+            self.assertEqual(resumed.effort, "low")
+            self.assertTrue(resumed.effort_explicit)
+            self.assertFalse(resumed.create_session)
+
+    def test_flagless_resume_prepare_over_default_stays_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._fixture_prepare(repo, effort=None)
+            state = load_state(repo, "effort-explicitness")
+            self.assertEqual(state.effort, full_run_module.DEFAULT_EFFORT)
+            self.assertFalse(state.effort_explicit)
+            self._fixture_prepare(repo, effort=None, create=False)
+            resumed = load_state(repo, "effort-explicitness")
+            self.assertEqual(resumed.effort, full_run_module.DEFAULT_EFFORT)
+            self.assertFalse(resumed.effort_explicit)
+
+    def test_resume_prepare_refuses_possibly_live_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._fixture_prepare(repo, effort="low")
+            state = load_state(repo, "effort-explicitness")
+            state.pid = 4242
+            full_run_module.save_state(repo, state)
+            with self.assertRaises(full_run_module.ValidationIssue) as ctx:
+                self._fixture_prepare(repo, effort=None, create=False)
+            self.assertEqual(
+                ctx.exception.code, "full_run_resume_prepare_live"
+            )
 
 
 class FullRunLifecycleTests(unittest.TestCase):
