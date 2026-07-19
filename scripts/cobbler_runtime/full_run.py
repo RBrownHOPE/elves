@@ -925,6 +925,7 @@ def build_worker_confidence_review_context(
     report: Mapping[str, Any],
     events: Sequence[Mapping[str, Any]],
     shared_oauth: bool = False,
+    event_evidence_partial: bool = False,
 ) -> dict[str, Any]:
     """Build the exact bounded confidence block a final reviewer must receive.
 
@@ -1100,10 +1101,22 @@ def build_worker_confidence_review_context(
         f"{branch[:MAX_REVIEW_CONFIDENCE_LABEL_CHARS]} | Final head: "
         f"{final_head[:MAX_REVIEW_CONFIDENCE_LABEL_CHARS]}",
     ]
-    if overall_status == "absent":
+    if overall_status == "absent" and event_evidence_partial:
+        header_lines.append(
+            "- Worker confidence event evidence was partial or discarded during "
+            "salvage; treat signals as unknown rather than unreported. Perform "
+            "the full baseline review."
+        )
+    elif overall_status == "absent":
         header_lines.append(
             "- No worker confidence signal was reported. Perform the full baseline review; "
             "absence is not evidence of safety."
+        )
+    elif event_evidence_partial:
+        header_lines.append(
+            "- Some worker confidence event evidence was partial or discarded "
+            "during salvage; the rows below may be incomplete. Missing signals "
+            "are unknown, never asserted-clean."
         )
     if omitted_signal_rows:
         header_lines.append(
@@ -1220,6 +1233,7 @@ def build_worker_confidence_review_context(
         "branch": branch,
         "final_head": final_head,
         "signal_status": overall_status,
+        "event_evidence_partial": bool(event_evidence_partial),
         "lowest_confidence": lowest_confidence,
         "signals": rows,
         "omitted_signal_rows": omitted_signal_rows,
@@ -7551,14 +7565,23 @@ def reconstruct_missing_report(
             shared_oauth_safe_projection=(
                 state.grok_auth_strategy == "oauth_shared_file"
             ),
+            # Strict per-line validation still runs (allow_partial_final=False
+            # records the torn-final-line error), but reconstruction runs after
+            # a crash where a torn final line is the expected state: the valid
+            # earlier events are salvaged below instead of being discarded
+            # wholesale, and the recorded errors mark the evidence as partial.
+            # The live monitor and reconcile paths keep their strict handling.
             allow_partial_final=False,
             repo_root=Path(repo_root),
         )
         # Optional triage metadata cannot turn an otherwise permitted host
-        # reconstruction into a completion failure. Invalid event evidence is
-        # excluded, which the generated block reports honestly as absent.
-        if not confidence_event_errors:
-            review_events = candidate_events
+        # reconstruction into a completion failure. Per-line salvage keeps the
+        # valid events; any invalid lines are reported honestly as partial
+        # evidence instead of claiming no signal was reported.
+        review_events = candidate_events
+        review_events_partial = bool(confidence_event_errors)
+    else:
+        review_events_partial = False
     review_context = build_worker_confidence_review_context(
         session_id=session_id,
         branch=state.branch,
@@ -7566,6 +7589,7 @@ def reconstruct_missing_report(
         report=report,
         events=review_events,
         shared_oauth=state.grok_auth_strategy == "oauth_shared_file",
+        event_evidence_partial=review_events_partial,
     )
     if launch_grants_verified:
         _redact_full_run_mapping_in_place(
