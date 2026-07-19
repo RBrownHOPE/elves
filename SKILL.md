@@ -382,7 +382,13 @@ broad at high-risk checkpoints and terminal. Bug-fix protocol: category → cate
 
 Reviewers read worker confidence trailers/report fields **first** and allocate attention
 accordingly: flagged `unsure_about` areas get a deeper pass. The signal is triage, never
-authority — it does not skip gates or waive review in either direction.
+authority — it does not skip gates or waive review in either direction. A successful trusted
+full-run terminal monitor/await returns `review_context.review_prompt_block`; the coordinator
+attaches that machine-produced block verbatim to Final Readiness. For native Claude Code and Codex
+workers, build the same triage table from every `Confidence:` trailer in the cumulative commit
+history. The reviewer must return a **Confidence-Guided Review** section that names the deeper
+passes performed, or explicitly records that signals were partial/absent and baseline review was
+used. Claude Code and Codex use this identical contract.
 Independent feedback. Walk contract. Enforce code quality. Medium/high blast radius: regression
 pass. Fix blocking; advisory does not delay readiness. Resolve PR threads. **PENDING-DOCS** is not
 clean. **Public API surface snapshots are optional regression evidence.** Use existing structured sources before inventing scanners. If no credible source exists, record `unavailable` with the reason instead of fabricating a snapshot. A missing snapshot source is not blocking unless `required: true` was explicitly set in the survival guide. `required: true` is valid only when explicitly set by the user or project survival guide. Do not infer required mode from project type, provider config, framework choice, or the presence of API files. Snapshot artifacts are run artifacts, not product docs. Temporary snapshot artifacts should not remain in final product PR diffs unless the user explicitly asks. Record shapes and field names, not secrets, bearer tokens, cookies, customer payloads, or production sample data. A snapshot proves public surface shape only; it is not a substitute for tests, E2E checks, review, or the human-owned constitution. Record the public API surface delta when configured.

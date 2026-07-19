@@ -151,6 +151,12 @@ python3 scripts/cobbler_agents.py implement full-run-await --json \
   --session-id <uuid>
 ```
 
+On successful terminal reconciliation, the monitor/await JSON includes the bounded host-neutral
+`review_context` (`schema=elves-worker-confidence-review-v1`). Before primary Final Readiness,
+Claude Code and Codex attach `review_context.review_prompt_block` verbatim. It preserves baseline
+review, deepens attention for low confidence, reservations or conflicts, and exposes only a count
+when shared-OAuth safety hides reservation text.
+
 The trusted launcher emits Grok's `--always-approve` flag without also emitting
 `--permission-mode auto`. Grok Build 0.2.101 makes the explicit permission mode win over the yolo
 flag; combining them disables the intended unattended path and can end the first tool turn as

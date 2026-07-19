@@ -14,12 +14,20 @@ Workflow semantics are identical. Invocation surfaces differ.
 | Visibility | Proven native agent view or exact private-log follow command | Proven native agent view or exact private-log follow command |
 | Exact resume | `--resume <uuid>` | `codex exec resume <thread-id>` from registered worktree CWD |
 | Grok Build goal | proven enhancement or one-packet fallback | same proven enhancement or fallback |
+| Confidence-guided review | Attach terminal `review_context.review_prompt_block`, or derive the same table from native `Confidence:` trailers | Same machine-produced block/table and Final Readiness output section |
 
 Both hosts read safe worker preferences from the same XDG file and make the same deterministic
 decision. Transport syntax differs; packet, authority, fallback, follow, and terminal-review
 semantics do not. See [`adaptive-worker-routing.md`](adaptive-worker-routing.md).
 When checking a route, pass `--host claude` from Claude Code and `--host codex` from Codex so any
 native fallback uses the live driver's transport.
+
+The successful trusted full-run terminal response emits the host-neutral
+`elves-worker-confidence-review-v1` context. Both hosts attach its `review_prompt_block` verbatim
+before primary Final Readiness; native workers use the same shape derived from commit trailers.
+Missing/partial signals retain full baseline review, while low confidence, reservations, hidden
+reservation counts, and source conflicts require deeper attention. Neither host may use high
+confidence to reduce review or gates.
 
 ## Exact-session prewalk parity
 

@@ -846,6 +846,12 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
           batch. It checks the plan's acceptance criteria, the risky surfaces, relevant tests, and
           unresolved GitHub feedback.</p>
 
+        <p>Worker confidence actively guides that review on both Claude Code and Codex. A trusted
+          full-run returns a bounded review block at terminal; a native worker records the same
+          signal in <code>Confidence:</code> commit trailers. The reviewer deep-checks every
+          reservation, low-confidence or conflicting area and reports the evidence. Missing signals
+          keep the full baseline review, while high confidence never removes a gate or review step.</p>
+
         <p>Revisions get narrower checks. The driver should not rerun an unrelated full test suite
           after every small fix. It reruns the tests that the revision could reasonably affect,
           then performs one final readiness check at the exact branch tip.</p>

@@ -235,6 +235,13 @@ Override in your plan or survival guide:
 The agent uses the highest tier you have configured. Persistent false positives (3+ cycles) are
 dismissed with a written explanation in the execution log.
 
+Worker confidence now actively guides the primary review on both Claude Code and Codex. Trusted
+full-runs return a bounded machine-produced review block at terminal; native workers supply the
+same information through `Confidence:` commit trailers. The reviewer starts with that triage,
+deep-checks every reservation, low-confidence or conflicting area, and reports what it verified.
+Missing signals fall back to the full baseline review, and high confidence never reduces gates or
+review scope. See [`references/review-subagent.md`](references/review-subagent.md).
+
 ### Memory hygiene
 
 Long runs clean up as they go: keep live docs concise, archive old execution-log entries, promote
