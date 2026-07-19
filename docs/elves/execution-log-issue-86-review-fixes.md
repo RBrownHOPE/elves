@@ -133,3 +133,37 @@ Verified directly at cited lines and via an independent read-only verification p
   `claude-fable-5`/`low` guide+execution routes (probe already records honest actual `off`).
 - Monitor design: local branch tip + follow-log growth + status polling (origin stays at the
   staged tip until reconcile because worker pushes are disabled).
+
+## Worker run (2026-07-19, attempt 2 — complete)
+
+- Session `dc6300fc-6896-4734-9f7f-bfc35743c834`, create-mode argv verified
+  (`--session-id`, `--model claude-fable-5`, `--effort low`), 263 turns, exit 0.
+- Exact-session `b0` ref minted post-launch at the launch tip:
+  `refs/elves/rollback/issue-86-review-fixes-20/dc6300fc-6896-47/b0-3e2df3010abe`.
+- Twelve commits `097de84..23536e8`: exactly one Implement slice + one Confidence-trailered
+  Close per batch (B1–B6, all `high` with one honest unsure item each). Forbidden surfaces
+  untouched; only coordinator-owned M-A boxes left unticked; +20 tests, 0 removed, no new skips.
+- **Terminal supervisor flag — attributed as false positive:** exit verification reported
+  `native_worker_git_authority_violation` for "new protected ref created:
+  refs/elves/rollback/.../dc6300fc-6896-47/b0-3e2df3010abe" — that ref is the HOST's own
+  post-launch rollback mint (the launch-time protected-ref snapshot predates it). Worker exit
+  code 0, no tags, `main` untouched, worktree clean. Not a worker defect; no re-drive consumed.
+- Driver-run gates at `23536e8`: full suite exit 0 (pipefail), `check_repo_consistency` exit 0,
+  `release_checklist --version 2.10.2` exit 0, `verify_repo --version 2.10.2` VERIFY OK
+  (public-api gate diffed; 1 approval loaded from api-break-approvals.json).
+- Driver spot-review before independent verdict: resume-prepare liveness guard fails closed
+  (create path unchanged; `full_run_resume_prepare_live` on any liveness signal); 30s
+  `DEFAULT_GIT_TIMEOUT_SECONDS` provenance = native_worker.py's existing 30s hardening;
+  api-break approval entry shape/wording accurate; `typing.Mapping` import fix confirms the
+  v2.10.1 text-mode review-block print path crashed (latent bug found beyond issue scope).
+
+### Worker unsure items (review triage table)
+
+| Batch | Confidence | Unsure item |
+| --- | --- | --- |
+| B1 | high | cached event-summary reload now filters whitespace-only cached unsure items |
+| B2 | high | resume prepare rebuilds closed same-session state; liveness proxy = pid-absent/non-healthy |
+| B3 | high | partial-evidence wording replaces the absent-signal line (readability) |
+| B4 | high | persona guard list deliberately narrow (six claim shapes) |
+| B5 | high | 30s default could bound a legitimately slow git op; overrides available |
+| B6 | high | --effort default change recorded as approved public-surface break |

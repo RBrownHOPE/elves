@@ -198,17 +198,19 @@ Promotion: execution log -> learnings -> `.ai-docs/*`.
 
 ## Current Phase
 
-**Status:** Launch-ready -> launching worker
+**Status:** Reviewing (worker complete; terminal review in flight)
 
-**Active batch:** B1 (worker-owned; host parks after launch)
+**Active batch:** terminal review + landing ceremony (host-owned)
 
-**What was just finished:** Staging complete — plan + run docs + session contract committed
-(`0521668`) and pushed; PR #87 opened (draft); worker session UUID
-`fff5a5a1-1ae6-43c5-b57c-c2508f31b3c4` minted; acceptance validate PASS.
+**What was just finished:** Worker session `dc6300fc` completed B1–B6 (12 commits
+`097de84..23536e8`, all Close trailers `high`); driver reran all gates green at `23536e8`;
+supervisor's exit authority flag attributed as coordinator-induced false positive (host-minted
+post-launch b0 ref); session evidence reconciled for all 28 B-A criteria.
 
-**Single next action:** Mint b0 rollback ref at the staged tip, finalize the packet capsule at
-that HEAD, re-validate, launch the `claude-fable-5`/low native worker
-(`native-worker launch --host claude`), verify identity readiness, then park with watchdog.
+**Single next action:** Push worker commits + reconcile commit; consume the independent
+confidence-guided review verdict; fix blockers if any (Review-phase commits); then landing
+check at the committed evidence tip, Final Readiness, mark PR #87 ready, authorized
+merge-commit landing, teardown, report, issue #86 comment.
 
 ---
 
