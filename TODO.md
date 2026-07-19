@@ -5,31 +5,30 @@ Project backlog and deferred tasks. Live items first; completed history under
 
 ## Live
 
-- [ ] Investigate host-native UI prompts and arbitrary third-party tools that bypass Elves'
-  transport helpers. Those surfaces cannot honestly be described as covered by the built-in
-  external-lane filter and may require host or MCP-level interception.
-- [ ] [issue-86 §17, deferred] Decompose `full_run.py` (monitor/await extraction) — structural
+- [ ] [#98] Investigate host-native UI prompts and arbitrary third-party tools that bypass
+  Elves' transport helpers. Those surfaces cannot honestly be described as covered by the
+  built-in external-lane filter and may require host or MCP-level interception.
+- [ ] [#92, issue-86 §17] Decompose `full_run.py` (monitor/await extraction) — structural
   refactor deserving its own planned run; v2.10.2's shared projection helper removed the worst
   duplication.
-- [ ] [issue-86 §18, deferred] Confidence-calibration tracking across runs — roadmap feature
+- [ ] [#93, issue-86 §18] Confidence-calibration tracking across runs — roadmap feature
   needing a product decision, not patch-release material.
-- [ ] [issue-86 §19, deferred] Native-lane structured confidence sidecar — roadmap feature
+- [ ] [#94, issue-86 §19] Native-lane structured confidence sidecar — roadmap feature
   needing a product decision, not patch-release material.
-- [ ] [issue-86 §20, deferred] Record live Grok qualification canaries at the new `high`
-  execution-effort default — operator-owned; requires a real authenticated `grok` install and
-  must never be fabricated by an unattended worker.
-- [ ] [v2.10.2 review advisory] Resume-prepare over a terminally-evented session survives the
-  liveness guard but appends `run_started` after a terminal event, so the rebuilt run dies on
-  first monitor ("event appears after terminal event"). Fail-closed today; either refuse
+- [ ] [#95, issue-86 §20 + prewalk launch path] Complete and independently review the Grok
+  prewalk launch path before opening the maintainer-owned `launch_ready` registry gate:
+  materialize the bounded prompt-file input, validate the non-yolo auth/permission profile end
+  to end, run an operator-authorized live canary at the `high` execution-effort default, bind
+  its artifact to the live installed version/build, and regression-test create→exact-resume
+  continuity. Qualification evidence must never open this gate by itself; operator-owned and
+  never fabricated by an unattended worker.
+- [ ] [#96, v2.10.2 review advisory] Resume-prepare over a terminally-evented session survives
+  the liveness guard but appends `run_started` after a terminal event, so the rebuilt run dies
+  on first monitor ("event appears after terminal event"). Fail-closed today; either refuse
   terminal sessions at rebuild or cover the interplay with a test.
-- [ ] [v2.10.2 review advisory] Widen the public persona wording guard beyond the six claim
-  shapes (e.g. "Fable-powered", "runs on Fable", "is Fable", and Claude/Anthropic persona
+- [ ] [#97, v2.10.2 review advisory] Widen the public persona wording guard beyond the six
+  claim shapes (e.g. "Fable-powered", "runs on Fable", "is Fable", and Claude/Anthropic persona
   phrasings) while keeping model-identifier exemptions false-positive-free.
-- [ ] Complete and independently review the Grok prewalk launch path before opening the
-  maintainer-owned `launch_ready` registry gate: materialize the bounded prompt-file input,
-  validate the non-yolo auth/permission profile end to end, run an operator-authorized canary,
-  bind its artifact to the live installed version/build, and regression-test create→exact-resume
-  continuity. Qualification evidence must never open this gate by itself.
 
 ## Completed Archive
 
