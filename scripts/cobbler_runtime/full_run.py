@@ -4607,6 +4607,27 @@ def _read_events(
         ):
             errors.append(f"line {line_no}: event contains secret-shaped content")
             continue
+        if shared_oauth_safe_projection:
+            # Validate the original confidence fields before removing OAuth
+            # worker free text. Projecting first would let malformed or
+            # secret-shaped unsure_about values bypass the fail-closed event
+            # contract and could conflate an invalid list with asserted-clean.
+            confidence_errors: list[str] = []
+            _validate_confidence_fields(event, confidence_errors)
+            if "unsure_about" in event and _contains_full_run_secret(
+                {"unsure_about": event.get("unsure_about")},
+                exact_values=exact_secret_values,
+                credential_grant_state=credential_grant_state,
+            ):
+                if not any("secret-shaped" in item for item in confidence_errors):
+                    confidence_errors.append(
+                        "unsure_about contains secret-shaped content"
+                    )
+            if confidence_errors:
+                errors.extend(
+                    f"line {line_no}: {error}" for error in confidence_errors
+                )
+                continue
         validation_event = event
         if shared_oauth_safe_projection:
             validation_event = {

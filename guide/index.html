@@ -706,7 +706,7 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup</code></pre>
           <pre><code id="prewalk-probe"># Read-only: inspects installed help/version and makes no model call.
 python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
   native-worker prewalk-capabilities --host codex --json
-# Use --host claude when Claude Code is the worker transport.</code></pre>
+# Use --host claude for Claude Code or --host grok for Grok Build.</code></pre>
         </div>
 
         <p>The preference defaults to safe <code>auto</code>, while direct launch defaults to
@@ -717,6 +717,14 @@ python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" \
           activates only for proven <code>retained_safe</code>; <code>pruned</code> and
           <code>turn_scoped</code> remain future delivery states. <code>required</code> fails before
           launch if proof is absent; no paid canary runs implicitly.</p>
+
+        <p>Grok prewalk has an additional maintainer-owned launch gate. A recorded
+          <code>grok_prewalk_qualification_canary</code> must be supplied together with
+          <code>--probe-grok</code>, which binds it to the version and build commit reported by the
+          installed binary. Even valid <code>retained_safe</code> evidence cannot open
+          <code>launch_ready</code> by itself. While that gate is closed, <code>auto</code> reports
+          <code>grok_prewalk_unqualified:launch_feature_gate_closed</code> with actual mode
+          <code>off</code>, and <code>required</code> fails before launch.</p>
 
         <h3>Use the optional open-source Grok worker</h3>
         <p>Install from the <a href="https://github.com/xai-org/grok-build">official Grok Build

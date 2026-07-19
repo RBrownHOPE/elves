@@ -236,10 +236,11 @@ version-bound behavioral proof of exact session/worktree/stream continuity, rout
 replay, and honest instruction fidelity. The evidence schema can report `pruned`, `turn_scoped`,
 `retained_safe`, or `unsupported`; because the current transport persists the cooperative guide
 instruction, this implementation activates only for proven `retained_safe`. Static help proves only
-advertised grammar. Until both Codex and Claude transports are behaviorally qualified, the safe
-`auto` preference records actual mode `off`; `required` fails before launch. The driver still owns
-canonical memory, terminal review, PR, landing, and merge. Full contract and host grammar:
-`references/prewalk.md`.
+advertised grammar. A separately qualified external transport must also have its maintainer-owned
+registry launch gate open; behavioral evidence never grants launch authority. Until both Codex and
+Claude transports are behaviorally qualified, the safe `auto` preference records actual mode
+`off`; `required` fails before launch. The driver still owns canonical memory, terminal review, PR,
+landing, and merge. Full contract and host grammar: `references/prewalk.md`.
 
 ## Git History as Operator UI
 

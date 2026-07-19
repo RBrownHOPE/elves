@@ -110,7 +110,9 @@ version has behaviorally qualified session/worktree/stream continuity, route cha
 replay, and honest instruction fidelity. The current persisted-instruction transport activates only
 for proven `retained_safe`; `pruned` and `turn_scoped` remain future delivery states.
 Static help probes make no model calls and prove only that flags are advertised; `required` fails
-before launch when proof is absent. See the
+before launch when proof is absent. Grok can additionally load a recorded canary only with a live
+installed-version/build probe; behavioral qualification never opens its separate, currently closed
+`launch_ready` registry gate. See the
 [normative prewalk contract](references/prewalk.md) and
 [host parity matrix](references/host-parity.md).
 

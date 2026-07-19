@@ -448,14 +448,28 @@ def cmd_route_worker(args: argparse.Namespace) -> int:
         return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
     grok_prewalk_qualification = None
     if args.grok_prewalk_qualification:
-        # Same fail-closed posture as the goal canary: an invalid artifact is
-        # a hard error, never silently downgraded routing input. Unlike the
-        # goal canary the artifact is self-binding (exact version and build
-        # commit live inside it), so no installed-binary probe is required
-        # and fixture environments can validate the gate without live grok.
+        # Qualification is meaningful only when the artifact is bound to the
+        # exact installed binary observed in this routing decision. Facts
+        # asserted by the artifact itself are not an installed-version proof.
+        if not args.probe_grok:
+            issue = ValidationIssue(
+                "prewalk_capability_unavailable",
+                "Grok prewalk qualification requires --probe-grok to bind the artifact to the installed binary",
+                path="grok_prewalk_qualification",
+            )
+            return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
+        if not grok.version or not grok.installed_build_commit:
+            issue = ValidationIssue(
+                "prewalk_capability_unavailable",
+                "Installed Grok version and build commit are required to validate prewalk qualification",
+                path="grok_prewalk_qualification",
+            )
+            return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
         try:
             grok_prewalk_qualification = load_grok_prewalk_qualification(
-                Path(args.grok_prewalk_qualification)
+                Path(args.grok_prewalk_qualification),
+                installed_version=grok.version,
+                installed_build_commit=grok.installed_build_commit,
             )
         except ValidationIssue as issue:
             return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
@@ -559,15 +573,14 @@ def cmd_native_worker(args: argparse.Namespace) -> int:
         return supervise_native_worker(repo_root=repo_root, run_id=args.run_id, packet=Path(args.packet))
     if action == "launch" and args.host:
         # Feature-gated hosts (registry launch_ready=False) exist for spec and
-        # prewalk-capabilities only. Launch requires a valid prewalk
-        # qualification artifact, whose loader lands with the qualification
-        # tooling batch; until then every launch fails closed here. A missing
-        # --host falls through to the required-arguments envelope below.
+        # prewalk-capabilities only. Qualification evidence describes transport
+        # behavior but does not itself open a launch gate. A missing --host
+        # falls through to the required-arguments envelope below.
         launch_profile = resolve_host_profile(args.host)
         if not launch_profile.launch_ready:
             issue = ValidationIssue(
                 f"{launch_profile.capability_host}_native_worker_launch_unqualified",
-                f"{launch_profile.capability_host} native-worker launch is feature-gated off until a valid prewalk qualification artifact is supplied and validated",
+                f"{launch_profile.capability_host} native-worker launch is feature-gated off; qualification evidence alone does not authorize launch",
             )
             return _emit_json({"ok": False, "issues": [issue.to_dict()]}, exit_code=1)
     prewalk_requested = (args.prewalk or "off") != "off"
@@ -2243,7 +2256,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Path to a bounded JSON grok prewalk qualification artifact "
             "(artifact_type grok_prewalk_qualification_canary); validated "
-            "fail-closed before routing, never fabricated"
+            "fail-closed against the installed version/build from --probe-grok, "
+            "never fabricated"
         ),
     )
     route_worker.add_argument("--grok-version")

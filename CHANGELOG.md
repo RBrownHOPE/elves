@@ -20,6 +20,9 @@ All notable changes to the Elves skill are documented here.
   `stderr_tail` alongside provider events, report the post-edit code when guide recovery moved
   HEAD, and enforce at test time that every emitted failure reason is a member of
   `PREWALK_FAILURE_CODES`.
+- Keep the public-API compatibility gate strict while classifying recursively additive,
+  non-required JSON Schema properties as compatible; removals, changed definitions, and new
+  required properties still fail closed.
 
 ### Host-profile registry and feature-gated Grok prewalk arm (audit B2)
 
@@ -47,10 +50,15 @@ All notable changes to the Elves skill are documented here.
   a bounded (<= 64 KiB) fd-bound (O_NOFOLLOW, fstat-identity) loader requiring the exact
   18-field set, canonical session UUID, and installed version plus parsed build-commit binding;
   every single-field mutation fails closed with a stable diagnostic. `route-worker` gains
-  `--grok-prewalk-qualification <artifact.json>`.
+  `--grok-prewalk-qualification <artifact.json>` and requires `--probe-grok`, so the artifact is
+  checked against the version and build commit reported by the installed binary rather than
+  trusting its self-asserted identity.
 - `qualified()` semantics mirror the native rule: only operator-recorded `retained_safe`
-  evidence can activate; `pruned`/`turn_scoped` load as recorded, non-activating states. The
-  tooling validates artifacts and never fabricates them; no artifact exists and no canary ran.
+  evidence can satisfy the behavioral gate; `pruned`/`turn_scoped` load as recorded,
+  non-activating states. Qualification never opens the separate registry launch feature gate,
+  so actual Grok prewalk remains off and `required` fails closed while `launch_ready` is false.
+  The tooling validates artifacts and never fabricates them; no live artifact exists and no
+  canary ran.
 
 ### Contract amendments, glossary, and doc hygiene (audit B4)
 
@@ -87,7 +95,11 @@ All notable changes to the Elves skill are documented here.
   is review triage only, never authority: it does not skip gates, waive review, or change
   completion requirements in either direction.
 - The parked supervisor surfaces the latest `batch_complete` confidence signal in its bounded
-  monitor `check_summary` (redacted; under shared OAuth the free-text list is replaced by a bounded derived count and the confidence enum still surfaces, so suppression never conflates with the asserted-clean empty list; null means no signal). SKILL.md adds
+  monitor `check_summary` (redacted; under shared OAuth the free-text list is replaced by a
+  bounded derived count and the confidence enum still surfaces, so suppression never conflates
+  with the asserted-clean empty list; null means no signal). Shared-OAuth projection validates
+  and secret-scans the original confidence fields before removing free text, preventing malformed
+  `unsure_about` data from being normalized into an apparently valid count. SKILL.md adds
   the batch-Close `Confidence:` commit trailer format, and the review subagent reads the signal
   first to allocate attention to flagged areas.
 

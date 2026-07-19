@@ -17,8 +17,9 @@ audit found runtime robustness defects worth fixing before a third host multipli
 
 Prewalk for Grok remains **feature-gated off** after this run: we build the port and the
 qualification tooling, but activation still requires operator-authorized live canaries and
-version-bound `retained_safe` evidence that no host (including Codex/Claude) has yet. No release
-may claim Grok prewalk availability.
+version-bound `retained_safe` evidence that no host (including Codex/Claude) has yet, plus a
+separate maintainer decision to open the registry launch gate after the launch path is complete.
+No release may claim Grok prewalk availability.
 
 ## Constraints and non-negotiables
 
@@ -107,8 +108,8 @@ Scope (audit recommendation #4, phase 1 of the port):
    `prewalk_capability_unavailable:grok_prewalk_unqualified:<concrete-reason>`. Default outcome
    for every current environment is unchanged: actual mode `off`.
 4. CLI: `native-worker` `--host` gains `grok` for `spec` and `prewalk-capabilities` only; `launch`
-   with `--host grok` fails closed with a stable diagnostic until a qualification artifact is
-   supplied and valid.
+   with `--host grok` fails closed with a stable diagnostic while the registry feature gate is
+   closed. Qualification evidence never grants launch authority by itself.
 
 Acceptance criteria:
 
@@ -147,9 +148,10 @@ Scope (audit recommendation #4, phase 2 of the port):
    and effort, create/resume exit records, same-worktree/session/stream continuity facts,
    guide-only fact retention, no-packet-replay, model-call provenance, and an explicit
    instruction-fidelity result. Loader fails closed on any missing/mismatched/unsafe field.
-3. `qualified()` semantics for grok mirror the native rule: activation only on `retained_safe`
-   under the current persisted-instruction transport; `pruned`/`turn_scoped` remain recorded but
-   non-activating.
+3. `qualified()` semantics for grok mirror the native rule: only `retained_safe` can satisfy the
+   behavioral qualification under the current persisted-instruction transport;
+   `pruned`/`turn_scoped` remain recorded but non-activating. Loading an artifact is also bound to
+   a live `--probe-grok` version/build observation and never opens the separate launch gate.
 4. Document the operator canary procedure (what a live canary must prove, including the
    unattended-commit question for `--permission-mode auto`) in the B4 docs; tooling here only
    validates artifacts, it never fabricates them.
@@ -162,9 +164,10 @@ Acceptance criteria:
 - [x] B3-A2: The artifact loader accepts a golden valid grok qualification artifact and rejects
   each single-field mutation (wrong host, wrong version, wrong session, missing route, fidelity
   `pruned`, oversized, symlink) with a stable diagnostic, all proven by tests.
-- [x] B3-A3: With a golden `retained_safe` artifact present, `route-worker` provider grok +
-  prewalk required passes the gate in a fixture environment; with `pruned` it fails before
-  launch; both proven by tests without any live grok invocation.
+- [x] B3-A3: A golden `retained_safe` artifact is recognized as behaviorally qualified only when
+  it matches the installed version/build probe, while actual mode remains `off` behind the
+  registry launch gate and `required` fails before launch; `pruned` remains non-activating. The
+  loader and gate branches are proven with fixtures and a model-free fake installed probe.
 
 Blast radius: new module surface plus `worker_routing.py`/`prewalk.py` integration. Risk: medium.
 

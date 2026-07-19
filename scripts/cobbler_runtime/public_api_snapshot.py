@@ -2108,6 +2108,102 @@ def _cli_break_reasons(baseline_signature: str, current_signature: str) -> list[
     return reasons
 
 
+def _json_schema_break_reasons(
+    baseline_signature: str,
+    current_signature: str,
+) -> list[str]:
+    """Return backward-incompatible JSON Schema contract changes.
+
+    The snapshot stores one structural signature for a standalone JSON Schema,
+    so a newly documented optional property changes that signature even though
+    existing producers and consumers remain valid.  Treat only additive,
+    non-required properties as compatible; every other structural change stays
+    fail-closed.  The comparison is recursive so optional fields added to a
+    nested object receive the same treatment without weakening existing field
+    definitions.
+    """
+    if baseline_signature == current_signature:
+        return []
+    baseline = _json_contract(baseline_signature)
+    current = _json_contract(current_signature)
+    if baseline is None or current is None:
+        return ["JSON Schema inspection changed or is incomplete"]
+
+    reasons: list[str] = []
+
+    def compare(baseline_value: Any, current_value: Any, *, path: str) -> None:
+        if isinstance(baseline_value, Mapping):
+            if not isinstance(current_value, Mapping):
+                reasons.append(f"{path} changed object shape")
+                return
+            baseline_keys = {str(key) for key in baseline_value}
+            current_keys = {str(key) for key in current_value}
+            for missing in sorted(baseline_keys - current_keys):
+                reasons.append(f"{path}.{missing} was removed")
+            for added in sorted(current_keys - baseline_keys):
+                reasons.append(f"{path}.{added} keyword was added")
+
+            baseline_required = baseline_value.get("required")
+            current_required = current_value.get("required")
+            if baseline_required != current_required:
+                reasons.append(f"{path}.required changed")
+
+            for key in sorted(baseline_keys & current_keys):
+                if key in {"properties", "required"}:
+                    continue
+                compare(
+                    baseline_value[key],
+                    current_value[key],
+                    path=f"{path}.{key}",
+                )
+
+            baseline_properties = baseline_value.get("properties")
+            current_properties = current_value.get("properties")
+            if baseline_properties is None and current_properties is None:
+                return
+            if not isinstance(baseline_properties, Mapping) or not isinstance(
+                current_properties, Mapping
+            ):
+                reasons.append(f"{path}.properties changed object shape")
+                return
+            baseline_property_names = {str(key) for key in baseline_properties}
+            current_property_names = {str(key) for key in current_properties}
+            for missing in sorted(
+                baseline_property_names - current_property_names
+            ):
+                reasons.append(f"{path}.properties.{missing} was removed")
+            required_names = {
+                str(item)
+                for item in (current_required or [])
+                if isinstance(item, str)
+            }
+            for added in sorted(
+                current_property_names - baseline_property_names
+            ):
+                if added in required_names:
+                    reasons.append(
+                        f"{path}.properties.{added} was added as required"
+                    )
+            for name in sorted(
+                baseline_property_names & current_property_names
+            ):
+                compare(
+                    baseline_properties[name],
+                    current_properties[name],
+                    path=f"{path}.properties.{name}",
+                )
+            return
+        if isinstance(baseline_value, list):
+            if baseline_value != current_value:
+                reasons.append(f"{path} changed")
+            return
+        if baseline_value != current_value:
+            reasons.append(f"{path} changed")
+
+    compare(baseline, current, path="schema")
+    return list(dict.fromkeys(reasons))
+
+
 def diff_snapshots(
     baseline: ApiSnapshot,
     current: ApiSnapshot,
@@ -2123,6 +2219,8 @@ def diff_snapshots(
     for key in changed:
         if key[0] == "cli":
             reasons = _cli_break_reasons(base_map[key], cur_map[key])
+        elif key[0] == "schema":
+            reasons = _json_schema_break_reasons(base_map[key], cur_map[key])
         else:
             # Non-CLI entries retain strict legacy behavior.  Their collectors
             # already encode compatible additions as distinct entries.

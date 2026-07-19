@@ -89,13 +89,17 @@ their trajectory semantics are separately qualified. `required` fails before lau
 silently becoming a packet handoff.
 
 For `provider=grok` that separate qualification is a valid `grok_prewalk_qualification_canary`
-artifact, passed with `--grok-prewalk-qualification <artifact.json>`. Without one (today's every
-environment), `prewalk auto` falls back honestly with the concrete reason
-`prewalk_capability_unavailable:grok_prewalk_unqualified:<concrete-reason>` and actual mode `off`;
-`prewalk required` fails before launch with the same concrete reason. `allow_grok=false` remains
-an absolute veto regardless of any evidence. The release-honesty rule extends to external
-providers: no release may claim Grok prewalk availability or behavioral qualification while the
-arm is feature-gated and unqualified.
+artifact, passed with `--probe-grok --grok-prewalk-qualification <artifact.json>`. The live probe
+binds the artifact to the exact installed version/build; the artifact's own identity fields are
+never accepted as proof of what is installed. A valid artifact qualifies behavioral evidence but
+does not open the separate registry launch gate. While `launch_ready` is false, `prewalk auto`
+falls back with
+`prewalk_capability_unavailable:grok_prewalk_unqualified:launch_feature_gate_closed` and actual
+mode `off`, and `prewalk required` fails before launch with the same reason. Missing, mismatched,
+or non-`retained_safe` evidence uses its own concrete reason. `allow_grok=false` remains an
+absolute veto regardless of any evidence. The release-honesty rule extends to external providers:
+no release may claim Grok prewalk availability or behavioral qualification while the arm is
+feature-gated and unqualified for launch.
 
 Inspect the installed grammar without inference:
 

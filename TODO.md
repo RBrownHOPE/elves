@@ -15,6 +15,11 @@ Project backlog and deferred tasks. Live items first; completed history under
   read descriptor) reader pattern to the native prewalk evidence loader
   `load_prewalk_capability_evidence` in `cobbler_runtime/prewalk.py`, matching the grok
   qualification loader (B3 review deferral).
+- [ ] Complete and independently review the Grok prewalk launch path before opening the
+  maintainer-owned `launch_ready` registry gate: materialize the bounded prompt-file input,
+  validate the non-yolo auth/permission profile end to end, run an operator-authorized canary,
+  bind its artifact to the live installed version/build, and regression-test create→exact-resume
+  continuity. Qualification evidence must never open this gate by itself.
 
 ## Completed Archive
 

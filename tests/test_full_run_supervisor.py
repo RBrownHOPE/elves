@@ -5810,6 +5810,38 @@ class FullRunLifecycleTests(unittest.TestCase):
             any("confidence" in error for error in errors), errors
         )
 
+        malformed_unsure_cases = {
+            "wrong-type": "not-a-list",
+            "too-many": [f"item-{index}" for index in range(17)],
+            "empty-item": [""],
+            "too-long": ["x" * 501],
+            "secret-shaped": ["api_key=supersecretvalue"],
+        }
+        for name, unsure_about in malformed_unsure_cases.items():
+            with self.subTest(name=name):
+                malformed_unsure = root / f"oauth-bad-unsure-{name}.jsonl"
+                malformed_unsure.write_text(
+                    json.dumps(
+                        event(
+                            1,
+                            confidence="high",
+                            unsure_about=unsure_about,
+                        )
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                rows, errors = full_run_module._read_events(
+                    malformed_unsure,
+                    expected_session_id=self.session,
+                    expected_branch=self.branch,
+                    shared_oauth_safe_projection=True,
+                )
+                self.assertEqual(rows, [])
+                self.assertTrue(
+                    any("unsure_about" in error for error in errors), errors
+                )
+
         too_large = root / "too-large.jsonl"
         too_large.write_bytes(b"x" * (full_run_module.MAX_EVENT_FILE_BYTES + 1))
         _rows, errors = full_run_module._read_events(

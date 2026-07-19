@@ -62,8 +62,9 @@ single-phase launch/status/follow remains supported.
   instruction fidelity is unqualified.
 - External providers remain off unless their trajectory semantics are separately qualified. The
   Grok Build arm exists behind exactly that gate: it is feature-gated, unqualified, and actually
-  off until an operator-authorized live canary records version-bound `retained_safe` evidence.
-  Analogy to a native host never qualifies an external provider.
+  off. An operator-authorized live canary can establish version-bound `retained_safe` behavioral
+  evidence, but qualification does not itself open the separate registry launch gate. Analogy to
+  a native host never qualifies an external provider.
 
 The initial release therefore normally reports actual mode `off`: read-only installed-help probes
 show advertised grammar, but no host — Codex, Claude, or Grok — is behaviorally qualified by this
@@ -125,8 +126,12 @@ reported by the installed binary, one canonical session UUID, both phase routes 
 effort, successful create/resume exits, same-worktree/session/stream continuity facts, guide-only
 fact retention, no packet replay, model-call provenance, and an explicit instruction-fidelity
 result. The loader validates artifacts; it never fabricates them, and `retained_safe` remains the
-only activating fidelity here as well. No such artifact has been recorded; Grok prewalk is
-unqualified.
+only fidelity eligible to activate here as well. Routing accepts the artifact only alongside
+`--probe-grok`, binding it to the exact version/build reported by the installed binary rather than
+trusting self-asserted artifact identity. Even valid behavioral evidence cannot mutate
+`launch_ready`; the maintainer-owned registry launch gate must be opened separately after the
+launch path is complete. No live artifact has been recorded, `launch_ready` remains false, and
+Grok prewalk is unqualified for launch.
 
 Provider cache tokens are telemetry only. Cache hits neither prove nor gate trajectory continuity.
 
@@ -175,5 +180,7 @@ with a stable `prewalk_*` code and a bounded recovery hint.
 Live canaries for Codex, Claude, and Grok are a separate operator-authorized rollout phase. They
 must prove the same session/worktree, route change, guide-only fact retention, no packet replay,
 stream identity, and honest instruction fidelity before `auto` can activate for that exact
-installed version. The operator canary procedure for the Grok lane is in
+installed version. The Grok lane additionally requires a separate reviewed change to open its
+registry launch gate; a canary artifact cannot make that policy change. The operator canary
+procedure for the Grok lane is in
 [`grok-open-source-worker.md`](grok-open-source-worker.md).

@@ -52,10 +52,13 @@ providers: no release may claim Grok prewalk availability or behavioral qualific
 
 The host-profile registry also carries a feature-gated `grok` prewalk arm.
 `native-worker prewalk-capabilities --host grok --json` reports installed advertised grammar with
-zero model calls, and `route-worker` accepts `--grok-prewalk-qualification <artifact.json>`. With
-`provider=grok`, `worker.prewalk auto` falls back honestly to actual mode `off` with
-`prewalk_capability_unavailable:grok_prewalk_unqualified:<concrete-reason>`, and `required` fails
-before launch, until a valid version-bound `retained_safe` qualification artifact exists;
+zero model calls, and `route-worker` accepts
+`--probe-grok --grok-prewalk-qualification <artifact.json>` so evidence is bound to the installed
+version/build. A valid `retained_safe` artifact qualifies behavior but cannot open the separate
+registry launch gate. While `launch_ready` is false, `provider=grok` plus `worker.prewalk auto`
+falls back to actual mode `off` with
+`prewalk_capability_unavailable:grok_prewalk_unqualified:launch_feature_gate_closed`, and
+`required` fails before launch; missing or invalid evidence reports its own concrete reason.
 `allow_grok=false` vetoes regardless of evidence. This prewalk lane is non-yolo
 (`--permission-mode auto`) and distinct from the trusted full-run lane; see
 [`grok-open-source-worker.md`](grok-open-source-worker.md).

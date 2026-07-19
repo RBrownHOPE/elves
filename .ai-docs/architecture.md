@@ -99,9 +99,13 @@ naming all consume the registry instead of per-site `if/elif` chains; `native_wo
 is a view of it. The `grok` row is feature-gated (`launch_ready` false, non-yolo
 `--permission-mode auto`, `XAI_API_KEY`-only): grok prewalk routing requires the absence of the repository allow_grok=false veto, explicit
 consent, and a valid operator-recorded `grok_prewalk_qualification_canary` artifact
-(`retained_safe`, exact installed version/build binding), and otherwise records the honest
-concrete fallback `grok_prewalk_unqualified:<reason>` with actual mode `off`. No environment is
-qualified; nothing may claim Grok prewalk availability.
+(`retained_safe`, bound to the exact version/build from a live installed-binary probe). The
+artifact can qualify behavioral evidence but cannot open the separate registry launch gate;
+while `launch_ready` is false, routing records
+`grok_prewalk_unqualified:launch_feature_gate_closed` with actual mode `off`, and `required` fails
+before launch. Other invalid or missing evidence records its concrete
+`grok_prewalk_unqualified:<reason>`. No environment is qualified for launch; nothing may claim
+Grok prewalk availability.
 
 Exact-session prewalk is a lifecycle inside one subscription-native (or separately qualified)
 worker, not a cross-worker context transfer. The packet appears once on the guide turn; private model-free policy verifies a

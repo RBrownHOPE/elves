@@ -943,13 +943,14 @@ def launch_native_worker(
     prewalk_spec: NativeWorkerPrewalkSpec | None = None,
 ) -> dict[str, Any]:
     # The fail-closed launch gate lives in the registry, not in CLI string
-    # compares: a host row with launch_ready=False (grok until qualification
-    # tooling lands) must be unlaunchable through every entry point.
+    # compares: a host row with launch_ready=False must be unlaunchable through
+    # every entry point. Behavioral qualification does not grant launch
+    # authority or silently mutate this registry policy.
     launch_profile = resolve_host_profile(spec.host)
     if not launch_profile.launch_ready:
         raise ValidationIssue(
             f"{launch_profile.capability_host}_native_worker_launch_unqualified",
-            f"{launch_profile.capability_host} native-worker launch is feature-gated off until a valid prewalk qualification artifact is supplied and validated",
+            f"{launch_profile.capability_host} native-worker launch is feature-gated off; qualification evidence alone does not authorize launch",
         )
     state_path, log_path = native_worker_paths(repo_root, run_id)
     if state_path.exists():

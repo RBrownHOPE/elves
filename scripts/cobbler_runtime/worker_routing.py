@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .config import load_json_file, load_toml_file
-from .host_profiles import transport_for_host
+from .host_profiles import resolve_host_profile, transport_for_host
 from .prewalk import PrewalkCapabilities
 from .schema import (
     NativeWorkerPhaseRole,
@@ -1042,7 +1042,12 @@ def decide_worker_route(
             unqualified = grok_prewalk_unqualified_reason(grok_prewalk_qualification)
             if unqualified is None and grok_prewalk_qualification is not None:
                 caps = grok_prewalk_qualification
-                if caps.route_matches(
+                if not resolve_host_profile("grok").launch_ready:
+                    prewalk_fallback = (
+                        "prewalk_capability_unavailable:grok_prewalk_unqualified:"
+                        "launch_feature_gate_closed"
+                    )
+                elif caps.route_matches(
                     guide_model=guide_model,
                     guide_effort=guide_effort,
                     execution_model=selected_model,

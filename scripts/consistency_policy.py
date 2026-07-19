@@ -1986,6 +1986,7 @@ PREWALK_PHRASES = {
         "with a copied packet or summary is not prewalk",
         "post-edit cold fallback is forbidden",
         "Static help proves",
+        "behavioral evidence never grants launch authority",
         "references/prewalk.md",
     ],
     "AGENTS.md": [
@@ -1997,6 +1998,7 @@ PREWALK_PHRASES = {
         "Optional exact-session prewalk",
         "same session in the same worktree",
         "Static help probes make no model calls",
+        "behavioral qualification never opens",
         "references/prewalk.md",
     ],
     "references/prewalk.md": [
@@ -2008,6 +2010,7 @@ PREWALK_PHRASES = {
         "normally reports actual mode `off`",
         "External providers remain off unless their trajectory semantics are separately qualified",
         "grok_prewalk_qualification_canary",
+        "qualification does not itself open the separate registry launch gate",
         "never fabricates them",
     ],
     "references/host-parity.md": [
@@ -2017,6 +2020,7 @@ PREWALK_PHRASES = {
         "prewalk.md",
         "no release may claim Grok prewalk availability or behavioral qualification",
         "grok_prewalk_unqualified",
+        "cannot open the separate",
     ],
     "references/adaptive-worker-routing.md": [
         "Optional exact-session prewalk route",
@@ -2024,12 +2028,14 @@ PREWALK_PHRASES = {
         "help probes always report false",
         "actual mode `off`",
         "prewalk_capability_unavailable:grok_prewalk_unqualified:",
+        "does not open the separate registry launch gate",
         "no release may claim Grok prewalk availability or behavioral qualification",
     ],
     "guide/index.html": [
         "Use exact-session prewalk when qualified",
         "same session in the same",
         "no paid canary runs implicitly",
+        "cannot open",
         "references/prewalk.md",
     ],
     "CHANGELOG.md": [
@@ -2037,6 +2043,7 @@ PREWALK_PHRASES = {
         "execution-route resume with only",
         "no paid canary ran",
         "remains feature-gated off",
+        "Qualification never opens the separate registry launch feature gate",
         "claims Grok prewalk availability or behavioral qualification",
     ],
 }
@@ -2144,6 +2151,7 @@ GROK_OPEN_SOURCE_WORKER_PHRASES = {
         "--permission-mode auto",
         "grok_prewalk_qualification_canary",
         "operator-authorized live canary",
+        "cannot grant launch authority",
         "commit `98c3b24`",
     ],
     "guide/index.html": [
