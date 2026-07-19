@@ -216,7 +216,7 @@
     "default_for_session": true
   },
   "continuation_guard": {
-    "next_required_action": "Terminal confidence-guided review verdict -> fix any blockers -> landing check at committed evidence tip -> Final Readiness -> mark PR ready -> authorized merge-commit landing -> teardown + report",
+    "next_required_action": "Landing ceremony: landing check at evidence tip, PR review comment + ready, CI green, cleanup commit + attestation, authorized merge commit, teardown + report + issue comment",
     "reason": "Six worker batches, terminal review, and authorized landing ceremony outstanding",
     "stop_allowed": false
   },
@@ -284,21 +284,21 @@
   "master_acceptance": [
     {
       "criterion": "Issue #86 items 1\u201316 are each addressed with a regression test or explicit recorded evidence, and the PR description maps every issue item (1\u201320) to its resolution or deferral",
-      "evidence": "",
+      "evidence": "All 28 B-A criteria met with per-criterion evidence (this file); independent confidence-guided terminal review acceptance spot-check passed for every checked criterion; PR #87 description maps issue items 1-20 to batches/deferrals; one review blocker (lost prepare_full_run lock) fixed in b0fc892 with a pinning structure test",
       "id": "M-A1",
-      "met": false
+      "met": true
     },
     {
       "criterion": "The full unittest suite, `scripts/release_checklist.py --version 2.10.2`, and `scripts/check_repo_consistency.py` are green at the final reviewed tip",
-      "evidence": "",
+      "evidence": "Driver-run at b0fc892: full suite exit 0 (pipefail; 1,234 test functions incl. the lock structure test), release_checklist --version 2.10.2 exit 0, check_repo_consistency exit 0, verify_repo VERIFY OK; CI matrix (ubuntu 3.10/3.12/3.14 + macOS 3.12 + Socket) green at c036ad1 and required green again at the merge tip before landing",
       "id": "M-A2",
-      "met": false
+      "met": true
     },
     {
       "criterion": "Issue items 17\u201320 are recorded as deferred in TODO.md with rationale, and nothing in the diff starts the deferred decomposition or roadmap features",
-      "evidence": "",
+      "evidence": "TODO.md Live records issue items 17-20 as deferred with rationale plus two review advisories; independent review confirmed nothing in the diff starts the deferred decomposition or roadmap features",
       "id": "M-A3",
-      "met": false
+      "met": true
     }
   ],
   "merge_policy": "merge-commit-on-green",
@@ -326,6 +326,11 @@
   "risk_posture": "standard",
   "run_id": "issue-86-review-fixes-2026-07-19",
   "start_head": "0e58fde77baa9c5a256f081dde07d2ca2c10a72a",
+  "terminal_review": {
+    "delta_re_review": "runtime probe: prepare_full_run.__wrapped__ present, resolve_worker_effort bare; focused + full gates green at b0fc892",
+    "mode": "confidence-guided cumulative (independent subagent + driver deep passes)",
+    "verdict": "one blocking finding (prepare_full_run serialization lock lost to decorator capture) fixed in b0fc892; six advisories recorded (2 in TODO.md Live, 4 informational); all six worker unsure areas verified non-regressions; acceptance spot-check clean"
+  },
   "test_baseline": {
     "command": "python3 -m unittest discover -s tests",
     "head": "0e58fde77baa9c5a256f081dde07d2ca2c10a72a",

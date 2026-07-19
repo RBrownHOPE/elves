@@ -126,11 +126,11 @@ a regular merge commit. Items 17–20 deferred with recorded rationale.
 
 ## Stop Gate
 
-- **Planned batches remaining:** 6 (worker) + terminal review + landing ceremony
+- **Planned batches remaining:** 0 (B1–B6 complete; review clean after fixed blocker)
 - **Stop allowed right now:** no
-- **Why:** staging/launch/monitor/review/landing all outstanding
-- **Next required action:** finish staging (session JSON + packet), validate, rollback ref, push,
-  open PR, launch worker
+- **Why:** landing ceremony outstanding (landing check, PR ready, CI, cleanup, authorized merge,
+  teardown, report, issue comment)
+- **Next required action:** landing check at the committed evidence tip, then the ceremony
 
 ---
 
@@ -198,19 +198,19 @@ Promotion: execution log -> learnings -> `.ai-docs/*`.
 
 ## Current Phase
 
-**Status:** Reviewing (worker complete; terminal review in flight)
+**Status:** Final Readiness (review clean after one fixed blocker; landing ceremony next)
 
-**Active batch:** terminal review + landing ceremony (host-owned)
+**Active batch:** landing ceremony (host-owned)
 
-**What was just finished:** Worker session `dc6300fc` completed B1–B6 (12 commits
-`097de84..23536e8`, all Close trailers `high`); driver reran all gates green at `23536e8`;
-supervisor's exit authority flag attributed as coordinator-induced false positive (host-minted
-post-launch b0 ref); session evidence reconciled for all 28 B-A criteria.
+**What was just finished:** Confidence-guided terminal review returned one blocker
+(prepare_full_run lost its serialization lock to decorator capture by the inserted helper) —
+fixed in `b0fc892` with a pinning structure test; delta re-review clean (runtime `__wrapped__`
+probe + full gates green); advisories recorded in TODO.md Live; master acceptance evidence
+written; CI matrix green at `c036ad1`.
 
-**Single next action:** Push worker commits + reconcile commit; consume the independent
-confidence-guided review verdict; fix blockers if any (Review-phase commits); then landing
-check at the committed evidence tip, Final Readiness, mark PR #87 ready, authorized
-merge-commit landing, teardown, report, issue #86 comment.
+**Single next action:** Commit evidence tip, landing check, PR review comment + mark ready,
+CI green at tip, cleanup commit (remove session/survival/execution log; keep plan + learnings),
+post-cleanup attestation, authorized regular merge commit, teardown, report, issue #86 comment.
 
 ---
 

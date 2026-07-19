@@ -167,3 +167,25 @@ Verified directly at cited lines and via an independent read-only verification p
 | B4 | high | persona guard list deliberately narrow (six claim shapes) |
 | B5 | high | 30s default could bound a legitimately slow git op; overrides available |
 | B6 | high | --effort default change recorded as approved public-surface break |
+
+## Terminal review (2026-07-19)
+
+- Mode: cumulative confidence-guided review — independent subagent over
+  `git diff 9496b94..23536e8` with the six-unsure-area triage table first, plus driver deep
+  passes (resume liveness guard, timeout provenance, api-break approval, Mapping import).
+- All six worker unsure areas verified as non-regressions (cache-write sites always filtered;
+  liveness proxy fails closed under serialization; wording branches + machine flags unambiguous;
+  persona guard zero false positives over the real 52-file corpus; only network op through
+  `leases.run_git` keeps its explicit 15s; approval entry matches the detected break).
+- **Blocking (1, fixed):** `@_locked_full_run` was captured by the inserted
+  `resolve_worker_effort`, leaving `prepare_full_run` unserialized against concurrent
+  launch/stop/monitor. Fixed in `b0fc892`: decorator restored, helper bare,
+  `test_prepare_full_run_keeps_the_serialization_lock` pins both. Delta re-review: runtime
+  `__wrapped__` probe + focused (6 OK) + full gates green (suite 0, consistency 0, release 0,
+  VERIFY OK).
+- **Advisory (6, non-delaying):** resume-over-terminal event poisoning + persona-guard widening
+  recorded in TODO.md Live; truncation-count boundary heuristic, overflow drop-line labeling,
+  rebuild audit-history reset, and a function-local import style nit recorded here.
+- Worker-found latent bug confirmed real by review: v2.10.1's three text-mode review-block print
+  sites raised NameError (`Mapping` unimported) on every execution — fixed and covered in B3.
+- CI: full matrix green at `c036ad1` (ubuntu 3.10/3.12/3.14, macOS 3.12, Socket x2, check).
