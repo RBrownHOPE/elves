@@ -4,6 +4,8 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-07-19
+
 ### Runtime hardening and Python 3.10 floor guards (audit B1)
 
 - Add explicit Python >= 3.10 entry-point guards to `sync_installed_skills.py` and
