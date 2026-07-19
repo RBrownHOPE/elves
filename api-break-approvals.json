@@ -1,11 +1,4 @@
 {
   "schema_version": 1,
-  "approvals": [
-    {
-      "surface": "cli:cobbler_agents implement full-run-prepare",
-      "release": "2.10.2",
-      "reason": "--effort default changes from 'medium' to None (omitted) so prepare_full_run's normalized resolution is the single default authority and a flagless resume keeps an originally-explicit value (issue #86 bug 2 / B2)",
-      "plan_path": "docs/plans/v2.10.2-issue-86-review-fixes.md"
-    }
-  ]
+  "approvals": []
 }
