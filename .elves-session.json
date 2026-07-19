@@ -210,11 +210,13 @@
     "default_for_session": true
   },
   "continuation_guard": {
-    "next_required_action": "Finish staging: sync/validate session, commit+push staging docs, open PR, mint b0 rollback ref, write packet capsule at staged HEAD, launch claude-fable-5/low native worker, park",
+    "next_required_action": "Launch the claude-fable-5/low native worker with the staged packet (session fff5a5a1-1ae6-43c5-b57c-c2508f31b3c4), then park with watchdog until terminal wake",
     "reason": "Six worker batches, terminal review, and authorized landing ceremony outstanding",
     "stop_allowed": false
   },
   "delegation_scope": "full_run",
+  "pr_number": 87,
+  "worker_session_id": "fff5a5a1-1ae6-43c5-b57c-c2508f31b3c4",
   "e2e_mode": "chat-to-land",
   "git_mode": "branch_progress",
   "handoff": {

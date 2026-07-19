@@ -180,11 +180,12 @@ Promotion: execution log -> learnings -> `.ai-docs/*`.
 - [x] Plan cleaned and saved to disk
 - [x] Survival guide updated from the current plan
 - [x] Learnings file present (`docs/elves/learnings.md`, shared durable file)
-- [ ] Execution log initialized with batch breakdown and preflight notes
+- [x] Execution log initialized with batch breakdown and preflight notes
 - [x] Branch created (`claude/issue-86-review-fixes` @ START_TIP `0e58fde`)
 - [x] Branch/checkout ownership confirmed (dedicated worktree; no other agent shares it)
-- [ ] PR opened and recorded
-- [ ] Preflight run and critical failures cleared
+- [x] PR opened and recorded (#87, draft until Final Readiness)
+- [x] Preflight run and critical failures cleared (origin `aigorahub/elves`, gh auth
+  `john-aigora`, session tracked, acceptance validate PASS pre- and post-commit)
 - [x] Run mode, return time, and non-negotiables recorded
 - [x] Stop Gate initialized (`Stop allowed right now: no`)
 - [x] Single-kickoff E2E: continue into launch without a second human call
@@ -193,17 +194,17 @@ Promotion: execution log -> learnings -> `.ai-docs/*`.
 
 ## Current Phase
 
-**Status:** Staging
+**Status:** Launch-ready -> launching worker
 
-**Active batch:** pre-launch (worker will own B1–B6)
+**Active batch:** B1 (worker-owned; host parks after launch)
 
-**What was just finished:** Plan written; worktree + branch created at `0e58fde`; baseline suite
-green (1,213 tests, exit 0 under pipefail); issue #86 bugs 1–2 and risks 3/8 reproduced at the
-cited lines; prewalk probe recorded (unqualified -> actual off).
+**What was just finished:** Staging complete — plan + run docs + session contract committed
+(`0521668`) and pushed; PR #87 opened (draft); worker session UUID
+`fff5a5a1-1ae6-43c5-b57c-c2508f31b3c4` minted; acceptance validate PASS.
 
-**Single next action:** Initialize execution log, write `.elves-session.json` + sync/validate,
-commit + push staging docs, open PR, mint b0 rollback ref, write packet with capsule at the
-staged HEAD, launch the `claude-fable-5`/low worker, park.
+**Single next action:** Mint b0 rollback ref at the staged tip, finalize the packet capsule at
+that HEAD, re-validate, launch the `claude-fable-5`/low native worker
+(`native-worker launch --host claude`), verify identity readiness, then park with watchdog.
 
 ---
 
@@ -316,8 +317,9 @@ provider-backed routes: none.
 - **Execution log:** `docs/elves/execution-log-issue-86-review-fixes.md`
 - **Durable docs manifest:** `.ai-docs/manifest.md`
 - **Branch:** `claude/issue-86-review-fixes`
-- **PR number:** #TBD (fill at open)
+- **PR number:** #87 (draft)
 - **Run id:** `issue-86-review-fixes-2026-07-19`
+- **Worker session:** `fff5a5a1-1ae6-43c5-b57c-c2508f31b3c4` (exact `claude-fable-5` / `low`)
 
 ---
 

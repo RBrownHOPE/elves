@@ -87,7 +87,28 @@ Verified directly at cited lines and via an independent read-only verification p
   version of record; AGENTS.md matches; CHANGELOG heading promotion).
 - Prewalk: honest fallback (see Baseline); requested `auto`, actual `off`.
 
-## Staging (in progress)
+## Staging (2026-07-19)
 
-- Plan, survival guide, this log written. Next: session JSON + sync/validate, staging commit +
-  push, PR open, `b0` rollback ref, packet with capsule at staged HEAD, worker launch, park.
+- Plan, survival guide, this log, and `.elves-session.json` written; `acceptance_contract.py
+  sync-session --write` derived all 28 batch rows + 3 master rows; `validate` PASS (explicit
+  handoff v1: session `handoff` object + leading Markdown packet capsule; 31 packet rows).
+- Preflight: origin `https://github.com/aigorahub/elves.git`; gh auth `john-aigora`;
+  `.elves-session.json` tracked (not ignored); worktree clean at commit time.
+- Staging commit `0521668` pushed; PR #87 opened (draft) with issue mapping and deferral
+  rationale.
+- Worker session UUID minted: `fff5a5a1-1ae6-43c5-b57c-c2508f31b3c4`.
+- Packet: `.elves/runtime/worker-packet-issue-86-review-fixes.md`, generated from template +
+  session (capsule launch_head bound to the pre-launch tip by `finalize_packet.py`; acceptance
+  rows emitted verbatim from the session so plan/session/packet cannot drift).
+
+### Decisions made (staging mechanics)
+
+- PR body uses `Closes #86`: accepted items land here; deferrals are tracked in TODO.md by
+  B6-A3, so closing the review issue on merge is correct hygiene. Final issue comment maps all
+  20 items at landing.
+- Draft PR until Final Readiness; marked ready only after cumulative review + gates.
+- Rollback authority: single host-owned `b0` ref at the pre-launch tip (trusted full-run shape).
+
+## Launch (2026-07-19)
+
+- (recorded below as it happens)
