@@ -111,4 +111,25 @@ Verified directly at cited lines and via an independent read-only verification p
 
 ## Launch (2026-07-19)
 
-- (recorded below as it happens)
+- b0 rollback ref minted and pushed at the staged tip `3ad3139`:
+  `refs/elves/rollback/issue-86-review-fixes-20/fff5a5a1-1ae6-43/b0-278e824e50d2`.
+- Packet finalized at launch_head `3ad3139`; acceptance validate PASS (31 rows).
+- **Launch attempt 1 (failed, zero model turns, no budget consumed):** passed
+  `--session-id fff5a5a1…` intending create-with-id; the launcher's `--session-id` semantics are
+  exact-session RESUME (host-parity "exact resume: `--resume <uuid>`"), so claude exited 1 with
+  "No conversation found with session ID". Coordinator launch defect, classified transient-
+  equivalent (pre-model).
+- **Authority profile discovery (from private state):** the native-worker supervisor runs the
+  worker with `git_network_push: disabled`, scoped git write roots (worktree gitdir, objects,
+  `refs/heads/claude` only), nulled gh config, `commit_mode: classifier_approved_worker_commit`.
+  Worker pushes are impossible by design in this lane: packet amended to local-commits-only
+  (host pushes at reconcile); survival guide Run Control updated to match. Fresh-create launches
+  omit `--session-id`; the supervisor mints the UUID (recorded at reconcile alongside a second
+  b0 ref under the actual session id).
+
+### Decisions made (launch recovery)
+
+- Relaunch fresh without `--session-id`; keep `--prewalk auto` with phase-explicit
+  `claude-fable-5`/`low` guide+execution routes (probe already records honest actual `off`).
+- Monitor design: local branch tip + follow-log growth + status polling (origin stays at the
+  staged tip until reconcile because worker pushes are disabled).

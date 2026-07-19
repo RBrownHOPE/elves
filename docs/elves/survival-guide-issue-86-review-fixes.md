@@ -46,9 +46,11 @@ a regular merge commit. Items 17–20 deferred with recorded rationale.
   run memory once at terminal/safety wake.
 - **Progress visibility rule:** worker commits use
   `[claude/issue-86-review-fixes · Batch N/6 · Contract|Implement|Validate|Review|Close]
-  <concrete outcome>`; ≥1 pushed non-Close slice per batch before its single acceptance-backed
+  <concrete outcome>`; ≥1 committed non-Close slice per batch before its single acceptance-backed
   Close; vague subjects forbidden; Close commits carry a `Confidence:` trailer (level plus
-  `— unsure: <items>` when non-empty; an empty unsure list is a positive assertion).
+  `— unsure: <items>` when non-empty; an empty unsure list is a positive assertion). Worker
+  commits are LOCAL (supervisor disables network push); the host follows via the local tip +
+  follow log and pushes everything at reconcile.
 - **Coordinator-to-implementer handoff:** consolidated packet is the staging deliverable (path
   below); incomplete handoff = blocking coordinator defect.
 - **Worker packet:** `.elves/runtime/worker-packet-issue-86-review-fixes.md` (also
@@ -88,8 +90,10 @@ a regular merge commit. Items 17–20 deferred with recorded rationale.
 - **Staging acceptance command:** `python3 "$HOME/.claude/skills/elves/scripts/acceptance_contract.py"
   validate --repo-root . --session .elves-session.json`
 - **High-risk checkpoints:** none
-- **GitHub push auth route:** ambient same-user credentials (subscription-native worker is the
-  user's own Claude Code session; no credential grant projection needed)
+- **GitHub push auth route:** host-owned. The native-worker supervisor authority profile runs
+  the worker with network push DISABLED (`git_network_push: disabled`, scoped git write roots,
+  nulled gh config): the worker commits locally on the assigned branch and the host pushes at
+  reconcile with its own ambient credentials.
 - **Re-drive budget:** 3 substantive re-drives; transient provider errors retry the same worker
   with 5m/10m/20m backoff and never consume the budget
 - **Continuation harness:** host-native (Elves finite mode + Stop Gate)

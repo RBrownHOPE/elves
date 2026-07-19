@@ -210,13 +210,21 @@
     "default_for_session": true
   },
   "continuation_guard": {
-    "next_required_action": "Launch the claude-fable-5/low native worker with the staged packet (session fff5a5a1-1ae6-43c5-b57c-c2508f31b3c4), then park with watchdog until terminal wake",
+    "next_required_action": "Relaunch the claude-fable-5/low native worker fresh (no --session-id: that flag means exact-resume), record the minted session id + matching b0 ref, then park with watchdog until terminal wake",
     "reason": "Six worker batches, terminal review, and authorized landing ceremony outstanding",
     "stop_allowed": false
   },
   "delegation_scope": "full_run",
   "pr_number": 87,
-  "worker_session_id": "fff5a5a1-1ae6-43c5-b57c-c2508f31b3c4",
+  "worker_session_id": null,
+  "launch_attempts": [
+    {
+      "attempt": 1,
+      "session_id": "fff5a5a1-1ae6-43c5-b57c-c2508f31b3c4",
+      "outcome": "failed_pre_model",
+      "reason": "launcher --session-id means exact-session resume; claude exited 1 (no such conversation); zero model turns; no re-drive budget consumed (coordinator launch defect)"
+    }
+  ],
   "e2e_mode": "chat-to-land",
   "git_mode": "branch_progress",
   "handoff": {
