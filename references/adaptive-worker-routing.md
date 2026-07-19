@@ -86,8 +86,8 @@ These named defaults apply to a separate worker and to the execution phase of an
 prewalk. An explicit user route still wins. Unlisted native routes use the plan's low/medium/high
 execution classification. Permitted Grok workers prefer **`grok-4.5`** when the authenticated live
 catalog returns it, at effort **`high`**. xAI retired Composer 2.5 (`grok-composer-2.5-fast`);
-Elves never selects that identifier. An explicit catalog pin still wins when that exact id is
-returned live. The live driver itself is never downgraded. High review risk may advise a stronger
+Elves never selects that identifier. An explicit catalog pin of any non-retired id still wins
+when that exact id is returned live. The live driver itself is never downgraded. High review risk may advise a stronger
 terminal-review driver without changing it in place.
 
 ## Optional exact-session prewalk route

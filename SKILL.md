@@ -5,7 +5,7 @@ license: MIT
 compatibility: Works with Claude Code, Codex, Claude.ai, and any Agent Skills compatible platform. Requires git and gh CLI.
 metadata:
   author: John Ennis
-  version: "2.10.3"
+  version: "2.10.4"
   argument-hint: Path to plan file, or plan text directly.
 ---
 
@@ -48,7 +48,7 @@ Fable 5 at `max`/`ultra` → the same Fable 5 model at `low`. A Fable→Opus rou
 cross-model route, never “inheritance,” and means `claude-opus-4-8` at `medium`. Grok Build is
 also cross-family: prefer `grok-4.5` at explicit `high` when the authenticated live catalog returns
 it (Composer 2.5 is retired and is never selected). Unlisted native routes use plan-matched effort,
-and explicit user route choices still win.
+and explicit user route choices still win for any catalog-listed, non-retired model.
 Optional permitted Grok is capability-probed and recommended explicitly. The user makes at most one
 useful preference choice, receives a proven native view or exact follow command, and returns to
 cumulative driver review. Trusted full-run delegation keeps that path
@@ -62,7 +62,7 @@ handoff remains valid for huge/unstable plans.
 `references/joyful-runs-contract.md`, `landing-authority.md`, `follow-mode.md`,
 `proof-and-review.md`, `host-parity.md`, `schema-and-acceptance.md`, `prewalk.md`.
 
-**User guide (v2.10.3):** `https://aigorahub.github.io/elves/` is the short task-first path for
+**User guide (v2.10.4):** `https://aigorahub.github.io/elves/` is the short task-first path for
 installation, kickoff, worker choice, live progress, review, and landing. The references above
 remain the detailed workflow contracts.
 
