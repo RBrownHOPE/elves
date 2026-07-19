@@ -56,7 +56,7 @@ python3 scripts/cobbler_agents.py implement full-run-prepare --json \
   --packet <absolute-full-run-packet> --worktree <absolute-worktree> \
   --session <canonical-.elves-session.json> \
   --adapter grok-build --model auto \
-  --effort medium --max-turns 80
+  --effort high --max-turns 80
 
 python3 scripts/cobbler_agents.py implement full-run-launch --json \
   --session-id <exact-uuid> --grant-grok-auth --grant-github-push
@@ -159,7 +159,7 @@ for `prepare` / `status` / argv emission.
 |---------|-------|-----|
 | Session | caller UUID via `--session-id` create once; exact `--resume` after interruption | installed grammar; never emit unsupported `--new-session` |
 | Unattended tools | **`--yolo`** (alias `--always-approve`) without `--permission-mode auto` | required for headless edits; in Grok Build 0.2.101 an explicit permission mode overrides yolo, so combining the flags can cancel the first tool turn |
-| Effort | **`medium`** default (`--effort medium`) | `high` roughly doubles tiny-task latency; reserve high for hard batches |
+| Effort | **`high`** default (`--effort high`) | highest supported Grok effort; prefer implementation quality for cross-family delegation unless the operator explicitly overrides it |
 | Subagents | enabled | never pass `--no-subagents` |
 | Unit of work | whole delegated run per full-run packet | avoid per-batch host tax |
 | Prompt | `--prompt-file` packet **or** `-p` text — never both | CLI rejects combining them |
@@ -205,7 +205,7 @@ grok --prompt-file .elves/runtime/packets/batch-1.md \
   --cwd <worktree> \
   --model <live-model-id> \
   --yolo \
-  --effort medium \
+  --effort high \
   --max-turns 80 \
   --output-format json
 ```
@@ -218,7 +218,7 @@ grok --resume <sessionId> \
   --cwd <worktree> \
   --model <live-model-id> \
   --yolo \
-  --effort medium \
+  --effort high \
   --max-turns 80 \
   --output-format json
 ```

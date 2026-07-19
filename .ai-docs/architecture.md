@@ -85,6 +85,13 @@ sanitized progress and terminal facts without passing raw provider output throug
 Detached worker commits belong to the separate untrusted lease path: the host creates branch
 commits and pushes only after binary patch audit/import.
 
+Delegation routes are explicit `(model, effort)` pairs. “Inherited model” means the exact observed
+model identity with only effort lowered: GPT-5.6 strong routes and GPT-4.8 Max/UltraCode use the
+same family member at `medium`, while Fable 5 `max`/`ultra` uses the same Fable model at `low`.
+Fable→`claude-opus-4-8` at `medium` is a named cross-model exception. Grok is also cross-family and
+uses the authenticated live-catalog default at explicit `high`; neither runtime nor docs hardcode a
+remembered Composer identifier.
+
 Acceptance staging has two compatible handoff layers. The v2.8 default keeps a missing delegated
 packet path advisory, while a session that declares top-level `handoff` opts into strict handoff v1:
 exact fresh/resume state, pending-acceptance ownership, current branch/HEAD, and a matching bounded

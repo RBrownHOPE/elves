@@ -71,9 +71,23 @@ artifact must validate against the exact installed version/build, canonical sess
 successful exit, and matching terminal event. The help probe alone never sets goal mode, and an
 invalid or incomplete artifact keeps the one-packet fallback.
 
-Native workers inherit the current driver model unless an explicit model is routed. Effort follows
-the plan's low/medium/high execution classification; the driver itself is never downgraded. High
-review risk may advise a stronger terminal-review driver without changing it in place.
+“Inherit the driver model” means the exact observed model identity, not a cheaper sibling carrying
+the same provider label. The worker route is always described as a `(model, effort)` pair:
+
+| Live driver route | Default implementation-worker route | What changed |
+|---|---|---|
+| GPT-5.6 at `xhigh`/extra-high/`ultra` | same observed GPT-5.6 model ID at `medium` | effort only |
+| GPT-4.8 Max/UltraCode | same observed GPT-4.8 model ID at `medium` | effort only |
+| Claude Fable 5 at `max`/`ultra` | same observed `claude-fable-5` model ID at `low` | effort only |
+| explicit or availability-driven Fable→Opus route | `claude-opus-4-8` at `medium` | model and effort; never call this inheritance |
+| permitted Grok Build handoff | authenticated live-catalog default at `high` | cross-family; highest supported Grok effort |
+
+These named defaults apply to a separate worker and to the execution phase of an exact-session
+prewalk. An explicit user route still wins. Unlisted native routes use the plan's low/medium/high
+execution classification. Grok never hardcodes Composer (or any other remembered identifier): the
+installed authenticated catalog decides the model, and Elves passes `high` explicitly. The live
+driver itself is never downgraded. High review risk may advise a stronger terminal-review driver
+without changing it in place.
 
 ## Optional exact-session prewalk route
 
@@ -120,6 +134,8 @@ When Grok Build is explicitly permitted and silently qualifies:
 
 - choose the parsed default from the authenticated live `grok models` catalog unless the operator
   explicitly requests another catalog member;
+- pass `--effort high` by default because `high` is Grok Build's highest supported effort; an
+  explicit operator effort override remains authoritative;
 - never invent an unavailable model: an explicit identifier (including `grok-4.5` or
   `grok-code-fast-1`) is valid only when the authenticated live catalog returns that exact
   identifier;

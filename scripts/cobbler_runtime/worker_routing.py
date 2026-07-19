@@ -34,7 +34,7 @@ REVIEW_RISKS = ("low", "standard", "high")
 GROK_COMPOSER_MODEL = "grok-composer-2.5-fast"
 GROK_COMPLEX_MODEL = "grok-4.5"
 GROK_UPSTREAM_SOURCE_URL = "https://github.com/xai-org/grok-build"
-GROK_UPSTREAM_SEMANTIC_COMMIT = "c1b5909ec707c069f1d21a93917af044e71da0d7"
+GROK_UPSTREAM_SEMANTIC_COMMIT = "7cfcb20d2b50b0d18801a6c0af2e401c0e060894"
 MAX_GROK_GOAL_CANARY_ARTIFACT_BYTES = 64 * 1024
 MAX_GROK_GOAL_CANARY_PROMPT_BYTES = 32 * 1024
 
@@ -996,6 +996,12 @@ def decide_worker_route(
                     missing = "grok_provider_unqualified"
                 fallback = {"requested": "grok", "actual": "native", "reason": missing}
 
+    if selected_provider == "grok" and effort_is_auto:
+        # Grok is a cross-family handoff, not a cheaper same-model execution
+        # phase. Use the provider's highest supported reasoning level unless
+        # the operator explicitly requested another effort.
+        effort = "high"
+
     if selected_provider == "native":
         reasons.append("subscription_native_default")
     if fallback:
@@ -1146,7 +1152,13 @@ def decide_worker_route(
         review_risk=risk,
         provenance={
             "provider": provider_source,
-            "worker_effort": "plan_execution_reasoning" if effort_is_auto else effort_source,
+            "worker_effort": (
+                "grok_highest_supported_default"
+                if effort_is_auto and selected_provider == "grok"
+                else "plan_execution_reasoning"
+                if effort_is_auto
+                else effort_source
+            ),
             "prewalk": prewalk_source,
             "prewalk_guide_effort": guide_effort_source,
             "prewalk_guide_model": guide_model_source,

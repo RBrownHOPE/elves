@@ -642,7 +642,7 @@ def write_grok_qualification_artifact(
         "installed_build_commit": "c1b5909ec707",
         "session_id": GOLDEN_GROK_SESSION,
         "guide_route": {"model": "guide-model", "effort": "high"},
-        "execution_route": {"model": "grok-composer-2.5-fast", "effort": "medium"},
+        "execution_route": {"model": "grok-composer-2.5-fast", "effort": "high"},
         "create_exit_code": 0,
         "resume_exit_code": 0,
         "same_session_id": True,
@@ -690,13 +690,13 @@ class GrokPrewalkQualificationLoaderTests(unittest.TestCase):
         self.assertEqual(
             capabilities.qualified_execution_model, "grok-composer-2.5-fast"
         )
-        self.assertEqual(capabilities.qualified_execution_effort, "medium")
+        self.assertEqual(capabilities.qualified_execution_effort, "high")
         self.assertTrue(
             capabilities.route_matches(
                 guide_model="guide-model",
                 guide_effort="high",
                 execution_model="grok-composer-2.5-fast",
-                execution_effort="medium",
+                execution_effort="high",
             )
         )
         self.assertFalse(
@@ -704,7 +704,7 @@ class GrokPrewalkQualificationLoaderTests(unittest.TestCase):
                 guide_model="other-guide",
                 guide_effort="high",
                 execution_model="grok-composer-2.5-fast",
-                execution_effort="medium",
+                execution_effort="high",
             )
         )
 

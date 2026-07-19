@@ -86,6 +86,8 @@ from cobbler_runtime.host_profiles import resolve_host_profile  # noqa: E402
 from cobbler_runtime.schema import ValidationIssue  # noqa: E402
 from cobbler_runtime.sessions import SessionRegistry  # noqa: E402
 from cobbler_runtime.implement import (  # noqa: E402
+    DEFAULT_EFFORT,
+    GROK_DEFAULT_EFFORT,
     launch_payload,
     prepare_implement,
     resume_batch_payload,
@@ -1760,6 +1762,9 @@ def cmd_implement(args: argparse.Namespace) -> int:
 
         if action == "full-run-prepare":
             adapter_name = getattr(args, "adapter", None) or "grok-build"
+            effort_was_explicit = bool(
+                getattr(args, "_effort_option_was_explicit", False)
+            )
             acceptance_session = getattr(args, "session", None)
             if adapter_name != "fixture" and not acceptance_session:
                 default_session = repo_root / ".elves-session.json"
@@ -1789,7 +1794,15 @@ def cmd_implement(args: argparse.Namespace) -> int:
                     )
                 ),
                 permission_mode=getattr(args, "permission_mode", None) or "auto",
-                effort=getattr(args, "effort", None) or "medium",
+                effort=(
+                    getattr(args, "effort", None)
+                    if effort_was_explicit
+                    else (
+                        GROK_DEFAULT_EFFORT
+                        if adapter_name == "grok-build"
+                        else DEFAULT_EFFORT
+                    )
+                ),
                 executable=getattr(args, "executable", None),
                 create=not bool(getattr(args, "resume", False)),
                 check=bool(getattr(args, "check", False)),
@@ -2683,7 +2696,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Catalog-returned model id, or auto for the authenticated live default",
     )
     i_fr_prepare.add_argument("--permission-mode", default="auto")
-    i_fr_prepare.add_argument("--effort", default="medium")
+    i_fr_prepare.add_argument(
+        "--effort",
+        # Retain the public argparse default for compatibility; main() records
+        # whether the option was actually present so an omitted Grok effort can
+        # resolve to the new high-quality default without conflating an
+        # explicit `--effort medium` override with omission.
+        default="medium",
+        help=(
+            "Worker effort (Grok Build defaults to high, its highest supported "
+            "level; other adapters keep their own balanced default)"
+        ),
+    )
     i_fr_prepare.add_argument(
         "--grok-goal-behavioral-evidence",
         default=None,
@@ -2958,7 +2982,7 @@ def build_parser() -> argparse.ArgumentParser:
     i_launch.add_argument(
         "--effort",
         default=None,
-        help="Grok --effort/--reasoning-effort (default: medium)",
+        help="Grok --effort/--reasoning-effort (default: high)",
     )
     i_launch.add_argument(
         "--check",
@@ -3081,7 +3105,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(argv) if argv is not None else list(sys.argv[1:])
+    args = parser.parse_args(raw_argv)
+    args._effort_option_was_explicit = any(
+        token == "--effort" or token.startswith("--effort=")
+        for token in raw_argv
+    )
     try:
         return int(args.func(args))
     except StorageError as error:

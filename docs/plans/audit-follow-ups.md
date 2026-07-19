@@ -256,6 +256,34 @@ Blast radius: `full_run.py` validation/monitor, `provider_auth.py` contract cons
 `implement.py` gate warnings, schema JSON, docs plus `consistency_policy.py` pins. Additive and
 backward compatible. Risk: low.
 
+### Batch 6: Explicit worker route identity and Grok effort default
+
+Scope (maintainer clarification before landing):
+
+1. Define same-family delegation as the exact same observed model identity with lower effort:
+   GPT-5.6 strong routes → GPT-5.6 `medium`; GPT-4.8 Max/UltraCode → GPT-4.8 `medium`; Fable 5
+   `max`/`ultra` → Fable 5 `low`.
+2. Name Fable→`claude-opus-4-8` at `medium` as an explicit cross-model route rather than calling it
+   inheritance.
+3. Make Grok Build cross-family delegation resolve the authenticated live-catalog default and pass
+   explicit `high`, its highest supported effort. Never hardcode Composer when it is absent from
+   the catalog; preserve explicit operator effort overrides and the Devin `medium` default.
+4. Align the canonical skill, Codex adapter, README, guide, routing/Grok references, changelog,
+   architecture notes, tests, and consistency pins.
+
+Acceptance criteria:
+
+- [x] B6-A1: Authoritative and user-facing docs name each `(model, effort)` pair above and clearly
+  distinguish same-model effort downshift from cross-model routing.
+- [x] B6-A2: Model-free routing resolves automatic Grok effort to `high`; legacy and full-run Grok
+  launch defaults emit `--effort high`; an explicit effort still wins and Devin remains `medium`.
+- [x] B6-A3: A live read-only Grok Build 0.2.103 probe selects only its authenticated catalog
+  default (`grok-4.5` on the reviewed machine) and makes zero model calls; tests use deterministic
+  catalogs and do not assume Composer is universally available.
+
+Blast radius: route reporting and Grok launch defaults plus docs/tests. Native launch mechanics
+remain unchanged; risk: low.
+
 ## Master Acceptance
 
 - [x] M-A1: Full suite green on CI matrix (3.10/3.12/3.14, ubuntu+macos) and green-with-skips

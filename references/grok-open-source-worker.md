@@ -77,7 +77,9 @@ incomplete evidence leaves goal mode disabled and uses the one-packet fallback.
 
 Model selection uses only the authenticated live catalog. Omitting `--model` (or using the CLI's
 `auto` preparation value) resolves to the parsed live default at launch. An explicit model is
-accepted only if the catalog returns that exact identifier.
+accepted only if the catalog returns that exact identifier. Elves passes `--effort high` by
+default—the highest Grok Build effort—and never hardcodes Composer or another model remembered
+from an older catalog. The operator can still make an explicit lower-effort tradeoff.
 
 ## Feature-gated prewalk lane (distinct from trusted full-run)
 
@@ -124,7 +126,9 @@ complete and regression-tested.
 Verification basis: grok-build 0.2.102 source (commit `98c3b24`) plus the 2026-07 repository audit
 (repo-only `docs/reviews/2026-07-repo-audit-grok-prewalk.md` in a source checkout via PR #82;
 installed bundles must not depend on that file). Advertised grammar and registry rows follow that
-verified source; no statement here claims behavioral qualification.
+verified source. The cross-family delegation default was rechecked against Grok Build 0.2.103 and
+source commit `7cfcb20`: the live/default model is catalog-owned, and `high` is the advertised
+highest implementation-quality effort. No statement here claims behavioral qualification.
 
 ## Launch, follow, and recover
 

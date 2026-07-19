@@ -653,15 +653,15 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup</code></pre>
           <tbody>
             <tr>
               <td data-label="Situation">Claude Code or Codex only</td>
-              <td data-label="Usual choice">Separate native worker</td>
-              <td data-label="Why">Uses the subscription already in use and keeps the live driver
-                available for review.</td>
+              <td data-label="Usual choice">Same model, lower effort</td>
+              <td data-label="Why">Keeps the exact observed model identity on the subscription
+                already in use while leaving the stronger live driver available for review.</td>
             </tr>
             <tr>
               <td data-label="Situation">Grok Build is available and allowed</td>
-              <td data-label="Usual choice">Authenticated live default</td>
+              <td data-label="Usual choice">Authenticated live default at <code>high</code></td>
               <td data-label="Why">Elves selects only a model returned by the installed CLI's live
-                catalog.</td>
+                catalog and requests Grok's highest supported effort.</td>
             </tr>
             <tr>
               <td data-label="Situation">The implementation is genuinely complex</td>
@@ -679,12 +679,17 @@ python3 ~/.codex/skills/elves/scripts/install_doctor.py --startup</code></pre>
           </tbody>
         </table>
 
-        <p>Native workers inherit the observed current model unless the route explicitly pins a
-          model. Their reasoning effort follows the plan. The live driver is not downgraded.
-          Devin CLI and other configured adapters remain optional routes, not required setup.
+        <p>“Inherit” means the exact same model, with only effort lowered: GPT-5.6
+          <code>xhigh</code>/extra-high/<code>ultra</code> → GPT-5.6 <code>medium</code>;
+          GPT-4.8 Max/UltraCode → GPT-4.8 <code>medium</code>; Fable 5
+          <code>max</code>/<code>ultra</code> → Fable 5 <code>low</code>. If Fable explicitly
+          routes to Opus, Elves names the cross-model route as <code>claude-opus-4-8</code> at
+          <code>medium</code>. Unlisted native routes remain plan-matched. The live driver is not
+          downgraded. Devin CLI and other configured adapters remain optional routes, not required setup.
           Grok provider availability is independent from goal support: proven headless
           <code>/goal</code> is an enhancement, and a compatible one-packet prompt is the recorded
-          fallback.</p>
+          fallback. Grok uses the authenticated live default at explicit <code>high</code>, not a
+          remembered Composer model that may be absent from the current catalog.</p>
 
         <h3>Machine-check a cold handoff when needed</h3>
         <p>Elves v2.9 adds optional explicit handoff v1 for coordinators that need deterministic

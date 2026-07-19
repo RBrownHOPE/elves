@@ -2714,7 +2714,6 @@ class FullRunGrokArgvTests(unittest.TestCase):
                 adapter="grok-build",
                 model="grok-4.5",
                 permission_mode="auto",
-                effort="medium",
                 executable="grok",
                 create=True,
                 check=True,
@@ -2735,6 +2734,7 @@ class FullRunGrokArgvTests(unittest.TestCase):
             self.assertIn("--always-approve", argv)
             self.assertNotIn("--yolo", argv)
             self.assertIn("--effort", argv)
+            self.assertEqual(argv[argv.index("--effort") + 1], "high")
             self.assertIn("--max-turns", argv)
             self.assertIn("--output-format", argv)
             self.assertIn("streaming-json", argv)
@@ -7217,6 +7217,7 @@ class FullRunLifecycleTests(unittest.TestCase):
             state = load_state(self.repo, self.session)
             self.assertEqual(state.adapter, "devin-cli")
             self.assertEqual(state.model, "swe-1-7-lightning")
+            self.assertEqual(state.effort, "medium")
             self.assertEqual(state.executable, str(devin))
             self.assertIsNone(state.provider_session_id)
 

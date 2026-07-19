@@ -21,7 +21,14 @@ Command (`/land-pr` / `\land-pr`). Land only with a regular merge commit after f
 never a squash.
 
 **Default user path: one kickoff.** Ask naturally; the capable live driver plans and reviews,
-a separate subscription-native worker inherits the current model by default at plan-matched effort.
+a separate subscription-native worker normally keeps the exact observed model identity and lowers
+only its effort. The named delegation defaults are: GPT-5.6 at `xhigh`/extra-high/`ultra` → the
+same GPT-5.6 model at `medium`; GPT-4.8 Max/UltraCode → the same GPT-4.8 model at `medium`; Claude
+Fable 5 at `max`/`ultra` → the same Fable 5 model at `low`. A Fable→Opus route is an explicit
+cross-model route, never “inheritance,” and means `claude-opus-4-8` at `medium`. Grok Build is
+also cross-family: use the authenticated live-catalog default at explicit `high` (the highest
+supported Grok effort), never a hardcoded stale model such as Composer when it is absent from the
+catalog. Unlisted native routes use plan-matched effort, and explicit user route choices still win.
 Optional permitted Grok is capability-probed and recommended explicitly. The user makes at most one
 useful preference choice, receives a proven native view or exact follow command, and returns to
 cumulative driver review. Trusted full-run delegation keeps that path
@@ -142,9 +149,10 @@ Invocation:
 
 **Default: subscription-native worker** (Claude Code or Codex). It receives one packet in a
 separate exact session, inherits the live driver's model unless explicitly routed otherwise, and
-uses the plan-matched effort without changing the live driver. No Grok, OpenRouter, or external
-implement CLI is required. Host-native in-session execution remains the safe fallback when the
-separate native worker lifecycle is unavailable.
+uses the named same-model/lower-effort delegation defaults above (plan-matched effort for unlisted
+routes) without changing the live driver. No Grok, OpenRouter, or external implement CLI is
+required. Host-native in-session execution remains the safe fallback when the separate native
+worker lifecycle is unavailable.
 
 Optional Grok Build is selected only when available **and permitted**. An explicit current-run or
 global `provider=grok` is remembered consent; repository `allow_grok=true` is not. Repository

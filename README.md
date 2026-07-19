@@ -97,6 +97,13 @@ refs, final gates, PR, and merge — always. Details:
 Trusted Grok implementation launches use `--always-approve` alone: Grok Build treats an explicit
 `--permission-mode auto` as an override, so the two flags must not be combined.
 
+Native delegation names both model and effort. GPT-5.6 `xhigh`/extra-high/`ultra` hands off to the
+same GPT-5.6 model at `medium`; GPT-4.8 Max/UltraCode to the same GPT-4.8 model at `medium`; Fable 5
+`max`/`ultra` to the same Fable 5 model at `low`. A Fable→Opus exception means
+`claude-opus-4-8` at `medium`, not “the same model.” A permitted Grok handoff uses the
+authenticated live-catalog default at explicit `high`—never a hardcoded Composer identifier that
+the current catalog may not offer.
+
 ### Optional exact-session prewalk
 
 Prewalk lets one qualified native worker orient on a guide model/effort, create a bounded TODO, make

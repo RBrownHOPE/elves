@@ -1801,7 +1801,8 @@ PUBLIC_WORDING_FILES = [
 ]
 
 PUBLIC_WORDING_FORBIDDEN_PHRASES = [
-    "Fable",
+    # Exact model names are valid in the route-identity contract. Keep
+    # prohibiting branding/persona claims that describe Cobbler as Fable-like.
     "Fable-like",
     "Fable-style",
     "inspired by Fable",
@@ -1963,16 +1964,47 @@ ADAPTIVE_WORKER_ROUTING_PHRASES = {
     "SKILL.md": [
         "subscription-native worker",
         "authenticated live",
+        "same GPT-5.6 model at `medium`",
+        "same Fable 5 model at `low`",
+        "`claude-opus-4-8` at `medium`",
+        "authenticated live-catalog default at explicit `high`",
         "${XDG_CONFIG_HOME:-~/.config}/elves/config.json",
         "approval-bypass authority",
+    ],
+    "AGENTS.md": [
+        "exact same-model/lower-effort route map",
+        "references/adaptive-worker-routing.md",
+    ],
+    "README.md": [
+        "Native delegation names both model and effort",
+        "same GPT-5.6 model at `medium`",
+        "same Fable 5 model at `low`",
+        "`claude-opus-4-8` at `medium`",
+        "authenticated live-catalog default at explicit `high`",
     ],
     "references/adaptive-worker-routing.md": [
         "repository safety veto > explicit run intent > repository defaults > global convenience",
         "authenticated live",
+        "exact observed model identity",
+        "same observed GPT-5.6 model ID at `medium`",
+        "same observed `claude-fable-5` model ID at `low`",
+        "`claude-opus-4-8` at `medium`",
+        "authenticated live-catalog default at `high`",
         "codex exec resume <thread-id>",
         "a session ID is not such an object",
     ],
+    "guide/index.html": [
+        "Same model, lower effort",
+        "GPT-5.6 <code>medium</code>",
+        "Fable 5 <code>low</code>",
+        "claude-opus-4-8",
+        "authenticated live default at explicit <code>high</code>",
+    ],
     "CHANGELOG.md": [
+        "Explicit delegation route identity and Grok highest-effort default",
+        "same GPT-5.6 identity at `medium`",
+        "`claude-opus-4-8` at `medium`",
+        "authenticated live-catalog default at explicit",
         "Adaptive subscription-native workers",
         "authenticated live-catalog models",
         "prompt/KV cache",
@@ -2153,6 +2185,7 @@ GROK_OPEN_SOURCE_WORKER_PHRASES = {
         "operator-authorized live canary",
         "cannot grant launch authority",
         "commit `98c3b24`",
+        "source commit `7cfcb20`",
     ],
     "guide/index.html": [
         "https://github.com/xai-org/grok-build",

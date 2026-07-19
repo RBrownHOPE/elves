@@ -44,7 +44,10 @@ DEFAULT_PERMISSION_MODE = "auto"
 DEFAULT_LANE = "fast"
 DEFAULT_GIT_MODE = "branch_progress"
 DEFAULT_EXECUTABLE = "grok"
+# Generic/non-Grok adapters retain their existing balanced default. Grok Build
+# delegation explicitly uses its highest supported effort by default.
 DEFAULT_EFFORT = "medium"
+GROK_DEFAULT_EFFORT = "high"
 FORBIDDEN_DEFAULT_PERMISSION = "dontAsk"
 # Required for unattended headless tool use. Grok Build 0.2.101 gives an explicit
 # --permission-mode precedence over yolo, so trusted launches emit --always-approve alone.
@@ -1083,7 +1086,7 @@ def resolve_implement_model(
             return "swe-1-7-lightning", explicit_effort or DEFAULT_EFFORT, notes
         if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
             return "openrouter/qwen/qwen3-max", explicit_effort, notes
-        return GROK_LIVE_DEFAULT, explicit_effort or DEFAULT_EFFORT, notes
+        return GROK_LIVE_DEFAULT, explicit_effort or GROK_DEFAULT_EFFORT, notes
 
     if adapter_name == "devin-cli":
         return raw, explicit_effort or DEFAULT_EFFORT, notes
@@ -1091,7 +1094,7 @@ def resolve_implement_model(
     if adapter_name in {"opencode-cli", "opencode-labor", "opencode"}:
         return raw, explicit_effort, notes
 
-    return raw, explicit_effort or DEFAULT_EFFORT, notes
+    return raw, explicit_effort or GROK_DEFAULT_EFFORT, notes
 
 
 def _build_devin_launch_argv(
@@ -1502,7 +1505,9 @@ def build_launch_argv(
     model_name, effort_name, _alias_notes = resolve_implement_model(
         model, effort=effort, adapter="grok-build"
     )
-    effort_name = (effort_name or DEFAULT_EFFORT).strip() or DEFAULT_EFFORT
+    effort_name = (
+        effort_name or GROK_DEFAULT_EFFORT
+    ).strip() or GROK_DEFAULT_EFFORT
 
     argv = [exe]
     if create:

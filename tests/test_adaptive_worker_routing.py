@@ -224,6 +224,11 @@ class RouteDecisionMatrixTests(unittest.TestCase):
             )
             self.assertEqual(decision.provider, "grok")
             self.assertEqual(decision.worker_model, expected)
+            self.assertEqual(decision.worker_effort, "high")
+            self.assertEqual(
+                decision.provenance["worker_effort"],
+                "grok_highest_supported_default",
+            )
             self.assertTrue(decision.goal_mode)
         explicit_complex = self.decide(
             execution_reasoning="high",
@@ -232,6 +237,18 @@ class RouteDecisionMatrixTests(unittest.TestCase):
         )
         self.assertEqual(explicit_complex.worker_model, GROK_COMPLEX_MODEL)
         self.assertEqual(explicit_complex.worker_model_policy, "explicit_catalog_model_pin")
+        explicit_effort = self.decide(
+            execution_reasoning="medium",
+            explicit_intent={
+                "worker": {"provider": "grok", "native_effort": "low"}
+            },
+            grok=capabilities,
+        )
+        self.assertEqual(explicit_effort.worker_effort, "low")
+        self.assertEqual(
+            explicit_effort.provenance["worker_effort"],
+            "explicit_run_intent",
+        )
 
     def test_unavailable_and_repo_prohibited_fall_back_honestly(self) -> None:
         requested = {"worker": {"provider": "grok"}}
@@ -617,10 +634,11 @@ class RouteDecisionMatrixTests(unittest.TestCase):
                 if reasoning == "high":
                     intent["worker"]["grok_model"] = GROK_COMPLEX_MODEL
                 decision = self.decide(execution_reasoning=reasoning, explicit_intent=intent, grok=caps)
-                state = FullRunState(session_id="11111111-1111-1111-1111-111111111111", branch="feature", start_head="a" * 40, worktree=tmp, packet_path=str(packet), model=decision.worker_model or "")
+                state = FullRunState(session_id="11111111-1111-1111-1111-111111111111", branch="feature", start_head="a" * 40, worktree=tmp, packet_path=str(packet), model=decision.worker_model or "", effort=decision.worker_effort)
                 with mock.patch("cobbler_runtime.implement.detect_native_grok_goal", return_value={"mode": "headless_compatible_fallback"}):
                     argv = build_full_run_argv(state)
                 self.assertEqual(argv[argv.index("--model") + 1], expected)
+                self.assertEqual(argv[argv.index("--effort") + 1], "high")
 
     def test_full_run_state_grok_default_defers_to_live_catalog(self) -> None:
         state = FullRunState(
@@ -628,6 +646,7 @@ class RouteDecisionMatrixTests(unittest.TestCase):
             worktree=str(REPO_ROOT), packet_path=str(REPO_ROOT / "README.md"),
         )
         self.assertEqual(state.model, "auto")
+        self.assertEqual(state.effort, "high")
 
 
 class NativeWorkerGrammarTests(unittest.TestCase):
@@ -1138,7 +1157,7 @@ class GrokPrewalkQualificationGateTests(unittest.TestCase):
             qualified_guide_model="guide-model",
             qualified_guide_effort="high",
             qualified_execution_model=GROK_COMPOSER_MODEL,
-            qualified_execution_effort="medium",
+            qualified_execution_effort="high",
         )
         params.update(overrides)
         return PrewalkCapabilities(**params)

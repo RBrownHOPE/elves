@@ -39,8 +39,10 @@ authenticated live catalog (`references/adaptive-worker-routing.md`).
 
 - **Default path:** one kickoff; **chat-to-work** stops at a landable PR, **chat-to-land** merges
   only with explicit authorization; the default worker is a separate
-  subscription-native Codex/Claude worker at plan-matched effort, with no transferable parent/worker
-  prompt-cache promise (SKILL.md and `references/e2e-chat-to-land.md`)
+  subscription-native Codex/Claude worker using SKILL.md's exact same-model/lower-effort route map
+  (plan-matched effort for unlisted routes), with no transferable parent/worker prompt-cache
+  promise (SKILL.md, `references/adaptive-worker-routing.md`, and
+  `references/e2e-chat-to-land.md`)
 - **Landable is plan Acceptance with proof** — landing check:
   `python3 "$ELVES_SKILL_ROOT/scripts/elves_landing_check.py" --session <session-path> --repo-root .`
   (session `plan_path` is authoritative; explicit `--plan` is only an equality assertion)

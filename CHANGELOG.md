@@ -24,6 +24,18 @@ All notable changes to the Elves skill are documented here.
   non-required JSON Schema properties as compatible; removals, changed definitions, and new
   required properties still fail closed.
 
+### Explicit delegation route identity and Grok highest-effort default
+
+- Define native worker handoffs as explicit `(model, effort)` routes: GPT-5.6 strong-driver routes
+  keep the same GPT-5.6 identity at `medium`, GPT-4.8 Max/UltraCode keeps the same GPT-4.8 identity
+  at `medium`, and Fable 5 `max`/`ultra` keeps Fable 5 at `low`. The Fable→Opus exception is named
+  honestly as `claude-opus-4-8` at `medium`, not described as same-model inheritance.
+- Make permitted Grok Build delegation use the authenticated live-catalog default at explicit
+  `high`, Grok's highest supported effort. Full-run and legacy launch defaults now agree; Devin
+  retains its existing `medium` default, explicit effort overrides still win, and Elves never
+  hardcodes a stale Composer model absent from the live catalog (rechecked with Grok Build 0.2.103
+  and upstream source commit `7cfcb20`).
+
 ### Host-profile registry and feature-gated Grok prewalk arm (audit B2)
 
 - Extract a single host-profile registry (`cobbler_runtime/host_profiles.py`) consumed by spec

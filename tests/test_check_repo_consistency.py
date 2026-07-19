@@ -1345,9 +1345,10 @@ Cobbler
 
     def test_public_wording_guardrails_catch_fable_framing(self) -> None:
         label = "README.md"
-        stale = "Fable"
+        stale = "Fable-style"
 
         self.assertIn(stale, self.consistency.PUBLIC_WORDING_FORBIDDEN_PHRASES)
+        self.assertNotIn("Fable", self.consistency.PUBLIC_WORDING_FORBIDDEN_PHRASES)
 
         errors = self.consistency.find_forbidden_phrases(
             {label: stale},

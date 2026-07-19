@@ -174,7 +174,7 @@ class BuildLaunchArgvTests(unittest.TestCase):
         self.assertIn("--prompt-file", argv)
         self.assertIn("--always-approve", argv)
         self.assertIn("--effort", argv)
-        self.assertEqual(argv[argv.index("--effort") + 1], "medium")
+        self.assertEqual(argv[argv.index("--effort") + 1], "high")
         self.assertIn("--max-turns", argv)
         self.assertNotIn("--no-subagents", argv)
         self.assertNotIn("dontAsk", argv)
@@ -211,6 +211,18 @@ class BuildLaunchArgvTests(unittest.TestCase):
             )
         self.assertIn("--session-id", argv)
         self.assertNotIn("--resume", argv)
+
+    def test_explicit_grok_effort_overrides_high_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "p.md"
+            packet.write_text("x\n", encoding="utf-8")
+            argv = build_launch_argv(
+                session_id=TEST_GROK_SESSION,
+                packet=packet,
+                cwd=tmp,
+                effort="low",
+            )
+        self.assertEqual(argv[argv.index("--effort") + 1], "low")
 
     def test_dontask_forbidden(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -250,14 +262,23 @@ class BuildLaunchArgvTests(unittest.TestCase):
                 check=True,
             )
         self.assertEqual(argv[argv.index("--model") + 1], "deep")
-        self.assertEqual(argv[argv.index("--effort") + 1], "medium")
+        self.assertEqual(argv[argv.index("--effort") + 1], "high")
         self.assertIn("--check", argv)
 
     def test_grok_fast_alias_remains_an_exact_catalog_candidate(self) -> None:
         model, effort, notes = resolve_implement_model("fast")
         self.assertEqual(model, "fast")
         self.assertEqual(notes, [])
-        self.assertIsNotNone(effort)
+        self.assertEqual(effort, "high")
+
+    def test_devin_keeps_balanced_default_when_grok_uses_high(self) -> None:
+        model, effort, notes = resolve_implement_model(
+            None,
+            adapter="devin-cli",
+        )
+        self.assertEqual(model, "swe-1-7-lightning")
+        self.assertEqual(effort, "medium")
+        self.assertEqual(notes, [])
 
     def test_grok_session_must_be_canonical_uuid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -57,6 +57,7 @@ from .implement import (
     DEFAULT_EXECUTABLE,
     DEFAULT_MODEL,
     DEFAULT_PERMISSION_MODE,
+    GROK_DEFAULT_EFFORT,
     build_launch_argv,
     detect_native_grok_goal,
 )
@@ -1176,7 +1177,7 @@ class FullRunState:
     adapter: str = "grok-build"
     model: str = "auto"
     permission_mode: str = DEFAULT_PERMISSION_MODE
-    effort: str = DEFAULT_EFFORT
+    effort: str = GROK_DEFAULT_EFFORT
     executable: str = DEFAULT_EXECUTABLE
     create_session: bool = True
     check: bool = False
@@ -3180,7 +3181,7 @@ def prepare_full_run(
     adapter: str = "grok-build",
     model: str | None = None,
     permission_mode: str = DEFAULT_PERMISSION_MODE,
-    effort: str = DEFAULT_EFFORT,
+    effort: str | None = None,
     executable: str | None = None,
     create: bool = True,
     check: bool = False,
@@ -3207,6 +3208,11 @@ def prepare_full_run(
         pass
 
     adapter_name = (adapter or "grok-build").strip().lower()
+    resolved_effort = (effort or "").strip() or (
+        GROK_DEFAULT_EFFORT
+        if adapter_name == "grok-build"
+        else DEFAULT_EFFORT
+    )
     if adapter_name == "fixture" and not fixture_script:
         raise ValidationIssue(
             "fixture_script_required",
@@ -3392,7 +3398,7 @@ def prepare_full_run(
         adapter=adapter_name,
         model=model,
         permission_mode=permission_mode,
-        effort=effort,
+        effort=resolved_effort,
         executable=exe,
         create_session=bool(create),
         check=bool(check),
