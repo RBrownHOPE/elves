@@ -4,6 +4,8 @@ All notable changes to the Elves skill are documented here.
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-07-20
+
 ### Parallelves v1: contract and deterministic lane tooling
 
 - Add the **Parallelves** contract (`references/parallelves.md`): Cobbler-coordinated parallel
