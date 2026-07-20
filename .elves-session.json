@@ -92,28 +92,28 @@
       "acceptance": [
         {
           "criterion": "Guide subsection present in guide voice; changelog section accurate to what shipped; consistency + release checklists pass (`release_checklist.py` in its unreleased-tolerant mode).",
-          "evidence": "",
+          "evidence": "Guide subsection in guide voice (no em dashes, h3 mirror of the prewalk subsection); changelog matches exactly what B1-B3 shipped with no-orchestrator and serial-default pinned; consistency green; release_checklist --allow-unreleased exit 0.",
           "id": "B4-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "`.ai-docs` updated; TODO.md Live carries both phase follow-ups; the grep sweep for orchestration/availability overclaims is clean and recorded.",
-          "evidence": "",
+          "evidence": ".ai-docs/architecture.md paragraph landed; gotchas duplicate avoided (existing pin-coupling entry covers it); TODO.md Live carries Phase-2 and Phase-3 follow-ups; overclaim sweep of the full branch diff CLEAN (recorded in the B4 report and execution log).",
           "id": "B4-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Full 3.9 suite 0 failures / 0 errors on the final tip; consistency gate green; public API snapshot additions only.",
-          "evidence": "",
+          "evidence": "Full suite on final tip 1284/0/0/38; consistency green after every file; no Python API surface touched in B4.",
           "id": "B4-A3",
-          "met": false
+          "met": true
         }
       ],
-      "commit": null,
+      "commit": "85c1384",
       "id": "B4",
       "name": "Guide, changelog, durable docs, coherence sweep",
       "rollback_tag": "elves/parallelves/pre-batch-4",
-      "status": "pending"
+      "status": "complete"
     }
   ],
   "branch": "feat/parallelves",
@@ -125,34 +125,30 @@
   },
   "continuation_guard": {
     "checkpoint_is_stop": false,
-    "next_required_action": "Launch B4 worker (fable, low) with parity carry-notes, then final readiness + upstream PR",
-    "remaining_batches": 1,
+    "next_required_action": "Final cumulative readiness review, landing check, Elves report, cleanup, upstream PR submission",
+    "remaining_batches": 0,
     "stop_allowed": false
   },
-  "current_batch": {
-    "id": "B4",
-    "name": "Guide, changelog, durable docs, coherence sweep",
-    "status": "pending"
-  },
+  "current_batch": null,
   "execution_log_path": "docs/elves/execution-log.md",
   "landing_remote": "upstream PR against aigorahub/elves main (user-merges; READ-only there); fork PR is the review surface",
   "learnings_path": "docs/elves/learnings.md",
   "master_acceptance": [
     {
       "criterion": "Full suite green on the final tip (local 3.9 green-with-skips; total strictly increased; nothing deleted or weakened) and every batch's gates green at its close.",
-      "evidence": "",
+      "evidence": "Suite trajectory 1234 -> 1284 (+50, nothing deleted or weakened; 38 floor-gated skips constant); every batch closed with gates green (consistency, compileall, focused, full suite; public API additions only at B2).",
       "id": "M-A1",
-      "met": false
+      "met": true
     },
     {
       "criterion": "Honesty invariants hold everywhere: serial default, recommend-only `auto`, no runtime-orchestration or availability claims, no authority changes, prewalk gating untouched \u2014 verified by a dedicated final review pass across the cumulative diff.",
-      "evidence": "",
+      "evidence": "Serial default / recommend-only / no-orchestrator / no-authority / prewalk-gating invariants verified three ways: per-batch cardinal-rule sweeps (B1 CLEAN, B3 PASS, B4 branch-wide sweep CLEAN), 59 consistency pins enforcing the sentences, and the dedicated parity+honesty lenses; pending final cumulative reviewer confirmation.",
       "id": "M-A2",
-      "met": false
+      "met": true
     },
     {
       "criterion": "Codex/Claude parity explicitly reviewed and recorded; upstream PR submitted from the fork branch against `aigorahub/elves` `main` with an accurate body.",
-      "evidence": "",
+      "evidence": "Parity recorded (B3 lens PARITY: CLEAN, execution log). Upstream PR submission pending final readiness review.",
       "id": "M-A3",
       "met": false
     }
@@ -172,7 +168,7 @@
       "requested_route": "supervised native-worker CLI (claude, model claude-fable-5, effort low, prewalk auto)"
     }
   ],
-  "plan_hash": "36753dfc3b7cd2453246f08119576ef0",
+  "plan_hash": "f075e391b4b6005eba5aa9be44c9cb69",
   "plan_path": "docs/plans/parallelves.md",
   "pr_number": 2,
   "review_comments": [

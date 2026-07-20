@@ -87,10 +87,10 @@ authority changes, no prewalk activation claims.
 
 ## Stop Gate
 
-- **Planned batches remaining:** 1
+- **Planned batches remaining:** 0
 - **Stop allowed right now:** no
-- **Why:** B1-B3 complete (parity CLEAN); B4 remains, then final readiness and upstream submission.
-- **Next required action:** launch B4 worker (fable, low) with parity carry-notes.
+- **Why:** all four batches complete; final readiness review passed with recordkeeping fixes; upstream submission, landing check, report, and cleanup remain.
+- **Next required action:** submit the upstream PR, flip M-A3, run the landing check, generate the report, clean up.
 
 ---
 
@@ -111,9 +111,9 @@ authority changes, no prewalk activation claims.
 
 **Status:** In progress
 
-**Active batch:** B4: Guide, changelog, durable docs, coherence sweep
+**Active batch:** none (submission phase)
 
-**Single next action:** Launch B4 worker (fable, low).
+**Single next action:** Submit the upstream PR against aigorahub/elves main.
 
 ---
 

@@ -31,7 +31,7 @@ Chronological record. Newest entries at the bottom.
 
 **Decisions made:**
 - v1 scope guard: contracts + deterministic tooling only; NO runtime orchestrator (documented as
-  Phase 3 follow-up). Keeps the PR honest and reviewable.
+  explicit future work). Keeps the PR honest and reviewable.
 - Deliverable is a submitted upstream PR (user-merges policy; no landing this run).
 - Fork PR opened for the review-loop surface (bot + driver reviews) during the run.
 - Lanes grammar is line-based fenced yaml-shaped text parsed WITHOUT yaml (stdlib-only rule).
@@ -71,3 +71,15 @@ Chronological record. Newest entries at the bottom.
 **Standard review:** 0 BLOCKING, cardinal-rule PASS; accuracy vs landed code verified (schema field list = template grammar = parser fields; advisory claim checked against every validator — nothing reads the lanes key); 24/24 pins verbatim with per-file scratchpad detection proof; style fit PASS on all six surfaces. One process disclosure: reviewer used one stash/pop cycle to inspect HEAD pins — driver verified restoration (stash list empty; diff numstat 101/0 unchanged; consistency green).
 **DEDICATED CODEX/CLAUDE PARITY LENS (B3-A2 record): verdict PARITY: CLEAN** over the entire cumulative branch diff (2,444 lines). Zero Claude-only or Codex-only assumptions in any added product-doc line; the only invocation is host-neutral python3 with the $ELVES_SKILL_ROOT convention both installs resolve; worker.parallel lives in the shared XDG file both hosts read; the Codex driver's pointer chain (AGENTS.md → SKILL.md → parallelves.md → host-parity.md → per-host grammars) traced end-to-end operable with no dead end. Three symmetric polish items carried to B4 (phase-1 wording provider-axis tension; shared-prefs example missing worker.parallel; docstring nit follows existing pattern — dropped).
 **Commit:** 392eb9f. Next: B4 (final batch) with carry-notes, then final readiness review and upstream PR submission.
+
+---
+
+## 2026-07-19 ~16:40 — Batch 4: Guide, changelog, durable docs, coherence sweep — COMPLETE
+
+**Timing:** worker ~14m (fable/low, 42 tool calls) · driver validate ~5m · final cumulative review ~12m.
+**Contract:** B4-A1..B4-A3 all met (evidence in `.elves-session.json`); all three parity carry-notes closed (provider-neutral phase-1 sentence + host-parity pointer; worker.parallel in the shared-preferences example; lanes plan named in parity prose).
+**Overclaim sweep (B4-A2 record):** the full branch diff grepped for orchestration/launch/availability vocabulary — CLEAN: every hit inside airtight negations or explicit future-work statements; independently re-confirmed by the final cumulative reviewer over the 2,767-line diff (M-A2 confirmation GRANTED).
+**Validation:** suite on final tip 1284/0/0/38 (worker + final reviewer runs); consistency green after every file; release checklist green in unreleased mode; 3.13 corroboration 133 tests OK (final reviewer).
+**Final review:** 4 blockers, all recordkeeping (phase-number contradiction between TODO.md and the contract; this missing B4 close record; premature M-A3 checkbox; pin-count overstatement) — all fixed in this close; polish items (host-parity prose clause, README naming) applied; gemini bot thread on fork PR #2 fixed and resolved.
+**Commit:** 85c1384 (Implement) + this Close. Next: upstream PR submission, M-A3 flip, landing check, Elves report, cleanup.
+

@@ -101,12 +101,12 @@ Scope:
 
 Acceptance criteria:
 
-- [ ] B1-A1: `references/parallelves.md` exists with all eight sections above; no sentence
+- [x] B1-A1: `references/parallelves.md` exists with all eight sections above; no sentence
   claims runtime orchestration, automatic launching, authority changes, or prewalk availability;
   serial-default and recommend-only wording is pinned in `consistency_policy.py`.
-- [ ] B1-A2: All seven glossary terms resolve with definitions consistent with the contract;
+- [x] B1-A2: All seven glossary terms resolve with definitions consistent with the contract;
   `python3 scripts/check_repo_consistency.py` passes.
-- [ ] B1-A3: `references/plan-template.md` documents the optional `## Lanes` yaml grammar with a
+- [x] B1-A3: `references/plan-template.md` documents the optional `## Lanes` yaml grammar with a
   valid example, and states that omission means serial.
 
 Blast radius: docs + `consistency_policy.py` only. Risk: low.
@@ -134,23 +134,24 @@ Scope:
    (default `off`) following exactly the `worker.prewalk` pattern (safe unknown-field survival,
    no authority).
 3. CLI: `python3 scripts/cobbler_agents.py lanes validate --plan <path> --json` and
-   `lanes plan --plan <path> [--timings <json>] [--risk <low|standard|high>] --json` wiring the
-   two functions; read-only, no state writes; errors as the standard issues envelope.
+   `python3 scripts/cobbler_agents.py lanes plan --plan <path> [--timings <json>]
+   [--risk <low|standard|high>] --json` wiring the two functions; read-only, no state writes;
+   errors as the standard issues envelope.
 4. Tests (new `tests/test_parallel_lanes.py`): grammar accept/reject, overlap detection incl.
    prefix nesting, cycle detection, each width gate passing and declining with its exact code,
    preference default/round-trip, CLI subprocess both subcommands both directions.
 
 Acceptance criteria:
 
-- [ ] B2-A1: The parser accepts the template's documented example and rejects malformed blocks
+- [x] B2-A1: The parser accepts the template's documented example and rejects malformed blocks
   with stable codes; no yaml import appears anywhere in the module.
-- [ ] B2-A2: Partition validation catches exact-duplicate and nested-prefix overlaps and
+- [x] B2-A2: Partition validation catches exact-duplicate and nested-prefix overlaps and
   dependency cycles with concrete codes, proven by tests.
-- [ ] B2-A3: The width test returns `parallel: false` with concrete `parallel_declined:` reasons
+- [x] B2-A3: The width test returns `parallel: false` with concrete `parallel_declined:` reasons
   for: missing lanes section, single lane, overlapping surfaces (via validation), absent timing
   history, driver-dominant timings, lane count over budget, and high risk; and `parallel: true`
   only when every gate passes — each case proven by a test.
-- [ ] B2-A4: `worker.parallel` defaults `off`, accepts `auto`, rejects other values, and grants
+- [x] B2-A4: `worker.parallel` defaults `off`, accepts `auto`, rejects other values, and grants
   nothing (mirrors the `worker.prewalk` preference tests); CLI subcommands proven by subprocess
   tests; public API snapshot additions only; full 3.9 suite 0 failures / 0 errors.
 
@@ -181,13 +182,13 @@ Scope:
 
 Acceptance criteria:
 
-- [ ] B3-A1: Session `lanes` key documented as advisory with the exact field list; no validation
+- [x] B3-A1: Session `lanes` key documented as advisory with the exact field list; no validation
   claim beyond shape; schema doc's canonical-map style followed.
-- [ ] B3-A2: Parity section states identical semantics for Claude Code and Codex with any
+- [x] B3-A2: Parity section states identical semantics for Claude Code and Codex with any
   host-specific invocation differences shown in both grammars; a dedicated parity review lens
   confirms no Claude-only or Codex-only assumption anywhere in the new text (recorded in the
   execution log).
-- [ ] B3-A3: SKILL/AGENTS/README additions land with pins; `check_repo_consistency.py` passes;
+- [x] B3-A3: SKILL/AGENTS/README additions land with pins; `check_repo_consistency.py` passes;
   review-subagent protocol includes the confidence-ordered queue and the three cross-lane
   question classes.
 
@@ -211,21 +212,21 @@ Scope:
 
 Acceptance criteria:
 
-- [ ] B4-A1: Guide subsection present in guide voice; changelog section accurate to what
+- [x] B4-A1: Guide subsection present in guide voice; changelog section accurate to what
   shipped; consistency + release checklists pass (`release_checklist.py` in its
   unreleased-tolerant mode).
-- [ ] B4-A2: `.ai-docs` updated; TODO.md Live carries both phase follow-ups; the grep sweep for
+- [x] B4-A2: `.ai-docs` updated; TODO.md Live carries both phase follow-ups; the grep sweep for
   orchestration/availability overclaims is clean and recorded.
-- [ ] B4-A3: Full 3.9 suite 0 failures / 0 errors on the final tip; consistency gate green;
+- [x] B4-A3: Full 3.9 suite 0 failures / 0 errors on the final tip; consistency gate green;
   public API snapshot additions only.
 
 Blast radius: docs + pins. Risk: low.
 
 ## Master Acceptance
 
-- [ ] M-A1: Full suite green on the final tip (local 3.9 green-with-skips; total strictly
+- [x] M-A1: Full suite green on the final tip (local 3.9 green-with-skips; total strictly
   increased; nothing deleted or weakened) and every batch's gates green at its close.
-- [ ] M-A2: Honesty invariants hold everywhere: serial default, recommend-only `auto`, no
+- [x] M-A2: Honesty invariants hold everywhere: serial default, recommend-only `auto`, no
   runtime-orchestration or availability claims, no authority changes, prewalk gating untouched —
   verified by a dedicated final review pass across the cumulative diff.
 - [ ] M-A3: Codex/Claude parity explicitly reviewed and recorded; upstream PR submitted from the
