@@ -349,4 +349,3 @@ structure test asserting the wrapper is present on the entry point and absent on
 - Fable/low workers get smaller, more mechanical batches with exact section/code lists in the
   plan; re-drive budget 2/batch. The width-test/lane grammar is line-based on purpose so the
   parser stays stdlib-only (no yaml dependency).
-
