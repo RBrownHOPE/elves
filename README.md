@@ -106,6 +106,10 @@ refs, final gates, PR, and merge — always. Details:
 [`references/prewalk.md`](references/prewalk.md),
 [`references/grok-open-source-worker.md`](references/grok-open-source-worker.md),
 [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md).
+Parallel implementation lanes are optional and never the default: serial stays the default, and
+`worker.parallel=auto` only recommends lanes when the deterministic width test passes; see
+[`references/parallelves.md`](references/parallelves.md).
+
 Trusted Grok implementation launches use `--always-approve` alone: Grok Build treats an explicit
 `--permission-mode auto` as an override, so the two flags must not be combined.
 
@@ -292,6 +296,8 @@ exactly one file below; other docs link instead of restating.
   implements and why
 - [`references/prewalk.md`](references/prewalk.md) — exact-session guide→execution trajectory,
   qualification, checkpoints, and recovery
+- [`references/parallelves.md`](references/parallelves.md) — Cobbler-coordinated parallel
+  implementation lanes: serial default, recommend-only width test, trunk -> lanes -> integration
 - [`references/follow-mode.md`](references/follow-mode.md) — the parked driver's sanitized stream
 - [`references/grok-open-source-worker.md`](references/grok-open-source-worker.md) and
   [`references/grok-implementer-launch-prompt.md`](references/grok-implementer-launch-prompt.md)

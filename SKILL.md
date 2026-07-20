@@ -271,6 +271,14 @@ Claude transports are behaviorally qualified, the safe `auto` preference records
 `off`; `required` fails before launch. The driver still owns canonical memory, terminal review, PR,
 landing, and merge. Full contract and host grammar: `references/prewalk.md`.
 
+**Parallel lanes (Parallelves).** Serial is the default everywhere; parallel lanes are an earned
+routing outcome, never a mode switch. The deterministic width test (`cobbler_agents.py lanes plan`)
+gates the recommendation: `worker.parallel=auto` may only recommend lanes, every decline records a
+concrete `parallel_declined:<gate>:<detail>` reason, and nothing auto-launches. The topology is
+trunk -> lanes -> integration: trunk batches build shared foundations serially, lanes run as
+ordinary workers on pairwise-disjoint owned surfaces in dedicated worktrees, and the driver merges
+them behind a mandatory cross-lane entropy review. Full contract: `references/parallelves.md`.
+
 ## Git History as Operator UI
 
 Preferred subject schema:

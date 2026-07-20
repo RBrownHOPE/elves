@@ -2390,6 +2390,42 @@ PARALLELVES_CONTRACT_PHRASES = {
         "judges, and at most one lane's result lands.",
         "the width test records for every declined gate; parallelism is never silently withheld.",
     ],
+    "AGENTS.md": [
+        "**Parallel lanes (Parallelves):** serial default; `worker.parallel=auto` is recommend-only and\n  nothing auto-launches",
+    ],
+    "README.md": [
+        "serial default, recommend-only width test, trunk -> lanes -> integration",
+        "serial stays the default, and\n`worker.parallel=auto` only recommends lanes when the deterministic width test passes",
+    ],
+    "SKILL.md": [
+        "parallel lanes are an earned\nrouting outcome, never a mode switch",
+        "`worker.parallel=auto` may only recommend lanes, every decline records a\nconcrete `parallel_declined:<gate>:<detail>` reason, and nothing auto-launches",
+        "mandatory cross-lane entropy review",
+    ],
+    "references/review-subagent.md": [
+        "this cross-lane pass is mandatory\nbefore the integration PR is review-ready",
+        "the cumulative integration diff, every\nlane's per-lane review record, and every lane's confidence signals",
+        "cross-lane question classes that per-lane review structurally cannot see",
+        "**Duplicated helpers across lanes**",
+        "**Convention divergence**",
+        "**Conflicting approaches to shared concerns**",
+        "low-confidence lanes and\nflagged `unsure_about` areas are reviewed first",
+        "calibration observation to note in the report, not a violation; the signal remains\ntriage only, never authority",
+    ],
+    "references/host-parity.md": [
+        "identical semantics on Claude Code and\nCodex: serial default, recommend-only `auto`",
+        "The lanes tooling is\ndeterministic and host-neutral; both hosts invoke it the same way",
+        "Per-lane worker launches introduce no new invocation grammar",
+        "same subscription-native default and optional-provider rules as any worker",
+        "nothing in\nthis section launches lanes at runtime",
+    ],
+    "references/schema-and-acceptance.md": [
+        "advisory in v1, exactly like the pre-handoff-v1",
+        "records lane state for recovery and does not validate it",
+        "plus the runtime fields `branch`, `worktree`, `session_id`, and `status`",
+        "A session without\n`lanes` is serial (the default).",
+        "Declaring `lanes` launches nothing and grants nothing",
+    ],
     "references/plan-template.md": [
         "Omitting this section means serial (the default).",
         "`owned_surfaces`, and `batches`, plus a `trunk:` batch list built serially before lanes fork.",
