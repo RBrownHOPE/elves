@@ -1,0 +1,191 @@
+{
+  "base_branch": "main",
+  "batches": [
+    {
+      "acceptance": [
+        {
+          "criterion": "`references/parallelves.md` exists with all eight sections above; no sentence claims runtime orchestration, automatic launching, authority changes, or prewalk availability; serial-default and recommend-only wording is pinned in `consistency_policy.py`.",
+          "evidence": "",
+          "id": "B1-A1",
+          "met": false
+        },
+        {
+          "criterion": "All seven glossary terms resolve with definitions consistent with the contract; `python3 scripts/check_repo_consistency.py` passes.",
+          "evidence": "",
+          "id": "B1-A2",
+          "met": false
+        },
+        {
+          "criterion": "`references/plan-template.md` documents the optional `## Lanes` yaml grammar with a valid example, and states that omission means serial.",
+          "evidence": "",
+          "id": "B1-A3",
+          "met": false
+        }
+      ],
+      "commit": null,
+      "id": "B1",
+      "name": "Normative contract and vocabulary",
+      "rollback_tag": "elves/parallelves/pre-batch-1",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "The parser accepts the template's documented example and rejects malformed blocks with stable codes; no yaml import appears anywhere in the module.",
+          "evidence": "",
+          "id": "B2-A1",
+          "met": false
+        },
+        {
+          "criterion": "Partition validation catches exact-duplicate and nested-prefix overlaps and dependency cycles with concrete codes, proven by tests.",
+          "evidence": "",
+          "id": "B2-A2",
+          "met": false
+        },
+        {
+          "criterion": "The width test returns `parallel: false` with concrete `parallel_declined:` reasons for: missing lanes section, single lane, overlapping surfaces (via validation), absent timing history, driver-dominant timings, lane count over budget, and high risk; and `parallel: true` only when every gate passes \u2014 each case proven by a test.",
+          "evidence": "",
+          "id": "B2-A3",
+          "met": false
+        },
+        {
+          "criterion": "`worker.parallel` defaults `off`, accepts `auto`, rejects other values, and grants nothing (mirrors the `worker.prewalk` preference tests); CLI subcommands proven by subprocess tests; public API snapshot additions only; full 3.9 suite 0 failures / 0 errors.",
+          "evidence": "",
+          "id": "B2-A4",
+          "met": false
+        }
+      ],
+      "commit": null,
+      "id": "B2",
+      "name": "Deterministic lane validator and width test",
+      "rollback_tag": "elves/parallelves/pre-batch-2",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Session `lanes` key documented as advisory with the exact field list; no validation claim beyond shape; schema doc's canonical-map style followed.",
+          "evidence": "",
+          "id": "B3-A1",
+          "met": false
+        },
+        {
+          "criterion": "Parity section states identical semantics for Claude Code and Codex with any host-specific invocation differences shown in both grammars; a dedicated parity review lens confirms no Claude-only or Codex-only assumption anywhere in the new text (recorded in the execution log).",
+          "evidence": "",
+          "id": "B3-A2",
+          "met": false
+        },
+        {
+          "criterion": "SKILL/AGENTS/README additions land with pins; `check_repo_consistency.py` passes; review-subagent protocol includes the confidence-ordered queue and the three cross-lane question classes.",
+          "evidence": "",
+          "id": "B3-A3",
+          "met": false
+        }
+      ],
+      "commit": null,
+      "id": "B3",
+      "name": "Session, parity, and review-surface integration",
+      "rollback_tag": "elves/parallelves/pre-batch-3",
+      "status": "pending"
+    },
+    {
+      "acceptance": [
+        {
+          "criterion": "Guide subsection present in guide voice; changelog section accurate to what shipped; consistency + release checklists pass (`release_checklist.py` in its unreleased-tolerant mode).",
+          "evidence": "",
+          "id": "B4-A1",
+          "met": false
+        },
+        {
+          "criterion": "`.ai-docs` updated; TODO.md Live carries both phase follow-ups; the grep sweep for orchestration/availability overclaims is clean and recorded.",
+          "evidence": "",
+          "id": "B4-A2",
+          "met": false
+        },
+        {
+          "criterion": "Full 3.9 suite 0 failures / 0 errors on the final tip; consistency gate green; public API snapshot additions only.",
+          "evidence": "",
+          "id": "B4-A3",
+          "met": false
+        }
+      ],
+      "commit": null,
+      "id": "B4",
+      "name": "Guide, changelog, durable docs, coherence sweep",
+      "rollback_tag": "elves/parallelves/pre-batch-4",
+      "status": "pending"
+    }
+  ],
+  "branch": "feat/parallelves",
+  "cobbler": {
+    "activated_by": "elves invocation",
+    "default_for_session": true,
+    "mode": "run",
+    "scope": "current Elves run"
+  },
+  "continuation_guard": {
+    "checkpoint_is_stop": false,
+    "next_required_action": "Commit staging, open fork review PR, tag pre-batch-1, launch B1 worker (fable, low)",
+    "remaining_batches": 4,
+    "stop_allowed": false
+  },
+  "current_batch": null,
+  "execution_log_path": "docs/elves/execution-log.md",
+  "landing_remote": "upstream PR against aigorahub/elves main (user-merges; READ-only there); fork PR is the review surface",
+  "learnings_path": "docs/elves/learnings.md",
+  "master_acceptance": [
+    {
+      "criterion": "Full suite green on the final tip (local 3.9 green-with-skips; total strictly increased; nothing deleted or weakened) and every batch's gates green at its close.",
+      "evidence": "",
+      "id": "M-A1",
+      "met": false
+    },
+    {
+      "criterion": "Honesty invariants hold everywhere: serial default, recommend-only `auto`, no runtime-orchestration or availability claims, no authority changes, prewalk gating untouched \u2014 verified by a dedicated final review pass across the cumulative diff.",
+      "evidence": "",
+      "id": "M-A2",
+      "met": false
+    },
+    {
+      "criterion": "Codex/Claude parity explicitly reviewed and recorded; upstream PR submitted from the fork branch against `aigorahub/elves` `main` with an accurate body.",
+      "evidence": "",
+      "id": "M-A3",
+      "met": false
+    }
+  ],
+  "merge_policy": {
+    "authorized_by": null,
+    "method": "driver never merges this run",
+    "mode": "user-merges",
+    "target": "aigorahub/elves main via submitted PR; maintainers merge"
+  },
+  "model_routes": [
+    {
+      "actual_route": "in-session native subagent (model claude-fable-5, effort low), git host_only",
+      "batch": "all",
+      "fallback_reason": "claude CLI binary not on PATH; supervised transport and exact-session prewalk unavailable on this machine. Prewalk requested auto -> actual off (supervised_cli_transport_unavailable).",
+      "phase": "implement",
+      "requested_route": "supervised native-worker CLI (claude, model claude-fable-5, effort low, prewalk auto)"
+    }
+  ],
+  "plan_path": "docs/plans/parallelves.md",
+  "pr_number": null,
+  "review_comments": [],
+  "run_id": "parallelves-2026-07-19",
+  "session_id": "elves-2026-07-19-parallelves",
+  "start_head": "639b0cb0646dde7055c16c15132dec90b565a87c",
+  "status": "staging",
+  "survival_guide_path": "docs/elves/survival-guide.md",
+  "test_baseline": {
+    "errors": 0,
+    "failures": 0,
+    "passed": 1196,
+    "reason": "v2.10.4 reconciled main verified this session: Ran 1234, OK (skipped=38) on local 3.9.",
+    "skipped": 38,
+    "status": "captured",
+    "total": 1234
+  },
+  "version": "2.10.4",
+  "work_driver": "host-native",
+  "worker_packet_path": ".elves/runtime/packets/parallelves.md"
+}
