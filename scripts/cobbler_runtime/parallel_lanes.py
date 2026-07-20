@@ -42,9 +42,9 @@ DECLINE_DRIVER_DOMINATES = (
 DECLINE_INVALID_TIMINGS = "parallel_declined:worker_dominance:invalid_timings"
 DECLINE_OVER_MAX_LANES = "parallel_declined:lane_budget:over_max_lanes"
 DECLINE_HIGH_RISK = "parallel_declined:risk_posture:high_risk_serial"
+DECLINE_PREFERENCE_OFF = "parallel_declined:preference:off"
 
 _LANE_FIELDS = ("name", "depends_on", "owned_surfaces", "batches")
-_LIST_FIELDS = ("depends_on", "owned_surfaces", "batches")
 
 
 def _grammar_error(message: str, *, line: int | None = None) -> ValidationIssue:
@@ -131,7 +131,18 @@ def parse_lanes_block(block: Sequence[tuple[int, str]]) -> dict[str, Any]:
     mode: str | None = None  # None | "trunk" | "lanes"
     lane: dict[str, Any] | None = None
     lane_seen: set[str] = set()
+    lane_start_line: int | None = None
     pending_list: str | None = None
+
+    def require_complete_lane() -> None:
+        if lane is None:
+            return
+        missing = [field for field in _LANE_FIELDS if field not in lane_seen]
+        if missing:
+            raise _grammar_error(
+                "Lane declaration is missing required field(s): " + ", ".join(missing),
+                line=lane_start_line,
+            )
 
     for line_no, raw in block:
         if not raw.strip():
@@ -140,6 +151,7 @@ def parse_lanes_block(block: Sequence[tuple[int, str]]) -> dict[str, Any]:
         text = raw.strip()
 
         if indent == 0:
+            require_complete_lane()
             pending_list = None
             lane = None
             if text == "trunk:":
@@ -164,6 +176,7 @@ def parse_lanes_block(block: Sequence[tuple[int, str]]) -> dict[str, Any]:
             raise _grammar_error(f"Indented line outside any section `{text}`", line=line_no)
 
         if text.startswith("- id:"):
+            require_complete_lane()
             value = text[len("- id:"):].strip()
             if not value:
                 raise _grammar_error("Lane `id` value is empty", line=line_no)
@@ -176,6 +189,7 @@ def parse_lanes_block(block: Sequence[tuple[int, str]]) -> dict[str, Any]:
             }
             lanes.append(lane)
             lane_seen = set()
+            lane_start_line = line_no
             pending_list = None
             continue
 
@@ -219,6 +233,7 @@ def parse_lanes_block(block: Sequence[tuple[int, str]]) -> dict[str, Any]:
             lane[key] = []
             pending_list = key
 
+    require_complete_lane()
     return {"trunk": trunk, "lanes": lanes}
 
 
@@ -311,6 +326,13 @@ def validate_lane_partition(lanes: Sequence[Mapping[str, Any]]) -> list[Validati
                 ValidationIssue(
                     "parallel_lanes_surfaces_required",
                     f"Lane `{lane_id}` declares no owned surfaces",
+                )
+            )
+        if not lane.get("batches"):
+            issues.append(
+                ValidationIssue(
+                    "parallel_lanes_batches_required",
+                    f"Lane `{lane_id}` declares no batches",
                 )
             )
         for surface in lane.get("owned_surfaces", []):
@@ -463,7 +485,7 @@ def width_test(
             if not math.isfinite(value) or value < 0:
                 break
             values[key] = value
-        if len(values) != 2:
+        if len(values) != 2 or values.get("worker_seconds") == 0:
             declined.append(DECLINE_INVALID_TIMINGS)
         elif (
             values["worker_seconds"]
@@ -472,7 +494,10 @@ def width_test(
             declined.append(DECLINE_DRIVER_DOMINATES)
 
     # Gate 3: lane budget.
-    if len(lanes) > max_lanes:
+    # Callers may tighten the budget, but v1's normative three-lane ceiling is
+    # not configurable away through the pure-function API.
+    effective_max_lanes = min(max_lanes, DEFAULT_MAX_LANES)
+    if len(lanes) > effective_max_lanes:
         declined.append(DECLINE_OVER_MAX_LANES)
 
     # Gate 4: risk posture.

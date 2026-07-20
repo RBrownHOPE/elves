@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -109,6 +110,27 @@ class LanesGrammarTests(unittest.TestCase):
             pl.parse_lanes_block(block)
         self.assertEqual(caught.exception.code, "parallel_lanes_grammar_invalid")
 
+    def test_missing_required_lane_fields_rejected(self) -> None:
+        required_snippets = {
+            "name": "    name: Validator core\n",
+            "depends_on": "    depends_on: []\n",
+            "owned_surfaces": (
+                "    owned_surfaces:\n"
+                "      - scripts/validator/\n"
+            ),
+            "batches": "    batches:\n      - B2\n",
+        }
+        for field, snippet in required_snippets.items():
+            with self.subTest(field=field):
+                malformed = VALID_PLAN.replace(snippet, "", 1)
+                block = pl.extract_lanes_block(malformed)
+                with self.assertRaises(ValidationIssue) as caught:
+                    pl.parse_lanes_block(block)
+                self.assertEqual(
+                    caught.exception.code, "parallel_lanes_grammar_invalid"
+                )
+                self.assertIn(field, caught.exception.message)
+
     def test_duplicate_and_malformed_ids_rejected_by_partition(self) -> None:
         duplicate = [_lane("L1", ["a/"]), _lane("L1", ["b/"])]
         codes = [issue.code for issue in pl.validate_lane_partition(duplicate)]
@@ -120,6 +142,12 @@ class LanesGrammarTests(unittest.TestCase):
     def test_empty_surfaces_rejected(self) -> None:
         codes = [issue.code for issue in pl.validate_lane_partition([_lane("L1", [])])]
         self.assertIn("parallel_lanes_surfaces_required", codes)
+
+    def test_empty_batches_rejected(self) -> None:
+        lane = _lane("L1", ["a/"])
+        lane["batches"] = []
+        codes = [issue.code for issue in pl.validate_lane_partition([lane])]
+        self.assertIn("parallel_lanes_batches_required", codes)
 
 
 class LanesFenceAndDuplicateTests(unittest.TestCase):
@@ -293,13 +321,35 @@ class WidthTestTests(unittest.TestCase):
             result["declined"],
         )
 
-    def test_over_budget_declines_lane_budget(self) -> None:
-        lanes = [_lane(f"L{n}", [f"dir{n}/"]) for n in range(1, 5)]
-        result = pl.width_test(lanes, timings=self.GOOD_TIMINGS, max_lanes=3)
+    def test_zero_worker_timings_decline_as_invalid_evidence(self) -> None:
+        result = pl.width_test(
+            self._pair(), timings={"worker_seconds": 0, "driver_seconds": 0}
+        )
         self.assertFalse(result["parallel"])
         self.assertIn(
-            "parallel_declined:lane_budget:over_max_lanes", result["declined"]
+            "parallel_declined:worker_dominance:invalid_timings",
+            result["declined"],
         )
+
+    def test_zero_driver_timing_is_valid_evidence(self) -> None:
+        result = pl.width_test(
+            self._pair(), timings={"worker_seconds": 100, "driver_seconds": 0}
+        )
+        self.assertTrue(result["parallel"])
+        self.assertEqual(result["declined"], [])
+
+    def test_over_budget_declines_lane_budget(self) -> None:
+        lanes = [_lane(f"L{n}", [f"dir{n}/"]) for n in range(1, 5)]
+        for requested_max in (3, 4):
+            with self.subTest(requested_max=requested_max):
+                result = pl.width_test(
+                    lanes, timings=self.GOOD_TIMINGS, max_lanes=requested_max
+                )
+                self.assertFalse(result["parallel"])
+                self.assertIn(
+                    "parallel_declined:lane_budget:over_max_lanes",
+                    result["declined"],
+                )
 
     def test_high_risk_declines_risk_posture(self) -> None:
         result = pl.width_test(self._pair(), timings=self.GOOD_TIMINGS, risk="high")
@@ -421,13 +471,23 @@ class LaneTimingsLoaderTests(unittest.TestCase):
 
 
 class LanesCliTests(unittest.TestCase):
-    def _run(self, *args: str):
+    def _run(self, *args: str, env: dict[str, str] | None = None):
         return subprocess.run(
             [sys.executable, str(CLI), "lanes", *args],
             text=True,
             capture_output=True,
             check=False,
+            env=env,
         )
+
+    def _parallel_env(self, directory: Path, value: str) -> dict[str, str]:
+        config_root = directory / "xdg"
+        preferences.set_preference(
+            "worker.parallel", value, path=config_root / "elves" / "config.json"
+        )
+        env = os.environ.copy()
+        env["XDG_CONFIG_HOME"] = str(config_root)
+        return env
 
     def _write_plan(self, directory: Path, content: str = VALID_PLAN) -> Path:
         plan = directory / "plan.md"
@@ -460,6 +520,21 @@ class LanesCliTests(unittest.TestCase):
         )
         self.assertNotIn("Traceback", proc.stderr)
 
+    def test_incomplete_lane_declaration_is_error_not_recommendation(self) -> None:
+        incomplete = VALID_PLAN.replace("    batches:\n      - B2\n", "", 1)
+        with tempfile.TemporaryDirectory() as raw:
+            plan = self._write_plan(Path(raw), incomplete)
+            for action in ("validate", "plan"):
+                with self.subTest(action=action):
+                    proc = self._run(action, "--plan", str(plan), "--json")
+                    self.assertEqual(proc.returncode, 1, proc.stderr)
+                    payload = json.loads(proc.stdout)
+                    self.assertFalse(payload["ok"])
+                    self.assertEqual(
+                        payload["issues"][0]["code"],
+                        "parallel_lanes_grammar_invalid",
+                    )
+
     def test_plan_declines_without_timings(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             plan = self._write_plan(Path(raw))
@@ -482,19 +557,94 @@ class LanesCliTests(unittest.TestCase):
                 json.dumps({"worker_seconds": 100, "driver_seconds": 10}),
                 encoding="utf-8",
             )
+            env = self._parallel_env(base, "auto")
             proc = self._run(
-                "plan", "--plan", str(plan), "--timings", str(timings), "--json"
+                "plan",
+                "--plan",
+                str(plan),
+                "--timings",
+                str(timings),
+                "--json",
+                env=env,
             )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertTrue(payload["parallel"])
         self.assertEqual(payload["declined"], [])
         self.assertEqual(payload["lanes"], ["L1", "L2"])
+        self.assertEqual(payload["parallel_preference"], "auto")
+
+    def test_plan_respects_off_preference_when_width_gates_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            plan = self._write_plan(base)
+            timings = base / "timings.json"
+            timings.write_text(
+                json.dumps({"worker_seconds": 100, "driver_seconds": 10}),
+                encoding="utf-8",
+            )
+            env = self._parallel_env(base, "off")
+            proc = self._run(
+                "plan",
+                "--plan",
+                str(plan),
+                "--timings",
+                str(timings),
+                "--json",
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertFalse(payload["parallel"])
+        self.assertEqual(payload["parallel_preference"], "off")
+        self.assertIn("parallel_declined:preference:off", payload["declined"])
+
+    def test_plan_enforces_fixed_v1_lane_cap(self) -> None:
+        extra_lanes = """  - id: L3
+    name: Tests
+    depends_on: []
+    owned_surfaces: [tests/three.py]
+    batches: [B4]
+  - id: L4
+    name: Guide
+    depends_on: []
+    owned_surfaces: [guide/four.md]
+    batches: [B5]
+"""
+        four_lane_plan = VALID_PLAN.replace("```\n", extra_lanes + "```\n", 1)
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            plan = self._write_plan(base, four_lane_plan)
+            timings = base / "timings.json"
+            timings.write_text(
+                json.dumps({"worker_seconds": 100, "driver_seconds": 10}),
+                encoding="utf-8",
+            )
+            env = self._parallel_env(base, "auto")
+            proc = self._run(
+                "plan",
+                "--plan",
+                str(plan),
+                "--timings",
+                str(timings),
+                "--json",
+                env=env,
+            )
+            help_proc = self._run("plan", "--help", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertFalse(payload["parallel"])
+        self.assertIn(
+            "parallel_declined:lane_budget:over_max_lanes", payload["declined"]
+        )
+        self.assertNotIn("--max-lanes", help_proc.stdout)
 
     def test_plan_mode_no_lanes_section_translates_to_honest_decline(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
-            plan = self._write_plan(Path(raw), "# Plan\n\nNo lanes section here.\n")
-            proc = self._run("plan", "--plan", str(plan), "--json")
+            base = Path(raw)
+            plan = self._write_plan(base, "# Plan\n\nNo lanes section here.\n")
+            env = self._parallel_env(base, "auto")
+            proc = self._run("plan", "--plan", str(plan), "--json", env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertTrue(payload["ok"])
@@ -503,12 +653,15 @@ class LanesCliTests(unittest.TestCase):
             payload["declined"],
             ["parallel_declined:structural_width:no_lanes_declared"],
         )
+        self.assertEqual(payload["parallel_preference"], "auto")
 
     def test_plan_mode_partition_invalid_declines(self) -> None:
         overlapping = VALID_PLAN.replace("docs/validator.md", "scripts/validator/x.py")
         with tempfile.TemporaryDirectory() as raw:
-            plan = self._write_plan(Path(raw), overlapping)
-            proc = self._run("plan", "--plan", str(plan), "--json")
+            base = Path(raw)
+            plan = self._write_plan(base, overlapping)
+            env = self._parallel_env(base, "auto")
+            proc = self._run("plan", "--plan", str(plan), "--json", env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertFalse(payload["parallel"])
@@ -519,6 +672,25 @@ class LanesCliTests(unittest.TestCase):
         self.assertEqual(
             payload["issues"][0]["code"], "parallel_lanes_surface_overlap"
         )
+        self.assertEqual(payload["parallel_preference"], "auto")
+
+    def test_plan_rejects_malformed_parallel_preference(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            plan = self._write_plan(base)
+            config = base / "xdg" / "elves" / "config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps({"version": 1, "worker": {"parallel": "sometimes"}}),
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env["XDG_CONFIG_HOME"] = str(base / "xdg")
+            proc = self._run("plan", "--plan", str(plan), "--json", env=env)
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["issues"][0]["code"], "invalid_global_preference")
 
     def test_missing_plan_file_is_error_in_both_actions(self) -> None:
         for action in ("validate", "plan"):

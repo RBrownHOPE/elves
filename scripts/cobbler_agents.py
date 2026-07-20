@@ -48,6 +48,7 @@ from cobbler_runtime.acceptance import normalize_batch_id  # noqa: E402
 from cobbler_runtime.parallel_lanes import (  # noqa: E402
     DECLINE_NO_LANES,
     DECLINE_PARTITION_INVALID,
+    DECLINE_PREFERENCE_OFF,
     LANES_TIMINGS_MAX_BYTES,
     load_lanes_from_plan,
     validate_lane_partition,
@@ -417,6 +418,16 @@ def cmd_lanes(args: argparse.Namespace) -> int:
     plan_path = Path(args.plan)
     action = args.lanes_action
 
+    parallel_preference = None
+    if action == "plan":
+        try:
+            parallel_preference = (
+                preference_snapshot().values.get("worker", {}).get("parallel", "off")
+            )
+        except ValidationIssue as issue:
+            payload = {"ok": False, "issues": [issue.to_dict()]}
+            return _emit_lanes_payload(args, payload, exit_code=1)
+
     try:
         declaration = load_lanes_from_plan(plan_path)
     except ValidationIssue as issue:
@@ -427,6 +438,7 @@ def cmd_lanes(args: argparse.Namespace) -> int:
                 "lanes": [],
                 "declined": [DECLINE_NO_LANES],
                 "issues": [],
+                "parallel_preference": parallel_preference,
             }
             return _emit_lanes_payload(args, payload, exit_code=0)
         payload = {"ok": False, "issues": [issue.to_dict()]}
@@ -459,16 +471,24 @@ def cmd_lanes(args: argparse.Namespace) -> int:
             "lanes": [lane["id"] for lane in lanes],
             "declined": [DECLINE_PARTITION_INVALID],
             "issues": [issue.to_dict() for issue in issues],
+            "parallel_preference": parallel_preference,
         }
         return _emit_lanes_payload(args, payload, exit_code=0)
 
     decision = width_test(
         lanes,
         timings=timings,
-        max_lanes=args.max_lanes,
         risk=args.risk,
     )
-    payload = {"ok": True, "issues": [], **decision}
+    if parallel_preference != "auto":
+        decision["parallel"] = False
+        decision["declined"].append(DECLINE_PREFERENCE_OFF)
+    payload = {
+        "ok": True,
+        "issues": [],
+        "parallel_preference": parallel_preference,
+        **decision,
+    }
     return _emit_lanes_payload(args, payload, exit_code=0)
 
 
@@ -2400,7 +2420,6 @@ def build_parser() -> argparse.ArgumentParser:
     lanes_plan.add_argument("--plan", default=None, help="Path to the plan markdown file")
     lanes_plan.add_argument("--timings", default=None, help="Optional bounded timings JSON file")
     lanes_plan.add_argument("--risk", choices=("low", "standard", "high"), default="standard")
-    lanes_plan.add_argument("--max-lanes", type=int, default=3)
     lanes_plan.add_argument("--json", action="store_true")
     lanes_plan.set_defaults(func=cmd_lanes)
 

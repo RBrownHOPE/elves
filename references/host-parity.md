@@ -86,7 +86,7 @@ deterministic and host-neutral; both hosts invoke it the same way, and the plann
 runs through the same CLI's `lanes plan` subcommand:
 
 ```bash
-python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" lanes validate --plan <path> --json
+python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" lanes plan --plan <path> --timings <json> --json
 ```
 
 Per-lane worker launches introduce no new invocation grammar: the driver composes the existing

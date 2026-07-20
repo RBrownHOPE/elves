@@ -42,13 +42,17 @@ model-free check with four gates. Every failed gate yields a concrete
    an acyclic `depends_on` graph containing no cross-lane edge between concurrent lanes.
 2. **Worker dominance** — recorded per-batch timings show worker execution dominating the
    driver's serial obligations (staging, review, integration). Absent history declines honestly:
-   `parallel_declined:worker_dominance:no_recorded_timings`.
+   `parallel_declined:worker_dominance:no_recorded_timings`. A positive worker duration with a
+   zero driver duration is valid recorded evidence (there was no serial driver bottleneck); a
+   zero worker duration is invalid evidence, including the `0/0` case.
 3. **Lane budget** — 2-3 lanes maximum in v1; the concurrent-worker cost is acknowledged, and a
    plan asking for more declines.
 4. **Risk posture** — high blast-radius or shared-surface-heavy plans stay serial.
 
 The `worker.parallel` grammar is `off` (default) | `auto`. `auto` is recommend-only and
 conservative: a passing width test produces a recommendation for the driver, never a launch.
+After the four gates, `lanes plan` applies this preference as a separate policy veto. `off`
+records `parallel_declined:preference:off`; it is not a fifth width-test gate.
 
 ## Integration review
 
