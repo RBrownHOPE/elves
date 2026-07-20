@@ -49,3 +49,14 @@ Chronological record. Newest entries at the bottom.
 **Review:** FINE — 0 blocking, cardinal-rule CLEAN (every orchestration/launch term inside airtight negations, verified by vocabulary grep), 30/30 pins verified verbatim, detection proven by scratchpad mutation. W1 (agentless reclassification actor) fixed in-batch — driver-actored wording; W2 (parser must accept inline `depends_on: []` from the template example) and W3 (corpus-shape test) carried into B2's brief. One driver slip recorded honestly: the first W1 patch double-applied across a line wrap and was rewritten cleanly before commit.
 **Worker confidence:** high, unsure_about [] (asserted clean) — consistent with review outcome.
 **Commit:** see session json. Next: B2 (fable/low) with W2/W3 carry-notes.
+
+---
+
+## 2026-07-19 ~14:40 — Batch 2: Deterministic lane validator and width test — COMPLETE
+
+**Timing:** worker ~20m + re-drive ~14m (fable/low) · driver validate ~12m · adversarial review ~18m · driver blocker re-reproduction ~5m.
+**Contract:** B2-A1..B2-A4 all met (evidence in `.elves-session.json`).
+**Validation:** full suite **1284/0/0/38** (worker + driver runs); consistency green; public API additions only; driver re-reproduced all three review blockers against the fixed code — clean envelopes, zero tracebacks.
+**Review:** adversarial-parser lens — 3 BLOCKING (NaN defeats the worker-dominance gate producing spurious `parallel: true`; huge-int OverflowError raw traceback; RecursionError on ~1200-lane chains) + 10 WARNING (surface-normalization holes incl. whole-repo/absolute/escaping shapes, case-insensitive FS overlap, fence-decoy section matching, dead RISK_POSTURES, duplicate-key last-wins, plan-file-typo swallowed as no-lanes decline, three untested CLI branches). All 13 fixed via worker re-drive (re-drive 1 of 2 consumed) with 15 regression tests; both B1 carry-notes verified present. fable/low pattern confirmed: implementation competent, adversarial robustness arrives via the review loop — exactly the cadence this run budgeted for.
+**Worker confidence:** high / [] on both passes; the review found blockers after the first high/[] — noted for the calibration story (worker confidence is triage, not proof; the lens still runs regardless).
+**Commit:** f869876. Next: B3 (docs/parity batch), then dedicated parity lens.

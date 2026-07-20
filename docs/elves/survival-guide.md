@@ -87,10 +87,10 @@ authority changes, no prewalk activation claims.
 
 ## Stop Gate
 
-- **Planned batches remaining:** 3
+- **Planned batches remaining:** 2
 - **Stop allowed right now:** no
-- **Why:** B1 complete; B2-B4 remain, then final review and upstream submission.
-- **Next required action:** launch B2 worker (fable, low).
+- **Why:** B1-B2 complete; B3-B4 remain, then final review and upstream submission.
+- **Next required action:** launch B3 worker (fable, low), then the dedicated parity lens.
 
 ---
 
@@ -111,9 +111,9 @@ authority changes, no prewalk activation claims.
 
 **Status:** In progress
 
-**Active batch:** B2: Deterministic lane validator and width test
+**Active batch:** B3: Session, parity, and review-surface integration
 
-**Single next action:** Launch B2 worker (fable, low) with W2/W3 carry-notes.
+**Single next action:** Launch B3 worker (fable, low).
 
 ---
 
@@ -125,15 +125,15 @@ authority changes, no prewalk activation claims.
 
 ## Next Exact Batch
 
-**Batch:** B2: Deterministic lane validator and width test
+**Batch:** B3: Session, parity, and review-surface integration
 
-**Scope:** cobbler_runtime/parallel_lanes.py (bounded line-based parser incl. inline `depends_on: []` — B1 review W2; partition/DAG validators; four-gate width_test with parallel_declined reasons), preferences worker.parallel off|auto, `lanes validate|plan` CLI, tests/test_parallel_lanes.py + corpus-shape test for PARALLELVES_CONTRACT_PHRASES (B1 review W3).
+**Scope:** schema-and-acceptance.md advisory `lanes` session key; host-parity.md Parallelves parity section; review-subagent.md integration entropy review protocol (three cross-lane question classes + confidence-ordered queue); SKILL.md compact subsection; AGENTS.md pointer; README reference-index row; pins same-batch.
 
-**Acceptance criteria:** B2-A1..B2-A4 (see plan).
+**Acceptance criteria:** B3-A1..B3-A3 (see plan). Dedicated codex/claude parity lens runs after the standard review.
 
-**Risk:** parser correctness at fable/low; mitigate with the plan-template example as a golden fixture.
+**Risk:** pin volume; parity phrasing.
 
-**Rollback authority:** tag `elves/parallelves/pre-batch-2`.
+**Rollback authority:** tag `elves/parallelves/pre-batch-3`.
 
 ## Tool Configuration
 

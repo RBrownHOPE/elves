@@ -32,34 +32,34 @@
       "acceptance": [
         {
           "criterion": "The parser accepts the template's documented example and rejects malformed blocks with stable codes; no yaml import appears anywhere in the module.",
-          "evidence": "",
+          "evidence": "Golden template example (extracted at test time) parses verbatim incl. inline depends_on: []; malformed shapes fail closed with stable codes and line hints; no yaml import (grep-verified by worker and reviewer); fence-decoy and duplicate section/block/key rejects added on review.",
           "id": "B2-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "Partition validation catches exact-duplicate and nested-prefix overlaps and dependency cycles with concrete codes, proven by tests.",
-          "evidence": "",
+          "evidence": "Exact-duplicate, nested-prefix both directions, sibling negative, unknown-dep, iterative cycle detection (1500-lane chain test); surface_invalid rejects for empty/dot/root/absolute/escaping shapes; casefolded conservative overlap.",
           "id": "B2-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "The width test returns `parallel: false` with concrete `parallel_declined:` reasons for: missing lanes section, single lane, overlapping surfaces (via validation), absent timing history, driver-dominant timings, lane count over budget, and high risk; and `parallel: true` only when every gate passes \u2014 each case proven by a test.",
-          "evidence": "",
+          "evidence": "All seven decline cases assert exact parallel_declined reasons; all-pass case asserts exact dict; invalid-timings (NaN/Inf/negative/bool/str/overflow) DECLINE rather than recommend at both layers - driver re-reproduced the review blockers against fixed code (clean envelopes, no tracebacks); risk validated against RISK_POSTURES.",
           "id": "B2-A3",
-          "met": false
+          "met": true
         },
         {
           "criterion": "`worker.parallel` defaults `off`, accepts `auto`, rejects other values, and grants nothing (mirrors the `worker.prewalk` preference tests); CLI subcommands proven by subprocess tests; public API snapshot additions only; full 3.9 suite 0 failures / 0 errors.",
-          "evidence": "",
+          "evidence": "worker.parallel off default/auto round-trip/reject/grants-nothing mirroring worker.prewalk; 9 CLI subprocess tests incl. timings-loader rejects, plan-file-missing errors, no-lanes and partition-invalid declines; public API additions only; full suite 1284/0/0/38 (driver re-run).",
           "id": "B2-A4",
-          "met": false
+          "met": true
         }
       ],
-      "commit": null,
+      "commit": "f869876",
       "id": "B2",
       "name": "Deterministic lane validator and width test",
       "rollback_tag": "elves/parallelves/pre-batch-2",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [
@@ -125,13 +125,13 @@
   },
   "continuation_guard": {
     "checkpoint_is_stop": false,
-    "next_required_action": "Launch B2 worker (fable, low) with W2/W3 carry-notes",
-    "remaining_batches": 3,
+    "next_required_action": "Launch B3 worker (fable, low), then dedicated parity lens",
+    "remaining_batches": 2,
     "stop_allowed": false
   },
   "current_batch": {
-    "id": "B2",
-    "name": "Deterministic lane validator and width test",
+    "id": "B3",
+    "name": "Session, parity, and review-surface integration",
     "status": "pending"
   },
   "execution_log_path": "docs/elves/execution-log.md",
@@ -184,6 +184,16 @@
       "id": "b1-review",
       "source": "honesty-idiom-lens",
       "summary": "FINE: 0 blocking, cardinal CLEAN, 3 warnings (W1 actor sentence fixed in-batch; W2 inline [] parser note and W3 corpus-shape test carried to B2).",
+      "type": "review_subagent"
+    },
+    {
+      "batch": 2,
+      "cycle": 1,
+      "disposition": "fixed",
+      "fix_commit": "f869876",
+      "id": "b2-review-adversarial",
+      "source": "adversarial-parser-lens",
+      "summary": "3 BLOCKING (NaN gate-defeat -> spurious parallel:true; OverflowError traceback; RecursionError deep chains) + 10 warnings; all 13 fixed via worker re-drive (re-drive 1 of 2) with 15 regression tests; driver re-reproduced blockers clean.",
       "type": "review_subagent"
     }
   ],
