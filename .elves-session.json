@@ -125,9 +125,9 @@
   },
   "continuation_guard": {
     "checkpoint_is_stop": false,
-    "next_required_action": "Final cumulative readiness review, landing check, Elves report, cleanup, upstream PR submission",
+    "next_required_action": "Landing check, Elves report, cleanup commit, final poll; then done",
     "remaining_batches": 0,
-    "stop_allowed": false
+    "stop_allowed": true
   },
   "current_batch": null,
   "execution_log_path": "docs/elves/execution-log.md",
@@ -148,9 +148,9 @@
     },
     {
       "criterion": "Codex/Claude parity explicitly reviewed and recorded; upstream PR submitted from the fork branch against `aigorahub/elves` `main` with an accurate body.",
-      "evidence": "Parity recorded (B3 lens PARITY: CLEAN, execution log). Upstream PR submission pending final readiness review.",
+      "evidence": "Parity recorded (B3 dedicated lens PARITY: CLEAN, execution log). Upstream PR submitted: https://github.com/aigorahub/elves/pull/100 (base aigorahub:main, head RBrownHOPE:feat/parallelves) with a body stating the no-orchestrator scope guard, honesty guarantees, parity verdict, and verification record.",
       "id": "M-A3",
-      "met": false
+      "met": true
     }
   ],
   "merge_policy": {
@@ -168,7 +168,7 @@
       "requested_route": "supervised native-worker CLI (claude, model claude-fable-5, effort low, prewalk auto)"
     }
   ],
-  "plan_hash": "f075e391b4b6005eba5aa9be44c9cb69",
+  "plan_hash": "3154ef3dbf105dd6a1fd6004a8860732",
   "plan_path": "docs/plans/parallelves.md",
   "pr_number": 2,
   "review_comments": [
@@ -216,7 +216,7 @@
   "run_id": "parallelves-2026-07-19",
   "session_id": "elves-2026-07-19-parallelves",
   "start_head": "639b0cb0646dde7055c16c15132dec90b565a87c",
-  "status": "in_progress",
+  "status": "complete",
   "survival_guide_path": "docs/elves/survival-guide.md",
   "test_baseline": {
     "errors": 0,

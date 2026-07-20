@@ -229,7 +229,7 @@ Blast radius: docs + pins. Risk: low.
 - [x] M-A2: Honesty invariants hold everywhere: serial default, recommend-only `auto`, no
   runtime-orchestration or availability claims, no authority changes, prewalk gating untouched —
   verified by a dedicated final review pass across the cumulative diff.
-- [ ] M-A3: Codex/Claude parity explicitly reviewed and recorded; upstream PR submitted from the
+- [x] M-A3: Codex/Claude parity explicitly reviewed and recorded; upstream PR submitted from the
   fork branch against `aigorahub/elves` `main` with an accurate body.
 
 ## Batch sizing
