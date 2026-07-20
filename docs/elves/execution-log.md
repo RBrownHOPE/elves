@@ -38,3 +38,14 @@ Chronological record. Newest entries at the bottom.
 
 **Next:** commit staging, push, open fork review PR, staging acceptance validation, tag
 `elves/parallelves/pre-batch-1`, launch B1 worker (fable, low).
+
+---
+
+## 2026-07-19 ~13:20 — Batch 1: Normative contract and vocabulary — COMPLETE
+
+**Timing:** worker ~14m (fable/low, 24 tool calls) · driver validate ~4m · review ~7m · fix ~4m.
+**Contract:** B1-A1..B1-A3 all met (evidence in `.elves-session.json`).
+**Validation:** consistency green after every file (worker ran it 4x; driver + reviewer re-ran); worker full suite 1234/0/0/38; linter tests 83 OK.
+**Review:** FINE — 0 blocking, cardinal-rule CLEAN (every orchestration/launch term inside airtight negations, verified by vocabulary grep), 30/30 pins verified verbatim, detection proven by scratchpad mutation. W1 (agentless reclassification actor) fixed in-batch — driver-actored wording; W2 (parser must accept inline `depends_on: []` from the template example) and W3 (corpus-shape test) carried into B2's brief. One driver slip recorded honestly: the first W1 patch double-applied across a line wrap and was rewritten cleanly before commit.
+**Worker confidence:** high, unsure_about [] (asserted clean) — consistent with review outcome.
+**Commit:** see session json. Next: B2 (fable/low) with W2/W3 carry-notes.

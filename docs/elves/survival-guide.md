@@ -87,10 +87,10 @@ authority changes, no prewalk activation claims.
 
 ## Stop Gate
 
-- **Planned batches remaining:** 4
+- **Planned batches remaining:** 3
 - **Stop allowed right now:** no
-- **Why:** staging in progress; no batch has run.
-- **Next required action:** commit staging, open fork review PR, launch B1 worker (fable, low).
+- **Why:** B1 complete; B2-B4 remain, then final review and upstream submission.
+- **Next required action:** launch B2 worker (fable, low).
 
 ---
 
@@ -109,12 +109,11 @@ authority changes, no prewalk activation claims.
 
 ## Current Phase
 
-**Status:** Staging
+**Status:** In progress
 
-**Active batch:** none (B1 next)
+**Active batch:** B2: Deterministic lane validator and width test
 
-**Single next action:** Commit staging docs, push, open fork review PR, tag pre-batch-1, launch
-B1 worker (fable, low).
+**Single next action:** Launch B2 worker (fable, low) with W2/W3 carry-notes.
 
 ---
 
@@ -126,18 +125,15 @@ B1 worker (fable, low).
 
 ## Next Exact Batch
 
-**Batch:** B1: Normative contract and vocabulary
+**Batch:** B2: Deterministic lane validator and width test
 
-**Scope:** `references/parallelves.md` (eight exact sections per plan), seven glossary entries,
-plan-template `## Lanes` yaml grammar + example, pins.
+**Scope:** cobbler_runtime/parallel_lanes.py (bounded line-based parser incl. inline `depends_on: []` — B1 review W2; partition/DAG validators; four-gate width_test with parallel_declined reasons), preferences worker.parallel off|auto, `lanes validate|plan` CLI, tests/test_parallel_lanes.py + corpus-shape test for PARALLELVES_CONTRACT_PHRASES (B1 review W3).
 
-**Acceptance criteria:** B1-A1..B1-A3 (see plan).
+**Acceptance criteria:** B2-A1..B2-A4 (see plan).
 
-**Risk:** wording honesty (serial-default / recommend-only pins); low blast radius.
+**Risk:** parser correctness at fable/low; mitigate with the plan-template example as a golden fixture.
 
-**Rollback authority:** tag `elves/parallelves/pre-batch-1`.
-
----
+**Rollback authority:** tag `elves/parallelves/pre-batch-2`.
 
 ## Tool Configuration
 
@@ -162,8 +158,8 @@ actual in-session subagents (no `claude` binary on PATH); fallback recorded.
 - **Learnings:** `docs/elves/learnings.md` (durable cross-run file; append only)
 - **Execution log:** `docs/elves/execution-log.md`
 - **Branch:** `feat/parallelves`
-- **PR number:** _(fork review PR; fill after creation)_
-- **Plan hash at session start:** _(fill after commit)_
+- **PR number:** #2 (RBrownHOPE/elves, review surface)
+- **Plan hash at session start:** `36753dfc3b7cd2453246f08119576ef0`
 
 ---
 

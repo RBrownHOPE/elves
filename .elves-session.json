@@ -5,28 +5,28 @@
       "acceptance": [
         {
           "criterion": "`references/parallelves.md` exists with all eight sections above; no sentence claims runtime orchestration, automatic launching, authority changes, or prewalk availability; serial-default and recommend-only wording is pinned in `consistency_policy.py`.",
-          "evidence": "",
+          "evidence": "Contract with all eight sections in plan order; reviewer cardinal-rule sweep CLEAN (all orchestration/launch vocabulary inside airtight negations); serial-default and recommend-only phrases pinned; W1 actor fix applied.",
           "id": "B1-A1",
-          "met": false
+          "met": true
         },
         {
           "criterion": "All seven glossary terms resolve with definitions consistent with the contract; `python3 scripts/check_repo_consistency.py` passes.",
-          "evidence": "",
+          "evidence": "Seven glossary terms present in existing entry style, definitions consistent with the contract; consistency checker green (30/30 pins verified verbatim; detection proven by scratchpad mutation).",
           "id": "B1-A2",
-          "met": false
+          "met": true
         },
         {
           "criterion": "`references/plan-template.md` documents the optional `## Lanes` yaml grammar with a valid example, and states that omission means serial.",
-          "evidence": "",
+          "evidence": "Plan-template ## Lanes yaml-shaped grammar with hand-validated example (2 disjoint lanes, trunk list, acyclic); omission-means-serial pinned.",
           "id": "B1-A3",
-          "met": false
+          "met": true
         }
       ],
-      "commit": null,
+      "commit": "2f04656",
       "id": "B1",
       "name": "Normative contract and vocabulary",
       "rollback_tag": "elves/parallelves/pre-batch-1",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "acceptance": [
@@ -125,11 +125,15 @@
   },
   "continuation_guard": {
     "checkpoint_is_stop": false,
-    "next_required_action": "Commit staging, open fork review PR, tag pre-batch-1, launch B1 worker (fable, low)",
-    "remaining_batches": 4,
+    "next_required_action": "Launch B2 worker (fable, low) with W2/W3 carry-notes",
+    "remaining_batches": 3,
     "stop_allowed": false
   },
-  "current_batch": null,
+  "current_batch": {
+    "id": "B2",
+    "name": "Deterministic lane validator and width test",
+    "status": "pending"
+  },
   "execution_log_path": "docs/elves/execution-log.md",
   "landing_remote": "upstream PR against aigorahub/elves main (user-merges; READ-only there); fork PR is the review surface",
   "learnings_path": "docs/elves/learnings.md",
@@ -168,13 +172,25 @@
       "requested_route": "supervised native-worker CLI (claude, model claude-fable-5, effort low, prewalk auto)"
     }
   ],
+  "plan_hash": "36753dfc3b7cd2453246f08119576ef0",
   "plan_path": "docs/plans/parallelves.md",
-  "pr_number": null,
-  "review_comments": [],
+  "pr_number": 2,
+  "review_comments": [
+    {
+      "batch": 1,
+      "cycle": 1,
+      "disposition": "fixed+carried",
+      "fix_commit": "2f04656",
+      "id": "b1-review",
+      "source": "honesty-idiom-lens",
+      "summary": "FINE: 0 blocking, cardinal CLEAN, 3 warnings (W1 actor sentence fixed in-batch; W2 inline [] parser note and W3 corpus-shape test carried to B2).",
+      "type": "review_subagent"
+    }
+  ],
   "run_id": "parallelves-2026-07-19",
   "session_id": "elves-2026-07-19-parallelves",
   "start_head": "639b0cb0646dde7055c16c15132dec90b565a87c",
-  "status": "staging",
+  "status": "in_progress",
   "survival_guide_path": "docs/elves/survival-guide.md",
   "test_baseline": {
     "errors": 0,
