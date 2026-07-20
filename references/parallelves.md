@@ -27,9 +27,10 @@ The shape is trunk -> lanes -> integration.
 - **Integration** merges lanes into an integration branch with regular merge commits (never
   rebase), in a driver-owned order, and produces one PR for the whole run.
 
-Phase-1 operation composes existing per-session `implement full-run-*` commands, one per lane,
-exactly as documented today; the driver stages and reviews each lane as its own supervised
-session.
+Phase-1 operation composes existing per-session worker runs (native or trusted full-run), one
+per lane, per each host's documented grammar; the driver stages and reviews each lane as its own
+supervised session. Host-by-host invocation parity lives in the Parallelves parity section of
+[`host-parity.md`](host-parity.md).
 
 ## The width test
 

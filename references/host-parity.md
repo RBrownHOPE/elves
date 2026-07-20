@@ -82,7 +82,8 @@ falls back to actual mode `off` with
 The Parallelves contract (`references/parallelves.md`) has identical semantics on Claude Code and
 Codex: serial default, recommend-only `auto`, the four-gate width test, and the
 trunk -> lanes -> integration topology carry no host-specific behavior. The lanes tooling is
-deterministic and host-neutral; both hosts invoke it the same way:
+deterministic and host-neutral; both hosts invoke it the same way, and the planner's width test
+runs through the same CLI's `lanes plan` subcommand:
 
 ```bash
 python3 "$ELVES_SKILL_ROOT/scripts/cobbler_agents.py" lanes validate --plan <path> --json

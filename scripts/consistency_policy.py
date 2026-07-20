@@ -2372,6 +2372,7 @@ PARALLELVES_CONTRACT_PHRASES = {
         "`parallel_declined:<gate>:<detail>` reason, recorded as provenance.",
         "`parallel_declined:worker_dominance:no_recorded_timings`",
         "in a driver-owned order, and produces one PR for the whole run.",
+        "composes existing per-session worker runs (native or trusted full-run), one\nper lane, per each host's documented grammar",
         "The cross-lane entropy review is mandatory before the integration PR is review-ready.",
         "Per-lane confidence signals order the",
         "Going parallel is a reversible bet.",
@@ -2392,6 +2393,10 @@ PARALLELVES_CONTRACT_PHRASES = {
     ],
     "AGENTS.md": [
         "**Parallel lanes (Parallelves):** serial default; `worker.parallel=auto` is recommend-only and\n  nothing auto-launches",
+    ],
+    "guide/index.html": [
+        "Serial stays the default.",
+        "<code>auto</code> only recommends lanes when a deterministic width test passes. Nothing\n          launches lanes automatically",
     ],
     "README.md": [
         "serial default, recommend-only width test, trunk -> lanes -> integration",
@@ -2425,6 +2430,10 @@ PARALLELVES_CONTRACT_PHRASES = {
         "plus the runtime fields `branch`, `worktree`, `session_id`, and `status`",
         "A session without\n`lanes` is serial (the default).",
         "Declaring `lanes` launches nothing and grants nothing",
+    ],
+    "CHANGELOG.md": [
+        "Serial remains the default everywhere; there is no runtime lane\n  orchestrator in v1 and no sentence claims one.",
+        "The test is recommend-only; every declined gate records a concrete\n  `parallel_declined:<gate>:<detail>` reason, and nothing auto-launches.",
     ],
     "references/plan-template.md": [
         "Omitting this section means serial (the default).",
