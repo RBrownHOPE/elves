@@ -87,10 +87,10 @@ authority changes, no prewalk activation claims.
 
 ## Stop Gate
 
-- **Planned batches remaining:** 2
+- **Planned batches remaining:** 1
 - **Stop allowed right now:** no
-- **Why:** B1-B2 complete; B3-B4 remain, then final review and upstream submission.
-- **Next required action:** launch B3 worker (fable, low), then the dedicated parity lens.
+- **Why:** B1-B3 complete (parity CLEAN); B4 remains, then final readiness and upstream submission.
+- **Next required action:** launch B4 worker (fable, low) with parity carry-notes.
 
 ---
 
@@ -111,9 +111,9 @@ authority changes, no prewalk activation claims.
 
 **Status:** In progress
 
-**Active batch:** B3: Session, parity, and review-surface integration
+**Active batch:** B4: Guide, changelog, durable docs, coherence sweep
 
-**Single next action:** Launch B3 worker (fable, low).
+**Single next action:** Launch B4 worker (fable, low).
 
 ---
 
@@ -125,15 +125,15 @@ authority changes, no prewalk activation claims.
 
 ## Next Exact Batch
 
-**Batch:** B3: Session, parity, and review-surface integration
+**Batch:** B4: Guide, changelog, durable docs, coherence sweep
 
-**Scope:** schema-and-acceptance.md advisory `lanes` session key; host-parity.md Parallelves parity section; review-subagent.md integration entropy review protocol (three cross-lane question classes + confidence-ordered queue); SKILL.md compact subsection; AGENTS.md pointer; README reference-index row; pins same-batch.
+**Scope:** guide/index.html subsection (guide voice, no em dashes); CHANGELOG [Unreleased]; .ai-docs updates; TODO.md Live phase follow-ups; coherence sweep + overclaim grep. CARRY-NOTES (mandatory): parity item 1 — rephrase parallelves.md phase-1 sentence to "per-session worker runs (native or trusted full-run), one per lane, per each host's documented grammar" + add a link to host-parity.md's Parallelves parity section (update pins if a pinned sentence changes); parity item 2 — add worker.parallel to adaptive-worker-routing.md's shared-preferences JSON example and one preferences-set line; B3 nit — name `lanes plan` in the host-parity prose.
 
-**Acceptance criteria:** B3-A1..B3-A3 (see plan). Dedicated codex/claude parity lens runs after the standard review.
+**Acceptance criteria:** B4-A1..B4-A3 (see plan).
 
-**Risk:** pin volume; parity phrasing.
+**Risk:** guide-voice fit; pin churn on the parallelves.md sentence rewrite.
 
-**Rollback authority:** tag `elves/parallelves/pre-batch-3`.
+**Rollback authority:** tag `elves/parallelves/pre-batch-4`.
 
 ## Tool Configuration
 

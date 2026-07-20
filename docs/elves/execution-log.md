@@ -60,3 +60,14 @@ Chronological record. Newest entries at the bottom.
 **Review:** adversarial-parser lens — 3 BLOCKING (NaN defeats the worker-dominance gate producing spurious `parallel: true`; huge-int OverflowError raw traceback; RecursionError on ~1200-lane chains) + 10 WARNING (surface-normalization holes incl. whole-repo/absolute/escaping shapes, case-insensitive FS overlap, fence-decoy section matching, dead RISK_POSTURES, duplicate-key last-wins, plan-file-typo swallowed as no-lanes decline, three untested CLI branches). All 13 fixed via worker re-drive (re-drive 1 of 2 consumed) with 15 regression tests; both B1 carry-notes verified present. fable/low pattern confirmed: implementation competent, adversarial robustness arrives via the review loop — exactly the cadence this run budgeted for.
 **Worker confidence:** high / [] on both passes; the review found blockers after the first high/[] — noted for the calibration story (worker confidence is triage, not proof; the lens still runs regardless).
 **Commit:** f869876. Next: B3 (docs/parity batch), then dedicated parity lens.
+
+---
+
+## 2026-07-19 ~15:40 — Batch 3: Session, parity, and review-surface integration — COMPLETE
+
+**Timing:** worker ~20m (fable/low, 42 tool calls) · driver validate ~5m · dual lenses (standard + parity, parallel) ~10m.
+**Contract:** B3-A1..B3-A3 all met (evidence in `.elves-session.json`).
+**Validation:** consistency green after every file and at close; suite 1284/0/0/38 (worker run); linter tests 84 OK; reviewer verified CLI claims live including the ELVES_SKILL_ROOT-unset invocation.
+**Standard review:** 0 BLOCKING, cardinal-rule PASS; accuracy vs landed code verified (schema field list = template grammar = parser fields; advisory claim checked against every validator — nothing reads the lanes key); 24/24 pins verbatim with per-file scratchpad detection proof; style fit PASS on all six surfaces. One process disclosure: reviewer used one stash/pop cycle to inspect HEAD pins — driver verified restoration (stash list empty; diff numstat 101/0 unchanged; consistency green).
+**DEDICATED CODEX/CLAUDE PARITY LENS (B3-A2 record): verdict PARITY: CLEAN** over the entire cumulative branch diff (2,444 lines). Zero Claude-only or Codex-only assumptions in any added product-doc line; the only invocation is host-neutral python3 with the $ELVES_SKILL_ROOT convention both installs resolve; worker.parallel lives in the shared XDG file both hosts read; the Codex driver's pointer chain (AGENTS.md → SKILL.md → parallelves.md → host-parity.md → per-host grammars) traced end-to-end operable with no dead end. Three symmetric polish items carried to B4 (phase-1 wording provider-axis tension; shared-prefs example missing worker.parallel; docstring nit follows existing pattern — dropped).
+**Commit:** 392eb9f. Next: B4 (final batch) with carry-notes, then final readiness review and upstream PR submission.
