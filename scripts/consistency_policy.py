@@ -2358,3 +2358,42 @@ WORKER_CONFIDENCE_SIGNAL_PHRASES = {
         "review triage only, never authority",
     ],
 }
+
+PARALLELVES_CONTRACT_PHRASES = {
+    "references/parallelves.md": [
+        "not a runtime scheduler, and not an authority change",
+        "exactly one coordination hierarchy: Cobbler routes lanes the way it already routes",
+        "Cobbler lenses are read-only responders; Parallelves lanes",
+        "is shared; the authority model is not. Lanes never gain merge, PR, or protected-ref authority.",
+        "Serial remains the default everywhere.",
+        "`auto` may only recommend lanes when every",
+        "Nothing auto-launches.",
+        "no sentence in this contract claims a runtime lane orchestrator, and none exists",
+        "`parallel_declined:<gate>:<detail>` reason, recorded as provenance.",
+        "`parallel_declined:worker_dominance:no_recorded_timings`",
+        "in a driver-owned order, and produces one PR for the whole run.",
+        "The cross-lane entropy review is mandatory before the integration PR is review-ready.",
+        "Per-lane confidence signals order the",
+        "Going parallel is a reversible bet.",
+        "most one lane's result lands.",
+        "`off` (default) | `auto`. `auto` is recommend-only and",
+        "2-3 lanes maximum in v1",
+        "activate for no host until",
+        "Runtime lane supervision is explicitly future work and ships in no v1 batch.",
+    ],
+    "references/glossary.md": [
+        "default, recommend-only `auto`, no runtime orchestrator, no authority change",
+        "feature branch on pairwise-disjoint owned surfaces, under the existing worker authority model.",
+        "a serial batch that builds shared foundations before lanes fork",
+        "per-lane review structurally cannot see.",
+        "budget, risk posture) that must pass before `auto` may recommend lanes",
+        "judges, and at most one lane's result lands.",
+        "the width test records for every declined gate; parallelism is never silently withheld.",
+    ],
+    "references/plan-template.md": [
+        "Omitting this section means serial (the default).",
+        "`owned_surfaces`, and `batches`, plus a `trunk:` batch list built serially before lanes fork.",
+        "Declaring lanes never launches anything: `worker.parallel=auto` may only recommend them when",
+        "the width test passes, and every decline records a concrete reason.",
+    ],
+}
